@@ -517,16 +517,19 @@ function AmenitiesCell({
   allOptions,
   type,
   onUpdate,
+  onViewInDrawer,
 }: {
   values: string[]
   allOptions: string[]
   type: "amenities" | "services"
   onUpdate: (vals: string[]) => void
+  onViewInDrawer?: () => void
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const MAX_VISIBLE = 3
   const visible = values.slice(0, MAX_VISIBLE)
   const extra = values.slice(MAX_VISIBLE)
+  const handleEdit = () => (onViewInDrawer ? onViewInDrawer() : setDrawerOpen(true))
 
   return (
     <>
@@ -550,7 +553,7 @@ function AmenitiesCell({
                   <TooltipTrigger asChild>
                     <button
                       className="flex-shrink-0 px-1.5 py-0.5 rounded-full border border-border bg-white text-xs font-semibold text-muted-foreground hover:bg-muted transition-colors"
-                      onClick={() => setDrawerOpen(true)}
+                      onClick={handleEdit}
                     >
                       +{extra.length}
                     </button>
@@ -568,20 +571,22 @@ function AmenitiesCell({
         {/* Edit button — always visible, never clipped */}
         <button
           className="flex-shrink-0 h-6 w-6 rounded flex items-center justify-center border border-border bg-white hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          onClick={() => setDrawerOpen(true)}
+          onClick={handleEdit}
           title={`Edit ${type}`}
         >
           <Edit className="h-3 w-3" />
         </button>
       </div>
-      <AmenitiesDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        type={type}
-        allOptions={allOptions}
-        current={values}
-        onSave={onUpdate}
-      />
+      {!onViewInDrawer && (
+        <AmenitiesDrawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          type={type}
+          allOptions={allOptions}
+          current={values}
+          onSave={onUpdate}
+        />
+      )}
     </>
   )
 }
@@ -1086,6 +1091,620 @@ function MediaCell({
   )
 }
 
+// ── View Property Drawer ───────────────────────────────────────────────────────
+function ViewPropertyDrawer({
+  row,
+  defaultTab,
+  onClose,
+  onUpdateRow,
+}: {
+  row: PropertyRow | null
+  defaultTab: string
+  onClose: () => void
+  onUpdateRow: (id: string, updates: Partial<PropertyRow>) => void
+}) {
+  const [activeTab, setActiveTab] = useState(defaultTab)
+  const [amenityDraft, setAmenityDraft] = useState<string[]>([])
+  const [serviceDraft, setServiceDraft] = useState<string[]>([])
+  const [carouselState, setCarouselState] = useState<{ imgs: string[]; idx: number; field: "images" | "floorPlans" } | null>(null)
+  const [uploadState, setUploadState] = useState<"images" | "floorPlans" | null>(null)
+
+  useEffect(() => {
+    if (row) {
+      setActiveTab(defaultTab)
+      setAmenityDraft([...row.amenities])
+      setServiceDraft([...row.services])
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row?.propertyId, defaultTab])
+
+  if (!row) return null
+
+  const pricePerM2 = row.price && row.grossBua ? Math.round(row.price / row.grossBua) : null
+
+  const TABS = [
+    { id: "unit-details", label: "Unit Details" },
+    { id: "payment-plans", label: "Payment Plans" },
+    { id: "images", label: row.images.length > 0 ? `Images (${row.images.length})` : "Images" },
+    { id: "floor-plans", label: row.floorPlans.length > 0 ? `Floor Plans (${row.floorPlans.length})` : "Floor Plans" },
+    { id: "amenities", label: "Amenities" },
+    { id: "activity-log", label: "Activity Log" },
+    { id: "price-history", label: "Price History" },
+  ]
+
+  function Field({ label, value, span = 1 }: { label: string; value: React.ReactNode; span?: 1 | 2 }) {
+    return (
+      <div className={cn("space-y-0.5", span === 2 && "col-span-2")}>
+        <dt className="text-[11px] font-medium text-muted-foreground">{label}</dt>
+        <dd className="text-sm text-foreground">{value ?? <span className="text-muted-foreground">—</span>}</dd>
+      </div>
+    )
+  }
+
+  function Section({ title, children }: { title: string; children: React.ReactNode }) {
+    return (
+      <div className="space-y-3">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-1.5">{title}</h4>
+        <dl className="grid grid-cols-2 gap-x-8 gap-y-3">{children}</dl>
+      </div>
+    )
+  }
+
+  const dummyPlans = Array.from({ length: row.paymentPlans }, (_, i) => ({
+    id: `plan-${i}`,
+    name: ["Standard Plan", "Flexible Plan", "Premium Plan", "Investor Plan"][i % 4],
+    downPayment: [10, 15, 20, 25][i % 4],
+    installmentPct: [5, 4, 3, 5][i % 4],
+    duration: [60, 48, 72, 36][i % 4],
+    deliveryPct: [10, 10, 15, 20][i % 4],
+    maintenancePct: 8,
+    clubhousePct: [5, 6, 7, 5][i % 4],
+  }))
+
+  const dummyOffers = Array.from({ length: row.offers }, (_, i) => ({
+    id: `offer-${i}`,
+    title: ["Early Bird Discount", "Cash Discount", "Investor Package", "Seasonal Offer"][i % 4],
+    discount: [5, 10, 7, 8][i % 4],
+    validUntil: new Date(Date.now() + (30 + i * 15) * 24 * 3600000).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+  }))
+
+  const dummyActivity = [
+    { icon: "status", label: "Availability changed", detail: "Available → Hold", user: "Sarah M.", time: "2 days ago", colorClass: "text-amber-600 bg-amber-50" },
+    { icon: "price", label: "Price updated", detail: `${(row.price ? row.price - 150000 : 0).toLocaleString()} → ${(row.price ?? 0).toLocaleString()} EGP`, user: "Ahmed K.", time: "5 days ago", colorClass: "text-blue-600 bg-blue-50" },
+    { icon: "listing", label: "Listing status changed", detail: "Hidden → Active", user: "System", time: "1 week ago", colorClass: "text-green-600 bg-green-50" },
+    { icon: "edit", label: "Unit details updated", detail: "Finishing type, floor number", user: "Mariam N.", time: "2 weeks ago", colorClass: "text-purple-600 bg-purple-50" },
+    { icon: "create", label: "Property created", detail: `Entry: ${row.entryType}`, user: row.entryType === "Automatic" ? "System" : "Omar F.", time: formatTimestamp(row.createdAt), colorClass: "text-gray-500 bg-gray-100" },
+  ]
+
+  const basePrice = row.price ?? 0
+  const dummyPriceHistory = [
+    { date: formatTimestamp(new Date(Date.now() - 2 * 24 * 3600000).toISOString()), price: basePrice, change: 150000, user: "Ahmed K." },
+    { date: formatTimestamp(new Date(Date.now() - 10 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice - 150000), change: -250000, user: "Ahmed K." },
+    { date: formatTimestamp(new Date(Date.now() - 25 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice + 100000), change: 100000, user: "Sara M." },
+    { date: formatTimestamp(new Date(Date.now() - 60 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice), change: null, user: "System" },
+  ]
+
+  const amenityChanged = JSON.stringify(amenityDraft.sort()) !== JSON.stringify([...row.amenities].sort())
+  const serviceChanged = JSON.stringify(serviceDraft.sort()) !== JSON.stringify([...row.services].sort())
+
+  return (
+    <>
+      <Sheet open={!!row} onOpenChange={(o) => !o && onClose()}>
+        <SheetContent
+          side="right"
+          className="w-[760px] max-w-[92vw] flex flex-col p-0 gap-0 overflow-hidden"
+        >
+          {/* ── Header */}
+          <div className="shrink-0 border-b border-border bg-card px-6 py-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                  <h2 className="text-base font-semibold">{row.unitCode}</h2>
+                  <StoryBadge value={row.availability} />
+                  <StoryBadge value={row.listingStatus} />
+                </div>
+                <div className="flex items-center gap-1.5 text-sm flex-wrap mb-2">
+                  <span className="font-medium text-foreground">{row.developer.name}</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span className="text-muted-foreground">{row.project.name}</span>
+                  {row.phase && (
+                    <>
+                      <span className="text-muted-foreground">·</span>
+                      <span className="text-muted-foreground">{row.phase.name}</span>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="outline" className={cn("text-xs border", tagColor(row.propertyType))}>
+                    {row.propertyType}
+                  </Badge>
+                  <StoryBadge value={row.saleType} />
+                  {row.bedrooms !== null && (
+                    <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{row.bedrooms} BR</span>
+                  )}
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                    {row.grossBua.toLocaleString()} m² GBA
+                  </span>
+                  <StoryBadge value={row.deliveryType} />
+                </div>
+              </div>
+              <div className="text-right flex-shrink-0">
+                {row.price ? (
+                  <>
+                    <div className="text-xl font-bold tabular-nums">{row.price.toLocaleString()} EGP</div>
+                    {pricePerM2 && (
+                      <div className="text-xs text-muted-foreground tabular-nums">
+                        {pricePerM2.toLocaleString()} EGP/m²
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-sm font-medium text-red-500">No price set</div>
+                )}
+                {row.deliveryDate && (
+                  <div className="text-xs text-muted-foreground mt-1">Delivery: {row.deliveryDate}</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Tabs bar */}
+          <div className="shrink-0 border-b border-border bg-card overflow-x-auto">
+            <div className="flex min-w-max px-6">
+              {TABS.map(({ id, label }) => (
+                <button
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={cn(
+                    "px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap",
+                    activeTab === id
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Tab content */}
+          <div className="flex-1 overflow-y-auto">
+
+            {/* Unit Details */}
+            {activeTab === "unit-details" && (
+              <div className="p-6 space-y-6">
+                <Section title="Identity">
+                  <Field label="Property ID" value={<CopyableText value={row.propertyId} />} />
+                  <Field label="Detailed Property ID" value={<CopyableText value={row.detailedPropertyId} muted />} />
+                  <Field label="Entry Type" value={<StoryBadge value={row.entryType} />} />
+                  <Field label="Unit Number" value={row.unitNumber} />
+                  <Field label="Unit Model" value={row.unitModel} />
+                  <Field label="Zone" value={row.zone} />
+                </Section>
+                <Section title="Classification">
+                  <Field label="Category" value={<TagBadge value={row.propertyCategory} />} />
+                  <Field label="Type" value={<TagBadge value={row.propertyType} />} />
+                  <Field label="Sub-type" value={<TagBadge value={row.propertySubType} />} />
+                  <Field label="Developer Type" value={row.developerType} />
+                  <Field label="Building Type" value={row.buildingType} />
+                  <Field label="Building Number" value={row.buildingNumber} />
+                  <Field label="Floor Number" value={row.floorNumber} />
+                </Section>
+                <Section title="Dimensions">
+                  <Field label="Gross BUA" value={formatArea(row.grossBua)} />
+                  <Field label="Net BUA" value={formatArea(row.netBua)} />
+                  <Field label="Bedrooms" value={row.bedrooms} />
+                  <Field label="Bathrooms" value={row.bathrooms} />
+                </Section>
+                <Section title="Areas">
+                  <Field label="Open Roof Area" value={formatArea(row.openRoofArea)} />
+                  <Field label="Roof Annex Area" value={formatArea(row.roofAnnexArea)} />
+                  <Field label="Garden Area" value={formatArea(row.gardenArea)} />
+                  <Field label="Terrace Area" value={formatArea(row.terraceArea)} />
+                  <Field label="Land Area" value={formatArea(row.landArea)} />
+                  <Field label="Storage Area" value={formatArea(row.storageArea)} />
+                  <Field label="Outdoor Area" value={formatArea(row.outdoorArea)} />
+                  <Field label="Basement Area" value={formatArea(row.basementArea)} />
+                </Section>
+                <Section title="Parking & Storage">
+                  <Field label="Parking" value={<BooleanMark value={row.parking} />} />
+                  <Field label="Parking Slots" value={row.parkingSlots} />
+                  <Field label="Additional Parking Slots" value={row.additionalParkingSlots} />
+                  <Field label="Storage Included" value={<BooleanMark value={row.storageIncluded} />} />
+                  <Field label="Storage Price" value={formatPrice(row.storagePrice)} />
+                  <Field label="Outdoor Price" value={formatPrice(row.outdoorPrice)} />
+                </Section>
+                <Section title="Delivery & Finishing">
+                  <Field label="Delivery Type" value={<StoryBadge value={row.deliveryType} />} />
+                  <Field label="Delivery Date" value={row.deliveryDate} />
+                  <Field label="Finishing Type" value={<TagBadge value={row.finishingType} />} />
+                  <Field
+                    label="Finishing Level"
+                    value={row.finishingType === "Furnished" ? <TagBadge value={row.finishingLevel} /> : null}
+                  />
+                  <Field label="Serviced" value={<BooleanMark value={row.serviced} />} />
+                  <Field label="Branded" value={<BooleanMark value={row.branded} />} />
+                </Section>
+                <Section title="Views & Orientation">
+                  <Field label="Unit View" value={<TagBadge value={row.unitView} />} />
+                  <Field label="Unit Orientation" value={<TagBadge value={row.unitOrientation} />} />
+                </Section>
+                <Section title="Timestamps">
+                  <Field label="Created At" value={formatTimestamp(row.createdAt)} />
+                  <Field label="Availability Updated" value={formatTimestamp(row.availabilityUpdatedAt)} />
+                  <Field label="Last Updated" value={formatTimestamp(row.lastUpdated)} />
+                </Section>
+              </div>
+            )}
+
+            {/* Payment Plans */}
+            {activeTab === "payment-plans" && (
+              <div className="p-6 space-y-6">
+                {/* Price summary card */}
+                <div className="rounded-xl border border-border bg-muted/30 p-5 flex items-start justify-between gap-6">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Current Price</p>
+                    <p className="text-2xl font-bold tabular-nums">
+                      {row.price ? `${row.price.toLocaleString()} EGP` : <span className="text-red-500 text-lg">Not set</span>}
+                    </p>
+                    {pricePerM2 && (
+                      <p className="text-sm text-muted-foreground tabular-nums mt-0.5">
+                        {pricePerM2.toLocaleString()} EGP/m²
+                      </p>
+                    )}
+                  </div>
+                  {row.priceRecords.length > 1 && (
+                    <div className="text-right">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">All Prices</p>
+                      {row.priceRecords.map((p, i) => (
+                        <p key={i} className={cn("text-sm tabular-nums", i === 0 ? "font-semibold text-foreground" : "text-muted-foreground")}>
+                          {p.toLocaleString()} EGP
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Payment plans list */}
+                <div>
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                    Payment Plans ({row.paymentPlans})
+                  </h4>
+                  {row.paymentPlans === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                      No payment plans attached to this unit.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {dummyPlans.map((plan) => (
+                        <div key={plan.id} className="rounded-xl border border-border bg-card p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h5 className="font-semibold text-sm">{plan.name}</h5>
+                            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                              {plan.duration / 12}-year plan
+                            </Badge>
+                          </div>
+                          <div className="grid grid-cols-4 gap-3 rounded-lg bg-muted/40 p-3">
+                            {[
+                              { label: "Down Payment", value: `${plan.downPayment}%` },
+                              { label: "Instalment", value: `${plan.installmentPct}% / qtr` },
+                              { label: "On Delivery", value: `${plan.deliveryPct}%` },
+                              { label: "Maintenance", value: `${plan.maintenancePct}%` },
+                            ].map(({ label, value }) => (
+                              <div key={label} className="text-center">
+                                <p className="text-[10px] text-muted-foreground mb-0.5">{label}</p>
+                                <p className="text-sm font-semibold tabular-nums">{value}</p>
+                              </div>
+                            ))}
+                          </div>
+                          {row.price && (
+                            <div className="text-xs text-muted-foreground">
+                              Down payment amount:{" "}
+                              <span className="font-medium text-foreground tabular-nums">
+                                {Math.round(row.price * plan.downPayment / 100).toLocaleString()} EGP
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Offers */}
+                {row.offers > 0 && (
+                  <div>
+                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                      Active Offers ({row.offers})
+                    </h4>
+                    <div className="space-y-3">
+                      {dummyOffers.map((offer) => (
+                        <div key={offer.id} className="rounded-xl border border-orange-200 bg-orange-50 p-4 flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-orange-900">{offer.title}</p>
+                            <p className="text-xs text-orange-700 mt-0.5">Valid until {offer.validUntil}</p>
+                          </div>
+                          <Badge variant="outline" className="border-orange-300 bg-orange-100 text-orange-800 text-sm font-bold flex-shrink-0 px-3 py-1">
+                            {offer.discount}% off
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Images */}
+            {activeTab === "images" && (
+              <div className="p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {row.images.length} {row.images.length === 1 ? "Image" : "Images"}
+                  </h4>
+                  <Button size="sm" variant="outline" onClick={() => setUploadState("images")} className="h-7 text-xs gap-1.5">
+                    <Plus className="h-3 w-3" />Add Images
+                  </Button>
+                </div>
+                {row.images.length === 0 ? (
+                  <div
+                    onClick={() => setUploadState("images")}
+                    className="rounded-xl border-2 border-dashed border-border p-14 flex flex-col items-center gap-3 cursor-pointer hover:border-primary/40 hover:bg-muted/20 transition-colors"
+                  >
+                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+                      <Upload className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <p className="text-sm text-muted-foreground">No images yet — click to upload</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-3">
+                    {row.images.map((img, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setCarouselState({ imgs: row.images, idx: i, field: "images" })}
+                        className="relative group rounded-lg overflow-hidden border border-border aspect-video hover:border-primary/50 transition-all"
+                      >
+                        <img src={img} alt="" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                          <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 drop-shadow" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Floor Plans */}
+            {activeTab === "floor-plans" && (
+              <div className="p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {row.floorPlans.length} {row.floorPlans.length === 1 ? "Floor Plan" : "Floor Plans"}
+                  </h4>
+                  <Button size="sm" variant="outline" onClick={() => setUploadState("floorPlans")} className="h-7 text-xs gap-1.5">
+                    <Plus className="h-3 w-3" />Add Floor Plans
+                  </Button>
+                </div>
+                {row.floorPlans.length === 0 ? (
+                  <div
+                    onClick={() => setUploadState("floorPlans")}
+                    className="rounded-xl border-2 border-dashed border-border p-14 flex flex-col items-center gap-3 cursor-pointer hover:border-primary/40 hover:bg-muted/20 transition-colors"
+                  >
+                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+                      <Upload className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <p className="text-sm text-muted-foreground">No floor plans yet — click to upload</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-3">
+                    {row.floorPlans.map((img, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setCarouselState({ imgs: row.floorPlans, idx: i, field: "floorPlans" })}
+                        className="relative group rounded-lg overflow-hidden border border-border aspect-video hover:border-primary/50 transition-all"
+                      >
+                        <img src={img} alt="" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                          <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 drop-shadow" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Amenities */}
+            {activeTab === "amenities" && (
+              <div className="p-6 space-y-6">
+                {/* Amenities */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Amenities ({amenityDraft.length} selected)
+                    </h4>
+                    {amenityChanged && (
+                      <Button size="sm" variant="default" className="h-7 text-xs gap-1.5"
+                        onClick={() => onUpdateRow(row.propertyId, { amenities: amenityDraft })}>
+                        <Check className="h-3 w-3" />Save
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {amenitiesPool.map((name) => {
+                      const Icon = AMENITY_ICONS[name] ?? Sparkles
+                      const sel = amenityDraft.includes(name)
+                      return (
+                        <button
+                          key={name}
+                          onClick={() =>
+                            setAmenityDraft((prev) =>
+                              sel ? prev.filter((v) => v !== name) : [...prev, name],
+                            )
+                          }
+                          className={cn(
+                            "flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors text-left",
+                            sel
+                              ? "border-primary bg-primary/5 text-primary font-medium"
+                              : "border-border bg-card hover:bg-muted text-foreground",
+                          )}
+                        >
+                          <Icon className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{name}</span>
+                          {sel && <Check className="h-3 w-3 ml-auto flex-shrink-0" />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Services */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Services ({serviceDraft.length} selected)
+                    </h4>
+                    {serviceChanged && (
+                      <Button size="sm" variant="default" className="h-7 text-xs gap-1.5"
+                        onClick={() => onUpdateRow(row.propertyId, { services: serviceDraft })}>
+                        <Check className="h-3 w-3" />Save
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {servicesPool.map((name) => {
+                      const Icon = AMENITY_ICONS[name] ?? Wrench
+                      const sel = serviceDraft.includes(name)
+                      return (
+                        <button
+                          key={name}
+                          onClick={() =>
+                            setServiceDraft((prev) =>
+                              sel ? prev.filter((v) => v !== name) : [...prev, name],
+                            )
+                          }
+                          className={cn(
+                            "flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors text-left",
+                            sel
+                              ? "border-primary bg-primary/5 text-primary font-medium"
+                              : "border-border bg-card hover:bg-muted text-foreground",
+                          )}
+                        >
+                          <Icon className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{name}</span>
+                          {sel && <Check className="h-3 w-3 ml-auto flex-shrink-0" />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Activity Log */}
+            {activeTab === "activity-log" && (
+              <div className="p-6">
+                <div className="space-y-0 divide-y divide-border">
+                  {dummyActivity.map((entry, i) => (
+                    <div key={i} className="flex items-start gap-3 py-4">
+                      <div className={cn("h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5", entry.colorClass)}>
+                        {entry.icon === "status" && <ArrowUpDown className="h-3.5 w-3.5" />}
+                        {entry.icon === "price" && <span className="text-[9px] font-bold leading-none">EGP</span>}
+                        {entry.icon === "listing" && <Eye className="h-3.5 w-3.5" />}
+                        {entry.icon === "edit" && <Edit className="h-3.5 w-3.5" />}
+                        {entry.icon === "create" && <Plus className="h-3.5 w-3.5" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{entry.label}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{entry.detail}</p>
+                      </div>
+                      <div className="text-right flex-shrink-0 space-y-0.5">
+                        <p className="text-xs font-medium">{entry.user}</p>
+                        <p className="text-[11px] text-muted-foreground">{entry.time}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Price History */}
+            {activeTab === "price-history" && (
+              <div className="p-6 space-y-4">
+                <div className="rounded-xl border border-border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      <tr>
+                        <th className="text-left px-4 py-3">Date</th>
+                        <th className="text-right px-4 py-3">Price (EGP)</th>
+                        <th className="text-right px-4 py-3">Change</th>
+                        <th className="text-left px-4 py-3">Updated by</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {dummyPriceHistory.map((entry, i) => (
+                        <tr key={i} className="hover:bg-muted/30 transition-colors">
+                          <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">{entry.date}</td>
+                          <td className="px-4 py-3 text-right font-semibold tabular-nums">{entry.price.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-xs">
+                            {entry.change === null ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : entry.change > 0 ? (
+                              <span className="text-green-600 font-medium">+{entry.change.toLocaleString()}</span>
+                            ) : (
+                              <span className="text-red-600 font-medium">{entry.change.toLocaleString()}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-xs font-medium">{entry.user}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Carousel opened from within the drawer */}
+      {carouselState && (
+        <ImageCarousel
+          images={carouselState.imgs}
+          startIndex={carouselState.idx}
+          onClose={() => setCarouselState(null)}
+          onReorder={(imgs) => {
+            onUpdateRow(row.propertyId, { [carouselState.field]: imgs })
+            setCarouselState((s) => (s ? { ...s, imgs } : null))
+          }}
+          onRemove={(idx) => {
+            const next = carouselState.imgs.filter((_, i) => i !== idx)
+            onUpdateRow(row.propertyId, { [carouselState.field]: next })
+            if (next.length === 0) setCarouselState(null)
+            else setCarouselState((s) => (s ? { ...s, imgs: next } : null))
+          }}
+        />
+      )}
+
+      {/* Upload dialog opened from within the drawer */}
+      {uploadState && (
+        <UploadDialog
+          open
+          onClose={() => setUploadState(null)}
+          onUpload={(urls) => {
+            const field = uploadState
+            const current = field === "images" ? row.images : row.floorPlans
+            onUpdateRow(row.propertyId, { [field]: [...current, ...urls] })
+          }}
+        />
+      )}
+    </>
+  )
+}
+
 // ── Main view ──────────────────────────────────────────────────────────────────
 export function DetailedPropertiesView() {
   const [rows, setRows] = useState<PropertyRow[]>(() => createRows())
@@ -1112,6 +1731,9 @@ export function DetailedPropertiesView() {
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [filterGroups, setFilterGroups] = useState<FilterGroup[]>([])
   const [groupConnector, setGroupConnector] = useState<"AND" | "OR">("AND")
+  // View property drawer
+  const [viewDrawer, setViewDrawer] = useState<{ propertyId: string; tab: string } | null>(null)
+  const viewDrawerRow = viewDrawer ? rows.find((r) => r.propertyId === viewDrawer.propertyId) ?? null : null
   // Drawers
   const [drawer, setDrawer] = useState<{ type: "prices" | "plans" | "offers"; row: PropertyRow } | null>(null)
   const [editingPrice, setEditingPrice] = useState<string | null>(null)
@@ -1432,6 +2054,7 @@ export function DetailedPropertiesView() {
             allOptions={amenitiesPool}
             type="amenities"
             onUpdate={(vals) => updateRow(row.propertyId, { amenities: vals })}
+            onViewInDrawer={() => setViewDrawer({ propertyId: row.propertyId, tab: "amenities" })}
           />
         )
       case "services":
@@ -1441,6 +2064,7 @@ export function DetailedPropertiesView() {
             allOptions={servicesPool}
             type="services"
             onUpdate={(vals) => updateRow(row.propertyId, { services: vals })}
+            onViewInDrawer={() => setViewDrawer({ propertyId: row.propertyId, tab: "amenities" })}
           />
         )
       case "grossBua":
@@ -1543,7 +2167,7 @@ export function DetailedPropertiesView() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={() => setDrawer({ type: "plans", row })}
+                  onClick={() => setViewDrawer({ propertyId: row.propertyId, tab: "payment-plans" })}
                   className="flex-shrink-0 h-6 w-6 rounded border border-border bg-white hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <Eye className="h-3 w-3" />
@@ -1659,7 +2283,7 @@ export function DetailedPropertiesView() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setViewDrawer({ propertyId: row.propertyId, tab: "unit-details" })}>
                   <Eye className="h-4 w-4 mr-2 text-muted-foreground" />
                   View
                 </DropdownMenuItem>
@@ -2186,6 +2810,14 @@ export function DetailedPropertiesView() {
           </div>
         </div>
       </div>
+
+      {/* View property drawer */}
+      <ViewPropertyDrawer
+        row={viewDrawerRow}
+        defaultTab={viewDrawer?.tab ?? "unit-details"}
+        onClose={() => setViewDrawer(null)}
+        onUpdateRow={updateRow}
+      />
 
       {/* Payment options / prices drawer */}
       <PropertyDrawer drawer={drawer} onClose={() => setDrawer(null)} />
