@@ -73,7 +73,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { initialUnits, projectPhases, type Unit } from "@/lib/mock-data"
-import { GroupedPropertiesView } from "@/components/grouped-properties-page"
+import { GroupedPropertiesView, type SharedFilterState } from "@/components/grouped-properties-page"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Availability = "Available" | "Hold" | "Sold-Off" | "Archived"
@@ -2578,14 +2578,30 @@ function ViewPropertyDrawer({
   )
 }
 
+interface FilterProps extends SharedFilterState {
+  onClearFilters: () => void
+}
+
 // ── Main view ──────────────────────────────────────────────────────────────────
-export function DetailedPropertiesView() {
+export function DetailedPropertiesView({ filters }: { filters: FilterProps }) {
+  const {
+    searchQuery,
+    developerFilter,
+    projectFilter,
+    saleTypeFilter,
+    availabilityFilter,
+    entryTypeFilter,
+    listingFilter,
+    propertyCategoryFilter,
+    propertyTypeFilter,
+    propertySubTypeFilter,
+    finishingTypeFilter,
+    deliveryTypeFilter,
+    priceMin,
+    priceMax,
+    onClearFilters,
+  } = filters
   const [rows, setRows] = useState<PropertyRow[]>(() => createRows())
-  const [searchQuery, setSearchQuery] = useState("")
-  const [availabilityFilter, setAvailabilityFilter] = useState("all")
-  const [saleTypeFilter, setSaleTypeFilter] = useState("all")
-  const [entryTypeFilter, setEntryTypeFilter] = useState("all")
-  const [listingFilter, setListingFilter] = useState("all")
   const [sortConfigs, setSortConfigs] = useState<SortConfig[]>([])
   const [groupBy, setGroupBy] = useState<ColId | "none">("none")
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -2601,7 +2617,6 @@ export function DetailedPropertiesView() {
   // Filter / sort popovers
   const [showSortPopover, setShowSortPopover] = useState(false)
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false)
-  const [showAllFilters, setShowAllFilters] = useState(false)
   const [filterGroups, setFilterGroups] = useState<FilterGroup[]>([])
   const [groupConnector, setGroupConnector] = useState<"AND" | "OR">("AND")
   // View property drawer
@@ -2644,30 +2659,31 @@ export function DetailedPropertiesView() {
 
   // Filtering + sorting
   const filteredRows = useMemo(() => {
-    const query = searchQuery.toLowerCase()
     let result = rows.filter((row) => {
-      if (availabilityFilter !== "all" && row.availability !== availabilityFilter) return false
-      if (saleTypeFilter !== "all" && row.saleType !== saleTypeFilter) return false
-      if (entryTypeFilter !== "all" && row.entryType !== entryTypeFilter) return false
-      if (listingFilter !== "all" && row.listingStatus !== listingFilter) return false
-      if (
-        query &&
-        ![
-          row.propertyId,
-          row.detailedPropertyId,
-          row.developer.name,
-          row.project.name,
-          row.project.id,
-          row.phase?.name,
-          row.unitCode,
-          row.unitNumber,
-          row.propertyType,
-          row.buildingNumber,
-        ]
-          .filter(Boolean)
-          .some((v) => String(v).toLowerCase().includes(query))
-      )
-        return false
+      // Search across property ID, detailed property ID, and unit code (OR logic)
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase()
+        const matchesSearch =
+          row.propertyId.toLowerCase().includes(q) ||
+          (row.detailedPropertyId ?? "").toLowerCase().includes(q) ||
+          row.unitCode.toLowerCase().includes(q)
+        if (!matchesSearch) return false
+      }
+      // Multiselect filters (empty = all)
+      if (developerFilter.size > 0 && !developerFilter.has(row.developer.name)) return false
+      if (projectFilter.size > 0 && !projectFilter.has(row.project.name)) return false
+      if (saleTypeFilter.size > 0 && !saleTypeFilter.has(row.saleType)) return false
+      if (availabilityFilter.size > 0 && !availabilityFilter.has(row.availability)) return false
+      if (entryTypeFilter.size > 0 && !entryTypeFilter.has(row.entryType)) return false
+      if (listingFilter.size > 0 && !listingFilter.has(row.listingStatus)) return false
+      if (propertyCategoryFilter.size > 0 && !propertyCategoryFilter.has(row.propertyCategory)) return false
+      if (propertyTypeFilter.size > 0 && !propertyTypeFilter.has(row.propertyType)) return false
+      if (propertySubTypeFilter.size > 0 && !propertySubTypeFilter.has(row.propertySubType ?? "")) return false
+      if (finishingTypeFilter.size > 0 && !finishingTypeFilter.has(row.finishingType)) return false
+      if (deliveryTypeFilter.size > 0 && !deliveryTypeFilter.has(row.deliveryType)) return false
+      if (priceMin && row.price != null && row.price < Number(priceMin)) return false
+      if (priceMax && row.price != null && row.price > Number(priceMax)) return false
+      // Advanced filter groups
       if (filterGroups.length > 0) {
         const groupResults = filterGroups.map((group) => {
           if (!group.conditions.length) return true
@@ -2680,8 +2696,7 @@ export function DetailedPropertiesView() {
           })
           return group.connector === "AND" ? cResults.every(Boolean) : cResults.some(Boolean)
         })
-        const combined =
-          groupConnector === "AND" ? groupResults.every(Boolean) : groupResults.some(Boolean)
+        const combined = groupConnector === "AND" ? groupResults.every(Boolean) : groupResults.some(Boolean)
         if (!combined) return false
       }
       return true
@@ -2690,15 +2705,12 @@ export function DetailedPropertiesView() {
       result = [...result].sort((a, b) => {
         const av = getSortValue(a, cfg.column)
         const bv = getSortValue(b, cfg.column)
-        const r =
-          typeof av === "number" && typeof bv === "number"
-            ? av - bv
-            : String(av).localeCompare(String(bv))
+        const r = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv))
         return cfg.direction === "asc" ? r : -r
       })
     }
     return result
-  }, [rows, searchQuery, availabilityFilter, saleTypeFilter, entryTypeFilter, listingFilter, sortConfigs, filterGroups, groupConnector])
+  }, [rows, searchQuery, developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter, priceMin, priceMax, sortConfigs, filterGroups, groupConnector])
 
   const groupedRows = useMemo(() => {
     if (groupBy === "none") return null
@@ -2711,31 +2723,6 @@ export function DetailedPropertiesView() {
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize))
   const paginatedRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-
-  const cardStats = useMemo(
-    () =>
-      [
-        { key: "Launch", label: "Launch Properties" },
-        { key: "Primary-Automatic", label: "Primary Automatic" },
-        { key: "Primary-Manual", label: "Primary Manual" },
-        { key: "Resale", label: "Resale" },
-        { key: "Nawy Now", label: "Nawy Now" },
-        { key: "Rental", label: "Rentals" },
-      ].map(({ key, label }) => {
-        const subset =
-          key === "Primary-Automatic"
-            ? rows.filter((r) => r.saleType === "Primary" && r.entryType === "Automatic")
-            : key === "Primary-Manual"
-              ? rows.filter((r) => r.saleType === "Primary" && r.entryType === "Manual")
-              : rows.filter((r) => r.saleType === key)
-        return {
-          label,
-          listed: subset.filter((r) => r.listingStatus === "Active" && r.availability === "Available").length,
-          total: subset.length,
-        }
-      }),
-    [rows],
-  )
 
   useEffect(() => {
     setCurrentPage((p) => Math.min(p, totalPages))
@@ -2776,21 +2763,17 @@ export function DetailedPropertiesView() {
     })
   }
 
-  const hasAnyQuickFilter =
+  const hasAnyPropsFilter =
     !!searchQuery ||
-    availabilityFilter !== "all" ||
-    saleTypeFilter !== "all" ||
-    entryTypeFilter !== "all" ||
-    listingFilter !== "all"
-  const hasAnyFilter = hasAnyQuickFilter || filterGroups.length > 0
+    developerFilter.size > 0 || projectFilter.size > 0 || saleTypeFilter.size > 0 ||
+    availabilityFilter.size > 0 || entryTypeFilter.size > 0 || listingFilter.size > 0 ||
+    propertyCategoryFilter.size > 0 || propertyTypeFilter.size > 0 || propertySubTypeFilter.size > 0 ||
+    finishingTypeFilter.size > 0 || deliveryTypeFilter.size > 0 || !!priceMin || !!priceMax
+  const hasAnyFilter = hasAnyPropsFilter || filterGroups.length > 0
   const activeFilterCount = filterGroups.reduce((n, g) => n + g.conditions.length, 0)
 
   const clearAllFilters = () => {
-    setSearchQuery("")
-    setAvailabilityFilter("all")
-    setSaleTypeFilter("all")
-    setEntryTypeFilter("all")
-    setListingFilter("all")
+    onClearFilters()
     setFilterGroups([])
     setCurrentPage(1)
   }
@@ -2815,15 +2798,18 @@ export function DetailedPropertiesView() {
     switch (column.id) {
       case "propertyId":
         return (
-          <a
-            href={`/properties/${row.propertyId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-mono text-xs font-medium text-primary hover:underline underline-offset-2"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {row.propertyId}
-          </a>
+          <span className="inline-flex items-center gap-1 group/pid">
+            <a
+              href={`/properties/${row.propertyId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-xs font-medium text-primary hover:underline underline-offset-2"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {row.propertyId}
+            </a>
+            <CopyBtn value={row.propertyId} className="opacity-0 group-hover/pid:opacity-100 transition-opacity" />
+          </span>
         )
       case "propertyMetadataId":
         return (
@@ -3191,263 +3177,6 @@ export function DetailedPropertiesView() {
   // ── JSX ──────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      {/* 6 sale-type cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {cardStats.map(({ label, listed, total }) => (
-          <SaleTypeCard key={label} label={label} listed={listed} total={total} />
-        ))}
-      </div>
-
-      {/* Toolbar — flat, no shadow */}
-      <div className="rounded-lg border border-border bg-card p-3 space-y-3">
-        {/* Row 1: search + quick filters */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-64">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="h-9 pl-9"
-              placeholder="Search properties, projects, unit codes..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value)
-                setCurrentPage(1)
-              }}
-            />
-          </div>
-          <ToolbarSelect
-            label="Availability"
-            value={availabilityFilter}
-            values={availabilityOptions}
-            onChange={(v) => {
-              setAvailabilityFilter(v)
-              setCurrentPage(1)
-            }}
-          />
-          <ToolbarSelect
-            label="Sale type"
-            value={saleTypeFilter}
-            values={saleTypes}
-            onChange={(v) => {
-              setSaleTypeFilter(v)
-              setCurrentPage(1)
-            }}
-          />
-          <ToolbarSelect
-            label="Entry type"
-            value={entryTypeFilter}
-            values={entryTypes}
-            onChange={(v) => {
-              setEntryTypeFilter(v)
-              setCurrentPage(1)
-            }}
-          />
-          <ToolbarSelect
-            label="Listing"
-            value={listingFilter}
-            values={listingStatusOptions}
-            onChange={(v) => {
-              setListingFilter(v)
-              setCurrentPage(1)
-            }}
-          />
-        </div>
-
-        {/* Row 2: left = All Filters + Advanced + Clear; right = Sort + Group + Columns */}
-        <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="h-8" onClick={() => setShowAllFilters(true)}>
-              <Filter className="h-3.5 w-3.5 mr-1.5" />
-              All Filters
-            </Button>
-
-            <Popover open={showAdvancedFilter} onOpenChange={setShowAdvancedFilter}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant={filterGroups.length > 0 ? "default" : "outline"}
-                  size="sm"
-                  className="h-8"
-                >
-                  <SlidersHorizontal className="h-3.5 w-3.5 mr-1.5" />
-                  Advanced Filter
-                  {filterGroups.length > 0 && (
-                    <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
-                      {activeFilterCount}
-                    </Badge>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[680px] p-4" align="start">
-                <AdvancedFilterBuilder
-                  columns={COLUMNS}
-                  filterGroups={filterGroups}
-                  groupConnector={groupConnector}
-                  onFilterGroupsChange={setFilterGroups}
-                  onConnectorChange={setGroupConnector}
-                  onClose={() => setShowAdvancedFilter(false)}
-                />
-              </PopoverContent>
-            </Popover>
-
-            {hasAnyFilter && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 text-muted-foreground hover:text-foreground"
-                onClick={clearAllFilters}
-              >
-                <X className="h-3.5 w-3.5 mr-1" />
-                Clear All
-              </Button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Sort popover */}
-            <Popover open={showSortPopover} onOpenChange={setShowSortPopover}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant={sortConfigs.length > 0 ? "default" : "outline"}
-                  size="sm"
-                  className="h-8"
-                >
-                  <ArrowUpDown className="h-3.5 w-3.5 mr-1.5" />
-                  Sort
-                  {sortConfigs.length > 0 && (
-                    <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
-                      {sortConfigs.length}
-                    </Badge>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[420px] p-4" align="end">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-medium">Sort by columns</h4>
-                    <Button variant="ghost" size="sm" onClick={() => setSortConfigs([])}>
-                      Clear All
-                    </Button>
-                  </div>
-                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                    {sortConfigs.map((cfg, idx) => (
-                      <div key={idx} className="flex items-center gap-2 rounded-lg bg-secondary/40 p-2">
-                        <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground cursor-grab" />
-                        <span className="text-xs text-muted-foreground w-14 shrink-0">
-                          {idx === 0 ? "Sort by" : "Then by"}
-                        </span>
-                        <Select
-                          value={cfg.column}
-                          onValueChange={(v) =>
-                            setSortConfigs((p) =>
-                              p.map((c, i) => (i === idx ? { ...c, column: v as ColId } : c)),
-                            )
-                          }
-                        >
-                          <SelectTrigger className="flex-1 h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {COLUMNS.map((c) => (
-                              <SelectItem key={c.id} value={c.id}>
-                                {c.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Select
-                          value={cfg.direction}
-                          onValueChange={(v) =>
-                            setSortConfigs((p) =>
-                              p.map((c, i) =>
-                                i === idx ? { ...c, direction: v as "asc" | "desc" } : c,
-                              ),
-                            )
-                          }
-                        >
-                          <SelectTrigger className="w-28 h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="asc">Ascending</SelectItem>
-                            <SelectItem value="desc">Descending</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 shrink-0"
-                          onClick={() => setSortConfigs((p) => p.filter((_, i) => i !== idx))}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-                    {sortConfigs.length === 0 && (
-                      <p className="py-4 text-center text-sm text-muted-foreground">No sort applied.</p>
-                    )}
-                  </div>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() =>
-                      setSortConfigs((p) => [...p, { column: "lastUpdated", direction: "desc" }])
-                    }
-                    disabled={sortConfigs.length >= 5}
-                  >
-                    <Plus className="h-4 w-4 mr-1.5" />
-                    Add Sort Level
-                  </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            {/* Group by */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant={groupBy !== "none" ? "default" : "outline"} size="sm" className="h-8">
-                  <Group className="h-3.5 w-3.5 mr-1.5" />
-                  Group
-                  {groupBy !== "none" && (
-                    <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
-                      1
-                    </Badge>
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setGroupBy("none")}>No grouping</DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {(
-                  [
-                    ["developer", "Developer"],
-                    ["project", "Project"],
-                    ["phase", "Phase"],
-                    ["saleType", "Sale type"],
-                    ["availability", "Availability"],
-                    ["propertyCategory", "Property category"],
-                    ["deliveryType", "Delivery type"],
-                  ] as [ColId, string][]
-                ).map(([v, l]) => (
-                  <DropdownMenuItem key={v} onClick={() => setGroupBy(v)}>
-                    {l}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Columns */}
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              onClick={() => setShowColumnSheet(true)}
-            >
-              <Columns3 className="h-3.5 w-3.5 mr-1.5" />
-              Columns
-            </Button>
-          </div>
-        </div>
-      </div>
-
       {/* Table */}
       <div
         className="flex flex-col overflow-hidden rounded-xl border border-border bg-card"
@@ -3893,82 +3622,6 @@ export function DetailedPropertiesView() {
         </SheetContent>
       </Sheet>
 
-      {/* All Filters sheet */}
-      <Sheet open={showAllFilters} onOpenChange={setShowAllFilters}>
-        <SheetContent className="w-[460px] flex flex-col p-0">
-          <SheetHeader className="px-6 py-4 border-b border-border">
-            <SheetTitle>All Filters</SheetTitle>
-            <p className="text-sm text-muted-foreground mt-0.5">Filter by any column value</p>
-          </SheetHeader>
-          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-            {[
-              {
-                label: "Availability",
-                values: availabilityOptions,
-                state: availabilityFilter,
-                setState: setAvailabilityFilter,
-              },
-              {
-                label: "Sale type",
-                values: saleTypes,
-                state: saleTypeFilter,
-                setState: setSaleTypeFilter,
-              },
-              {
-                label: "Entry type",
-                values: entryTypes,
-                state: entryTypeFilter,
-                setState: setEntryTypeFilter,
-              },
-              {
-                label: "Listing status",
-                values: listingStatusOptions,
-                state: listingFilter,
-                setState: setListingFilter,
-              },
-            ].map(({ label, values, state, setState }) => (
-              <div key={label} className="space-y-2">
-                <Label className="text-sm font-medium">{label}</Label>
-                <Select
-                  value={state}
-                  onValueChange={(v) => {
-                    setState(v)
-                    setCurrentPage(1)
-                  }}
-                >
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder={`All ${label}`} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All {label}</SelectItem>
-                    {values.map((v) => (
-                      <SelectItem key={v} value={v}>
-                        {v}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ))}
-          </div>
-          <SheetFooter className="border-t border-border px-6 py-4 flex gap-2">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                clearAllFilters()
-                setShowAllFilters(false)
-              }}
-            >
-              Clear All
-            </Button>
-            <Button className="flex-1" onClick={() => setShowAllFilters(false)}>
-              Apply
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-
     </div>
   )
 }
@@ -4278,7 +3931,329 @@ function SaleTypeCard({ label, listed, total }: { label: string; listed: number;
   )
 }
 
+// ── FilterDropdown ─────────────────────────────────────────────────────────────
+function FilterDropdown({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string
+  options: string[]
+  selected: Set<string>
+  onChange: (s: Set<string>) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
+  const filtered = options.filter((o) => o.toLowerCase().includes(search.toLowerCase()))
+  const isActive = selected.size > 0
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-xs font-medium transition-colors whitespace-nowrap",
+            isActive
+              ? "bg-primary text-primary-foreground border-primary"
+              : "bg-card border-border text-foreground hover:bg-muted",
+          )}
+        >
+          {label}
+          {isActive && (
+            <span className={cn(
+              "inline-flex items-center justify-center h-4 min-w-[1rem] px-1 rounded-full text-[10px] font-semibold",
+              isActive ? "bg-primary-foreground/20 text-primary-foreground" : "bg-secondary text-foreground",
+            )}>
+              {selected.size}
+            </span>
+          )}
+          <ChevronDown className="h-3 w-3" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-2" align="start">
+        <Input
+          className="h-7 text-xs mb-2"
+          placeholder={`Search ${label.toLowerCase()}...`}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="max-h-48 overflow-y-auto space-y-0.5">
+          {filtered.map((opt) => {
+            const checked = selected.has(opt)
+            return (
+              <label
+                key={opt}
+                className="flex items-center gap-2 px-1.5 py-1 rounded cursor-pointer hover:bg-muted text-xs"
+              >
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={() => {
+                    const next = new Set(selected)
+                    checked ? next.delete(opt) : next.add(opt)
+                    onChange(next)
+                  }}
+                />
+                {opt}
+              </label>
+            )
+          })}
+          {filtered.length === 0 && (
+            <p className="px-1.5 py-2 text-xs text-muted-foreground text-center">No results</p>
+          )}
+        </div>
+        {selected.size > 0 && (
+          <button
+            className="mt-1.5 w-full text-[11px] text-primary hover:underline text-left px-1.5"
+            onClick={() => onChange(new Set())}
+          >
+            Clear
+          </button>
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// ── PriceRangeDropdown ─────────────────────────────────────────────────────────
+function PriceRangeDropdown({
+  priceMin,
+  priceMax,
+  onChangeMin,
+  onChangeMax,
+}: {
+  priceMin: string
+  priceMax: string
+  onChangeMin: (v: string) => void
+  onChangeMax: (v: string) => void
+}) {
+  const isActive = !!priceMin || !!priceMax
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-xs font-medium transition-colors whitespace-nowrap",
+            isActive
+              ? "bg-primary text-primary-foreground border-primary"
+              : "bg-card border-border text-foreground hover:bg-muted",
+          )}
+        >
+          Price Range
+          {isActive && (
+            <span className="inline-flex items-center justify-center h-4 min-w-[1rem] px-1 rounded-full text-[10px] font-semibold bg-primary-foreground/20 text-primary-foreground">
+              1
+            </span>
+          )}
+          <ChevronDown className="h-3 w-3" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-52 p-3" align="start">
+        <p className="text-xs font-semibold text-muted-foreground mb-2">Price Range (EGP)</p>
+        <div className="flex items-center gap-2">
+          <Input
+            className="h-8 text-sm"
+            placeholder="Min"
+            type="number"
+            value={priceMin}
+            onChange={(e) => onChangeMin(e.target.value)}
+          />
+          <span className="text-muted-foreground text-sm shrink-0">–</span>
+          <Input
+            className="h-8 text-sm"
+            placeholder="Max"
+            type="number"
+            value={priceMax}
+            onChange={(e) => onChangeMax(e.target.value)}
+          />
+        </div>
+        {isActive && (
+          <button
+            className="mt-1.5 text-[11px] text-primary hover:underline"
+            onClick={() => { onChangeMin(""); onChangeMax("") }}
+          >
+            Clear
+          </button>
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// ── DateRangeDropdown ──────────────────────────────────────────────────────────
+function DateRangeDropdown({
+  dateFrom,
+  dateTo,
+  onChangeFrom,
+  onChangeTo,
+}: {
+  dateFrom: string
+  dateTo: string
+  onChangeFrom: (v: string) => void
+  onChangeTo: (v: string) => void
+}) {
+  const isActive = !!dateFrom || !!dateTo
+  const label = dateFrom && dateTo
+    ? `${dateFrom} – ${dateTo}`
+    : dateFrom
+    ? `From ${dateFrom}`
+    : dateTo
+    ? `To ${dateTo}`
+    : "Delivery Date"
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-xs font-medium transition-colors whitespace-nowrap",
+            isActive
+              ? "bg-primary text-primary-foreground border-primary"
+              : "bg-card border-border text-foreground hover:bg-muted",
+          )}
+        >
+          {label}
+          {isActive && (
+            <span className="inline-flex items-center justify-center h-4 min-w-[1rem] px-1 rounded-full text-[10px] font-semibold bg-primary-foreground/20 text-primary-foreground">
+              1
+            </span>
+          )}
+          <ChevronDown className="h-3 w-3" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-60 p-3" align="start">
+        <p className="text-xs font-semibold text-muted-foreground mb-2">Delivery Date Range</p>
+        <div className="space-y-2">
+          <div>
+            <label className="text-[11px] text-muted-foreground mb-1 block">From</label>
+            <Input className="h-8 text-sm" type="date" value={dateFrom} onChange={(e) => onChangeFrom(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-[11px] text-muted-foreground mb-1 block">To</label>
+            <Input className="h-8 text-sm" type="date" value={dateTo} onChange={(e) => onChangeTo(e.target.value)} />
+          </div>
+        </div>
+        {isActive && (
+          <button
+            className="mt-2 text-[11px] text-primary hover:underline"
+            onClick={() => { onChangeFrom(""); onChangeTo("") }}
+          >
+            Clear
+          </button>
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function AllPropertiesPage() {
+  const allRows = useMemo(() => createRows(), [])
+
+  // ── Shared filter state ────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("")
+  const [developerFilter, setDeveloperFilter] = useState<Set<string>>(new Set())
+  const [projectFilter, setProjectFilter] = useState<Set<string>>(new Set())
+  const [saleTypeFilter, setSaleTypeFilter] = useState<Set<string>>(new Set())
+  const [availabilityFilter, setAvailabilityFilter] = useState<Set<string>>(new Set())
+  const [entryTypeFilter, setEntryTypeFilter] = useState<Set<string>>(new Set())
+  const [listingFilter, setListingFilter] = useState<Set<string>>(new Set())
+  const [propertyCategoryFilter, setPropertyCategoryFilter] = useState<Set<string>>(new Set())
+  const [propertyTypeFilter, setPropertyTypeFilter] = useState<Set<string>>(new Set())
+  const [propertySubTypeFilter, setPropertySubTypeFilter] = useState<Set<string>>(new Set())
+  const [finishingTypeFilter, setFinishingTypeFilter] = useState<Set<string>>(new Set())
+  const [deliveryTypeFilter, setDeliveryTypeFilter] = useState<Set<string>>(new Set())
+  const [deliveryDateFrom, setDeliveryDateFrom] = useState("")
+  const [deliveryDateTo, setDeliveryDateTo] = useState("")
+  const [priceMin, setPriceMin] = useState("")
+  const [priceMax, setPriceMax] = useState("")
+
+  const sharedFilters: SharedFilterState = {
+    searchQuery,
+    developerFilter,
+    projectFilter,
+    saleTypeFilter,
+    availabilityFilter,
+    entryTypeFilter,
+    listingFilter,
+    propertyCategoryFilter,
+    propertyTypeFilter,
+    propertySubTypeFilter,
+    finishingTypeFilter,
+    deliveryTypeFilter,
+    deliveryDateFrom,
+    deliveryDateTo,
+    priceMin,
+    priceMax,
+  }
+
+  const clearAllFilters = () => {
+    setSearchQuery("")
+    setDeveloperFilter(new Set())
+    setProjectFilter(new Set())
+    setSaleTypeFilter(new Set())
+    setAvailabilityFilter(new Set())
+    setEntryTypeFilter(new Set())
+    setListingFilter(new Set())
+    setPropertyCategoryFilter(new Set())
+    setPropertyTypeFilter(new Set())
+    setPropertySubTypeFilter(new Set())
+    setFinishingTypeFilter(new Set())
+    setDeliveryTypeFilter(new Set())
+    setDeliveryDateFrom("")
+    setDeliveryDateTo("")
+    setPriceMin("")
+    setPriceMax("")
+  }
+
+  const hasAnyFilter =
+    !!searchQuery ||
+    developerFilter.size > 0 || projectFilter.size > 0 || saleTypeFilter.size > 0 ||
+    availabilityFilter.size > 0 || entryTypeFilter.size > 0 || listingFilter.size > 0 ||
+    propertyCategoryFilter.size > 0 || propertyTypeFilter.size > 0 || propertySubTypeFilter.size > 0 ||
+    finishingTypeFilter.size > 0 || deliveryTypeFilter.size > 0 ||
+    !!deliveryDateFrom || !!deliveryDateTo || !!priceMin || !!priceMax
+
+  // ── Filter options ─────────────────────────────────────────────────────────
+  const filterOptions = useMemo(() => ({
+    developers:       [...new Set(allRows.map((r) => r.developer.name))].sort(),
+    projects:         [...new Set(allRows.map((r) => r.project.name))].sort(),
+    saleTypes:        saleTypes as string[],
+    availability:     availabilityOptions as string[],
+    entryTypes:       entryTypes as string[],
+    listingStatuses:  listingStatusOptions as string[],
+    categories:       [...new Set(allRows.map((r) => r.propertyCategory))].sort(),
+    propertyTypes:    [...new Set(allRows.map((r) => r.propertyType))].sort(),
+    propertySubTypes: [...new Set(allRows.map((r) => r.propertySubType).filter(Boolean))].sort() as string[],
+    finishingTypes:   [...new Set(allRows.map((r) => r.finishingType))].sort(),
+    deliveryTypes:    [...new Set(allRows.map((r) => r.deliveryType))].sort(),
+  }), [allRows])
+
+  // ── Card stats ─────────────────────────────────────────────────────────────
+  const cardStats = useMemo(
+    () =>
+      [
+        { key: "Launch",           label: "Launch Properties" },
+        { key: "Primary-Automatic",label: "Primary Automatic" },
+        { key: "Primary-Manual",   label: "Primary Manual" },
+        { key: "Resale",           label: "Resale" },
+        { key: "Nawy Now",         label: "Nawy Now" },
+        { key: "Rental",           label: "Rentals" },
+      ].map(({ key, label }) => {
+        const subset =
+          key === "Primary-Automatic" ? allRows.filter((r) => r.saleType === "Primary" && r.entryType === "Automatic")
+          : key === "Primary-Manual"  ? allRows.filter((r) => r.saleType === "Primary" && r.entryType === "Manual")
+          : allRows.filter((r) => r.saleType === key)
+        return {
+          label,
+          listed: subset.filter((r) => r.listingStatus === "Active" && r.availability === "Available").length,
+          total: subset.length,
+        }
+      }),
+    [allRows],
+  )
+
+  const [showAllFilters, setShowAllFilters] = useState(false)
+  const filterPropsWithClear = { ...sharedFilters, onClearFilters: clearAllFilters }
+
   return (
     <div className="min-h-screen bg-secondary/40">
       <div className="space-y-4 p-4">
@@ -4290,16 +4265,198 @@ export function AllPropertiesPage() {
             detailed properties on E-realty.
           </p>
         </div>
-        <Tabs defaultValue="detailed" className="gap-4">
+
+        <Tabs defaultValue="detailed" className="space-y-4">
           <TabsList className="bg-card">
             <TabsTrigger value="grouped">Grouped Properties</TabsTrigger>
             <TabsTrigger value="detailed">Detailed Properties</TabsTrigger>
           </TabsList>
+
+          {/* ── Shared section: analytics cards + filter bar ── */}
+          <div className="space-y-3">
+            {/* Analytics cards */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              {cardStats.map(({ label, listed, total }) => (
+                <SaleTypeCard key={label} label={label} listed={listed} total={total} />
+              ))}
+            </div>
+
+            {/* Unified toolbar card */}
+            <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
+              {/* Row 1: Search + primary filters */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Search — grows to fill remaining space */}
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <Input
+                    className="h-8 pl-8 pr-7 w-full text-sm"
+                    placeholder="Search by Property ID, Detailed Property ID, Unit Code"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                  {searchQuery && (
+                    <button className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setSearchQuery("")}>
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+                <FilterDropdown label="Developer"      options={filterOptions.developers}      selected={developerFilter}     onChange={setDeveloperFilter} />
+                <FilterDropdown label="Project"        options={filterOptions.projects}        selected={projectFilter}       onChange={setProjectFilter} />
+                <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter} />
+                <FilterDropdown label="Status"         options={filterOptions.availability}    selected={availabilityFilter}  onChange={setAvailabilityFilter} />
+                <FilterDropdown label="Entry Type"     options={filterOptions.entryTypes}      selected={entryTypeFilter}     onChange={setEntryTypeFilter} />
+                <FilterDropdown label="Listing Status" options={filterOptions.listingStatuses} selected={listingFilter}       onChange={setListingFilter} />
+              </div>
+
+              {/* Row 2: Property filters + Delivery Date + Price Range */}
+              <div className="flex flex-wrap items-center gap-2">
+                <FilterDropdown label="Property Category" options={filterOptions.categories}       selected={propertyCategoryFilter} onChange={setPropertyCategoryFilter} />
+                <FilterDropdown label="Property Type"     options={filterOptions.propertyTypes}    selected={propertyTypeFilter}     onChange={setPropertyTypeFilter} />
+                <FilterDropdown label="Property Subtype"  options={filterOptions.propertySubTypes} selected={propertySubTypeFilter}  onChange={setPropertySubTypeFilter} />
+                <FilterDropdown label="Finishing Type"    options={filterOptions.finishingTypes}   selected={finishingTypeFilter}    onChange={setFinishingTypeFilter} />
+                <FilterDropdown label="Delivery Type"     options={filterOptions.deliveryTypes}    selected={deliveryTypeFilter}     onChange={setDeliveryTypeFilter} />
+                <DateRangeDropdown dateFrom={deliveryDateFrom} dateTo={deliveryDateTo} onChangeFrom={setDeliveryDateFrom} onChangeTo={setDeliveryDateTo} />
+                <PriceRangeDropdown priceMin={priceMin} priceMax={priceMax} onChangeMin={setPriceMin} onChangeMax={setPriceMax} />
+              </div>
+
+              {/* Row 2: All Filters + Advanced + Clear | Sort + Group + Columns */}
+              <div className="flex items-center justify-between gap-2 border-t border-border pt-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={hasAnyFilter ? "default" : "outline"}
+                    size="sm"
+                    className="h-8"
+                    onClick={() => setShowAllFilters(true)}
+                  >
+                    <Filter className="h-3.5 w-3.5 mr-1.5" />
+                    All Filters
+                    {hasAnyFilter && (
+                      <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
+                        {[developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + (priceMin || priceMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0)}
+                      </Badge>
+                    )}
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-8">
+                    <SlidersHorizontal className="h-3.5 w-3.5 mr-1.5" />
+                    Advanced Filter
+                  </Button>
+                  {hasAnyFilter && (
+                    <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground" onClick={clearAllFilters}>
+                      <X className="h-3.5 w-3.5 mr-1" />
+                      Clear All
+                    </Button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" className="h-8">
+                    <ArrowUpDown className="h-3.5 w-3.5 mr-1.5" />
+                    Sort
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-8">
+                    <Group className="h-3.5 w-3.5 mr-1.5" />
+                    Group
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-8">
+                    <Columns3 className="h-3.5 w-3.5 mr-1.5" />
+                    Columns
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* All Filters drawer — synced with the filter dropdowns above */}
+            <Sheet open={showAllFilters} onOpenChange={setShowAllFilters}>
+              <SheetContent className="w-[420px] flex flex-col p-0">
+                <SheetHeader className="px-5 py-4 border-b border-border shrink-0">
+                  <div className="flex items-center justify-between">
+                    <SheetTitle>All Filters</SheetTitle>
+                    {hasAnyFilter && (
+                      <Badge variant="secondary" className="text-[11px]">
+                        {[developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + (priceMin || priceMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0)} active
+                      </Badge>
+                    )}
+                  </div>
+                </SheetHeader>
+
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                  {/* Row 1 filters */}
+                  <div className="space-y-3">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Primary Filters</p>
+                    <div className="flex flex-wrap gap-2">
+                      <FilterDropdown label="Developer"      options={filterOptions.developers}      selected={developerFilter}     onChange={setDeveloperFilter} />
+                      <FilterDropdown label="Project"        options={filterOptions.projects}        selected={projectFilter}       onChange={setProjectFilter} />
+                      <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter} />
+                      <FilterDropdown label="Status"         options={filterOptions.availability}    selected={availabilityFilter}  onChange={setAvailabilityFilter} />
+                      <FilterDropdown label="Entry Type"     options={filterOptions.entryTypes}      selected={entryTypeFilter}     onChange={setEntryTypeFilter} />
+                      <FilterDropdown label="Listing Status" options={filterOptions.listingStatuses} selected={listingFilter}       onChange={setListingFilter} />
+                    </div>
+                  </div>
+
+                  {/* Row 2 filters */}
+                  <div className="space-y-3">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Property Filters</p>
+                    <div className="flex flex-wrap gap-2">
+                      <FilterDropdown label="Property Category" options={filterOptions.categories}       selected={propertyCategoryFilter} onChange={setPropertyCategoryFilter} />
+                      <FilterDropdown label="Property Type"     options={filterOptions.propertyTypes}    selected={propertyTypeFilter}     onChange={setPropertyTypeFilter} />
+                      <FilterDropdown label="Property Subtype"  options={filterOptions.propertySubTypes} selected={propertySubTypeFilter}  onChange={setPropertySubTypeFilter} />
+                      <FilterDropdown label="Finishing Type"    options={filterOptions.finishingTypes}   selected={finishingTypeFilter}    onChange={setFinishingTypeFilter} />
+                      <FilterDropdown label="Delivery Type"     options={filterOptions.deliveryTypes}    selected={deliveryTypeFilter}     onChange={setDeliveryTypeFilter} />
+                    </div>
+                  </div>
+
+                  {/* Delivery Date */}
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Delivery Date</p>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <label className="text-[11px] text-muted-foreground mb-1 block">From</label>
+                        <Input className="h-8 text-sm" type="date" value={deliveryDateFrom} onChange={(e) => setDeliveryDateFrom(e.target.value)} />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[11px] text-muted-foreground mb-1 block">To</label>
+                        <Input className="h-8 text-sm" type="date" value={deliveryDateTo} onChange={(e) => setDeliveryDateTo(e.target.value)} />
+                      </div>
+                    </div>
+                    {(deliveryDateFrom || deliveryDateTo) && (
+                      <button className="text-[11px] text-primary hover:underline" onClick={() => { setDeliveryDateFrom(""); setDeliveryDateTo("") }}>
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Price Range — always at bottom */}
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Price Range (EGP)</p>
+                    <div className="flex items-center gap-2">
+                      <Input className="h-8 text-sm" placeholder="Min" type="number" value={priceMin} onChange={(e) => setPriceMin(e.target.value)} />
+                      <span className="text-muted-foreground text-sm shrink-0">–</span>
+                      <Input className="h-8 text-sm" placeholder="Max" type="number" value={priceMax} onChange={(e) => setPriceMax(e.target.value)} />
+                    </div>
+                    {(priceMin || priceMax) && (
+                      <button className="text-[11px] text-primary hover:underline" onClick={() => { setPriceMin(""); setPriceMax("") }}>
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <SheetFooter className="border-t border-border px-5 py-4 flex gap-2 shrink-0">
+                  <Button variant="outline" className="flex-1" onClick={() => { clearAllFilters(); setShowAllFilters(false) }}>
+                    Clear All
+                  </Button>
+                  <Button className="flex-1" onClick={() => setShowAllFilters(false)}>
+                    Done
+                  </Button>
+                </SheetFooter>
+              </SheetContent>
+            </Sheet>
+          </div>
+
           <TabsContent value="grouped" className="mt-0">
-            <GroupedPropertiesView />
+            <GroupedPropertiesView filters={sharedFilters} />
           </TabsContent>
           <TabsContent value="detailed" className="mt-0">
-            <DetailedPropertiesView />
+            <DetailedPropertiesView filters={filterPropsWithClear} />
           </TabsContent>
         </Tabs>
       </div>

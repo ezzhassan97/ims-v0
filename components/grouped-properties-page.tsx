@@ -10,25 +10,35 @@ import {
   Copy,
   Eye,
   ExternalLink,
-  Filter,
   Home,
   ImageIcon,
   Layers,
-  Plus,
   Ruler,
   Tag,
   Wrench,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+
+export interface SharedFilterState {
+  searchQuery: string
+  developerFilter: Set<string>
+  projectFilter: Set<string>
+  saleTypeFilter: Set<string>
+  availabilityFilter: Set<string>
+  entryTypeFilter: Set<string>
+  listingFilter: Set<string>
+  propertyCategoryFilter: Set<string>
+  propertyTypeFilter: Set<string>
+  propertySubTypeFilter: Set<string>
+  finishingTypeFilter: Set<string>
+  deliveryTypeFilter: Set<string>
+  deliveryDateFrom: string
+  deliveryDateTo: string
+  priceMin: string
+  priceMax: string
+}
 
 interface DetailedProperty {
   id: string
@@ -219,28 +229,25 @@ function area(value?: number) {
   return value ? `${value} m²` : "N/A"
 }
 
-export function GroupedPropertiesView() {
+export function GroupedPropertiesView({ filters }: { filters: SharedFilterState }) {
   const [groups] = useState<GroupedProperty[]>(() => makeGroups())
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([groups[0]?.id].filter(Boolean)))
-  const [search, setSearch] = useState("")
-  const [saleType, setSaleType] = useState("all")
 
   const filteredGroups = useMemo(() => {
-    const query = search.toLowerCase()
+    const query = filters.searchQuery.toLowerCase()
     return groups.filter((group) => {
-      if (saleType !== "all" && group.saleType !== saleType) return false
+      if (filters.saleTypeFilter.size > 0 && !filters.saleTypeFilter.has(group.saleType)) return false
+      if (filters.developerFilter.size > 0 && !filters.developerFilter.has(group.developer)) return false
+      if (filters.entryTypeFilter.size > 0 && !filters.entryTypeFilter.has(group.entryType)) return false
+      if (filters.listingFilter.size > 0 && !filters.listingFilter.has(group.listingStatus)) return false
+      if (filters.propertyTypeFilter.size > 0 && !filters.propertyTypeFilter.has(group.propertyType)) return false
+      if (filters.deliveryTypeFilter.size > 0 && !filters.deliveryTypeFilter.has(group.deliveryType)) return false
       if (!query) return true
       return [group.id, group.title, group.developer, group.compound, group.propertyType].some((value) =>
         value.toLowerCase().includes(query),
       )
     })
-  }, [groups, search, saleType])
-
-  const totalUnits = groups.reduce((sum, group) => sum + group.totalUnits, 0)
-  const availableUnits = groups.reduce((sum, group) => sum + group.availableUnits, 0)
-  const publishedGroups = groups.filter((group) => group.listingStatus === "Published").length
-  const automaticGroups = groups.filter((group) => group.entryType === "Automatic").length
-  const totalPlans = groups.reduce((sum, group) => sum + group.plans, 0)
+  }, [groups, filters])
 
   const toggle = (id: string) => {
     setExpanded((current) => {
@@ -253,57 +260,6 @@ export function GroupedPropertiesView() {
 
   return (
     <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-          <AnalyticsCard label="Groups" value={groups.length.toLocaleString()} />
-          <AnalyticsCard label="Available Units" value={`${availableUnits}/${totalUnits}`} />
-          <AnalyticsCard label="Published" value={publishedGroups.toLocaleString()} />
-          <AnalyticsCard label="Automatic" value={automaticGroups.toLocaleString()} />
-          <AnalyticsCard label="Payment Plans" value={totalPlans.toLocaleString()} />
-        </div>
-
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Input className="h-9 w-24" placeholder="Unit ID" value={search} onChange={(event) => setSearch(event.target.value)} />
-            {["Developer", "Project", "Entry type", "Sales status", "Property type"].map((label) => (
-              <Button key={label} variant="outline" className="h-9 min-w-32 justify-between bg-transparent text-muted-foreground">
-                {label}
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-            ))}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="h-9 min-w-32 justify-between bg-transparent text-muted-foreground">
-                  {saleType === "all" ? "Sale type" : saleType}
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => setSaleType("all")}>All sale types</DropdownMenuItem>
-                {["Primary", "Resale", "Nawy Now", "Rental"].map((type) => (
-                  <DropdownMenuItem key={type} onClick={() => setSaleType(type)}>
-                    {type}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button variant="outline" className="h-9 bg-transparent">
-              Is launch
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" className="h-9 bg-transparent">
-              <Filter className="h-4 w-4" />
-              Expand filter
-            </Button>
-            <Button variant="ghost" className="ml-auto h-9 text-muted-foreground">
-              Clear filter
-            </Button>
-            <Button className="h-9">Apply filter</Button>
-            <Button className="h-9">
-              <Plus className="h-4 w-4" />
-              Add property
-            </Button>
-          </div>
-        </div>
 
         <div className="space-y-4">
           {filteredGroups.map((group) => {
@@ -469,9 +425,27 @@ function AnalyticsCard({ label, value }: { label: string; value: string }) {
 }
 
 export function GroupedPropertiesPage() {
+  const emptyFilters: SharedFilterState = {
+    searchQuery: "",
+    developerFilter: new Set(),
+    projectFilter: new Set(),
+    saleTypeFilter: new Set(),
+    availabilityFilter: new Set(),
+    entryTypeFilter: new Set(),
+    listingFilter: new Set(),
+    propertyCategoryFilter: new Set(),
+    propertyTypeFilter: new Set(),
+    propertySubTypeFilter: new Set(),
+    finishingTypeFilter: new Set(),
+    deliveryTypeFilter: new Set(),
+    deliveryDateFrom: "",
+    deliveryDateTo: "",
+    priceMin: "",
+    priceMax: "",
+  }
   return (
     <div className="min-h-screen bg-secondary/40 p-4">
-      <GroupedPropertiesView />
+      <GroupedPropertiesView filters={emptyFilters} />
     </div>
   )
 }
