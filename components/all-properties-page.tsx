@@ -2251,7 +2251,7 @@ function ViewPropertyDrawer({
                     Returned:   "bg-blue-100 text-blue-600 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-400",
                   }
                   return (
-                    <div key={entry.id} className="rounded-xl border border-border bg-card px-4 py-3 flex items-center gap-3">
+                    <div key={entry.id} className="rounded-xl border border-border bg-card px-4 py-3 flex items-center justify-between gap-3">
                       {/* Entry ID — fixed width so all IDs align */}
                       <a
                         href={`/entries/${entry.id}`}
@@ -2267,7 +2267,7 @@ function ViewPropertyDrawer({
                         {entry.status}
                       </span>
                       {/* User — fills remaining space */}
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground flex-1 min-w-0">
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground ml-4">
                         <User className="h-3 w-3 shrink-0" />
                         <span className="truncate">{entry.createdBy}</span>
                       </span>
@@ -2292,30 +2292,32 @@ function ViewPropertyDrawer({
                   }
                   const as = actionStyle[log.action] ?? actionStyle["Edit"]
                   return (
-                    <div key={log.id} className="rounded-xl border border-border bg-card px-4 py-3 flex items-center gap-3">
-                      {/* Action badge */}
-                      <span className={cn("inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0", as.badge)}>
+                    <div key={log.id} className="rounded-xl border border-border bg-card px-4 py-3 flex items-center justify-between gap-3">
+                      {/* 1. Log ID + copy */}
+                      <span className="inline-flex items-center gap-1 group/lid shrink-0">
+                        <span className="font-mono text-xs font-semibold text-foreground">{log.id}</span>
+                        <CopyBtn value={log.id} className="opacity-0 group-hover/lid:opacity-100 transition-opacity" />
+                      </span>
+                      {/* 2. Action type tag */}
+                      <span className={cn("inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full shrink-0", as.badge)}>
                         {as.icon}{log.action}
                       </span>
-                      {/* Log ID */}
-                      <span className="font-mono text-xs text-muted-foreground flex-shrink-0 w-28">{log.id}</span>
-                      {/* Label + detail */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium truncate">{log.label}</p>
-                        <p className="text-[11px] text-muted-foreground truncate">{log.detail}</p>
-                      </div>
-                      {/* User + timestamp */}
-                      <div className="text-right flex-shrink-0 space-y-0.5 mr-1">
-                        <p className="text-xs font-medium">{log.user}</p>
-                        <p className="text-[11px] text-muted-foreground whitespace-nowrap">{log.ts}</p>
-                      </div>
-                      {/* View button */}
+                      {/* 3. User — fills space */}
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground ml-4">
+                        <User className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{log.user}</span>
+                      </span>
+                      {/* 4. Timestamp */}
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0 whitespace-nowrap">
+                        <Clock className="h-3 w-3" />{log.ts}
+                      </span>
+                      {/* 5. View icon button */}
                       <button
                         onClick={(e) => { e.stopPropagation(); setAuditLogDrawerEntry(log) }}
-                        className="flex-shrink-0 h-7 w-7 rounded-lg border border-border bg-muted/60 hover:bg-muted flex items-center justify-center transition-colors"
+                        className="shrink-0 h-7 w-7 rounded-lg border border-border bg-muted/60 hover:bg-muted flex items-center justify-center transition-colors"
                         title="View log details"
                       >
-                        <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Eye className="h-3.5 w-3.5 text-muted-foreground" />
                       </button>
                     </div>
                   )
@@ -3936,11 +3938,13 @@ function FilterDropdown({
   options,
   selected,
   onChange,
+  className,
 }: {
   label: string
   options: string[]
   selected: Set<string>
   onChange: (s: Set<string>) => void
+  className?: string
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
@@ -3952,10 +3956,11 @@ function FilterDropdown({
       <PopoverTrigger asChild>
         <button
           className={cn(
-            "inline-flex items-center gap-1.5 h-8 px-3 rounded-md border text-xs font-medium transition-colors whitespace-nowrap",
+            "inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md border text-xs font-medium transition-colors whitespace-nowrap",
             isActive
               ? "bg-primary text-primary-foreground border-primary"
               : "bg-card border-border text-foreground hover:bg-muted",
+            className,
           )}
         >
           {label}
@@ -4282,13 +4287,13 @@ export function AllPropertiesPage() {
 
             {/* Unified toolbar card */}
             <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
-              {/* Row 1: Search + primary filters */}
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Search — sized to fit placeholder */}
+              {/* Row 1: Search + primary filters filling full width */}
+              <div className="flex items-center gap-2">
+                {/* Search — fixed width */}
                 <div className="relative shrink-0">
                   <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                   <Input
-                    className="h-8 pl-8 pr-7 w-[320px] text-sm"
+                    className="h-8 pl-8 pr-7 w-[420px] text-sm"
                     placeholder="Search by Property ID, Detailed Property ID, Unit Code"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -4299,12 +4304,15 @@ export function AllPropertiesPage() {
                     </button>
                   )}
                 </div>
-                <FilterDropdown label="Developer"      options={filterOptions.developers}      selected={developerFilter}     onChange={setDeveloperFilter} />
-                <FilterDropdown label="Project"        options={filterOptions.projects}        selected={projectFilter}       onChange={setProjectFilter} />
-                <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter} />
-                <FilterDropdown label="Status"         options={filterOptions.availability}    selected={availabilityFilter}  onChange={setAvailabilityFilter} />
-                <FilterDropdown label="Entry Type"     options={filterOptions.entryTypes}      selected={entryTypeFilter}     onChange={setEntryTypeFilter} />
-                <FilterDropdown label="Listing Status" options={filterOptions.listingStatuses} selected={listingFilter}       onChange={setListingFilter} />
+                {/* 6 dropdowns share remaining space equally */}
+                <div className="flex flex-1 gap-2">
+                  <FilterDropdown label="Developer"      options={filterOptions.developers}      selected={developerFilter}     onChange={setDeveloperFilter}  className="flex-1" />
+                  <FilterDropdown label="Project"        options={filterOptions.projects}        selected={projectFilter}       onChange={setProjectFilter}    className="flex-1" />
+                  <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter}   className="flex-1" />
+                  <FilterDropdown label="Status"         options={filterOptions.availability}    selected={availabilityFilter}  onChange={setAvailabilityFilter} className="flex-1" />
+                  <FilterDropdown label="Entry Type"     options={filterOptions.entryTypes}      selected={entryTypeFilter}     onChange={setEntryTypeFilter}  className="flex-1" />
+                  <FilterDropdown label="Listing Status" options={filterOptions.listingStatuses} selected={listingFilter}       onChange={setListingFilter}    className="flex-1" />
+                </div>
               </div>
 
               {/* Row 2: Property filters + Delivery Date + Price Range */}
