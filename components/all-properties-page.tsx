@@ -15,10 +15,12 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Clock,
   Columns3,
   Copy,
   Dumbbell,
   Edit,
+  ExternalLink,
   Eye,
   EyeOff,
   FileDown,
@@ -43,6 +45,7 @@ import {
   Trash2,
   Unlock,
   Upload,
+  User,
   Waves,
   Wind,
   Wrench,
@@ -80,6 +83,7 @@ type EntryType = "Automatic" | "Manual"
 
 interface PropertyRow {
   propertyId: string
+  propertyMetadataId: string
   detailedPropertyId: string | null
   entryType: EntryType
   developer: { id: string; name: string; logo: string; url: string }
@@ -162,6 +166,7 @@ interface FilterGroup {
 // ── Column definitions ─────────────────────────────────────────────────────────
 const COLUMNS: ColumnDef[] = [
   { id: "propertyId", label: "Property ID", width: 150 },
+  { id: "propertyMetadataId", label: "Property Metadata ID", width: 185 },
   { id: "detailedPropertyId", label: "Detailed Property ID", width: 170 },
   { id: "entryType", label: "Entry type", width: 120 },
   { id: "developer", label: "Developer", width: 220 },
@@ -333,6 +338,7 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
   const phsId = `PHS-${200 + (index % 6)}`
   return {
     propertyId,
+    propertyMetadataId: `PMD-${String(10000 + index).padStart(6, "0")}`,
     detailedPropertyId: isManual ? null : `DPR-${String(84000 + index).padStart(6, "0")}`,
     entryType: isManual ? "Manual" : "Automatic",
     developer: {
@@ -444,6 +450,24 @@ function formatTimestamp(iso: string) {
   // en-GB → "13 May 2026"
   const timePart = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
   return `${datePart}, ${timePart}`
+}
+
+/** Icon-only copy button — use when the value text is already rendered separately */
+function CopyBtn({ value, className }: { value: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        navigator.clipboard.writeText(value).catch(() => {})
+        setCopied(true)
+        setTimeout(() => setCopied(false), 900)
+      }}
+      className={cn("rounded p-0.5 hover:bg-secondary transition-colors flex-shrink-0", className)}
+    >
+      {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
+    </button>
+  )
 }
 
 function CopyableText({ value, muted = false }: { value: string | null; muted?: boolean }) {
@@ -593,11 +617,11 @@ function AmenitiesCell({
 
 function BooleanMark({ value }: { value: boolean }) {
   return value ? (
-    <div className="mx-auto flex items-center justify-center h-5 w-5 rounded-full bg-green-100">
+    <div className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-green-100">
       <Check className="h-3 w-3 text-green-600" />
     </div>
   ) : (
-    <div className="mx-auto flex items-center justify-center h-5 w-5 rounded-full bg-red-100">
+    <div className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-red-100">
       <X className="h-3 w-3 text-red-600" />
     </div>
   )
@@ -674,6 +698,9 @@ function ImageCarousel({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.stopPropagation()
+      }
       if (confirmRemove !== null) return
       if (e.key === "ArrowLeft") go(-1)
       if (e.key === "ArrowRight") go(1)
@@ -849,14 +876,17 @@ function UploadDialog({
 
   if (!open) return null
 
+  // ordered array of selected lib IDs (for showing order number)
+  const libOrder = Array.from(libSelected)
+
   return (
     <div className="fixed inset-0 z-[300] bg-black/50 flex items-center justify-center" onClick={onClose}>
       <div
-        className="bg-background border border-border rounded-xl shadow-xl w-[560px] flex flex-col max-h-[80vh]"
+        className="bg-background border border-border rounded-xl shadow-xl w-[680px] h-[600px] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-0">
+        <div className="flex items-center justify-between px-6 pt-5 pb-0 flex-shrink-0">
           <h3 className="text-base font-semibold">Add Images</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors">
             <X className="h-4 w-4 text-muted-foreground" />
@@ -864,7 +894,7 @@ function UploadDialog({
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-0 px-6 mt-4 border-b border-border">
+        <div className="flex gap-0 px-6 mt-4 border-b border-border flex-shrink-0">
           {([["device", "Upload from device"], ["library", "Project library"]] as const).map(([key, label]) => (
             <button
               key={key}
@@ -881,17 +911,17 @@ function UploadDialog({
           ))}
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        {/* Body — fixed height, scrollable inside */}
+        <div className="flex-1 overflow-y-auto p-6">
           {tab === "device" ? (
-            <>
+            <div className="space-y-4 h-full">
               <div
                 onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
                 onDragLeave={() => setDragging(false)}
                 onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(Array.from(e.dataTransfer.files)) }}
                 onClick={() => fileRef.current?.click()}
                 className={cn(
-                  "border-2 border-dashed rounded-lg p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-colors",
+                  "border-2 border-dashed rounded-lg p-10 flex flex-col items-center justify-center gap-3 cursor-pointer transition-colors",
                   dragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/40",
                 )}
               >
@@ -906,10 +936,12 @@ function UploadDialog({
                   onChange={(e) => { handleFiles(Array.from(e.target.files ?? [])); e.target.value = "" }} />
               </div>
               {selected.length > 0 && (
-                <div className="flex gap-2 flex-wrap max-h-32 overflow-y-auto">
+                <div className="flex gap-2 flex-wrap">
                   {selected.map((f, i) => (
-                    <div key={i} className="relative w-16 h-12 rounded overflow-hidden border border-border group flex-shrink-0">
+                    <div key={i} className="relative w-20 h-14 rounded overflow-hidden border border-border group flex-shrink-0">
                       <img src={URL.createObjectURL(f)} alt={f.name} className="w-full h-full object-cover" />
+                      {/* Order badge */}
+                      <div className="absolute top-0.5 left-0.5 h-4 w-4 rounded bg-black/60 text-white text-[9px] font-bold flex items-center justify-center">{i + 1}</div>
                       <button
                         className="absolute top-0 right-0 bg-black/60 hover:bg-red-600 rounded-bl p-0.5 text-white opacity-0 group-hover:opacity-100 transition-opacity"
                         onClick={() => setSelected((prev) => prev.filter((_, j) => j !== i))}
@@ -920,16 +952,17 @@ function UploadDialog({
                   ))}
                 </div>
               )}
-            </>
+            </div>
           ) : (
-            <div>
-              <p className="text-xs text-muted-foreground mb-3">
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">
                 Select images from this project to attach to the unit.
-                {libSelected.size > 0 && <span className="ml-1 font-medium text-foreground">{libSelected.size} selected</span>}
+                {libSelected.size > 0 && <span className="ml-1 font-medium text-foreground">{libSelected.size} selected — tap in order you want</span>}
               </p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {PROJECT_LIBRARY.map((img) => {
                   const sel = libSelected.has(img.id)
+                  const order = libOrder.indexOf(img.id) + 1
                   return (
                     <button
                       key={img.id}
@@ -945,18 +978,24 @@ function UploadDialog({
                         sel ? "border-primary ring-1 ring-primary" : "border-transparent hover:border-border",
                       )}
                     >
-                      <img src={img.url} alt={img.name} className="w-full h-24 object-cover" />
+                      <img src={img.url} alt={img.name} className="w-full h-20 object-cover" />
                       <div className={cn(
                         "absolute inset-0 bg-black/0 transition-colors",
                         sel && "bg-primary/10",
                         !sel && "group-hover:bg-black/10",
                       )} />
+                      {/* Order badge — top left when selected */}
                       {sel && (
-                        <div className="absolute top-1.5 right-1.5 bg-primary rounded-full p-0.5">
-                          <Check className="h-3 w-3 text-white" />
+                        <div className="absolute top-1 left-1 h-5 w-5 rounded bg-primary text-white text-[10px] font-bold flex items-center justify-center shadow-sm">
+                          {order}
                         </div>
                       )}
-                      <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-2 py-1">
+                      {!sel && (
+                        <div className="absolute top-1 left-1 h-5 w-5 rounded bg-black/40 text-white/70 text-[10px] font-semibold flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Check className="h-2.5 w-2.5" />
+                        </div>
+                      )}
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1.5 py-0.5">
                         <p className="text-white text-[10px] truncate">{img.name}</p>
                       </div>
                     </button>
@@ -1091,6 +1130,632 @@ function MediaCell({
   )
 }
 
+// ── Payment Plans types & data ────────────────────────────────────────────────
+interface PlanCardData {
+  id: string
+  name: string
+  status: "Active" | "Hidden"
+  hasOffer: boolean
+  devName: string
+  devId: string
+  projName: string
+  projId: string
+  units: number
+  available: number
+  priceCount: number
+  historicalCount: number
+  planType: string
+  currency: string
+  discount: string
+  validTill: string
+  dp: string
+  duration: string
+  frequency: string
+  instalPct: string
+  createdAt: string
+  updatedAt: string
+  expanded: {
+    isCash?: boolean
+    priceAfterDiscount?: { original: string; final: string; badge: string } | null
+    initialPayments?: Array<{ label: string; pct: string; amt?: string }>
+    milestones?: Array<{ name: string; at: string; amt?: string; pct: string }>
+    installments?: { pct: string; amt: string; freq: string } | null
+    bulks?: Array<{ name: string; at: string; amt?: string; pct: string }>
+    attachments?: Array<{ name: string; size: string }>
+    conditions?: { andGroups: Array<Array<{ op: "IF" | "OR"; field: string; operator: string; values: string[] }>> }
+  }
+}
+interface PriceGroup { price: number; plans: PlanCardData[] }
+
+const PAYMENT_PLAN_GROUPS: PriceGroup[] = [
+  {
+    price: 3_500_000,
+    plans: [
+      {
+        id: "50680", name: "Midtown Sky — Equal 8 Years Quarterly", status: "Active", hasOffer: true,
+        devName: "G Developments", devId: "DEV-001", projName: "New Giza", projId: "PRJ-220",
+        units: 466, available: 312, priceCount: 312, historicalCount: 154,
+        planType: "Equal", currency: "EGP", discount: "5%", validTill: "30 Jun 2026",
+        dp: "10%", duration: "10 Yrs 6 Ms", frequency: "Quarterly", instalPct: "2.5%",
+        createdAt: "12 Jan 2026, 09:30", updatedAt: "18 Apr 2026, 14:15",
+        expanded: {
+          priceAfterDiscount: { original: "3,675,000 EGP", final: "3,500,000 EGP", badge: "5% Discount" },
+          initialPayments: [
+            { label: "DP", pct: "10%", amt: "350,000 EGP" }, { label: "Month 1", pct: "2%", amt: "70,000 EGP" },
+            { label: "Month 3", pct: "3%", amt: "105,000 EGP" }, { label: "Month 6", pct: "—" },
+            { label: "Contractual", pct: "5%", amt: "175,000 EGP" }, { label: "Delivery", pct: "10%", amt: "350,000 EGP" },
+          ],
+          milestones: [
+            { name: "Maintenance", at: "Paid at installment #24", amt: "105,000 EGP", pct: "3%" },
+            { name: "Club house", at: "Paid 2 Yrs after contract", amt: "70,000 EGP", pct: "2%" },
+          ],
+          installments: { pct: "2.5%", amt: "87,500 EGP", freq: "/ Quarter" },
+          bulks: [
+            { name: "Bulk 1", at: "Paid at installment #10", amt: "175,000 EGP", pct: "5%" },
+            { name: "Bulk 2", at: "Paid at installment #14", amt: "175,000 EGP", pct: "5%" },
+          ],
+          attachments: [{ name: "payment_plan.pdf", size: "2.1 MB" }],
+          conditions: { andGroups: [
+            [{ op: "IF", field: "Property type", operator: "is any of", values: ["Villa", "Townhouse"] }, { op: "OR", field: "Delivery type", operator: "is", values: ["Ready to move"] }],
+            [{ op: "IF", field: "Area (m²)", operator: "≥", values: ["100"] }],
+          ]},
+        },
+      },
+      {
+        id: "50712", name: "Flash Cash Summer Offer 2026", status: "Active", hasOffer: true,
+        devName: "Emaar Misr", devId: "DEV-002", projName: "Marassi", projId: "PRJ-104",
+        units: 112, available: 67, priceCount: 89, historicalCount: 23,
+        planType: "Cash", currency: "EGP", discount: "12%", validTill: "15 May 2026",
+        dp: "—", duration: "—", frequency: "—", instalPct: "—",
+        createdAt: "03 Feb 2026, 11:00", updatedAt: "20 Apr 2026, 16:45",
+        expanded: {
+          isCash: true,
+          priceAfterDiscount: { original: "3,977,270 EGP", final: "3,500,000 EGP", badge: "12% Discount" },
+          attachments: [{ name: "cash_offer_terms.pdf", size: "1.2 MB" }],
+          conditions: { andGroups: [
+            [{ op: "IF", field: "Property type", operator: "is any of", values: ["Villa", "Townhouse"] }, { op: "OR", field: "Delivery type", operator: "is", values: ["Ready to move"] }],
+            [{ op: "IF", field: "Area (m²)", operator: "≥", values: ["100"] }],
+          ]},
+        },
+      },
+    ],
+  },
+  {
+    price: 5_000_000,
+    plans: [
+      {
+        id: "51055", name: "Solana — Equal 10 Years Quarterly", status: "Active", hasOffer: false,
+        devName: "Ora Developers", devId: "DEV-007", projName: "Solana", projId: "PRJ-185",
+        units: 320, available: 198, priceCount: 220, historicalCount: 85,
+        planType: "Equal", currency: "EGP", discount: "—", validTill: "—",
+        dp: "10%", duration: "10 Yrs", frequency: "Quarterly", instalPct: "2.25%",
+        createdAt: "08 Mar 2026, 10:15", updatedAt: "02 May 2026, 09:30",
+        expanded: {
+          priceAfterDiscount: null,
+          initialPayments: [
+            { label: "DP", pct: "10%", amt: "500,000 EGP" }, { label: "Month 3", pct: "5%", amt: "250,000 EGP" },
+            { label: "Contractual", pct: "5%", amt: "250,000 EGP" }, { label: "Delivery", pct: "10%", amt: "500,000 EGP" },
+          ],
+          milestones: [{ name: "Maintenance", at: "Paid at installment #20", amt: "150,000 EGP", pct: "3%" }],
+          installments: { pct: "2.25%", amt: "112,500 EGP", freq: "/ Quarter" },
+          bulks: [],
+          attachments: [{ name: "solana_payment_plan.pdf", size: "1.7 MB" }],
+          conditions: { andGroups: [[{ op: "IF", field: "Property type", operator: "is", values: ["Apartment"] }]] },
+        },
+      },
+      {
+        id: "51102", name: "Hyde Park — Back Loaded 10 Years Quarterly", status: "Hidden", hasOffer: false,
+        devName: "Hyde Park Developments", devId: "DEV-018", projName: "Hyde Park New Cairo", projId: "PRJ-311",
+        units: 280, available: 195, priceCount: 210, historicalCount: 70,
+        planType: "Backloaded", currency: "EGP", discount: "—", validTill: "—",
+        dp: "5%", duration: "12 Yrs", frequency: "Quarterly", instalPct: "4.8%",
+        createdAt: "15 Nov 2025, 14:00", updatedAt: "01 Apr 2026, 11:45",
+        expanded: {
+          priceAfterDiscount: null,
+          initialPayments: [
+            { label: "DP", pct: "5%", amt: "250,000 EGP" }, { label: "Contractual", pct: "5%", amt: "250,000 EGP" },
+            { label: "Delivery", pct: "10%", amt: "500,000 EGP" },
+          ],
+          milestones: [{ name: "Maintenance", at: "Paid at delivery", amt: "200,000 EGP", pct: "4%" }],
+          installments: { pct: "4.8%", amt: "240,000 EGP", freq: "/ Quarter" },
+          bulks: [{ name: "Bulk 1", at: "Paid at installment #20", amt: "250,000 EGP", pct: "5%" }],
+          attachments: [{ name: "backloaded_plan.pdf", size: "1.8 MB" }],
+          conditions: { andGroups: [
+            [{ op: "IF", field: "Property type", operator: "is any of", values: ["Villa", "Townhouse"] }, { op: "OR", field: "Delivery type", operator: "is", values: ["Ready to move"] }],
+            [{ op: "IF", field: "Area (m²)", operator: "≥", values: ["100"] }],
+          ]},
+        },
+      },
+      {
+        id: "51230", name: "Mountain View — Investor Premium Package", status: "Active", hasOffer: true,
+        devName: "Mountain View", devId: "DEV-011", projName: "iCity October", projId: "PRJ-270",
+        units: 540, available: 301, priceCount: 412, historicalCount: 128,
+        planType: "Flexible", currency: "EGP", discount: "8%", validTill: "31 Dec 2026",
+        dp: "20%", duration: "8 Yrs", frequency: "Semi-Annual", instalPct: "6%",
+        createdAt: "01 Jan 2026, 00:00", updatedAt: "10 May 2026, 17:00",
+        expanded: {
+          priceAfterDiscount: { original: "5,434,782 EGP", final: "5,000,000 EGP", badge: "8% Discount" },
+          initialPayments: [
+            { label: "DP", pct: "20%", amt: "1,000,000 EGP" }, { label: "Month 6", pct: "5%", amt: "250,000 EGP" },
+            { label: "Delivery", pct: "10%", amt: "500,000 EGP" },
+          ],
+          milestones: [
+            { name: "Club Membership", at: "Paid at contract signing", amt: "50,000 EGP", pct: "1%" },
+            { name: "Maintenance", at: "Paid at delivery", amt: "150,000 EGP", pct: "3%" },
+          ],
+          installments: { pct: "6%", amt: "300,000 EGP", freq: "/ Semi-Annual" },
+          bulks: [],
+          attachments: [{ name: "investor_package.pdf", size: "3.2 MB" }, { name: "payment_schedule.pdf", size: "1.1 MB" }],
+          conditions: { andGroups: [[{ op: "IF", field: "Sale type", operator: "is", values: ["Primary"] }]] },
+        },
+      },
+    ],
+  },
+  {
+    price: 6_200_000,
+    plans: [
+      {
+        id: "51445", name: "SODIC Eastown — Exclusive 7 Years Monthly", status: "Active", hasOffer: false,
+        devName: "SODIC", devId: "DEV-004", projName: "Eastown Residences", projId: "PRJ-089",
+        units: 150, available: 42, priceCount: 95, historicalCount: 38,
+        planType: "Equal", currency: "EGP", discount: "3%", validTill: "30 Jun 2026",
+        dp: "15%", duration: "7 Yrs", frequency: "Monthly", instalPct: "1.07%",
+        createdAt: "20 Dec 2025, 08:00", updatedAt: "05 May 2026, 16:30",
+        expanded: {
+          priceAfterDiscount: { original: "6,391,752 EGP", final: "6,200,000 EGP", badge: "3% Discount" },
+          initialPayments: [
+            { label: "DP", pct: "15%", amt: "930,000 EGP" }, { label: "Month 3", pct: "5%", amt: "310,000 EGP" },
+            { label: "Contractual", pct: "5%", amt: "310,000 EGP" }, { label: "Delivery", pct: "10%", amt: "620,000 EGP" },
+          ],
+          milestones: [{ name: "Maintenance", at: "Paid at delivery", amt: "248,000 EGP", pct: "4%" }],
+          installments: { pct: "1.07%", amt: "66,340 EGP", freq: "/ Month" },
+          bulks: [{ name: "Bulk 1", at: "Paid at installment #36", amt: "310,000 EGP", pct: "5%" }],
+          attachments: [{ name: "eastown_exclusive_plan.pdf", size: "2.4 MB" }],
+          conditions: { andGroups: [[{ op: "IF", field: "Availability", operator: "is", values: ["Available"] }]] },
+        },
+      },
+    ],
+  },
+]
+
+function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans }: {
+  group: PriceGroup; groupIndex: number; totalGroups: number
+  expandedPlans: Set<string>; setExpandedPlans: React.Dispatch<React.SetStateAction<Set<string>>>
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const canDelete = totalGroups > 1
+  return (
+    <div className="space-y-3">
+      {/* Price header */}
+      <div className="flex items-center gap-3">
+        <span className="text-[15px] font-bold tabular-nums text-foreground whitespace-nowrap">
+          {group.price.toLocaleString()} EGP
+        </span>
+        <div className="flex-1 h-px bg-border" />
+        <span className="text-[11px] text-muted-foreground whitespace-nowrap flex-shrink-0">
+          {group.plans.length} {group.plans.length === 1 ? "plan" : "plans"}
+        </span>
+        {/* Delete price button */}
+        {!confirmDelete ? (
+          <button
+            onClick={() => canDelete && setConfirmDelete(true)}
+            title={canDelete ? "Delete price" : "Cannot delete — only one price"}
+            className={cn("flex-shrink-0 w-5 h-5 rounded flex items-center justify-center transition-all",
+              canDelete ? "text-red-400 hover:bg-red-50 hover:text-red-600 cursor-pointer" : "text-border cursor-not-allowed opacity-40"
+            )}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        ) : (
+          <div className="flex items-center gap-1.5 px-2 py-1 bg-red-50 border border-red-200 rounded-[6px] flex-shrink-0">
+            <span className="text-[11px] text-red-700 font-medium">Delete price?</span>
+            <button onClick={() => setConfirmDelete(false)} className="text-[11px] text-[#5A6A85] hover:text-[#0D1B2E] px-1 rounded transition-colors">Cancel</button>
+            <button onClick={() => setConfirmDelete(false)} className="text-[11px] text-white bg-red-500 hover:bg-red-600 px-1.5 rounded transition-colors font-medium">Delete</button>
+          </div>
+        )}
+      </div>
+      {/* Cards */}
+      <div className="flex flex-wrap gap-2.5 items-start">
+        {group.plans.map((plan) => (
+          <LinkedPlanCard
+            key={plan.id}
+            plan={plan}
+            isExpanded={expandedPlans.has(plan.id)}
+            totalInGroup={group.plans.length}
+            onToggleExpand={() => setExpandedPlans((prev) => {
+              const next = new Set(prev)
+              if (next.has(plan.id)) next.delete(plan.id)
+              else next.add(plan.id)
+              return next
+            })}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number }) {
+  const [copiedId, setCopiedId] = useState(false)
+  const [confirmUnlink, setConfirmUnlink] = useState(false)
+  const copyId = () => {
+    navigator.clipboard.writeText(plan.id).catch(() => {})
+    setCopiedId(true)
+    setTimeout(() => setCopiedId(false), 1500)
+  }
+  const isCashOnly = plan.planType === "Cash"
+  const canUnlink = totalInGroup > 1
+
+  return (
+    <div className="bg-white border border-border rounded-[10px] w-[320px] min-h-[220px] overflow-hidden flex flex-col hover:shadow-[0_2px_10px_rgba(10,31,68,0.07)] transition-shadow shrink-0">
+      {/* Header */}
+      <div className="px-3 pt-2.5 pb-[9px] border-b border-border flex flex-col gap-1">
+        {/* Name + Actions */}
+        <div className="flex items-start justify-between gap-1.5 pb-[7px] border-b border-border">
+          <span className="text-[13px] font-semibold text-[#0D1B2E] truncate flex-1 min-w-0" title={plan.name}>{plan.name}</span>
+          <div className="flex items-center gap-0.5 flex-shrink-0 mt-px">
+            <button className="w-[22px] h-[22px] rounded-[4px] border-0 bg-transparent cursor-pointer flex items-center justify-center p-0 text-[#8C9BB5] hover:bg-slate-100 hover:text-[#5A6A85] transition-all" title="View"><Eye className="w-[13px] h-[13px]" /></button>
+            <button
+              onClick={() => canUnlink && setConfirmUnlink(true)}
+              title={canUnlink ? "Unlink" : "Cannot unlink — only one plan linked"}
+              className={cn("w-[22px] h-[22px] rounded-[4px] border-0 bg-transparent flex items-center justify-center p-0 transition-all",
+                canUnlink ? "cursor-pointer text-red-300 hover:bg-red-50 hover:text-red-500" : "cursor-not-allowed text-[#C8D0DC] opacity-40"
+              )}
+            ><X className="w-3 h-3" /></button>
+          </div>
+        </div>
+        {/* Unlink confirmation inline */}
+        {confirmUnlink && (
+          <div className="mt-1 mb-0.5 flex items-center gap-1.5 px-2 py-1.5 bg-red-50 border border-red-200 rounded-[6px]">
+            <span className="text-[11px] text-red-700 font-medium flex-1">Unlink this plan?</span>
+            <button onClick={() => setConfirmUnlink(false)} className="text-[11px] text-[#5A6A85] hover:text-[#0D1B2E] px-1.5 py-0.5 rounded transition-colors">Cancel</button>
+            <button onClick={() => setConfirmUnlink(false)} className="text-[11px] text-white bg-red-500 hover:bg-red-600 px-2 py-0.5 rounded transition-colors font-medium">Unlink</button>
+          </div>
+        )}
+        {/* ID row */}
+        <div className="flex items-center gap-1 justify-between">
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-[#8C9BB5] font-mono">{plan.id}</span>
+            <button onClick={copyId} className="w-3.5 h-3.5 border-0 bg-transparent cursor-pointer text-[#8C9BB5] hover:text-blue-600 flex items-center justify-center p-0 transition-colors" title="Copy ID">
+              {copiedId ? <Check className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
+            </button>
+          </div>
+          {plan.status === "Active"
+            ? <span className="text-[9px] font-semibold text-emerald-600 bg-[#EDFAF4] border border-[#A7F3D0] px-1.5 py-px rounded-full">● Active</span>
+            : <span className="text-[9px] font-semibold text-[#8C9BB5] bg-[#F1F3F9] border border-[#E2E8F0] px-1.5 py-px rounded-full">● Hidden</span>}
+        </div>
+        {/* Dev row */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-medium text-[#5A6A85]">{plan.devName}</span>
+          <span className="text-[10px] text-[#8C9BB5] font-mono">{plan.devId}</span>
+          {plan.hasOffer && <span className="ml-auto text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-px rounded-full flex-shrink-0">Offer</span>}
+        </div>
+        {/* Project row */}
+        <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            <span className="text-[11px] font-medium text-[#5A6A85] truncate">{plan.projName}</span>
+            <span className="text-[10px] text-[#8C9BB5] font-mono flex-shrink-0">{plan.projId}</span>
+          </div>
+          <div className="relative group/units flex items-center gap-0.5 text-[10px] font-semibold text-[#5A6A85] whitespace-nowrap ml-auto flex-shrink-0">
+            {plan.units} units
+            <span className="w-3 h-3 rounded-full border border-current flex items-center justify-center text-[8px] font-bold opacity-70 flex-shrink-0">!</span>
+            <div className="hidden group-hover/units:block absolute right-0 top-5 bg-[#0D1B2E] text-white rounded-[6px] px-2.5 py-1.5 text-[11px] whitespace-nowrap z-50 shadow-lg">
+              <span className="block leading-[1.75]"><span className="text-emerald-400 font-bold">{plan.available}</span> / {plan.units} Available</span>
+              <span className="block leading-[1.75]">{plan.priceCount} Prices</span>
+              <span className="block leading-[1.75]">{plan.historicalCount} Historical Prices</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Meta grid */}
+      <div className="flex flex-col px-3 pt-2.5 pb-2">
+        <div className="grid w-full" style={{ gridTemplateColumns: "52px 72px 80px 1fr" }}>
+          {[
+            { label: "Type", value: plan.planType, type: "text" },
+            { label: "Currency", value: plan.currency, type: "text" },
+            { label: "Discount", value: plan.discount, type: "disc" },
+            { label: "Valid till", value: plan.validTill, type: "vt" },
+          ].map(({ label, value, type }) => (
+            <div key={label} className="flex flex-col gap-px min-w-0">
+              <span className="text-[10px] text-[#8C9BB5] font-medium uppercase whitespace-nowrap">{label}</span>
+              {type === "disc" && value !== "—"
+                ? <span className="text-[12px] font-semibold text-emerald-600">{value}</span>
+                : type === "vt" && value !== "—"
+                ? <span className="text-[10px] font-medium text-amber-700">{value}</span>
+                : <span className="text-[12px] font-medium text-[#0D1B2E] whitespace-nowrap overflow-hidden text-ellipsis" title={value}>{value}</span>}
+            </div>
+          ))}
+        </div>
+        {!isCashOnly && (
+          <div className="grid w-full pt-[5px]" style={{ gridTemplateColumns: "52px 72px 80px 1fr" }}>
+            {[
+              { label: "DP", value: plan.dp },
+              { label: "Duration", value: plan.duration },
+              { label: "Frequency", value: plan.frequency },
+              { label: "Instal %", value: plan.instalPct },
+            ].map(({ label, value }) => (
+              <div key={label} className="flex flex-col gap-px min-w-0">
+                <span className="text-[10px] text-[#8C9BB5] font-medium uppercase whitespace-nowrap">{label}</span>
+                <span className="text-[12px] font-medium text-[#0D1B2E] whitespace-nowrap overflow-hidden text-ellipsis">{value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Timestamps — pushed to bottom */}
+      <div className="mt-auto flex items-center gap-3.5 px-3 py-[5px] border-t border-border">
+        <span className="text-[10px] text-[#5A6A85] flex items-center gap-1"><span className="font-medium text-[#8C9BB5]">Created</span> {plan.createdAt}</span>
+        <span className="text-[10px] text-[#5A6A85] flex items-center gap-1"><span className="font-medium text-[#8C9BB5]">Updated</span> {plan.updatedAt}</span>
+      </div>
+
+      {/* Footer */}
+      <div className="px-3 py-1.5 flex items-center justify-between bg-[#F8FAFC] gap-1.5 border-t border-border">
+        <div />
+        <button onClick={onToggleExpand} className="flex items-center gap-0.5 text-[11px] font-medium text-blue-600 bg-transparent border-0 cursor-pointer px-[5px] py-[3px] rounded-[5px] hover:bg-blue-50 transition-colors">
+          Details <ChevronDown className={cn("w-[11px] h-[11px] transition-transform duration-[180ms]", isExpanded && "rotate-180")} />
+        </button>
+      </div>
+
+      {/* Expanded */}
+      {isExpanded && (
+        <div className="flex flex-col border-t border-border">
+          {/* Price after discount */}
+          {plan.expanded.priceAfterDiscount && (
+            <div className="px-3 py-[9px] border-b border-border flex flex-col gap-1.5">
+              <span className="text-[10px] font-semibold text-[#8C9BB5] uppercase tracking-[0.06em]">{plan.expanded.isCash ? "Payment" : "Price after discount"}</span>
+              <div className="flex flex-col gap-1 px-2.5 py-2 bg-emerald-50 rounded-[5px] border border-[#A7F3D0]">
+                <span className="text-[12px] text-[#8C9BB5] line-through">{plan.expanded.priceAfterDiscount.original}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] font-semibold text-[#0D1B2E]">{plan.expanded.priceAfterDiscount.final}</span>
+                  <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 border border-[#A7F3D0] px-1.5 py-px rounded-full">{plan.expanded.priceAfterDiscount.badge}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Initial payments */}
+          {plan.expanded.initialPayments && plan.expanded.initialPayments.length > 0 && (
+            <div className="px-3 py-[9px] border-b border-border flex flex-col gap-1.5">
+              <span className="text-[10px] font-semibold text-[#8C9BB5] uppercase tracking-[0.06em]">Initial payments</span>
+              <div className="grid grid-cols-2 gap-1.5">
+                {plan.expanded.initialPayments.map((ip) => (
+                  <div key={ip.label} className="flex flex-col gap-0.5">
+                    <span className="text-[10px] text-[#8C9BB5]">{ip.label}</span>
+                    <div className="flex flex-col gap-px">
+                      <span className="text-[11px] font-medium text-[#0D1B2E]">{ip.pct}</span>
+                      {ip.amt && <span className="text-[10px] font-medium text-emerald-600">{ip.amt}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Milestones */}
+          {plan.expanded.milestones && plan.expanded.milestones.length > 0 && (
+            <div className="px-3 py-[9px] border-b border-border flex flex-col gap-1.5">
+              <span className="text-[10px] font-semibold text-[#8C9BB5] uppercase tracking-[0.06em]">Milestones</span>
+              <div className="flex flex-col gap-[3px]">
+                {plan.expanded.milestones.map((m, idx) => (
+                  <div key={idx} className="flex items-center gap-[7px] px-2 py-[5px] bg-[#F8FAFC] rounded-[5px] border border-border">
+                    <div className="w-4 h-4 bg-blue-50 text-blue-600 rounded-[3px] text-[9px] font-bold flex items-center justify-center flex-shrink-0">{idx + 1}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] font-medium text-[#0D1B2E]">{m.name}</div>
+                      <div className="text-[10px] text-[#8C9BB5] mt-px">{m.at}</div>
+                      {m.amt && <div className="text-[10px] text-emerald-600 mt-px font-medium">{m.amt}</div>}
+                    </div>
+                    <div className="text-[11px] font-semibold text-[#0D1B2E] whitespace-nowrap">{m.pct}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Installments */}
+          {plan.expanded.installments && (
+            <div className="px-3 py-[9px] border-b border-border flex flex-col gap-1.5">
+              <span className="text-[10px] font-semibold text-[#8C9BB5] uppercase tracking-[0.06em]">Installments</span>
+              <div className="flex flex-col gap-0 px-2.5 py-[7px] bg-blue-50 rounded-[5px] border border-[#C7D5F8]">
+                <div className="flex items-center gap-[5px] py-1">
+                  <span className="text-[13px] font-semibold text-blue-600">{plan.expanded.installments.pct}</span>
+                  <span className="text-[11px] text-[#8C9BB5]">(</span>
+                  <span className="text-[11px] font-medium text-emerald-600">{plan.expanded.installments.amt}</span>
+                  <span className="text-[11px] text-[#8C9BB5]">)</span>
+                  <span className="text-[11px] text-[#5A6A85] font-medium ml-auto pl-1.5 whitespace-nowrap">{plan.expanded.installments.freq}</span>
+                </div>
+              </div>
+              {plan.expanded.bulks && plan.expanded.bulks.length > 0 && (
+                <div className="flex flex-col gap-[3px]">
+                  {plan.expanded.bulks.map((b, idx) => (
+                    <div key={idx} className="flex items-center gap-[7px] px-2 py-[5px] bg-[#F8FAFC] rounded-[5px] border border-border">
+                      <div className="w-4 h-4 bg-blue-50 text-blue-600 rounded-[3px] text-[9px] font-bold flex items-center justify-center flex-shrink-0">{idx + 1}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[11px] font-medium text-[#0D1B2E]">{b.name}</div>
+                        <div className="text-[10px] text-[#8C9BB5] mt-px">{b.at}</div>
+                        {b.amt && <div className="text-[10px] text-emerald-600 mt-px font-medium">{b.amt}</div>}
+                      </div>
+                      <div className="text-[11px] font-semibold text-[#0D1B2E] whitespace-nowrap">{b.pct}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Attachments */}
+          {plan.expanded.attachments && plan.expanded.attachments.length > 0 && (
+            <div className="px-3 py-[9px] border-b border-border flex flex-col gap-1.5">
+              <span className="text-[10px] font-semibold text-[#8C9BB5] uppercase tracking-[0.06em]">Attachments</span>
+              <div className="flex flex-col gap-1.5">
+                {plan.expanded.attachments.map((att) => (
+                  <div key={att.name} className="flex items-center gap-[7px] px-2 py-1.5 bg-[#F8FAFC] rounded-[6px] border border-border">
+                    <div className="w-6 h-6 bg-blue-50 rounded-[5px] flex items-center justify-center flex-shrink-0"><FileText className="w-3 h-3 text-blue-600" /></div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] font-medium text-[#0D1B2E] truncate">{att.name}</div>
+                      <div className="text-[10px] text-[#8C9BB5]">{att.size}</div>
+                    </div>
+                    <div className="flex gap-0.5">
+                      <button className="w-[22px] h-[22px] rounded-[4px] border-0 bg-transparent cursor-pointer flex items-center justify-center p-0 text-[#8C9BB5] hover:bg-slate-100 hover:text-[#5A6A85] transition-all" title="Download"><FileDown className="w-[11px] h-[11px]" /></button>
+                      <button className="w-[22px] h-[22px] rounded-[4px] border-0 bg-transparent cursor-pointer flex items-center justify-center p-0 text-[#8C9BB5] hover:bg-slate-100 hover:text-[#5A6A85] transition-all" title="Open"><Eye className="w-[11px] h-[11px]" /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Conditions */}
+          {plan.expanded.conditions && (
+            <div className="px-3 py-[9px] flex flex-col gap-1.5">
+              <span className="text-[10px] font-semibold text-[#8C9BB5] uppercase tracking-[0.06em]">Conditions</span>
+              <div className="flex flex-col gap-1.5">
+                {plan.expanded.conditions.andGroups.map((group, gi) => (
+                  <div key={gi}>
+                    {gi > 0 && (
+                      <div className="flex items-center gap-1.5 my-[3px]">
+                        <div className="flex-1 h-px bg-border" />
+                        <span className="text-[9px] font-bold text-blue-600 uppercase tracking-[0.04em]">AND</span>
+                        <div className="flex-1 h-px bg-border" />
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-1.5">
+                      {group.map((rule, ri) => (
+                        <div key={ri} className="flex items-start gap-1.5 flex-wrap px-2 py-1.5 bg-[#F8FAFC] rounded-[5px] border border-border">
+                          <span className={cn("text-[9px] font-bold text-white rounded-[3px] px-1.5 py-0.5 uppercase tracking-[0.04em] flex-shrink-0 mt-px", rule.op === "IF" ? "bg-blue-600" : "bg-[#7C3AED]")}>{rule.op}</span>
+                          <span className="text-[11px] text-[#0D1B2E] font-medium">{rule.field}</span>
+                          <span className="text-[11px] text-[#8C9BB5]">{rule.operator}</span>
+                          {rule.values.map((v) => <span key={v} className="text-[11px] text-blue-600 font-medium bg-blue-50 rounded-[3px] px-1.5 py-px border border-[#C7D5F8] whitespace-nowrap">{v}</span>)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Media Gallery Tab ─────────────────────────────────────────────────────────
+function MediaGalleryTab({
+  field, items, label, onUpload, onView, onRemove, onReorder,
+}: {
+  field: string; items: string[]; label: string
+  onUpload: () => void
+  onView: (idx: number) => void
+  onRemove: (idx: number) => void
+  onReorder: (items: string[]) => void
+}) {
+  const [confirmRemove, setConfirmRemove] = useState<number | null>(null)
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+
+  const handleDrop = (dropIdx: number) => {
+    if (dragIndex === null || dragIndex === dropIdx) return
+    const next = [...items]
+    const [moved] = next.splice(dragIndex, 1)
+    next.splice(dropIdx, 0, moved)
+    onReorder(next)
+    setDragIndex(null)
+    setDragOverIndex(null)
+  }
+
+  // generate stable dummy IDs per item index
+  const imgId = (i: number) => `${field === "images" ? "IMG" : "FLP"}-${String(i + 1).padStart(3, "0")}`
+
+  return (
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {items.length} {items.length === 1 ? label : `${label}s`}
+        </h4>
+        <Button size="sm" variant="outline" onClick={onUpload} className="h-7 text-xs gap-1.5">
+          <Plus className="h-3 w-3" />Add {label}s
+        </Button>
+      </div>
+      {items.length === 0 ? (
+        <div
+          onClick={onUpload}
+          className="rounded-xl border-2 border-dashed border-border p-14 flex flex-col items-center gap-3 cursor-pointer hover:border-primary/40 hover:bg-muted/20 transition-colors"
+        >
+          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+            <Upload className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <p className="text-sm text-muted-foreground">No {label.toLowerCase()}s yet — click to upload</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-3">
+          {items.map((img, i) => (
+            <div
+              key={i}
+              draggable
+              onDragStart={() => setDragIndex(i)}
+              onDragOver={(e) => { e.preventDefault(); setDragOverIndex(i) }}
+              onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }}
+              onDrop={() => handleDrop(i)}
+              className={cn(
+                "relative group rounded-lg overflow-hidden border aspect-video cursor-grab active:cursor-grabbing transition-all select-none",
+                dragOverIndex === i && dragIndex !== i ? "border-primary ring-2 ring-primary/30 scale-[1.02]" : "border-border hover:border-primary/50",
+                dragIndex === i ? "opacity-40" : "opacity-100",
+              )}
+            >
+              <img src={img} alt="" className="w-full h-full object-cover pointer-events-none" />
+
+              {/* Order badge — top left */}
+              <div className="absolute top-1.5 left-1.5 h-5 min-w-[20px] px-1 rounded bg-black/60 backdrop-blur-sm text-white text-[10px] font-semibold flex items-center justify-center leading-none">
+                {i + 1}
+              </div>
+
+              {/* Remove button — top right, always visible, red */}
+              {confirmRemove === i ? (
+                <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1 bg-black/80 backdrop-blur-sm rounded-md px-1.5 py-1">
+                  <span className="text-[10px] text-white/80 font-medium">Remove?</span>
+                  <button onClick={(e) => { e.stopPropagation(); setConfirmRemove(null) }} className="text-[10px] text-white/60 hover:text-white transition-colors px-0.5">No</button>
+                  <button onClick={(e) => { e.stopPropagation(); onRemove(i); setConfirmRemove(null) }} className="text-[10px] text-red-300 hover:text-red-200 transition-colors font-semibold px-0.5">Yes</button>
+                </div>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setConfirmRemove(i) }}
+                  className="absolute top-1.5 right-1.5 z-10 w-5 h-5 rounded-full bg-red-600/90 text-white flex items-center justify-center hover:bg-red-700 transition-colors shadow-sm"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              )}
+
+              {/* Image ID + copy — always visible at bottom */}
+              <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black/65 to-transparent px-2 pt-4 pb-1.5">
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-white/80 font-mono">{imgId(i)}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(imgId(i)).catch(() => {}) }}
+                    className="w-3.5 h-3.5 flex items-center justify-center text-white/60 hover:text-white transition-colors"
+                    title="Copy ID"
+                  >
+                    <Copy className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Zoom overlay — behind X and ID strip */}
+              <div
+                onClick={() => confirmRemove === null && onView(i)}
+                className="absolute inset-0 bg-black/0 hover:bg-black/15 transition-colors flex items-center justify-center cursor-pointer"
+              >
+                <ZoomIn className="h-5 w-5 text-white/0 hover:text-white/70 drop-shadow transition-colors" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── View Property Drawer ───────────────────────────────────────────────────────
 function ViewPropertyDrawer({
   row,
@@ -1108,6 +1773,10 @@ function ViewPropertyDrawer({
   const [serviceDraft, setServiceDraft] = useState<string[]>([])
   const [carouselState, setCarouselState] = useState<{ imgs: string[]; idx: number; field: "images" | "floorPlans" } | null>(null)
   const [uploadState, setUploadState] = useState<"images" | "floorPlans" | null>(null)
+  const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set())
+  const [auditLogDrawerEntry, setAuditLogDrawerEntry] = useState<{ id: string; action: "Edit" | "Create" | "Delete"; entity: string; label: string; detail: string; user: string; ts: string } | null>(null)
+  // price history sort: col + dir
+  const [phSort, setPhSort] = useState<{ col: "date" | "price" | "change" | "action" | "user"; dir: "asc" | "desc" }>({ col: "date", dir: "desc" })
   const tabsScrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -1132,7 +1801,8 @@ function ViewPropertyDrawer({
     { id: "images", label: row.images.length > 0 ? `Images (${row.images.length})` : "Images" },
     { id: "floor-plans", label: row.floorPlans.length > 0 ? `Floor Plans (${row.floorPlans.length})` : "Floor Plans" },
     { id: "amenities", label: "Amenities" },
-    { id: "activity-log", label: "Activity Log" },
+    { id: "entries-log", label: "Entries Logs" },
+    { id: "activity-log", label: "Audit Logs" },
     { id: "price-history", label: "Price History" },
   ]
 
@@ -1172,20 +1842,21 @@ function ViewPropertyDrawer({
     validUntil: new Date(Date.now() + (30 + i * 15) * 24 * 3600000).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
   }))
 
-  const dummyActivity = [
-    { icon: "status", label: "Availability changed", detail: "Available → Hold", user: "Sarah M.", time: "2 days ago", colorClass: "text-amber-600 bg-amber-50" },
-    { icon: "price", label: "Price updated", detail: `${(row.price ? row.price - 150000 : 0).toLocaleString()} → ${(row.price ?? 0).toLocaleString()} EGP`, user: "Ahmed K.", time: "5 days ago", colorClass: "text-blue-600 bg-blue-50" },
-    { icon: "listing", label: "Listing status changed", detail: "Hidden → Active", user: "System", time: "1 week ago", colorClass: "text-green-600 bg-green-50" },
-    { icon: "edit", label: "Unit details updated", detail: "Finishing type, floor number", user: "Mariam N.", time: "2 weeks ago", colorClass: "text-purple-600 bg-purple-50" },
-    { icon: "create", label: "Property created", detail: `Entry: ${row.entryType}`, user: row.entryType === "Automatic" ? "System" : "Omar F.", time: formatTimestamp(row.createdAt), colorClass: "text-gray-500 bg-gray-100" },
+  const dummyAuditLogs = [
+    { id: "LOG-A8F3C2", action: "Edit" as const, entity: "Properties", label: "Availability changed", detail: "Available → Hold", user: "Sarah M.", ts: formatTimestamp(new Date(Date.now() - 2 * 24 * 3600000).toISOString()) },
+    { id: "LOG-B1D7E9", action: "Edit" as const, entity: "Properties", label: "Price updated", detail: `${(row.price ? row.price - 150000 : 0).toLocaleString()} → ${(row.price ?? 0).toLocaleString()} EGP`, user: "Ahmed K.", ts: formatTimestamp(new Date(Date.now() - 5 * 24 * 3600000).toISOString()) },
+    { id: "LOG-C4F2A1", action: "Edit" as const, entity: "Properties", label: "Listing status changed", detail: "Hidden → Active", user: "System", ts: formatTimestamp(new Date(Date.now() - 7 * 24 * 3600000).toISOString()) },
+    { id: "LOG-D9B5C3", action: "Edit" as const, entity: "Properties", label: "Unit details updated", detail: "Finishing type, floor number", user: "Mariam N.", ts: formatTimestamp(new Date(Date.now() - 14 * 24 * 3600000).toISOString()) },
+    { id: "LOG-E2A8F7", action: "Create" as const, entity: "Properties", label: "Property created", detail: `Entry: ${row.entryType}`, user: row.entryType === "Automatic" ? "System" : "Omar F.", ts: formatTimestamp(row.createdAt) },
   ]
 
   const basePrice = row.price ?? 0
   const dummyPriceHistory = [
-    { date: formatTimestamp(new Date(Date.now() - 2 * 24 * 3600000).toISOString()), price: basePrice, change: 150000, user: "Ahmed K." },
-    { date: formatTimestamp(new Date(Date.now() - 10 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice - 150000), change: -250000, user: "Ahmed K." },
-    { date: formatTimestamp(new Date(Date.now() - 25 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice + 100000), change: 100000, user: "Sara M." },
-    { date: formatTimestamp(new Date(Date.now() - 60 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice), change: null, user: "System" },
+    { date: formatTimestamp(new Date(Date.now() - 2 * 24 * 3600000).toISOString()), price: basePrice, change: 150000, action: "Edit" as const, user: "Ahmed K." },
+    { date: formatTimestamp(new Date(Date.now() - 10 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice - 150000), change: -250000, action: "Edit" as const, user: "Ahmed K." },
+    { date: formatTimestamp(new Date(Date.now() - 25 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice + 100000), change: 100000, action: "Edit" as const, user: "Sara M." },
+    { date: formatTimestamp(new Date(Date.now() - 45 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice + 50000), change: null, action: "Create" as const, user: "System" },
+    { date: formatTimestamp(new Date(Date.now() - 60 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice - 300000), change: null, action: "Sold Off" as const, user: "Ahmed K." },
   ]
 
   const amenityChanged = JSON.stringify(amenityDraft.sort()) !== JSON.stringify([...row.amenities].sort())
@@ -1193,82 +1864,101 @@ function ViewPropertyDrawer({
 
   return (
     <>
-      <Sheet open={!!row} onOpenChange={(o) => !o && onClose()}>
+      <Sheet open={!!row} onOpenChange={(o) => { if (!o && !carouselState && !uploadState) onClose() }}>
         <SheetContent
           side="right"
-          className="w-[920px] max-w-[95vw] flex flex-col p-0 gap-0 overflow-hidden"
+          className="!w-[720px] !max-w-[93vw] flex flex-col p-0 gap-0 overflow-hidden"
         >
           {/* ── Header */}
-          <div className="shrink-0 border-b border-border bg-card px-6 pt-5 pb-4">
-            <div className="flex items-start gap-6">
-              {/* Left: all identity info */}
-              <div className="flex-1 min-w-0 space-y-2.5">
-                {/* Row 1: unit code */}
-                <h2 className="text-lg font-bold tracking-tight leading-none">{row.unitCode}</h2>
+          <div className="shrink-0 border-b border-border bg-card px-6 pt-5 pb-4 space-y-3">
 
-                {/* Row 2: status badges */}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <StoryBadge value={row.availability} />
-                  <StoryBadge value={row.listingStatus} />
-                  <StoryBadge value={row.saleType} />
-                  <StoryBadge value={row.entryType} />
-                  <Badge variant="outline" className={cn("text-xs border font-medium", tagColor(row.propertyType))}>
-                    {row.propertyType}
-                  </Badge>
+            {/* Row 1: Drawer title — Property ID */}
+            <div className="flex items-center gap-2 pr-10">
+              <span className="text-xs font-semibold text-muted-foreground tracking-wide shrink-0">Property ID</span>
+              <h3 className="text-lg font-bold font-mono tracking-wide text-foreground leading-none">{row.propertyId}</h3>
+              <CopyBtn value={row.propertyId} />
+            </div>
+
+            {/* Row 2: Tags */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <StoryBadge value={row.saleType} />
+              <StoryBadge value={row.entryType} />
+              <StoryBadge value={row.listingStatus} />
+              <StoryBadge value={row.availability} />
+            </div>
+
+            {/* Row 3: Developer · Project · Phase */}
+            <div className="flex items-start gap-4 flex-wrap">
+              {/* Developer */}
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-md bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[9px] font-bold text-slate-600 dark:text-slate-300 flex-shrink-0">
+                  {row.developer.logo}
                 </div>
-
-                {/* Row 3: developer · project · phase */}
-                <div className="flex items-center gap-1.5 text-sm flex-wrap">
-                  <span className="font-semibold text-foreground">{row.developer.name}</span>
-                  <span className="text-muted-foreground/50">·</span>
-                  <span className="text-muted-foreground">{row.project.name}</span>
-                  {row.phase && (
-                    <>
-                      <span className="text-muted-foreground/50">·</span>
-                      <span className="text-muted-foreground">{row.phase.name}</span>
-                    </>
-                  )}
-                </div>
-
-                {/* Row 4: IDs */}
-                <div className="flex items-center gap-4 flex-wrap">
-                  <span className="flex items-center gap-1.5 text-xs">
-                    <span className="text-muted-foreground">Property ID</span>
-                    <CopyableText value={row.propertyId} />
-                  </span>
-                  {row.detailedPropertyId && (
-                    <span className="flex items-center gap-1.5 text-xs">
-                      <span className="text-muted-foreground">Detailed ID</span>
-                      <CopyableText value={row.detailedPropertyId} muted />
-                    </span>
-                  )}
+                <div className="flex flex-col leading-snug">
+                  <span className="text-sm font-medium text-foreground">{row.developer.name}</span>
+                  <span className="text-[11px] text-muted-foreground"><CopyableText value={row.developer.id} muted /></span>
                 </div>
               </div>
+              <span className="text-muted-foreground/30 mt-1.5">·</span>
+              {/* Project */}
+              <div className="flex flex-col leading-snug">
+                <span className="text-sm font-medium text-foreground">{row.project.name}</span>
+                <span className="text-[11px] text-muted-foreground"><CopyableText value={row.project.id} muted /></span>
+              </div>
+              {/* Phase */}
+              {row.phase && (
+                <>
+                  <span className="text-muted-foreground/30 mt-1.5">·</span>
+                  <div className="flex flex-col leading-snug">
+                    <span className="text-sm font-medium text-foreground">{row.phase.name}</span>
+                    <span className="text-[11px] text-muted-foreground"><CopyableText value={row.phase.id} muted /></span>
+                  </div>
+                </>
+              )}
+            </div>
 
-              {/* Right: price block */}
-              <div className="flex-shrink-0 text-right">
+            {/* Property Metadata ID + Detailed Property ID + Unit Code */}
+            <div className="flex items-center gap-5 flex-wrap text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground font-medium">Property Metadata ID</span>
+                <CopyableText value={row.propertyMetadataId} muted />
+              </div>
+              {row.detailedPropertyId && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground font-medium">Detailed Property ID</span>
+                  <CopyableText value={row.detailedPropertyId} muted />
+                </div>
+              )}
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground font-medium">Unit Code</span>
+                <CopyableText value={row.unitCode} muted />
+              </div>
+            </div>
+
+            {/* Row 4: Property type + Price */}
+            <div className="flex items-center justify-between gap-4 pt-0.5">
+              <Badge variant="outline" className={cn("text-xs border font-medium", tagColor(row.propertyType))}>
+                {row.propertyType}
+              </Badge>
+              <div className="flex items-center gap-3">
                 {row.price ? (
                   <>
-                    <div className="text-2xl font-bold tabular-nums leading-tight">
+                    <span className="text-lg font-bold tabular-nums">
                       {row.price.toLocaleString()}
-                      <span className="text-base font-medium text-muted-foreground ml-1">EGP</span>
-                    </div>
+                      <span className="text-sm font-medium text-muted-foreground ml-1">EGP</span>
+                    </span>
                     {pricePerM2 && (
-                      <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
+                      <span className="text-xs text-muted-foreground tabular-nums">
                         {pricePerM2.toLocaleString()} EGP/m²
-                      </div>
+                      </span>
                     )}
                   </>
                 ) : (
-                  <div className="text-sm font-medium text-red-500">No price set</div>
-                )}
-                {row.deliveryDate && (
-                  <div className="text-[11px] text-muted-foreground mt-1.5 bg-muted px-2 py-0.5 rounded-full inline-block">
-                    Delivery: {row.deliveryDate}
-                  </div>
+                  <span className="text-sm font-medium text-red-500">No price set</span>
                 )}
               </div>
             </div>
+
           </div>
 
           {/* ── Tabs bar with scroll arrows */}
@@ -1316,9 +2006,39 @@ function ViewPropertyDrawer({
             {activeTab === "unit-details" && (
               <div className="p-6 space-y-6">
                 <Section title="Identity">
+                  {/* Property IDs row */}
                   <Field label="Property ID" value={<CopyableText value={row.propertyId} />} />
-                  <Field label="Detailed Property ID" value={<CopyableText value={row.detailedPropertyId} muted />} />
+                  <Field label="Property Metadata ID" value={<CopyableText value={row.propertyMetadataId} muted />} />
+                  {/* Developer + Project on same line */}
+                  <Field label="Developer" value={
+                    <div className="flex items-center gap-1.5">
+                      <span>{row.developer.name}</span>
+                      <span className="text-[11px] text-muted-foreground font-mono"><CopyableText value={row.developer.id} muted /></span>
+                    </div>
+                  } />
+                  <Field label="Project" value={
+                    <div className="flex items-center gap-1.5">
+                      <span>{row.project.name}</span>
+                      <span className="text-[11px] text-muted-foreground font-mono"><CopyableText value={row.project.id} muted /></span>
+                    </div>
+                  } />
+                  {/* Phase under developer/project */}
+                  {row.phase && (
+                    <Field label="Phase" value={
+                      <div className="flex items-center gap-1.5">
+                        <span>{row.phase.name}</span>
+                        <span className="text-[11px] text-muted-foreground font-mono"><CopyableText value={row.phase.id} muted /></span>
+                      </div>
+                    } span={2} />
+                  )}
+                  {/* Sale/Entry type above listing/availability */}
+                  <Field label="Sale Type" value={<StoryBadge value={row.saleType} />} />
                   <Field label="Entry Type" value={<StoryBadge value={row.entryType} />} />
+                  <Field label="Listing Status" value={<StoryBadge value={row.listingStatus} />} />
+                  <Field label="Availability" value={<StoryBadge value={row.availability} />} />
+                  {/* Detailed Property ID + Unit Code on same line */}
+                  <Field label="Detailed Property ID" value={row.detailedPropertyId ? <CopyableText value={row.detailedPropertyId} muted /> : null} />
+                  <Field label="Unit Code" value={<CopyableText value={row.unitCode} muted />} />
                   <Field label="Unit Number" value={row.unitNumber} />
                   <Field label="Unit Model" value={row.unitModel} />
                   <Field label="Zone" value={row.zone} />
@@ -1338,6 +2058,17 @@ function ViewPropertyDrawer({
                   <Field label="Bedrooms" value={row.bedrooms} />
                   <Field label="Bathrooms" value={row.bathrooms} />
                 </Section>
+                <Section title="Delivery & Finishing">
+                  <Field label="Delivery Type" value={<StoryBadge value={row.deliveryType} />} />
+                  <Field label="Delivery Date" value={row.deliveryDate} />
+                  <Field label="Finishing Type" value={<TagBadge value={row.finishingType} />} />
+                  <Field
+                    label="Finishing Level"
+                    value={row.finishingType === "Furnished" ? <TagBadge value={row.finishingLevel} /> : null}
+                  />
+                  <Field label="Serviced" value={<BooleanMark value={row.serviced} />} />
+                  <Field label="Branded" value={<BooleanMark value={row.branded} />} />
+                </Section>
                 <Section title="Areas">
                   <Field label="Open Roof Area" value={formatArea(row.openRoofArea)} />
                   <Field label="Roof Annex Area" value={formatArea(row.roofAnnexArea)} />
@@ -1356,205 +2087,60 @@ function ViewPropertyDrawer({
                   <Field label="Storage Price" value={formatPrice(row.storagePrice)} />
                   <Field label="Outdoor Price" value={formatPrice(row.outdoorPrice)} />
                 </Section>
-                <Section title="Delivery & Finishing">
-                  <Field label="Delivery Type" value={<StoryBadge value={row.deliveryType} />} />
-                  <Field label="Delivery Date" value={row.deliveryDate} />
-                  <Field label="Finishing Type" value={<TagBadge value={row.finishingType} />} />
-                  <Field
-                    label="Finishing Level"
-                    value={row.finishingType === "Furnished" ? <TagBadge value={row.finishingLevel} /> : null}
-                  />
-                  <Field label="Serviced" value={<BooleanMark value={row.serviced} />} />
-                  <Field label="Branded" value={<BooleanMark value={row.branded} />} />
-                </Section>
                 <Section title="Views & Orientation">
                   <Field label="Unit View" value={<TagBadge value={row.unitView} />} />
                   <Field label="Unit Orientation" value={<TagBadge value={row.unitOrientation} />} />
                 </Section>
                 <Section title="Timestamps">
-                  <Field label="Created At" value={formatTimestamp(row.createdAt)} />
-                  <Field label="Availability Updated" value={formatTimestamp(row.availabilityUpdatedAt)} />
-                  <Field label="Last Updated" value={formatTimestamp(row.lastUpdated)} />
+                  <div className="col-span-2 flex items-start gap-8 flex-wrap">
+                    {[
+                      { label: "Created At", value: formatTimestamp(row.createdAt) },
+                      { label: "Availability Updated", value: formatTimestamp(row.availabilityUpdatedAt) },
+                      { label: "Last Updated", value: formatTimestamp(row.lastUpdated) },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="space-y-0.5">
+                        <dt className="text-[11px] font-medium text-muted-foreground">{label}</dt>
+                        <dd className="text-sm tabular-nums">{value}</dd>
+                      </div>
+                    ))}
+                  </div>
                 </Section>
               </div>
             )}
 
             {/* Payment Plans */}
             {activeTab === "payment-plans" && (
-              <div className="p-6 space-y-6">
-                {/* Price summary card */}
-                <div className="rounded-xl border border-border bg-muted/30 p-5 flex items-start justify-between gap-6">
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-1">Current Price</p>
-                    <p className="text-2xl font-bold tabular-nums">
-                      {row.price ? `${row.price.toLocaleString()} EGP` : <span className="text-red-500 text-lg">Not set</span>}
-                    </p>
-                    {pricePerM2 && (
-                      <p className="text-sm text-muted-foreground tabular-nums mt-0.5">
-                        {pricePerM2.toLocaleString()} EGP/m²
-                      </p>
-                    )}
-                  </div>
-                  {row.priceRecords.length > 1 && (
-                    <div className="text-right">
-                      <p className="text-xs font-medium text-muted-foreground mb-1">All Prices</p>
-                      {row.priceRecords.map((p, i) => (
-                        <p key={i} className={cn("text-sm tabular-nums", i === 0 ? "font-semibold text-foreground" : "text-muted-foreground")}>
-                          {p.toLocaleString()} EGP
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Payment plans list */}
-                <div>
-                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                    Payment Plans ({row.paymentPlans})
-                  </h4>
-                  {row.paymentPlans === 0 ? (
-                    <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                      No payment plans attached to this unit.
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {dummyPlans.map((plan) => (
-                        <div key={plan.id} className="rounded-xl border border-border bg-card p-4 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <h5 className="font-semibold text-sm">{plan.name}</h5>
-                            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                              {plan.duration / 12}-year plan
-                            </Badge>
-                          </div>
-                          <div className="grid grid-cols-4 gap-3 rounded-lg bg-muted/40 p-3">
-                            {[
-                              { label: "Down Payment", value: `${plan.downPayment}%` },
-                              { label: "Instalment", value: `${plan.installmentPct}% / qtr` },
-                              { label: "On Delivery", value: `${plan.deliveryPct}%` },
-                              { label: "Maintenance", value: `${plan.maintenancePct}%` },
-                            ].map(({ label, value }) => (
-                              <div key={label} className="text-center">
-                                <p className="text-[10px] text-muted-foreground mb-0.5">{label}</p>
-                                <p className="text-sm font-semibold tabular-nums">{value}</p>
-                              </div>
-                            ))}
-                          </div>
-                          {row.price && (
-                            <div className="text-xs text-muted-foreground">
-                              Down payment amount:{" "}
-                              <span className="font-medium text-foreground tabular-nums">
-                                {Math.round(row.price * plan.downPayment / 100).toLocaleString()} EGP
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Offers */}
-                {row.offers > 0 && (
-                  <div>
-                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                      Active Offers ({row.offers})
-                    </h4>
-                    <div className="space-y-3">
-                      {dummyOffers.map((offer) => (
-                        <div key={offer.id} className="rounded-xl border border-orange-200 bg-orange-50 p-4 flex items-center justify-between gap-4">
-                          <div>
-                            <p className="text-sm font-semibold text-orange-900">{offer.title}</p>
-                            <p className="text-xs text-orange-700 mt-0.5">Valid until {offer.validUntil}</p>
-                          </div>
-                          <Badge variant="outline" className="border-orange-300 bg-orange-100 text-orange-800 text-sm font-bold flex-shrink-0 px-3 py-1">
-                            {offer.discount}% off
-                          </Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+              <div className="p-6 space-y-7">
+                {PAYMENT_PLAN_GROUPS.map((group, gi) => (
+                  <PriceGroup key={gi} group={group} groupIndex={gi} totalGroups={PAYMENT_PLAN_GROUPS.length} expandedPlans={expandedPlans} setExpandedPlans={setExpandedPlans} />
+                ))}
               </div>
             )}
 
             {/* Images */}
             {activeTab === "images" && (
-              <div className="p-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {row.images.length} {row.images.length === 1 ? "Image" : "Images"}
-                  </h4>
-                  <Button size="sm" variant="outline" onClick={() => setUploadState("images")} className="h-7 text-xs gap-1.5">
-                    <Plus className="h-3 w-3" />Add Images
-                  </Button>
-                </div>
-                {row.images.length === 0 ? (
-                  <div
-                    onClick={() => setUploadState("images")}
-                    className="rounded-xl border-2 border-dashed border-border p-14 flex flex-col items-center gap-3 cursor-pointer hover:border-primary/40 hover:bg-muted/20 transition-colors"
-                  >
-                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-                      <Upload className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <p className="text-sm text-muted-foreground">No images yet — click to upload</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-3 gap-3">
-                    {row.images.map((img, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setCarouselState({ imgs: row.images, idx: i, field: "images" })}
-                        className="relative group rounded-lg overflow-hidden border border-border aspect-video hover:border-primary/50 transition-all"
-                      >
-                        <img src={img} alt="" className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                          <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 drop-shadow" />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <MediaGalleryTab
+                field="images"
+                items={row.images}
+                label="Image"
+                onUpload={() => setUploadState("images")}
+                onView={(idx) => setCarouselState({ imgs: row.images, idx, field: "images" })}
+                onRemove={(idx) => onUpdateRow(row.propertyId, { images: row.images.filter((_, i) => i !== idx) })}
+                onReorder={(items) => onUpdateRow(row.propertyId, { images: items })}
+              />
             )}
 
             {/* Floor Plans */}
             {activeTab === "floor-plans" && (
-              <div className="p-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {row.floorPlans.length} {row.floorPlans.length === 1 ? "Floor Plan" : "Floor Plans"}
-                  </h4>
-                  <Button size="sm" variant="outline" onClick={() => setUploadState("floorPlans")} className="h-7 text-xs gap-1.5">
-                    <Plus className="h-3 w-3" />Add Floor Plans
-                  </Button>
-                </div>
-                {row.floorPlans.length === 0 ? (
-                  <div
-                    onClick={() => setUploadState("floorPlans")}
-                    className="rounded-xl border-2 border-dashed border-border p-14 flex flex-col items-center gap-3 cursor-pointer hover:border-primary/40 hover:bg-muted/20 transition-colors"
-                  >
-                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-                      <Upload className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <p className="text-sm text-muted-foreground">No floor plans yet — click to upload</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-3 gap-3">
-                    {row.floorPlans.map((img, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setCarouselState({ imgs: row.floorPlans, idx: i, field: "floorPlans" })}
-                        className="relative group rounded-lg overflow-hidden border border-border aspect-video hover:border-primary/50 transition-all"
-                      >
-                        <img src={img} alt="" className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                          <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 drop-shadow" />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <MediaGalleryTab
+                field="floorPlans"
+                items={row.floorPlans}
+                label="Floor Plan"
+                onUpload={() => setUploadState("floorPlans")}
+                onView={(idx) => setCarouselState({ imgs: row.floorPlans, idx, field: "floorPlans" })}
+                onRemove={(idx) => onUpdateRow(row.propertyId, { floorPlans: row.floorPlans.filter((_, i) => i !== idx) })}
+                onReorder={(items) => onUpdateRow(row.propertyId, { floorPlans: items })}
+              />
             )}
 
             {/* Amenities */}
@@ -1644,104 +2230,350 @@ function ViewPropertyDrawer({
               </div>
             )}
 
-            {/* Activity Log */}
-            {activeTab === "activity-log" && (
-              <div className="p-6">
-                <div className="space-y-0 divide-y divide-border">
-                  {dummyActivity.map((entry, i) => (
-                    <div key={i} className="flex items-start gap-3 py-4">
-                      <div className={cn("h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5", entry.colorClass)}>
-                        {entry.icon === "status" && <ArrowUpDown className="h-3.5 w-3.5" />}
-                        {entry.icon === "price" && <span className="text-[9px] font-bold leading-none">EGP</span>}
-                        {entry.icon === "listing" && <Eye className="h-3.5 w-3.5" />}
-                        {entry.icon === "edit" && <Edit className="h-3.5 w-3.5" />}
-                        {entry.icon === "create" && <Plus className="h-3.5 w-3.5" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{entry.label}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{entry.detail}</p>
-                      </div>
-                      <div className="text-right flex-shrink-0 space-y-0.5">
-                        <p className="text-xs font-medium">{entry.user}</p>
-                        <p className="text-[11px] text-muted-foreground">{entry.time}</p>
+            {/* Entries Logs */}
+            {activeTab === "entries-log" && (
+              <div className="p-4 space-y-2.5">
+                {[
+                  { id: "ENT-2026-00814", ts: "14 May 2026, 09:42", createdBy: "Sara Mostafa", status: "Modified" as const },
+                  { id: "ENT-2026-00791", ts: "11 May 2026, 15:18", createdBy: "Khaled Ibrahim", status: "Unmodified" as const },
+                  { id: "ENT-2026-00754", ts: "07 May 2026, 11:04", createdBy: "Sara Mostafa", status: "New" as const },
+                  { id: "ENT-2026-00712", ts: "02 May 2026, 08:55", createdBy: "Ahmed Nour", status: "Returned" as const },
+                  { id: "ENT-2026-00689", ts: "28 Apr 2026, 16:30", createdBy: "Khaled Ibrahim", status: "Modified" as const },
+                  { id: "ENT-2026-00651", ts: "23 Apr 2026, 10:12", createdBy: "Sara Mostafa", status: "Missing" as const },
+                  { id: "ENT-2026-00620", ts: "19 Apr 2026, 13:47", createdBy: "Omar Fathi", status: "Unmodified" as const },
+                  { id: "ENT-2026-00598", ts: "14 Apr 2026, 09:20", createdBy: "Ahmed Nour", status: "New" as const },
+                ].map((entry) => {
+                  const statusStyle: Record<string, { card: string; badge: string }> = {
+                    New:        { card: "border-emerald-200 bg-emerald-50/40 dark:bg-emerald-950/20 dark:border-emerald-800",   badge: "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400" },
+                    Modified:   { card: "border-amber-200 bg-amber-50/40 dark:bg-amber-950/20 dark:border-amber-800",           badge: "bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-900/40 dark:text-amber-400" },
+                    Unmodified: { card: "border-border bg-card",                                                                 badge: "bg-muted text-muted-foreground border border-border" },
+                    Missing:    { card: "border-red-200 bg-red-50/40 dark:bg-red-950/20 dark:border-red-800",                   badge: "bg-red-100 text-red-600 border border-red-200 dark:bg-red-900/40 dark:text-red-400" },
+                    Returned:   { card: "border-blue-200 bg-blue-50/40 dark:bg-blue-950/20 dark:border-blue-800",               badge: "bg-blue-100 text-blue-600 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-400" },
+                  }
+                  const s = statusStyle[entry.status]
+                  return (
+                    <div key={entry.id} className={cn("rounded-xl border px-4 py-3 flex items-center gap-3", s.card)}>
+                      {/* Entry ID — clickable */}
+                      <a
+                        href={`/entries/${entry.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-xs font-semibold text-primary hover:underline underline-offset-2 flex-shrink-0 w-36"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {entry.id}
+                      </a>
+                      {/* Status badge */}
+                      <span className={cn("text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0", s.badge)}>
+                        {entry.status}
+                      </span>
+                      {/* Meta */}
+                      <div className="flex-1 min-w-0 flex items-center gap-3 text-xs text-muted-foreground ml-1">
+                        <span className="flex items-center gap-1 flex-shrink-0">
+                          <User className="h-3 w-3" />{entry.createdBy}
+                        </span>
+                        <span className="flex items-center gap-1 flex-shrink-0">
+                          <Clock className="h-3 w-3" />{entry.ts}
+                        </span>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Audit Logs */}
+            {activeTab === "activity-log" && (
+              <div className="p-4 space-y-2.5">
+                {dummyAuditLogs.map((log) => {
+                  const actionStyle: Record<string, { badge: string; icon: React.ReactNode }> = {
+                    Create: { badge: "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400", icon: <Plus className="h-3 w-3" /> },
+                    Edit:   { badge: "bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-400",             icon: <Edit className="h-3 w-3" /> },
+                    Delete: { badge: "bg-red-100 text-red-600 border border-red-200 dark:bg-red-900/40 dark:text-red-400",                  icon: <Trash2 className="h-3 w-3" /> },
+                  }
+                  const as = actionStyle[log.action] ?? actionStyle["Edit"]
+                  return (
+                    <div key={log.id} className="rounded-xl border border-border bg-card px-4 py-3 flex items-center gap-3">
+                      {/* Action badge */}
+                      <span className={cn("inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0", as.badge)}>
+                        {as.icon}{log.action}
+                      </span>
+                      {/* Log ID */}
+                      <span className="font-mono text-xs text-muted-foreground flex-shrink-0 w-28">{log.id}</span>
+                      {/* Label + detail */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium truncate">{log.label}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{log.detail}</p>
+                      </div>
+                      {/* User + timestamp */}
+                      <div className="text-right flex-shrink-0 space-y-0.5 mr-1">
+                        <p className="text-xs font-medium">{log.user}</p>
+                        <p className="text-[11px] text-muted-foreground whitespace-nowrap">{log.ts}</p>
+                      </div>
+                      {/* View button */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setAuditLogDrawerEntry(log) }}
+                        className="flex-shrink-0 h-7 w-7 rounded-lg border border-border bg-muted/60 hover:bg-muted flex items-center justify-center transition-colors"
+                        title="View log details"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                      </button>
+                    </div>
+                  )
+                })}
               </div>
             )}
 
             {/* Price History */}
-            {activeTab === "price-history" && (
-              <div className="p-6 space-y-4">
-                <div className="rounded-xl border border-border overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-                      <tr>
-                        <th className="text-left px-4 py-3">Date</th>
-                        <th className="text-right px-4 py-3">Price (EGP)</th>
-                        <th className="text-right px-4 py-3">Change</th>
-                        <th className="text-left px-4 py-3">Updated by</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {dummyPriceHistory.map((entry, i) => (
-                        <tr key={i} className="hover:bg-muted/30 transition-colors">
-                          <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">{entry.date}</td>
-                          <td className="px-4 py-3 text-right font-semibold tabular-nums">{entry.price.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-right tabular-nums text-xs">
-                            {entry.change === null ? (
-                              <span className="text-muted-foreground">—</span>
-                            ) : entry.change > 0 ? (
-                              <span className="text-green-600 font-medium">+{entry.change.toLocaleString()}</span>
-                            ) : (
-                              <span className="text-red-600 font-medium">{entry.change.toLocaleString()}</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-xs font-medium">{entry.user}</td>
+            {activeTab === "price-history" && (() => {
+              type PhCol = "date" | "price" | "change" | "action" | "user"
+              const togglePhSort = (col: PhCol) => {
+                setPhSort((prev) =>
+                  prev.col === col
+                    ? { col, dir: prev.dir === "asc" ? "desc" : "asc" }
+                    : { col, dir: col === "date" ? "desc" : "asc" }
+                )
+              }
+              const sorted = [...dummyPriceHistory].sort((a, b) => {
+                let cmp = 0
+                if (phSort.col === "date")   cmp = a.date.localeCompare(b.date)
+                if (phSort.col === "price")  cmp = a.price - b.price
+                if (phSort.col === "change") cmp = (a.change ?? 0) - (b.change ?? 0)
+                if (phSort.col === "action") cmp = a.action.localeCompare(b.action)
+                if (phSort.col === "user")   cmp = a.user.localeCompare(b.user)
+                return phSort.dir === "asc" ? cmp : -cmp
+              })
+              const phActionStyle: Record<string, string> = {
+                Create:   "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400",
+                Edit:     "bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-400",
+                "Sold Off": "bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-900/40 dark:text-purple-400",
+              }
+              const SortIcon = ({ col }: { col: PhCol }) => (
+                phSort.col === col
+                  ? <span className="ml-1 inline-block">{phSort.dir === "asc" ? "↑" : "↓"}</span>
+                  : <ArrowUpDown className="ml-1 h-3 w-3 inline-block opacity-30" />
+              )
+              return (
+                <div className="p-5">
+                  <div className="rounded-xl border border-border overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        <tr>
+                          <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("date")}>
+                            Date<SortIcon col="date" />
+                          </th>
+                          <th className="text-right px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("price")}>
+                            Price<SortIcon col="price" />
+                          </th>
+                          <th className="text-right px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("change")}>
+                            Change<SortIcon col="change" />
+                          </th>
+                          <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("action")}>
+                            Action<SortIcon col="action" />
+                          </th>
+                          <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("user")}>
+                            Updated by<SortIcon col="user" />
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {sorted.map((entry, i) => (
+                          <tr key={i} className="hover:bg-muted/30 transition-colors">
+                            <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">{entry.date}</td>
+                            <td className="px-4 py-3 text-right font-semibold tabular-nums text-xs">
+                              {entry.price.toLocaleString()} <span className="text-muted-foreground font-normal">EGP</span>
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums text-xs">
+                              {entry.change === null ? (
+                                <span className="text-muted-foreground">—</span>
+                              ) : entry.change > 0 ? (
+                                <span className="text-green-600 font-medium">+{entry.change.toLocaleString()}</span>
+                              ) : (
+                                <span className="text-red-600 font-medium">{entry.change.toLocaleString()}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={cn("inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full", phActionStyle[entry.action] ?? "")}>
+                                {entry.action}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-xs font-medium">{entry.user}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
 
           </div>
+
+          {/* Carousel — inside SheetContent so Radix focus trap allows interaction */}
+          {carouselState && (
+            <ImageCarousel
+              images={carouselState.imgs}
+              startIndex={carouselState.idx}
+              onClose={() => setCarouselState(null)}
+              onReorder={(imgs) => {
+                onUpdateRow(row.propertyId, { [carouselState.field]: imgs })
+                setCarouselState((s) => (s ? { ...s, imgs } : null))
+              }}
+              onRemove={(idx) => {
+                const next = carouselState.imgs.filter((_, i) => i !== idx)
+                onUpdateRow(row.propertyId, { [carouselState.field]: next })
+                if (next.length === 0) setCarouselState(null)
+                else setCarouselState((s) => (s ? { ...s, imgs: next } : null))
+              }}
+            />
+          )}
+
+          {/* Upload dialog — inside SheetContent so Radix focus trap allows interaction */}
+          {uploadState && (
+            <UploadDialog
+              open
+              onClose={() => setUploadState(null)}
+              onUpload={(urls) => {
+                const field = uploadState
+                const current = field === "images" ? row.images : row.floorPlans
+                onUpdateRow(row.propertyId, { [field]: [...current, ...urls] })
+              }}
+            />
+          )}
+
+          {/* ── Audit Log Detail Drawer — overlays the unit drawer */}
+          {auditLogDrawerEntry && (
+            <div
+              className="absolute inset-0 z-50 flex"
+              onClick={() => setAuditLogDrawerEntry(null)}
+            >
+              {/* Scrim */}
+              <div className="flex-1 bg-black/30" />
+              {/* Panel */}
+              <div
+                className="w-[480px] h-full bg-background border-l border-border flex flex-col shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div className="shrink-0 border-b border-border px-5 pt-5 pb-4 flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Audit Log</p>
+                    <p className="font-mono text-sm font-bold">{auditLogDrawerEntry.id}</p>
+                  </div>
+                  <button
+                    onClick={() => setAuditLogDrawerEntry(null)}
+                    className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-muted transition-colors text-muted-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                  {/* Meta grid */}
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                    <div>
+                      <p className="text-[11px] text-muted-foreground font-medium mb-0.5">Action</p>
+                      {(() => {
+                        const actionStyle: Record<string, { badge: string; icon: React.ReactNode }> = {
+                          Create: { badge: "bg-emerald-100 text-emerald-700 border border-emerald-200", icon: <Plus className="h-3 w-3" /> },
+                          Edit:   { badge: "bg-blue-100 text-blue-700 border border-blue-200",          icon: <Edit className="h-3 w-3" /> },
+                          Delete: { badge: "bg-red-100 text-red-600 border border-red-200",             icon: <Trash2 className="h-3 w-3" /> },
+                        }
+                        const as = actionStyle[auditLogDrawerEntry.action] ?? actionStyle["Edit"]
+                        return (
+                          <span className={cn("inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full", as.badge)}>
+                            {as.icon}{auditLogDrawerEntry.action}
+                          </span>
+                        )
+                      })()}
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground font-medium mb-0.5">Entity</p>
+                      <p className="text-sm font-medium">{auditLogDrawerEntry.entity}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground font-medium mb-0.5">Record ID</p>
+                      <p className="font-mono text-xs font-semibold text-primary">{row.propertyId}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground font-medium mb-0.5">User</p>
+                      <div className="flex items-center gap-1.5">
+                        <div className="h-5 w-5 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+                          <User className="h-3 w-3 text-primary" />
+                        </div>
+                        <p className="text-sm font-medium">{auditLogDrawerEntry.user}</p>
+                      </div>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-[11px] text-muted-foreground font-medium mb-0.5">Timestamp</p>
+                      <p className="text-sm">{auditLogDrawerEntry.ts}</p>
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="border-t border-border" />
+
+                  {/* What changed */}
+                  <div>
+                    <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide mb-2">What Changed</p>
+                    <div className="rounded-xl border border-border overflow-hidden">
+                      <div className="bg-muted px-4 py-2 grid grid-cols-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        <span>Field</span>
+                        <span>Before</span>
+                        <span>After</span>
+                      </div>
+                      {/* Hardcoded field diff rows based on the log label */}
+                      {auditLogDrawerEntry.action === "Create" ? (
+                        <div className="px-4 py-3 text-xs text-muted-foreground italic">New record — no previous values.</div>
+                      ) : (
+                        <div className="divide-y divide-border">
+                          {auditLogDrawerEntry.label === "Availability changed" && (
+                            <div className="px-4 py-2.5 grid grid-cols-3 text-xs">
+                              <span className="font-medium text-foreground">Availability</span>
+                              <span className="text-muted-foreground">Available</span>
+                              <span className="font-medium text-amber-700">Hold</span>
+                            </div>
+                          )}
+                          {auditLogDrawerEntry.label === "Price updated" && (
+                            <div className="px-4 py-2.5 grid grid-cols-3 text-xs">
+                              <span className="font-medium text-foreground">Price</span>
+                              <span className="text-muted-foreground">{(row.price ? row.price - 150000 : 0).toLocaleString()} EGP</span>
+                              <span className="font-medium text-green-700">{(row.price ?? 0).toLocaleString()} EGP</span>
+                            </div>
+                          )}
+                          {auditLogDrawerEntry.label === "Listing status changed" && (
+                            <div className="px-4 py-2.5 grid grid-cols-3 text-xs">
+                              <span className="font-medium text-foreground">Listing Status</span>
+                              <span className="text-muted-foreground">Hidden</span>
+                              <span className="font-medium text-green-700">Active</span>
+                            </div>
+                          )}
+                          {auditLogDrawerEntry.label === "Unit details updated" && (
+                            <>
+                              <div className="px-4 py-2.5 grid grid-cols-3 text-xs">
+                                <span className="font-medium text-foreground">Finishing Type</span>
+                                <span className="text-muted-foreground">Standard</span>
+                                <span className="font-medium">Semi-Finished</span>
+                              </div>
+                              <div className="px-4 py-2.5 grid grid-cols-3 text-xs">
+                                <span className="font-medium text-foreground">Floor Number</span>
+                                <span className="text-muted-foreground">3</span>
+                                <span className="font-medium">5</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
         </SheetContent>
       </Sheet>
-
-      {/* Carousel opened from within the drawer */}
-      {carouselState && (
-        <ImageCarousel
-          images={carouselState.imgs}
-          startIndex={carouselState.idx}
-          onClose={() => setCarouselState(null)}
-          onReorder={(imgs) => {
-            onUpdateRow(row.propertyId, { [carouselState.field]: imgs })
-            setCarouselState((s) => (s ? { ...s, imgs } : null))
-          }}
-          onRemove={(idx) => {
-            const next = carouselState.imgs.filter((_, i) => i !== idx)
-            onUpdateRow(row.propertyId, { [carouselState.field]: next })
-            if (next.length === 0) setCarouselState(null)
-            else setCarouselState((s) => (s ? { ...s, imgs: next } : null))
-          }}
-        />
-      )}
-
-      {/* Upload dialog opened from within the drawer */}
-      {uploadState && (
-        <UploadDialog
-          open
-          onClose={() => setUploadState(null)}
-          onUpload={(urls) => {
-            const field = uploadState
-            const current = field === "images" ? row.images : row.floorPlans
-            onUpdateRow(row.propertyId, { [field]: [...current, ...urls] })
-          }}
-        />
-      )}
     </>
   )
 }
@@ -1983,8 +2815,20 @@ export function DetailedPropertiesView() {
     switch (column.id) {
       case "propertyId":
         return (
-          <span className="font-mono text-xs font-medium">
-            <CopyableText value={row.propertyId} />
+          <a
+            href={`/properties/${row.propertyId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-xs font-medium text-primary hover:underline underline-offset-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {row.propertyId}
+          </a>
+        )
+      case "propertyMetadataId":
+        return (
+          <span className="font-mono text-xs">
+            <CopyableText value={row.propertyMetadataId} />
           </span>
         )
       case "detailedPropertyId":
@@ -2852,6 +3696,45 @@ export function DetailedPropertiesView() {
         </div>
       </div>
 
+      {/* Bulk action bar */}
+      {selectedRows.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-0 bg-zinc-900 text-white rounded-xl shadow-2xl overflow-hidden text-sm select-none">
+          {/* Count + select all */}
+          <div className="flex items-center gap-3 px-4 py-2.5">
+            <span className="font-semibold tabular-nums">{selectedRows.size} selected</span>
+            <button
+              onClick={() => handleSelectAll(true)}
+              className="text-zinc-400 hover:text-white transition-colors text-xs font-medium"
+            >
+              Select all
+            </button>
+          </div>
+          <div className="w-px h-8 bg-zinc-700" />
+          {/* Actions */}
+          <button className="flex items-center gap-1.5 px-4 py-2.5 hover:bg-zinc-800 transition-colors">
+            <Edit className="h-3.5 w-3.5 text-zinc-400" />
+            Edit fields
+          </button>
+          <button className="flex items-center gap-1.5 px-4 py-2.5 hover:bg-zinc-800 transition-colors">
+            <ArrowUpDown className="h-3.5 w-3.5 text-zinc-400" />
+            Change status
+          </button>
+          <div className="w-px h-8 bg-zinc-700" />
+          <button className="flex items-center gap-1.5 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-red-400 hover:text-red-300">
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </button>
+          <div className="w-px h-8 bg-zinc-700" />
+          {/* Dismiss */}
+          <button
+            onClick={() => setSelectedRows(new Set())}
+            className="px-3 py-2.5 hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* View property drawer */}
       <ViewPropertyDrawer
         row={viewDrawerRow}
@@ -3086,31 +3969,6 @@ export function DetailedPropertiesView() {
         </SheetContent>
       </Sheet>
 
-      {/* Bulk actions toast */}
-      {selectedRows.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 flex items-center gap-4 rounded-lg bg-foreground px-4 py-3 text-background shadow-lg">
-          <span className="font-medium">{selectedRows.size} selected</span>
-          <div className="h-4 w-px bg-background/20" />
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="secondary" className="h-8">
-              <Edit className="h-3.5 w-3.5 mr-1.5" />
-              Edit
-            </Button>
-            <Button size="sm" variant="destructive" className="h-8">
-              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-              Delete
-            </Button>
-          </div>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-8 w-8 text-background hover:bg-background/10"
-            onClick={() => setSelectedRows(new Set())}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
     </div>
   )
 }
