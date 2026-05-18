@@ -3,6 +3,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import React from "react"
 import {
+  AlertTriangle,
+  Archive,
+  ArrowUpDown,
   Banknote,
   Bath,
   BedDouble,
@@ -15,6 +18,7 @@ import {
   ChevronsRight,
   ChevronUp,
   Copy,
+  Edit,
   Eye,
   ExternalLink,
   FileText,
@@ -22,6 +26,7 @@ import {
   Home,
   Layers,
   MapPin,
+  MoreVertical,
   Percent,
   Plus,
   Ruler,
@@ -32,6 +37,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -58,6 +64,7 @@ export interface SharedFilterState {
   deliveryDateTo: string
   priceMin: string
   priceMax: string
+  planOfferFilter: string
 }
 
 interface DetailedProperty {
@@ -170,7 +177,7 @@ function makeGroups(): GroupedProperty[] {
   const districts = ["New Cairo", "Sheikh Zayed", "North Coast", "Ain Sokhna", "6th October", "Maadi", "Zamalek", "Heliopolis"]
   const locationAreas = ["El Shorouk", "Katameya", "Beverly Hills", "Ras El Hekma", "El Gouna", "Corniche", "Mohandessin", "Dokki"]
   const subareas: (string | null)[] = ["District A", "Block 5", null, "Phase Zone", "Central Hub", null, "Sector B", "West Wing"]
-  const locationIds = ["AREA-4401", "AREA-4402", "AREA-4403", "AREA-4404", "AREA-4405", "AREA-4406", "AREA-4407", "AREA-4408"]
+  const locationIds = ["4401", "4402", "4403", "4404", "4405", "4406", "4407", "4408"]
   const amenityPool = [
     ["Swimming Pool", "Gym", "Security", "Parking", "Club House"],
     ["Pool", "Gym", "Playground", "Mall Access", "Concierge"],
@@ -241,9 +248,9 @@ function makeGroups(): GroupedProperty[] {
       deliveryType: i % 2 === 0 ? "OFF PLAN" : "READY TO MOVE",
       deliveryDate: `202${6 + (i % 3)}-12-01`,
       finishing: i % 2 === 0 ? "FULLY FINISHED" : "SEMI FINISHED",
-      createdAt: "May 1, 2026",
-      updatedAt: "May 3, 2026",
-      availabilityUpdatedAt: "May 2, 2026",
+      createdAt: ["May 1, 2026 · 9:30 AM", "May 2, 2026 · 11:15 AM", "May 3, 2026 · 2:45 PM", "May 4, 2026 · 8:00 AM", "May 5, 2026 · 3:20 PM", "May 6, 2026 · 10:05 AM", "May 7, 2026 · 1:00 PM", "May 8, 2026 · 4:50 PM"][i % 8],
+      updatedAt: ["May 3, 2026 · 5:10 PM", "May 4, 2026 · 9:22 AM", "May 5, 2026 · 6:30 PM", "May 6, 2026 · 11:45 AM", "May 7, 2026 · 8:15 AM", "May 8, 2026 · 2:00 PM", "May 9, 2026 · 7:30 AM", "May 10, 2026 · 12:10 PM"][i % 8],
+      availabilityUpdatedAt: ["May 2, 2026 · 3:00 PM", "May 3, 2026 · 7:55 AM", "May 4, 2026 · 4:40 PM", "May 5, 2026 · 9:10 AM", "May 6, 2026 · 1:25 PM", "May 7, 2026 · 5:35 PM", "May 8, 2026 · 10:50 AM", "May 9, 2026 · 3:15 PM"][i % 8],
       plans: 1 + (i % 4),
       offers: i % 3,
       images: imagePool.slice(0, 4 + (i % 2)),
@@ -432,6 +439,8 @@ function GroupCard({
   isExpanded,
   onToggle,
   hiddenCols,
+  isSelected,
+  onSelect,
 }: {
   group: GroupedProperty
   globalIndex: number
@@ -439,10 +448,14 @@ function GroupCard({
   isExpanded: boolean
   onToggle: () => void
   hiddenCols: ColId[]
+  isSelected: boolean
+  onSelect: (shiftKey: boolean) => void
 }) {
   const [descExpanded, setDescExpanded] = useState(false)
   const [descOverflows, setDescOverflows] = useState(false)
   const [carousel, setCarousel] = useState<{ images: string[]; index: number } | null>(null)
+  const [listingStatus, setListingStatus] = useState<"Published" | "Hidden">(group.listingStatus)
+  const [confirmArchive, setConfirmArchive] = useState(false)
   const descRef = useRef<HTMLParagraphElement>(null)
   const desc = group.description || ""
   const isAvailable = group.saleStatus === "Available"
@@ -455,10 +468,37 @@ function GroupCard({
   }, [desc])
 
   return (
-    <div className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
+    <div className={cn("rounded-lg border bg-card shadow-sm overflow-hidden relative", isSelected ? "border-primary ring-1 ring-primary/30" : "border-border")}>
+
+      {/* ── Archive confirmation overlay ── */}
+      {confirmArchive && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+          <div className="bg-card border border-border rounded-xl shadow-xl p-5 max-w-xs w-full mx-4">
+            <div className="flex items-start gap-3 mb-4">
+              <AlertTriangle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-foreground">Archive this group?</p>
+                <p className="text-xs text-muted-foreground mt-1">This will archive all units in this grouped property. This action can be undone.</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setConfirmArchive(false)}>Cancel</Button>
+              <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white" onClick={() => setConfirmArchive(false)}>Archive</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Section 1: IDs · Tags · Action Buttons ── */}
       <div className="flex items-center gap-4 px-5 py-2.5 border-b border-border">
+        {/* Checkbox */}
+        <Checkbox
+          checked={isSelected}
+          onCheckedChange={() => {}}
+          onClick={(e) => { e.stopPropagation(); onSelect((e as React.MouseEvent).shiftKey) }}
+          className="shrink-0"
+        />
+
         {/* IDs with copy-on-hover */}
         <div className="flex items-center gap-2.5 shrink-0 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
@@ -479,7 +519,7 @@ function GroupCard({
           <Badge variant="outline" className={cn("border text-xs", SALE_STATUS_CLS[group.saleStatus])}>
             {group.saleStatus}
           </Badge>
-          <StatusBadge value={group.listingStatus} />
+          <StatusBadge value={listingStatus} />
           <StatusBadge value={group.entryType} />
         </div>
 
@@ -491,6 +531,22 @@ function GroupCard({
           <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="View on IMS">
             <Eye className="h-3 w-3" />
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="More actions">
+                <MoreVertical className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onClick={() => setListingStatus(listingStatus === "Published" ? "Hidden" : "Published")}>
+                {listingStatus === "Published" ? "Hide Listing" : "Show Listing"}
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => setConfirmArchive(true)}>
+                <Archive className="h-3.5 w-3.5 mr-2 text-red-500" />
+                Archive
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" onClick={onToggle} title="Expand units">
             {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
           </Button>
@@ -624,11 +680,11 @@ function GroupCard({
 
       {/* ── Timestamps: bottom-right ── */}
       <div className="px-5 py-2 flex justify-end gap-x-4 text-xs text-muted-foreground">
-        <span>Created: {group.createdAt}</span>
+        <span>Created: <span className="text-foreground">{group.createdAt}</span></span>
         <span>·</span>
-        <span>Updated: {group.updatedAt}</span>
+        <span>Updated: <span className="text-foreground">{group.updatedAt}</span></span>
         <span>·</span>
-        <span>Avail. updated: {group.availabilityUpdatedAt}</span>
+        <span>Avail. updated: <span className="text-foreground">{group.availabilityUpdatedAt}</span></span>
       </div>
 
       {/* ── Expanded: Detailed Properties ── */}
@@ -657,16 +713,95 @@ function GroupCard({
   )
 }
 
-export function GroupedPropertiesView({ filters }: { filters: SharedFilterState }) {
+interface SortConfig { column: string; direction: "asc" | "desc" }
+interface FilterGroup {
+  id: string
+  connector: "AND" | "OR"
+  conditions: { id: string; column: string; operator: string; value: string }[]
+}
+
+function getGroupFieldValue(group: GroupedProperty, col: string): string {
+  switch (col) {
+    case "developer":    return group.developer.name
+    case "district":     return group.district
+    case "locationArea": return group.locationArea
+    case "saleType":     return group.saleType
+    case "listingStatus": return group.listingStatus
+    case "propertyType": return group.propertyType
+    case "entryType":    return group.entryType
+    default:             return ""
+  }
+}
+
+function applyAdvancedFilterToGroup(
+  group: GroupedProperty,
+  fgs: FilterGroup[],
+  connector: "AND" | "OR",
+): boolean {
+  if (fgs.length === 0) return true
+  const matchesFg = (fg: FilterGroup) => {
+    const results = fg.conditions.map((cond) => {
+      const val = getGroupFieldValue(group, cond.column).toLowerCase()
+      const cv = cond.value.toLowerCase()
+      switch (cond.operator) {
+        case "equals":       return val === cv
+        case "not_equals":   return val !== cv
+        case "contains":     return val.includes(cv)
+        case "not_contains": return !val.includes(cv)
+        case "starts_with":  return val.startsWith(cv)
+        case "ends_with":    return val.endsWith(cv)
+        case "is_empty":     return !val
+        case "is_not_empty": return !!val
+        default:             return true
+      }
+    })
+    return fg.connector === "AND" ? results.every(Boolean) : results.some(Boolean)
+  }
+  const groupResults = fgs.map(matchesFg)
+  return connector === "AND" ? groupResults.every(Boolean) : groupResults.some(Boolean)
+}
+
+function getGroupSortValue(group: GroupedProperty, col: string): string | number {
+  switch (col) {
+    case "developer": return group.developer.name
+    case "project": return group.project.name
+    case "priceMin": return group.priceMin
+    case "priceMax": return group.priceMax
+    case "areaMin": return group.areaMin
+    case "availableUnits": return group.availableUnits
+    case "totalUnits": return group.totalUnits
+    case "bedroom": return group.bedroom
+    case "deliveryDate": return group.deliveryDate
+    case "createdAt": return group.createdAt
+    default: return 0
+  }
+}
+
+export function GroupedPropertiesView({
+  filters,
+  sortConfigs = [],
+  filterGroups = [],
+  groupConnector = "AND",
+  groupByColumn = null,
+}: {
+  filters: SharedFilterState
+  sortConfigs?: SortConfig[]
+  filterGroups?: FilterGroup[]
+  groupConnector?: "AND" | "OR"
+  groupByColumn?: string | null
+}) {
   const [groups] = useState<GroupedProperty[]>(() => makeGroups())
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([groups[0]?.id].filter(Boolean)))
   const allRows = useMemo(() => createRows(), [])
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set())
+  const lastSelectedIdxRef = useRef<number | null>(null)
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
 
   const filteredGroups = useMemo(() => {
     const query = filters.searchQuery.toLowerCase()
-    return groups.filter((group) => {
+    const filtered = groups.filter((group) => {
       if (filters.saleTypeFilter.size > 0 && !filters.saleTypeFilter.has(group.saleType)) return false
       if (filters.developerFilter.size > 0 && !filters.developerFilter.has(group.developer.name)) return false
       if (filters.entryTypeFilter.size > 0 && !filters.entryTypeFilter.has(group.entryType)) return false
@@ -678,7 +813,20 @@ export function GroupedPropertiesView({ filters }: { filters: SharedFilterState 
         value.toLowerCase().includes(query),
       )
     })
-  }, [groups, filters])
+    const afterAdvanced = filtered.filter((g) => applyAdvancedFilterToGroup(g, filterGroups, groupConnector))
+    if (sortConfigs.length === 0) return afterAdvanced
+    return [...afterAdvanced].sort((a, b) => {
+      for (const cfg of sortConfigs) {
+        const aVal = getGroupSortValue(a, cfg.column)
+        const bVal = getGroupSortValue(b, cfg.column)
+        const cmp = typeof aVal === "number" && typeof bVal === "number"
+          ? aVal - bVal
+          : String(aVal).localeCompare(String(bVal))
+        if (cmp !== 0) return cfg.direction === "asc" ? cmp : -cmp
+      }
+      return 0
+    })
+  }, [groups, filters, sortConfigs, filterGroups, groupConnector])
 
   const toggle = (id: string) => {
     setExpanded((current) => {
@@ -691,6 +839,24 @@ export function GroupedPropertiesView({ filters }: { filters: SharedFilterState 
 
   const totalPages = Math.max(1, Math.ceil(filteredGroups.length / pageSize))
   const paginatedGroups = filteredGroups.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  const handleCardSelect = (id: string, idx: number, shiftKey: boolean) => {
+    setSelectedCards((prev) => {
+      const next = new Set(prev)
+      if (shiftKey && lastSelectedIdxRef.current !== null) {
+        const start = Math.min(lastSelectedIdxRef.current, idx)
+        const end = Math.max(lastSelectedIdxRef.current, idx)
+        const rangeIds = paginatedGroups.slice(start, end + 1).map((g) => g.id)
+        const allSelected = rangeIds.every((rid) => next.has(rid))
+        rangeIds.forEach((rid) => (allSelected ? next.delete(rid) : next.add(rid)))
+      } else {
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        lastSelectedIdxRef.current = idx
+      }
+      return next
+    })
+  }
 
   const GROUPED_HIDDEN_COLS: ColId[] = [
     "propertyId", "propertyMetadataId", "developer", "project", "phase",
@@ -728,7 +894,49 @@ export function GroupedPropertiesView({ filters }: { filters: SharedFilterState 
       </div>
 
         <div className="space-y-4">
-          {paginatedGroups.map((group, groupIndex) => {
+          {groupByColumn ? (() => {
+            const sections: Record<string, GroupedProperty[]> = {}
+            paginatedGroups.forEach((group) => {
+              const key = getGroupFieldValue(group, groupByColumn) || "Other"
+              sections[key] = sections[key] ? [...sections[key], group] : [group]
+            })
+            return Object.entries(sections).map(([sectionKey, sectionGroups]) => {
+              const isCollapsed = collapsedSections.has(sectionKey)
+              return (
+                <div key={sectionKey} className="space-y-3">
+                  <button
+                    className="flex w-full items-center gap-2 px-1 py-1 rounded-md hover:bg-secondary/60 transition-colors group"
+                    onClick={() => setCollapsedSections((prev) => {
+                      const next = new Set(prev)
+                      next.has(sectionKey) ? next.delete(sectionKey) : next.add(sectionKey)
+                      return next
+                    })}
+                  >
+                    <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform shrink-0", isCollapsed && "-rotate-90")} />
+                    <span className="text-sm font-semibold text-foreground">{sectionKey}</span>
+                    <Badge variant="secondary" className="text-xs">{sectionGroups.length}</Badge>
+                    <div className="flex-1 h-px bg-border" />
+                  </button>
+                  {!isCollapsed && sectionGroups.map((group) => {
+                    const globalIndex = paginatedGroups.indexOf(group)
+                    return (
+                      <GroupCard
+                        key={group.id}
+                        group={group}
+                        globalIndex={(currentPage - 1) * pageSize + globalIndex}
+                        allRows={allRows}
+                        isExpanded={expanded.has(group.id)}
+                        onToggle={() => toggle(group.id)}
+                        hiddenCols={GROUPED_HIDDEN_COLS}
+                        isSelected={selectedCards.has(group.id)}
+                        onSelect={(shiftKey) => handleCardSelect(group.id, globalIndex, shiftKey)}
+                      />
+                    )
+                  })}
+                </div>
+              )
+            })
+          })() : paginatedGroups.map((group, groupIndex) => {
             const globalIndex = (currentPage - 1) * pageSize + groupIndex
             return (
               <GroupCard
@@ -739,10 +947,45 @@ export function GroupedPropertiesView({ filters }: { filters: SharedFilterState 
                 isExpanded={expanded.has(group.id)}
                 onToggle={() => toggle(group.id)}
                 hiddenCols={GROUPED_HIDDEN_COLS}
+                isSelected={selectedCards.has(group.id)}
+                onSelect={(shiftKey) => handleCardSelect(group.id, groupIndex, shiftKey)}
               />
             )
           })}
         </div>
+
+      {/* Bulk action floating bar */}
+      {selectedCards.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-0 bg-zinc-900 text-white rounded-xl shadow-2xl overflow-hidden text-sm select-none">
+          <div className="flex items-center gap-3 px-4 py-2.5">
+            <span className="font-semibold tabular-nums">{selectedCards.size} selected</span>
+            <button
+              onClick={() => setSelectedCards(new Set(paginatedGroups.map((g) => g.id)))}
+              className="text-zinc-400 hover:text-white transition-colors text-xs font-medium"
+            >
+              Select all
+            </button>
+          </div>
+          <div className="w-px h-8 bg-zinc-700" />
+          <button className="flex items-center gap-1.5 px-4 py-2.5 hover:bg-zinc-800 transition-colors">
+            <Edit className="h-3.5 w-3.5 text-zinc-400" />
+            Edit fields
+          </button>
+          <button className="flex items-center gap-1.5 px-4 py-2.5 hover:bg-zinc-800 transition-colors">
+            <ArrowUpDown className="h-3.5 w-3.5 text-zinc-400" />
+            Change status
+          </button>
+          <div className="w-px h-8 bg-zinc-700" />
+          <button className="flex items-center gap-1.5 px-4 py-2.5 hover:bg-zinc-800 transition-colors text-red-400 hover:text-red-300">
+            <Archive className="h-3.5 w-3.5" />
+            Archive
+          </button>
+          <div className="w-px h-8 bg-zinc-700" />
+          <button onClick={() => setSelectedCards(new Set())} className="px-3 py-2.5 hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-white">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Pagination */}
       <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
@@ -829,6 +1072,7 @@ export function GroupedPropertiesPage() {
     deliveryDateTo: "",
     priceMin: "",
     priceMax: "",
+    planOfferFilter: "",
   }
   return (
     <div className="min-h-screen bg-secondary/40 p-4">
