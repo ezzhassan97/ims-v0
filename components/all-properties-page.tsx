@@ -3603,6 +3603,17 @@ export function DetailedPropertiesView({ filters }: { filters: FilterProps }) {
             <Badge className="bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-100 font-medium text-xs px-2">
               {filteredRows.length.toLocaleString()}
             </Badge>
+            {groupedRows && (
+              <>
+                <div className="w-px h-4 bg-border" />
+                <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => setCollapsedGroups(new Set(Object.keys(groupedRows)))}>
+                  Collapse All
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => setCollapsedGroups(new Set())}>
+                  Expand All
+                </Button>
+              </>
+            )}
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -4796,24 +4807,22 @@ export function AllPropertiesPage() {
   ]
   const activeSortCols = activeTab === "grouped" ? GROUPED_SORT_COLS : DETAILED_SORT_COLS
 
-  const DETAILED_GROUP_COLS = [
-    { id: "developer",     label: "Developer" },
-    { id: "project",       label: "Project" },
-    { id: "district",      label: "District" },
-    { id: "area",          label: "Area" },
-    { id: "saleType",      label: "Sale Type" },
-    { id: "availability",  label: "Availability" },
-    { id: "entryType",     label: "Entry Type" },
-    { id: "listingStatus", label: "Listing Status" },
-    { id: "propertyType",  label: "Property Type" },
-    { id: "finishingType", label: "Finishing Type" },
+  const GROUP_COLS = [
+    { id: "developer",         label: "Developer" },
+    { id: "project",           label: "Project" },
+    { id: "district",          label: "District" },
+    { id: "area",              label: "Area" },
+    { id: "saleType",          label: "Sale Type" },
+    { id: "availability",      label: "Availability" },
+    { id: "entryType",         label: "Entry Type" },
+    { id: "listingStatus",     label: "Listing Status" },
+    { id: "propertyCategory",  label: "Property Category" },
+    { id: "propertyType",      label: "Property Type" },
+    { id: "propertySubType",   label: "Property Subtype" },
+    { id: "finishingType",     label: "Finishing Type" },
+    { id: "deliveryType",      label: "Delivery Type" },
   ]
-  const GROUPED_GROUP_COLS = [
-    { id: "developer",    label: "Developer" },
-    { id: "district",     label: "District" },
-    { id: "locationArea", label: "Area" },
-  ]
-  const activeGroupCols = activeTab === "grouped" ? GROUPED_GROUP_COLS : DETAILED_GROUP_COLS
+  const activeGroupCols = GROUP_COLS
 
   const filterPropsWithClear: FilterProps = {
     ...sharedFilters,
@@ -4865,7 +4874,7 @@ export function AllPropertiesPage() {
                   <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                   <Input
                     className="h-8 pl-8 pr-7 w-full text-sm"
-                    placeholder="Search by Property ID, Detailed Property ID, Unit Code"
+                    placeholder={activeTab === "grouped" ? "Search by Property ID, Metadata ID" : "Search by Property ID, Detailed Property ID, Unit Code"}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />

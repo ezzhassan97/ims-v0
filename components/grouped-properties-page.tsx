@@ -21,6 +21,8 @@ import {
   Edit,
   Eye,
   ExternalLink,
+  FileDown,
+  FileSpreadsheet,
   FileText,
   Globe,
   Home,
@@ -36,7 +38,7 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -840,6 +842,13 @@ export function GroupedPropertiesView({
   const totalPages = Math.max(1, Math.ceil(filteredGroups.length / pageSize))
   const paginatedGroups = filteredGroups.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
+  const sectionKeys = useMemo(() => {
+    if (!groupByColumn) return []
+    const keys = new Set<string>()
+    paginatedGroups.forEach((g) => keys.add(getGroupFieldValue(g, groupByColumn) || "Other"))
+    return Array.from(keys)
+  }, [paginatedGroups, groupByColumn])
+
   const handleCardSelect = (id: string, idx: number, shiftKey: boolean) => {
     setSelectedCards((prev) => {
       const next = new Set(prev)
@@ -874,6 +883,17 @@ export function GroupedPropertiesView({
           <Badge className="bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-100 font-medium text-xs px-2">
             {filteredGroups.length.toLocaleString()}
           </Badge>
+          {groupByColumn && sectionKeys.length > 0 && (
+            <>
+              <div className="w-px h-4 bg-border" />
+              <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => setCollapsedSections(new Set(sectionKeys))}>
+                Collapse All
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 text-xs px-2" onClick={() => setCollapsedSections(new Set())}>
+                Expand All
+              </Button>
+            </>
+          )}
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -989,12 +1009,38 @@ export function GroupedPropertiesView({
 
       {/* Pagination */}
       <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-        <span>
-          {filteredGroups.length === 0
-            ? "0"
-            : `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filteredGroups.length)}`}{" "}
-          of {filteredGroups.length.toLocaleString()} groups
-        </span>
+        <div className="flex items-center gap-4">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8">
+                <FileDown className="h-4 w-4 mr-1.5" />
+                Export
+                <ChevronDown className="h-3 w-3 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem>
+                <FileText className="h-4 w-4 mr-2" />
+                CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Excel
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem>
+                <FileDown className="h-4 w-4 mr-2" />
+                PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <span>
+            {filteredGroups.length === 0
+              ? "0"
+              : `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filteredGroups.length)}`}{" "}
+            of {filteredGroups.length.toLocaleString()} groups
+          </span>
+        </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1) }}>
