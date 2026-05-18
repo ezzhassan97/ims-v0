@@ -129,6 +129,14 @@ export interface PropertyRow {
   outdoorPrice: number | null
   serviced: boolean
   branded: boolean
+  source: string | null
+  district: string
+  area: string
+  subarea: string | null
+  planType: "Equal" | "Backloaded" | "Frontloaded" | "Cash" | null
+  planDuration: string | null
+  downpayment: string | null
+  monthlyInstallment: string | null
   amenities: string[]
   services: string[]
   price: number | null
@@ -169,6 +177,9 @@ export const COLUMNS: ColumnDef[] = [
   { id: "propertyMetadataId", label: "Property Metadata ID", width: 185 },
   { id: "detailedPropertyId", label: "Detailed Property ID", width: 170 },
   { id: "entryType", label: "Entry type", width: 120 },
+  { id: "district", label: "District", width: 130 },
+  { id: "area", label: "Area", width: 130 },
+  { id: "subarea", label: "Subarea", width: 140 },
   { id: "developer", label: "Developer", width: 220 },
   { id: "project", label: "Project", width: 210 },
   { id: "phase", label: "Phase", width: 170 },
@@ -195,6 +206,10 @@ export const COLUMNS: ColumnDef[] = [
   { id: "deliveryType", label: "Delivery type", width: 140 },
   { id: "deliveryDate", label: "Delivery date", width: 130 },
   { id: "price", label: "Price", width: 200, align: "right" },
+  { id: "planType", label: "Plan type", width: 140 },
+  { id: "planDuration", label: "Plan duration", width: 150 },
+  { id: "downpayment", label: "Downpayment", width: 190 },
+  { id: "monthlyInstallment", label: "Monthly installment", width: 210 },
   { id: "pricePerMeter", label: "Price per m²", width: 150, align: "right" },
   { id: "paymentOptions", label: "Payment options", width: 230 },
   { id: "unitView", label: "Unit view", width: 150 },
@@ -215,6 +230,7 @@ export const COLUMNS: ColumnDef[] = [
   { id: "outdoorPrice", label: "Outdoor price", width: 150, align: "right" },
   { id: "serviced", label: "Serviced", width: 100, align: "center" },
   { id: "branded", label: "Branded", width: 100, align: "center" },
+  { id: "source", label: "Source", width: 150 },
   { id: "amenities", label: "Amenities", width: 280 },
   { id: "services", label: "Services", width: 250 },
   { id: "floorPlans", label: "Floor plans", width: 220 },
@@ -408,6 +424,28 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
     outdoorPrice: index % 5 === 0 ? null : 30000 + index * 3000,
     serviced: furnished && index % 3 === 2,
     branded: furnished && index % 3 === 1,
+    source: (["Nawy Portal", "Developer Feed", "Manual Entry", "API Sync", null] as (string | null)[])[index % 5],
+    district: (["New Cairo", "Sheikh Zayed", "North Coast", "Ain Sokhna", "6th October"])[index % 5],
+    area: (["El Shorouk", "Katameya", "Beverly Hills", "Ras El Hekma", "El Gouna"])[index % 5],
+    subarea: index % 4 === 0 ? null : (["District A", "Block 5", "Central Hub", "Phase Zone"])[index % 4],
+    ...(() => {
+      const pt = (["Equal", "Backloaded", "Frontloaded", "Cash"] as const)[index % 4]
+      const isCash = pt === "Cash"
+      const durYrs = isCash ? null : 4 + (index % 6)
+      const durMths = isCash ? null : index % 12
+      const downPct = isCash ? null : 10 + (index % 20)
+      const downEgp = isCash || !price || !downPct ? null : Math.round(price * downPct / 100)
+      const totalMths = durYrs != null ? durYrs * 12 + (durMths ?? 0) : null
+      const remPct = downPct != null ? 100 - downPct : null
+      const mthPct = remPct != null && totalMths ? Math.round((remPct / totalMths) * 10) / 10 : null
+      const mthEgp = price && mthPct ? Math.round(price * mthPct / 100) : null
+      return {
+        planType: pt,
+        planDuration: isCash ? null : durMths ? `${durYrs} Yrs ${durMths} Mth` : `${durYrs} Yrs`,
+        downpayment: downPct && downEgp ? `${downPct}% - ${downEgp.toLocaleString()} EGP` : null,
+        monthlyInstallment: mthPct && mthEgp ? `${mthPct}% - ${mthEgp.toLocaleString()} EGP` : null,
+      }
+    })(),
     amenities: Array.from({ length: (index % 4) + 1 }, (_, i) => amenitiesPool[(index + i) % amenitiesPool.length]),
     services: index % 3 === 0 ? [] : Array.from({ length: (index % 3) + 1 }, (_, i) => servicesPool[(index + i) % servicesPool.length]),
     price,
@@ -2596,9 +2634,33 @@ export function EmbeddedPropertyTable({
   const [priceDraft, setPriceDraft] = useState("")
   const [viewDrawer, setViewDrawer] = useState<{ propertyId: string; tab: string } | null>(null)
   const [drawer, setDrawer] = useState<{ type: "prices" | "plans" | "offers"; row: PropertyRow } | null>(null)
+  const [embedSortConfigs, setEmbedSortConfigs] = useState<SortConfig[]>([])
 
   const updateRow = (id: string, patch: Partial<PropertyRow>) =>
     setRows((prev) => prev.map((r) => (r.propertyId === id ? { ...r, ...patch } : r)))
+
+  const toggleEmbedSort = (colId: ColId) => {
+    setEmbedSortConfigs((prev) => {
+      const existing = prev.find((s) => s.column === colId)
+      if (!existing) return [{ column: colId, direction: "asc" }]
+      if (existing.direction === "asc") return [{ column: colId, direction: "desc" }]
+      return []
+    })
+  }
+
+  const sortedRows = useMemo(() => {
+    let result = [...rows]
+    for (const cfg of embedSortConfigs) {
+      result.sort((a, b) => {
+        const av = getSortValue(a, cfg.column)
+        const bv = getSortValue(b, cfg.column)
+        if (av < bv) return cfg.direction === "asc" ? -1 : 1
+        if (av > bv) return cfg.direction === "asc" ? 1 : -1
+        return 0
+      })
+    }
+    return result
+  }, [rows, embedSortConfigs])
 
   const hiddenSet = new Set(hiddenColumns)
   const visibleCols = useMemo(() => {
@@ -2636,6 +2698,22 @@ export function EmbeddedPropertyTable({
         return <span className="font-mono text-xs"><CopyableText value={row.detailedPropertyId} /></span>
       case "entryType":
         return <StoryBadge value={row.entryType} />
+      case "district":
+        return <TagBadge value={row.district} />
+      case "area":
+        return <TagBadge value={row.area} />
+      case "subarea":
+        return <TagBadge value={row.subarea} />
+      case "planType":
+        return row.planType ? <TagBadge value={row.planType} /> : <EmptyValue />
+      case "planDuration":
+        return row.planType === "Cash" ? <EmptyValue /> : nil(row.planDuration)
+      case "downpayment":
+        return row.planType === "Cash" ? <EmptyValue /> : nil(row.downpayment)
+      case "monthlyInstallment":
+        return row.planType === "Cash" ? <EmptyValue /> : nil(row.monthlyInstallment)
+      case "source":
+        return nil(row.source)
       case "developer":
         return (
           <a href={row.developer.url} target="_blank" rel="noreferrer"
@@ -2801,7 +2879,7 @@ export function EmbeddedPropertyTable({
   return (
     <>
       <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="overflow-x-auto" style={{ maxHeight: 380 }}>
+        <div className="overflow-x-auto overscroll-x-contain" style={{ maxHeight: 380 }}>
           <div className="min-w-max">
             {/* Header row */}
             <div className="sticky top-0 z-20 flex border-b border-border bg-muted/80 backdrop-blur-sm">
@@ -2815,7 +2893,13 @@ export function EmbeddedPropertyTable({
                   )}
                   style={{ width: col.width }}
                 >
-                  {col.label}
+                  <button
+                    className="flex w-full items-center justify-between transition-colors hover:text-foreground group/sort"
+                    onClick={() => toggleEmbedSort(col.id)}
+                  >
+                    <span>{col.label}</span>
+                    <SortArrows columnId={col.id} sortConfigs={embedSortConfigs} />
+                  </button>
                 </div>
               ))}
               {/* Actions header */}
@@ -2823,7 +2907,7 @@ export function EmbeddedPropertyTable({
             </div>
 
             {/* Body rows */}
-            {rows.map((row) => (
+            {sortedRows.map((row) => (
               <div
                 key={row.propertyId}
                 className="group/row flex border-b border-border last:border-b-0 bg-card hover:bg-muted/40 transition-colors"
@@ -3120,6 +3204,22 @@ export function DetailedPropertiesView({ filters }: { filters: FilterProps }) {
         )
       case "entryType":
         return <StoryBadge value={row.entryType} />
+      case "district":
+        return <TagBadge value={row.district} />
+      case "area":
+        return <TagBadge value={row.area} />
+      case "subarea":
+        return <TagBadge value={row.subarea} />
+      case "planType":
+        return row.planType ? <TagBadge value={row.planType} /> : <EmptyValue />
+      case "planDuration":
+        return row.planType === "Cash" ? <EmptyValue /> : nil(row.planDuration)
+      case "downpayment":
+        return row.planType === "Cash" ? <EmptyValue /> : nil(row.downpayment)
+      case "monthlyInstallment":
+        return row.planType === "Cash" ? <EmptyValue /> : nil(row.monthlyInstallment)
+      case "source":
+        return nil(row.source)
       case "developer":
         return (
           <a
@@ -3475,7 +3575,7 @@ export function DetailedPropertiesView({ filters }: { filters: FilterProps }) {
       {/* Table */}
       <div
         className="flex flex-col overflow-hidden rounded-xl border border-border bg-card"
-        style={{ height: "calc(100vh - 310px)", minHeight: 480 }}
+        style={{ height: "calc(100vh - 240px)", minHeight: 480 }}
       >
         {/* Table header bar */}
         <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-4 py-3">
@@ -4448,6 +4548,9 @@ export function AllPropertiesPage() {
 
   // ── Shared filter state ────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("")
+  const [districtFilter, setDistrictFilter] = useState<Set<string>>(new Set())
+  const [areaFilter, setAreaFilter] = useState<Set<string>>(new Set())
+  const [planTypeFilter, setPlanTypeFilter] = useState<Set<string>>(new Set())
   const [developerFilter, setDeveloperFilter] = useState<Set<string>>(new Set())
   const [projectFilter, setProjectFilter] = useState<Set<string>>(new Set())
   const [saleTypeFilter, setSaleTypeFilter] = useState<Set<string>>(new Set())
@@ -4466,6 +4569,9 @@ export function AllPropertiesPage() {
 
   const sharedFilters: SharedFilterState = {
     searchQuery,
+    districtFilter,
+    areaFilter,
+    planTypeFilter,
     developerFilter,
     projectFilter,
     saleTypeFilter,
@@ -4485,6 +4591,9 @@ export function AllPropertiesPage() {
 
   const clearAllFilters = () => {
     setSearchQuery("")
+    setDistrictFilter(new Set())
+    setAreaFilter(new Set())
+    setPlanTypeFilter(new Set())
     setDeveloperFilter(new Set())
     setProjectFilter(new Set())
     setSaleTypeFilter(new Set())
@@ -4504,6 +4613,7 @@ export function AllPropertiesPage() {
 
   const hasAnyFilter =
     !!searchQuery ||
+    districtFilter.size > 0 || areaFilter.size > 0 || planTypeFilter.size > 0 ||
     developerFilter.size > 0 || projectFilter.size > 0 || saleTypeFilter.size > 0 ||
     availabilityFilter.size > 0 || entryTypeFilter.size > 0 || listingFilter.size > 0 ||
     propertyCategoryFilter.size > 0 || propertyTypeFilter.size > 0 || propertySubTypeFilter.size > 0 ||
@@ -4512,6 +4622,9 @@ export function AllPropertiesPage() {
 
   // ── Filter options ─────────────────────────────────────────────────────────
   const filterOptions = useMemo(() => ({
+    districts:        [...new Set(allRows.map((r) => r.district))].sort(),
+    areas:            [...new Set(allRows.map((r) => r.area))].sort(),
+    planTypes:        ["Equal", "Backloaded", "Frontloaded", "Cash"],
     developers:       [...new Set(allRows.map((r) => r.developer.name))].sort(),
     projects:         [...new Set(allRows.map((r) => r.project.name))].sort(),
     saleTypes:        saleTypes as string[],
@@ -4550,6 +4663,7 @@ export function AllPropertiesPage() {
   )
 
   const [showAllFilters, setShowAllFilters] = useState(false)
+  const [activeTab, setActiveTab] = useState("detailed")
   const filterPropsWithClear = { ...sharedFilters, onClearFilters: clearAllFilters }
 
   return (
@@ -4564,7 +4678,7 @@ export function AllPropertiesPage() {
           </p>
         </div>
 
-        <Tabs defaultValue="detailed" className="space-y-4">
+        <Tabs defaultValue="detailed" className="space-y-4" onValueChange={setActiveTab}>
           <TabsList className="bg-card">
             <TabsTrigger value="grouped">Grouped Properties</TabsTrigger>
             <TabsTrigger value="detailed">Detailed Properties</TabsTrigger>
@@ -4598,8 +4712,10 @@ export function AllPropertiesPage() {
                     </button>
                   )}
                 </div>
-                {/* 6 dropdowns share remaining space equally */}
+                {/* 8 dropdowns share remaining space equally */}
                 <div className="flex flex-1 gap-2">
+                  <FilterDropdown label="District"       options={filterOptions.districts}       selected={districtFilter}      onChange={setDistrictFilter}   className="flex-1" />
+                  <FilterDropdown label="Area"           options={filterOptions.areas}           selected={areaFilter}          onChange={setAreaFilter}       className="flex-1" />
                   <FilterDropdown label="Developer"      options={filterOptions.developers}      selected={developerFilter}     onChange={setDeveloperFilter}  className="flex-1" />
                   <FilterDropdown label="Project"        options={filterOptions.projects}        selected={projectFilter}       onChange={setProjectFilter}    className="flex-1" />
                   <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter}   className="flex-1" />
@@ -4618,6 +4734,7 @@ export function AllPropertiesPage() {
                 <FilterDropdown label="Delivery Type"     options={filterOptions.deliveryTypes}    selected={deliveryTypeFilter}     onChange={setDeliveryTypeFilter} />
                 <DateRangeDropdown dateFrom={deliveryDateFrom} dateTo={deliveryDateTo} onChangeFrom={setDeliveryDateFrom} onChangeTo={setDeliveryDateTo} />
                 <PriceRangeDropdown priceMin={priceMin} priceMax={priceMax} onChangeMin={setPriceMin} onChangeMax={setPriceMax} />
+                <FilterDropdown label="Plan Type" options={filterOptions.planTypes} selected={planTypeFilter} onChange={setPlanTypeFilter} />
               </div>
 
               {/* Row 2: All Filters + Advanced + Clear | Sort + Group + Columns */}
@@ -4633,7 +4750,7 @@ export function AllPropertiesPage() {
                     All Filters
                     {hasAnyFilter && (
                       <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
-                        {[developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + (priceMin || priceMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0)}
+                        {[districtFilter, areaFilter, planTypeFilter, developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + (priceMin || priceMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0)}
                       </Badge>
                     )}
                   </Button>
@@ -4653,14 +4770,18 @@ export function AllPropertiesPage() {
                     <ArrowUpDown className="h-3.5 w-3.5 mr-1.5" />
                     Sort
                   </Button>
-                  <Button variant="outline" size="sm" className="h-8">
-                    <Group className="h-3.5 w-3.5 mr-1.5" />
-                    Group
-                  </Button>
-                  <Button variant="outline" size="sm" className="h-8">
-                    <Columns3 className="h-3.5 w-3.5 mr-1.5" />
-                    Columns
-                  </Button>
+                  {activeTab === "detailed" && (
+                    <>
+                      <Button variant="outline" size="sm" className="h-8">
+                        <Group className="h-3.5 w-3.5 mr-1.5" />
+                        Group
+                      </Button>
+                      <Button variant="outline" size="sm" className="h-8">
+                        <Columns3 className="h-3.5 w-3.5 mr-1.5" />
+                        Columns
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -4673,7 +4794,7 @@ export function AllPropertiesPage() {
                     <SheetTitle>All Filters</SheetTitle>
                     {hasAnyFilter && (
                       <Badge variant="secondary" className="text-[11px]">
-                        {[developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + (priceMin || priceMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0)} active
+                        {[districtFilter, areaFilter, planTypeFilter, developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + (priceMin || priceMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0)} active
                       </Badge>
                     )}
                   </div>
@@ -4684,6 +4805,8 @@ export function AllPropertiesPage() {
                   <div className="space-y-3">
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Primary Filters</p>
                     <div className="flex flex-wrap gap-2">
+                      <FilterDropdown label="District"       options={filterOptions.districts}       selected={districtFilter}      onChange={setDistrictFilter} />
+                      <FilterDropdown label="Area"           options={filterOptions.areas}           selected={areaFilter}          onChange={setAreaFilter} />
                       <FilterDropdown label="Developer"      options={filterOptions.developers}      selected={developerFilter}     onChange={setDeveloperFilter} />
                       <FilterDropdown label="Project"        options={filterOptions.projects}        selected={projectFilter}       onChange={setProjectFilter} />
                       <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter} />
@@ -4702,6 +4825,7 @@ export function AllPropertiesPage() {
                       <FilterDropdown label="Property Subtype"  options={filterOptions.propertySubTypes} selected={propertySubTypeFilter}  onChange={setPropertySubTypeFilter} />
                       <FilterDropdown label="Finishing Type"    options={filterOptions.finishingTypes}   selected={finishingTypeFilter}    onChange={setFinishingTypeFilter} />
                       <FilterDropdown label="Delivery Type"     options={filterOptions.deliveryTypes}    selected={deliveryTypeFilter}     onChange={setDeliveryTypeFilter} />
+                      <FilterDropdown label="Plan Type"         options={filterOptions.planTypes}        selected={planTypeFilter}         onChange={setPlanTypeFilter} />
                     </div>
                   </div>
 
