@@ -14,6 +14,7 @@ import { ConstructionUpdatesPage } from "@/components/construction-updates-page"
 import { WhatsAppMediaPage } from "@/components/whatsapp-media-page"
 import { WhatsAppConfigurationsPage } from "@/components/whatsapp-configurations-page"
 import { AllPropertiesPage } from "@/components/all-properties-page"
+import { QualitySystemPage } from "@/components/quality-system-page"
 import { ProjectsNewPage } from "@/components/projects-new-page"
 import { cn } from "@/lib/utils"
 
@@ -33,6 +34,8 @@ export function AppShell() {
         return <AllPropertiesPage />
       case "Testing Playground":
         return <TestingPlayground />
+      case "Quality System":
+        return <QualitySystemPage />
       case "Validation Rules":
         return <ValidationRulesPage />
       case "Areas FAQs":

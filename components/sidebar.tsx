@@ -149,6 +149,7 @@ const navItems: NavItem[] = [
     label: "Data Validation",
     icon: <ShieldCheck className="h-4 w-4" />,
     children: [
+      { label: "Quality System", icon: <Activity className="h-4 w-4" /> },
       { label: "Validation Rules", icon: <ShieldCheck className="h-4 w-4" /> },
       { label: "Data Issues", icon: <AlertTriangle className="h-4 w-4" /> },
     ],
