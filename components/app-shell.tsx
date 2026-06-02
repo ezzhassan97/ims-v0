@@ -15,6 +15,7 @@ import { WhatsAppMediaPage } from "@/components/whatsapp-media-page"
 import { WhatsAppConfigurationsPage } from "@/components/whatsapp-configurations-page"
 import { AllPropertiesPage } from "@/components/all-properties-page"
 import { QualitySystemPage } from "@/components/quality-system-page"
+import { NawySpacePage } from "@/components/nawy-space-page"
 import { ProjectsNewPage } from "@/components/projects-new-page"
 import { cn } from "@/lib/utils"
 
@@ -36,6 +37,8 @@ export function AppShell() {
         return <TestingPlayground />
       case "Quality System":
         return <QualitySystemPage />
+      case "Nawy Space":
+        return <NawySpacePage />
       case "Validation Rules":
         return <ValidationRulesPage />
       case "Areas FAQs":

@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ChevronDown,
   LayoutDashboard,
+  Satellite,
   Building2,
   Rocket,
   FolderKanban,
@@ -95,6 +96,7 @@ const navItems: NavItem[] = [
     label: "Market Updates",
     icon: <Newspaper className="h-4 w-4" />,
     children: [
+      { label: "Nawy Space", icon: <Satellite className="h-4 w-4" /> },
       { label: "Newsfeed Posts", icon: <Rss className="h-4 w-4" /> },
       { label: "Construction Updates", icon: <HardHat className="h-4 w-4" /> },
       { label: "Market Research Reports", icon: <FileBarChart className="h-4 w-4" /> },
