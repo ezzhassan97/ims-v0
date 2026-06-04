@@ -2042,6 +2042,13 @@ function ImagesTab() {
     return sortRows(rows, sortConfigs)
   }, [search, developerFilter, qualityFilter, typeFilter, projectFilter, areaFilter, systemFilter, satelliteFilter, requestedFrom, requestedTo, sortConfigs])
 
+  // ── Drawer navigation (derived from filtered — must come after filtered) ──
+  const detailIdx  = detailRow ? filtered.findIndex(r => r.id === detailRow.id) : -1
+  const canPrev    = detailIdx > 0
+  const canNext    = detailIdx < filtered.length - 1
+  const goPrev     = () => { if (canPrev) setDetailRow(filtered[detailIdx - 1]) }
+  const goNext     = () => { if (canNext) setDetailRow(filtered[detailIdx + 1]) }
+
   // ── Analysis card totals ──
   const totalAreaCaptured = useMemo(() => filtered.reduce((s, r) => s + r.areaCapturedKm2, 0), [filtered])
   const totalProjectArea  = useMemo(() => filtered.reduce((s, r) => s + r.totalAreaKm2, 0), [filtered])
@@ -2771,14 +2778,34 @@ function ImagesTab() {
               <>
                 {/* ── Header ── */}
                 <SheetHeader className="px-6 py-4 border-b border-border shrink-0 space-y-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <CopyId value={selected.id} className="font-semibold text-foreground text-xs" />
-                    <QualityBadge quality={selected.quality} />
-                    <TypeBadge type={selected.type} />
-                    <CapturingStatusBadge status={selected.capturingStatus} />
-                    <Badge variant="outline" className="text-[11px] font-medium bg-muted/50 text-muted-foreground border-border">
-                      {toQuarter(selected.capturedAt)}
-                    </Badge>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <CopyId value={selected.id} className="font-semibold text-foreground text-xs" />
+                      <QualityBadge quality={selected.quality} />
+                      <TypeBadge type={selected.type} />
+                      <CapturingStatusBadge status={selected.capturingStatus} />
+                      <Badge variant="outline" className="text-[11px] font-medium bg-muted/50 text-muted-foreground border-border">
+                        {toQuarter(selected.capturedAt)}
+                      </Badge>
+                    </div>
+                    {/* Navigation: prev / counter / next */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={goPrev} disabled={!canPrev}
+                        className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <span className="text-xs text-muted-foreground tabular-nums min-w-[40px] text-center">
+                        {detailIdx + 1} / {filtered.length}
+                      </span>
+                      <button
+                        onClick={goNext} disabled={!canNext}
+                        className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                   <div className="flex items-baseline gap-2 flex-wrap">
                     <SheetTitle className="text-base font-semibold leading-snug">
