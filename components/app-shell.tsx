@@ -17,6 +17,7 @@ import { AllPropertiesPage } from "@/components/all-properties-page"
 import { QualitySystemPage } from "@/components/quality-system-page"
 import { NawySpacePage } from "@/components/nawy-space-page"
 import { ProjectsNewPage } from "@/components/projects-new-page"
+import { RenderImagesPage } from "@/components/render-images-page"
 import { cn } from "@/lib/utils"
 
 export function AppShell() {
@@ -39,6 +40,8 @@ export function AppShell() {
         return <QualitySystemPage />
       case "Nawy Space":
         return <NawySpacePage />
+      case "Render Images":
+        return <RenderImagesPage />
       case "Validation Rules":
         return <ValidationRulesPage />
       case "Areas FAQs":
