@@ -105,6 +105,8 @@ interface EntityRef { name: string; id: string; url: string }
 interface GroupedProperty {
   id: string
   propertyMetadataId: string
+  nawyNowId?: string
+  resalePropertyId?: string
   title: string
   description: string
   availableUnits: number
@@ -221,6 +223,9 @@ function makeGroups(): GroupedProperty[] {
     return {
       id: String(111729 + i * 418),
       propertyMetadataId: String(234000 + i * 137),
+      // Resale ⇄ Nawy Now cross-link (Nawy Now units are listed from a resale property)
+      nawyNowId: saleType === "Resale" ? `NN-${String(50100 + i * 17)}` : undefined,
+      resalePropertyId: saleType === "Nawy Now" ? `RSL-${String(70200 + i * 23)}` : undefined,
       title: `tamera for sale in ${compounds[i % compounds.length]} with ${bedrooms} bedrooms in ${["Ain Sokhna", "New Cairo", "North Coast", "Sheikh Zayed"][i % 4]} building ${String.fromCharCode(65 + i)}`,
       description: [
         "Grouped by matching project, unit attributes, payment plan, and listing source. Units share the same floor plan, payment schedule, finishing level, and are part of the same phase release under the developer's primary allocation cycle.",
@@ -300,6 +305,34 @@ function CopyableId({ value }: { value: string }) {
       <button
         className="rounded p-0.5 opacity-0 transition-opacity hover:bg-secondary group-hover/copy:opacity-100"
         onClick={() => {
+          navigator.clipboard.writeText(value)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 900)
+        }}
+      >
+        {copied ? <span className="text-xs text-emerald-600">Copied</span> : <Copy className="h-3 w-3 text-muted-foreground" />}
+      </button>
+    </span>
+  )
+}
+
+function LinkedId({ value, href }: { value: string; href: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <span className="group/copy inline-flex items-center gap-1 font-mono">
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="text-primary underline underline-offset-2 hover:text-primary/80"
+      >
+        {value}
+      </a>
+      <button
+        className="rounded p-0.5 opacity-0 transition-opacity hover:bg-secondary group-hover/copy:opacity-100"
+        onClick={(e) => {
+          e.stopPropagation()
           navigator.clipboard.writeText(value)
           setCopied(true)
           setTimeout(() => setCopied(false), 900)
@@ -518,6 +551,22 @@ function GroupCard({
           <span className="flex items-center gap-1">
             Metadata ID: <CopyableId value={group.propertyMetadataId} />
           </span>
+          {group.saleType === "Resale" && group.nawyNowId && (
+            <>
+              <span>·</span>
+              <span className="flex items-center gap-1">
+                Nawy Now ID: <LinkedId value={group.nawyNowId} href={`/nawy-now/${group.nawyNowId}`} />
+              </span>
+            </>
+          )}
+          {group.saleType === "Nawy Now" && group.resalePropertyId && (
+            <>
+              <span>·</span>
+              <span className="flex items-center gap-1">
+                Resale Property: <LinkedId value={group.resalePropertyId} href={`/resale/${group.resalePropertyId}`} />
+              </span>
+            </>
+          )}
         </div>
 
         {/* Tags — no labels, compact row */}
@@ -800,22 +849,27 @@ const DEST_PROJECTS: Record<string, { id: string; name: string; phases: { id: st
   "DEV-001": [
     { id: "PRJ-L1", name: "Palm Beach Resort", phases: [{ id: "PH-L1", name: "Phase 1" }, { id: "PH-L2", name: "Phase 2" }] },
     { id: "PRJ-L2", name: "Lasirena Hub", phases: [{ id: "PH-L3", name: "Phase A" }] },
+    { id: "PRJ-L21", name: "Lasirena Bay", phases: [{ id: "PH-L21", name: "Phase 1" }, { id: "PH-L22", name: "Phase 2" }] },
   ],
   "DEV-002": [
     { id: "PRJ-P1", name: "New Cairo Gate", phases: [{ id: "PH-P1", name: "Phase 1" }, { id: "PH-P2", name: "Phase 2" }, { id: "PH-P3", name: "Phase 3" }] },
     { id: "PRJ-P2", name: "Hacienda Bay", phases: [{ id: "PH-P4", name: "Phase 1" }] },
+    { id: "PRJ-P21", name: "Badya", phases: [{ id: "PH-P21", name: "Phase 1" }] },
   ],
   "DEV-003": [
     { id: "PRJ-S1", name: "SODIC West", phases: [{ id: "PH-S1", name: "Phase 1" }, { id: "PH-S2", name: "Phase 2" }] },
     { id: "PRJ-S2", name: "Villette", phases: [] },
+    { id: "PRJ-S21", name: "Eastown", phases: [{ id: "PH-S21", name: "Phase 1" }] },
   ],
   "DEV-004": [
     { id: "PRJ-M1", name: "North Bay", phases: [{ id: "PH-M1", name: "Phase 1" }, { id: "PH-M2", name: "Phase 2" }] },
     { id: "PRJ-M2", name: "Lagoon Heights", phases: [{ id: "PH-M3", name: "Phase A" }, { id: "PH-M4", name: "Phase B" }] },
+    { id: "PRJ-M21", name: "Aliva", phases: [{ id: "PH-M21", name: "Phase 1" }] },
   ],
   "DEV-005": [
     { id: "PRJ-E1", name: "Marassi", phases: [{ id: "PH-E1", name: "Phase 1" }, { id: "PH-E2", name: "Phase 2" }, { id: "PH-E3", name: "Phase 3" }] },
     { id: "PRJ-E2", name: "Cairo Gate", phases: [{ id: "PH-E4", name: "Phase 1" }] },
+    { id: "PRJ-E21", name: "Mivida", phases: [{ id: "PH-E21", name: "Phase 1" }] },
   ],
 }
 
@@ -1265,7 +1319,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm }: Change
                                   {dupes.length} unit code{dupes.length !== 1 ? "s" : ""} ({dupeAvail} available) already exist in <strong>{destProj?.name}</strong>
                                 </p>
                                 <p className="text-xs text-amber-700 mt-0.5">
-                                  These units will be <strong>merged</strong> — the most recently updated record will be preserved and the older duplicate removed automatically.
+                                  The source units will <strong>overwrite</strong> the matching records in {destProj?.name} — the existing destination records will be replaced.
                                 </p>
                               </div>
                             </div>
@@ -1287,12 +1341,12 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm }: Change
                 })}
               </div>
 
-              {/* Global merge note if any conflicts */}
+              {/* Global overwrite note if any conflicts */}
               {hasConflicts && (
                 <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex gap-3">
                   <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
                   <p className="text-xs text-blue-800">
-                    <strong>Merge behaviour:</strong> When a unit code exists in both source and destination, the system will keep the record with the most recent <em>last updated</em> timestamp. No data will be lost — the older duplicate will be archived. No action is required from you.
+                    <strong>Overwrite behaviour:</strong> When a unit code exists in both source and destination, the source record will replace the destination record. The existing destination data for these unit codes will be overwritten.
                   </p>
                 </div>
               )}
@@ -1351,7 +1405,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm }: Change
               <span>{compoundGroups.length} compound{compoundGroups.length !== 1 ? "s" : ""} · {eligible.length} groups · {eligible.reduce((s, g) => s + g.details.length, 0)} units</span>
             )}
             {step === "review" && hasConflicts && (
-              <span className="text-amber-600 font-medium">Conflicts will be auto-merged on confirm</span>
+              <span className="text-amber-600 font-medium">Source units will overwrite destination on confirm</span>
             )}
           </div>
           <div className="flex items-center gap-2">
