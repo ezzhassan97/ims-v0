@@ -7,6 +7,7 @@ import {
   ArrowUpDown,
   Baby,
   Bell,
+  Building2,
   Bus,
   Car,
   Check,
@@ -29,6 +30,7 @@ import {
   Film,
   Filter,
   Flame,
+  Globe,
   GripVertical,
   Group,
   Heart,
@@ -73,7 +75,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { initialUnits, projectPhases, type Unit } from "@/lib/mock-data"
-import { GroupedPropertiesView, type SharedFilterState } from "@/components/grouped-properties-page"
+import { GroupedPropertiesView, type SharedFilterState, type GroupDetailPayload } from "@/components/grouped-properties-page"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Availability = "Available" | "Hold" | "Sold-Off" | "Archived"
@@ -720,12 +722,14 @@ function ImageCarousel({
   onClose,
   onReorder,
   onRemove,
+  readOnly = false,
 }: {
   images: string[]
   startIndex: number
   onClose: () => void
   onReorder: (imgs: string[]) => void
   onRemove: (idx: number) => void
+  readOnly?: boolean
 }) {
   const [current, setCurrent] = useState(startIndex)
   const [filmDrag, setFilmDrag] = useState<number | null>(null)
@@ -821,10 +825,10 @@ function ImageCarousel({
           {images.map((img, idx) => (
             <div
               key={idx}
-              draggable
-              onDragStart={() => setFilmDrag(idx)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
+              draggable={!readOnly}
+              onDragStart={readOnly ? undefined : () => setFilmDrag(idx)}
+              onDragOver={readOnly ? undefined : (e) => e.preventDefault()}
+              onDrop={readOnly ? undefined : (e) => {
                 e.preventDefault()
                 if (filmDrag === null || filmDrag === idx) return
                 const next = [...images]
@@ -835,7 +839,7 @@ function ImageCarousel({
                 setFilmDrag(null)
                 onReorder(next)
               }}
-              onDragEnd={() => setFilmDrag(null)}
+              onDragEnd={readOnly ? undefined : () => setFilmDrag(null)}
               className={cn(
                 "relative flex-shrink-0 cursor-pointer group/film rounded overflow-hidden transition-all",
                 current === idx ? "ring-2 ring-white scale-105" : "opacity-60 hover:opacity-100",
@@ -845,35 +849,43 @@ function ImageCarousel({
               onClick={() => setCurrent(idx)}
             >
               <img src={img} alt={`thumb ${idx}`} className="w-full h-full object-cover" />
-              <button
-                className="absolute top-0.5 right-0.5 bg-red-600/80 hover:bg-red-600 rounded-full p-0.5 text-white opacity-0 group-hover/film:opacity-100 transition-opacity"
-                onClick={(e) => { e.stopPropagation(); setConfirmRemove(idx) }}
-              >
-                <X className="h-2.5 w-2.5" />
-              </button>
-              <div className="absolute bottom-0.5 left-0.5">
-                <GripVertical className="h-3 w-3 text-white/50" />
-              </div>
+              {!readOnly && (
+                <>
+                  <button
+                    className="absolute top-0.5 right-0.5 bg-red-600/80 hover:bg-red-600 rounded-full p-0.5 text-white opacity-0 group-hover/film:opacity-100 transition-opacity"
+                    onClick={(e) => { e.stopPropagation(); setConfirmRemove(idx) }}
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                  <div className="absolute bottom-0.5 left-0.5">
+                    <GripVertical className="h-3 w-3 text-white/50" />
+                  </div>
+                </>
+              )}
             </div>
           ))}
-          <button
-            className="flex-shrink-0 w-[72px] h-[52px] border border-dashed border-white/30 rounded flex items-center justify-center text-white/50 hover:text-white hover:border-white/60 transition-colors"
-            onClick={() => fileRef.current?.click()}
-          >
-            <Plus className="h-5 w-5" />
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              const files = Array.from(e.target.files ?? [])
-              files.forEach((f) => onReorder([...images, URL.createObjectURL(f)]))
-              e.target.value = ""
-            }}
-          />
+          {!readOnly && (
+            <>
+              <button
+                className="flex-shrink-0 w-[72px] h-[52px] border border-dashed border-white/30 rounded flex items-center justify-center text-white/50 hover:text-white hover:border-white/60 transition-colors"
+                onClick={() => fileRef.current?.click()}
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? [])
+                  files.forEach((f) => onReorder([...images, URL.createObjectURL(f)]))
+                  e.target.value = ""
+                }}
+              />
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -1356,9 +1368,10 @@ const PAYMENT_PLAN_GROUPS: PriceGroup[] = [
   },
 ]
 
-function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans }: {
+function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, readOnly = false }: {
   group: PriceGroup; groupIndex: number; totalGroups: number
   expandedPlans: Set<string>; setExpandedPlans: React.Dispatch<React.SetStateAction<Set<string>>>
+  readOnly?: boolean
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const canDelete = totalGroups > 1
@@ -1373,8 +1386,8 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans }: {
         <span className="text-[11px] text-muted-foreground whitespace-nowrap flex-shrink-0">
           {group.plans.length} {group.plans.length === 1 ? "plan" : "plans"}
         </span>
-        {/* Delete price button */}
-        {!confirmDelete ? (
+        {/* Delete price button (hidden when read-only) */}
+        {!readOnly && (!confirmDelete ? (
           <button
             onClick={() => canDelete && setConfirmDelete(true)}
             title={canDelete ? "Delete price" : "Cannot delete — only one price"}
@@ -1390,7 +1403,7 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans }: {
             <button onClick={() => setConfirmDelete(false)} className="text-[11px] text-[#5A6A85] hover:text-[#0D1B2E] px-1 rounded transition-colors">Cancel</button>
             <button onClick={() => setConfirmDelete(false)} className="text-[11px] text-white bg-red-500 hover:bg-red-600 px-1.5 rounded transition-colors font-medium">Delete</button>
           </div>
-        )}
+        ))}
       </div>
       {/* Cards */}
       <div className="flex flex-wrap gap-2.5 items-start">
@@ -1398,6 +1411,7 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans }: {
           <LinkedPlanCard
             key={plan.id}
             plan={plan}
+            readOnly={readOnly}
             isExpanded={expandedPlans.has(plan.id)}
             totalInGroup={group.plans.length}
             onToggleExpand={() => setExpandedPlans((prev) => {
@@ -1413,7 +1427,7 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans }: {
   )
 }
 
-function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number }) {
+function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean }) {
   const [copiedId, setCopiedId] = useState(false)
   const [confirmUnlink, setConfirmUnlink] = useState(false)
   const copyId = () => {
@@ -1433,17 +1447,19 @@ function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup }: { pl
           <span className="text-[13px] font-semibold text-[#0D1B2E] truncate flex-1 min-w-0" title={plan.name}>{plan.name}</span>
           <div className="flex items-center gap-0.5 flex-shrink-0 mt-px">
             <button className="w-[22px] h-[22px] rounded-[4px] border-0 bg-transparent cursor-pointer flex items-center justify-center p-0 text-[#8C9BB5] hover:bg-slate-100 hover:text-[#5A6A85] transition-all" title="View"><Eye className="w-[13px] h-[13px]" /></button>
-            <button
-              onClick={() => canUnlink && setConfirmUnlink(true)}
-              title={canUnlink ? "Unlink" : "Cannot unlink — only one plan linked"}
-              className={cn("w-[22px] h-[22px] rounded-[4px] border-0 bg-transparent flex items-center justify-center p-0 transition-all",
-                canUnlink ? "cursor-pointer text-red-300 hover:bg-red-50 hover:text-red-500" : "cursor-not-allowed text-[#C8D0DC] opacity-40"
-              )}
-            ><X className="w-3 h-3" /></button>
+            {!readOnly && (
+              <button
+                onClick={() => canUnlink && setConfirmUnlink(true)}
+                title={canUnlink ? "Unlink" : "Cannot unlink — only one plan linked"}
+                className={cn("w-[22px] h-[22px] rounded-[4px] border-0 bg-transparent flex items-center justify-center p-0 transition-all",
+                  canUnlink ? "cursor-pointer text-red-300 hover:bg-red-50 hover:text-red-500" : "cursor-not-allowed text-[#C8D0DC] opacity-40"
+                )}
+              ><X className="w-3 h-3" /></button>
+            )}
           </div>
         </div>
         {/* Unlink confirmation inline */}
-        {confirmUnlink && (
+        {!readOnly && confirmUnlink && (
           <div className="mt-1 mb-0.5 flex items-center gap-1.5 px-2 py-1.5 bg-red-50 border border-red-200 rounded-[6px]">
             <span className="text-[11px] text-red-700 font-medium flex-1">Unlink this plan?</span>
             <button onClick={() => setConfirmUnlink(false)} className="text-[11px] text-[#5A6A85] hover:text-[#0D1B2E] px-1.5 py-0.5 rounded transition-colors">Cancel</button>
@@ -1681,13 +1697,14 @@ function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup }: { pl
 
 // ── Media Gallery Tab ─────────────────────────────────────────────────────────
 function MediaGalleryTab({
-  field, items, label, onUpload, onView, onRemove, onReorder,
+  field, items, label, onUpload, onView, onRemove, onReorder, readOnly = false,
 }: {
   field: string; items: string[]; label: string
   onUpload: () => void
   onView: (idx: number) => void
   onRemove: (idx: number) => void
   onReorder: (items: string[]) => void
+  readOnly?: boolean
 }) {
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -1712,32 +1729,38 @@ function MediaGalleryTab({
         <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           {items.length} {items.length === 1 ? label : `${label}s`}
         </h4>
-        <Button size="sm" variant="outline" onClick={onUpload} className="h-7 text-xs gap-1.5">
-          <Plus className="h-3 w-3" />Add {label}s
-        </Button>
+        {!readOnly && (
+          <Button size="sm" variant="outline" onClick={onUpload} className="h-7 text-xs gap-1.5">
+            <Plus className="h-3 w-3" />Add {label}s
+          </Button>
+        )}
       </div>
       {items.length === 0 ? (
         <div
-          onClick={onUpload}
-          className="rounded-xl border-2 border-dashed border-border p-14 flex flex-col items-center gap-3 cursor-pointer hover:border-primary/40 hover:bg-muted/20 transition-colors"
+          onClick={readOnly ? undefined : onUpload}
+          className={cn(
+            "rounded-xl border-2 border-dashed border-border p-14 flex flex-col items-center gap-3 transition-colors",
+            !readOnly && "cursor-pointer hover:border-primary/40 hover:bg-muted/20",
+          )}
         >
           <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
             <Upload className="h-5 w-5 text-muted-foreground" />
           </div>
-          <p className="text-sm text-muted-foreground">No {label.toLowerCase()}s yet — click to upload</p>
+          <p className="text-sm text-muted-foreground">No {label.toLowerCase()}s {readOnly ? "" : "yet — click to upload"}</p>
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-3">
           {items.map((img, i) => (
             <div
               key={i}
-              draggable
-              onDragStart={() => setDragIndex(i)}
-              onDragOver={(e) => { e.preventDefault(); setDragOverIndex(i) }}
-              onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }}
-              onDrop={() => handleDrop(i)}
+              draggable={!readOnly}
+              onDragStart={readOnly ? undefined : () => setDragIndex(i)}
+              onDragOver={readOnly ? undefined : (e) => { e.preventDefault(); setDragOverIndex(i) }}
+              onDragEnd={readOnly ? undefined : () => { setDragIndex(null); setDragOverIndex(null) }}
+              onDrop={readOnly ? undefined : () => handleDrop(i)}
               className={cn(
-                "relative group rounded-lg overflow-hidden border aspect-video cursor-grab active:cursor-grabbing transition-all select-none",
+                "relative group rounded-lg overflow-hidden border aspect-video transition-all select-none",
+                !readOnly && "cursor-grab active:cursor-grabbing",
                 dragOverIndex === i && dragIndex !== i ? "border-primary ring-2 ring-primary/30 scale-[1.02]" : "border-border hover:border-primary/50",
                 dragIndex === i ? "opacity-40" : "opacity-100",
               )}
@@ -1749,8 +1772,8 @@ function MediaGalleryTab({
                 {i + 1}
               </div>
 
-              {/* Remove button — top right, always visible, red */}
-              {confirmRemove === i ? (
+              {/* Remove button — top right (hidden when read-only) */}
+              {!readOnly && (confirmRemove === i ? (
                 <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1 bg-black/80 backdrop-blur-sm rounded-md px-1.5 py-1">
                   <span className="text-[10px] text-white/80 font-medium">Remove?</span>
                   <button onClick={(e) => { e.stopPropagation(); setConfirmRemove(null) }} className="text-[10px] text-white/60 hover:text-white transition-colors px-0.5">No</button>
@@ -1763,7 +1786,7 @@ function MediaGalleryTab({
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>
-              )}
+              ))}
 
               {/* Image ID + copy — always visible at bottom */}
               <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black/65 to-transparent px-2 pt-4 pb-1.5">
@@ -1795,6 +1818,315 @@ function MediaGalleryTab({
 }
 
 // ── View Property Drawer ───────────────────────────────────────────────────────
+// ── Shared tab panels (used by the unit drawer AND the grouped property details page) ──
+// Renders a single tab's content for the given property row. Self-contained state + overlays.
+export function PropertyDetailTab({
+  tab,
+  row,
+  onUpdateRow,
+  readOnly = false,
+}: {
+  tab: string
+  row: PropertyRow
+  onUpdateRow: (id: string, updates: Partial<PropertyRow>) => void
+  readOnly?: boolean
+}) {
+  const [carouselState, setCarouselState] = useState<{ imgs: string[]; idx: number; field: "images" | "floorPlans" } | null>(null)
+  const [uploadState, setUploadState] = useState<"images" | "floorPlans" | null>(null)
+  const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set())
+  const [auditLogDrawerEntry, setAuditLogDrawerEntry] = useState<{ id: string; action: "Edit" | "Create" | "Delete"; entity: string; label: string; detail: string; user: string; ts: string } | null>(null)
+  const [phSort, setPhSort] = useState<{ col: "date" | "price" | "change" | "action" | "user"; dir: "asc" | "desc" }>({ col: "date", dir: "desc" })
+
+  const dummyAuditLogs = [
+    { id: "LOG-A8F3C2", action: "Edit" as const, entity: "Properties", label: "Availability changed", detail: "Available → Hold", user: "Sarah M.", ts: formatTimestamp(new Date(Date.now() - 2 * 24 * 3600000).toISOString()) },
+    { id: "LOG-B1D7E9", action: "Edit" as const, entity: "Properties", label: "Price updated", detail: `${(row.price ? row.price - 150000 : 0).toLocaleString()} → ${(row.price ?? 0).toLocaleString()} EGP`, user: "Ahmed K.", ts: formatTimestamp(new Date(Date.now() - 5 * 24 * 3600000).toISOString()) },
+    { id: "LOG-C4F2A1", action: "Edit" as const, entity: "Properties", label: "Listing status changed", detail: "Hidden → Active", user: "System", ts: formatTimestamp(new Date(Date.now() - 7 * 24 * 3600000).toISOString()) },
+    { id: "LOG-D9B5C3", action: "Edit" as const, entity: "Properties", label: "Unit details updated", detail: "Finishing type, floor number", user: "Mariam N.", ts: formatTimestamp(new Date(Date.now() - 14 * 24 * 3600000).toISOString()) },
+    { id: "LOG-E2A8F7", action: "Create" as const, entity: "Properties", label: "Property created", detail: `Entry: ${row.entryType}`, user: row.entryType === "Automatic" ? "System" : "Omar F.", ts: formatTimestamp(row.createdAt) },
+  ]
+
+  const basePrice = row.price ?? 0
+  const dummyPriceHistory = [
+    { date: formatTimestamp(new Date(Date.now() - 2 * 24 * 3600000).toISOString()), price: basePrice, change: 150000, action: "Edit" as const, user: "Ahmed K." },
+    { date: formatTimestamp(new Date(Date.now() - 10 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice - 150000), change: -250000, action: "Edit" as const, user: "Ahmed K." },
+    { date: formatTimestamp(new Date(Date.now() - 25 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice + 100000), change: 100000, action: "Edit" as const, user: "Sara M." },
+    { date: formatTimestamp(new Date(Date.now() - 45 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice + 50000), change: null, action: "Create" as const, user: "System" },
+    { date: formatTimestamp(new Date(Date.now() - 60 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice - 300000), change: null, action: "Sold Off" as const, user: "Ahmed K." },
+  ]
+
+  return (
+    <>
+      {/* Payment Plans */}
+      {tab === "payment-plans" && (
+        <div className="p-6 space-y-7">
+          {PAYMENT_PLAN_GROUPS.map((group, gi) => (
+            <PriceGroup key={gi} group={group} groupIndex={gi} totalGroups={PAYMENT_PLAN_GROUPS.length} expandedPlans={expandedPlans} setExpandedPlans={setExpandedPlans} readOnly={readOnly} />
+          ))}
+        </div>
+      )}
+
+      {/* Images / Gallery */}
+      {tab === "images" && (
+        <MediaGalleryTab
+          field="images"
+          items={row.images}
+          label="Image"
+          readOnly={readOnly}
+          onUpload={() => setUploadState("images")}
+          onView={(idx) => setCarouselState({ imgs: row.images, idx, field: "images" })}
+          onRemove={(idx) => onUpdateRow(row.propertyId, { images: row.images.filter((_, i) => i !== idx) })}
+          onReorder={(items) => onUpdateRow(row.propertyId, { images: items })}
+        />
+      )}
+
+      {/* Floor Plans */}
+      {tab === "floor-plans" && (
+        <MediaGalleryTab
+          field="floorPlans"
+          items={row.floorPlans}
+          label="Floor Plan"
+          readOnly={readOnly}
+          onUpload={() => setUploadState("floorPlans")}
+          onView={(idx) => setCarouselState({ imgs: row.floorPlans, idx, field: "floorPlans" })}
+          onRemove={(idx) => onUpdateRow(row.propertyId, { floorPlans: row.floorPlans.filter((_, i) => i !== idx) })}
+          onReorder={(items) => onUpdateRow(row.propertyId, { floorPlans: items })}
+        />
+      )}
+
+      {/* Entries Logs */}
+      {tab === "entries-log" && (
+        <div className="p-4 space-y-2.5">
+          {[
+            { id: "ENT-2026-00814", ts: "14 May 2026, 09:42", createdBy: "Sara Mostafa", status: "Modified" as const },
+            { id: "ENT-2026-00791", ts: "11 May 2026, 15:18", createdBy: "Khaled Ibrahim", status: "Unmodified" as const },
+            { id: "ENT-2026-00754", ts: "07 May 2026, 11:04", createdBy: "Sara Mostafa", status: "New" as const },
+            { id: "ENT-2026-00712", ts: "02 May 2026, 08:55", createdBy: "Ahmed Nour", status: "Returned" as const },
+            { id: "ENT-2026-00689", ts: "28 Apr 2026, 16:30", createdBy: "Khaled Ibrahim", status: "Modified" as const },
+            { id: "ENT-2026-00651", ts: "23 Apr 2026, 10:12", createdBy: "Sara Mostafa", status: "Missing" as const },
+            { id: "ENT-2026-00620", ts: "19 Apr 2026, 13:47", createdBy: "Omar Fathi", status: "Unmodified" as const },
+            { id: "ENT-2026-00598", ts: "14 Apr 2026, 09:20", createdBy: "Ahmed Nour", status: "New" as const },
+          ].map((entry) => {
+            const statusBadge: Record<string, string> = {
+              New:        "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400",
+              Modified:   "bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-900/40 dark:text-amber-400",
+              Unmodified: "bg-muted text-muted-foreground border border-border",
+              Missing:    "bg-red-100 text-red-600 border border-red-200 dark:bg-red-900/40 dark:text-red-400",
+              Returned:   "bg-blue-100 text-blue-600 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-400",
+            }
+            return (
+              <div key={entry.id} className="rounded-xl border border-border bg-card px-4 py-3 flex items-center justify-between gap-3">
+                <a href={`/entries/${entry.id}`} target="_blank" rel="noopener noreferrer" className="font-mono text-xs font-semibold text-primary hover:underline underline-offset-2 shrink-0 w-36" onClick={(e) => e.stopPropagation()}>
+                  {entry.id}
+                </a>
+                <span className={cn("text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 w-24 text-center", statusBadge[entry.status])}>
+                  {entry.status}
+                </span>
+                <span className="flex items-center gap-1 text-xs text-muted-foreground ml-4">
+                  <User className="h-3 w-3 shrink-0" /><span className="truncate">{entry.createdBy}</span>
+                </span>
+                <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0 ml-auto">
+                  <Clock className="h-3 w-3" />{entry.ts}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Audit Logs */}
+      {tab === "activity-log" && (
+        <div className="p-4 space-y-2.5">
+          {dummyAuditLogs.map((log) => {
+            const actionStyle: Record<string, { badge: string; icon: React.ReactNode }> = {
+              Create: { badge: "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400", icon: <Plus className="h-3 w-3" /> },
+              Edit:   { badge: "bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-400",             icon: <Edit className="h-3 w-3" /> },
+              Delete: { badge: "bg-red-100 text-red-600 border border-red-200 dark:bg-red-900/40 dark:text-red-400",                  icon: <Trash2 className="h-3 w-3" /> },
+            }
+            const as = actionStyle[log.action] ?? actionStyle["Edit"]
+            return (
+              <div key={log.id} className="rounded-xl border border-border bg-card px-4 py-3 flex items-center justify-between gap-3">
+                <span className="inline-flex items-center gap-1 group/lid shrink-0">
+                  <span className="font-mono text-xs font-semibold text-foreground">{log.id}</span>
+                  <CopyBtn value={log.id} className="opacity-0 group-hover/lid:opacity-100 transition-opacity" />
+                </span>
+                <span className={cn("inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full shrink-0", as.badge)}>
+                  {as.icon}{log.action}
+                </span>
+                <span className="flex items-center gap-1 text-xs text-muted-foreground ml-4">
+                  <User className="h-3 w-3 shrink-0" /><span className="truncate">{log.user}</span>
+                </span>
+                <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0 whitespace-nowrap">
+                  <Clock className="h-3 w-3" />{log.ts}
+                </span>
+                <button onClick={(e) => { e.stopPropagation(); setAuditLogDrawerEntry(log) }} className="shrink-0 h-7 w-7 rounded-lg border border-border bg-muted/60 hover:bg-muted flex items-center justify-center transition-colors" title="View log details">
+                  <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Price History */}
+      {tab === "price-history" && (() => {
+        type PhCol = "date" | "price" | "change" | "action" | "user"
+        const togglePhSort = (col: PhCol) => {
+          setPhSort((prev) => (prev.col === col ? { col, dir: prev.dir === "asc" ? "desc" : "asc" } : { col, dir: col === "date" ? "desc" : "asc" }))
+        }
+        const sorted = [...dummyPriceHistory].sort((a, b) => {
+          let cmp = 0
+          if (phSort.col === "date")   cmp = a.date.localeCompare(b.date)
+          if (phSort.col === "price")  cmp = a.price - b.price
+          if (phSort.col === "change") cmp = (a.change ?? 0) - (b.change ?? 0)
+          if (phSort.col === "action") cmp = a.action.localeCompare(b.action)
+          if (phSort.col === "user")   cmp = a.user.localeCompare(b.user)
+          return phSort.dir === "asc" ? cmp : -cmp
+        })
+        const phActionStyle: Record<string, string> = {
+          Create:   "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400",
+          Edit:     "bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-400",
+          "Sold Off": "bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-900/40 dark:text-purple-400",
+        }
+        const SortIcon = ({ col }: { col: PhCol }) => (
+          phSort.col === col ? <span className="ml-1 inline-block">{phSort.dir === "asc" ? "↑" : "↓"}</span> : <ArrowUpDown className="ml-1 h-3 w-3 inline-block opacity-30" />
+        )
+        return (
+          <div className="p-5">
+            <div className="rounded-xl border border-border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                  <tr>
+                    <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("date")}>Date<SortIcon col="date" /></th>
+                    <th className="text-right px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("price")}>Price<SortIcon col="price" /></th>
+                    <th className="text-right px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("change")}>Change<SortIcon col="change" /></th>
+                    <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("action")}>Action<SortIcon col="action" /></th>
+                    <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("user")}>Updated by<SortIcon col="user" /></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {sorted.map((entry, i) => (
+                    <tr key={i} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">{entry.date}</td>
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums text-xs">{entry.price.toLocaleString()} <span className="text-muted-foreground font-normal">EGP</span></td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs">
+                        {entry.change === null ? <span className="text-muted-foreground">—</span> : entry.change > 0 ? <span className="text-green-600 font-medium">+{entry.change.toLocaleString()}</span> : <span className="text-red-600 font-medium">{entry.change.toLocaleString()}</span>}
+                      </td>
+                      <td className="px-4 py-3"><span className={cn("inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full", phActionStyle[entry.action] ?? "")}>{entry.action}</span></td>
+                      <td className="px-4 py-3 text-xs font-medium">{entry.user}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Carousel */}
+      {carouselState && (
+        <ImageCarousel
+          images={carouselState.imgs}
+          startIndex={carouselState.idx}
+          readOnly={readOnly}
+          onClose={() => setCarouselState(null)}
+          onReorder={(imgs) => { onUpdateRow(row.propertyId, { [carouselState.field]: imgs }); setCarouselState((s) => (s ? { ...s, imgs } : null)) }}
+          onRemove={(idx) => {
+            const next = carouselState.imgs.filter((_, i) => i !== idx)
+            onUpdateRow(row.propertyId, { [carouselState.field]: next })
+            if (next.length === 0) setCarouselState(null)
+            else setCarouselState((s) => (s ? { ...s, imgs: next } : null))
+          }}
+        />
+      )}
+
+      {/* Upload dialog */}
+      {uploadState && (
+        <UploadDialog
+          open
+          onClose={() => setUploadState(null)}
+          onUpload={(urls) => {
+            const field = uploadState
+            const current = field === "images" ? row.images : row.floorPlans
+            onUpdateRow(row.propertyId, { [field]: [...current, ...urls] })
+          }}
+        />
+      )}
+
+      {/* Audit Log detail overlay */}
+      {auditLogDrawerEntry && (
+        <div className="fixed inset-0 z-[60] flex" onClick={() => setAuditLogDrawerEntry(null)}>
+          <div className="flex-1 bg-black/30" />
+          <div className="w-[480px] h-full bg-background border-l border-border flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="shrink-0 border-b border-border px-5 pt-5 pb-4 flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Audit Log</p>
+                <p className="font-mono text-sm font-bold">{auditLogDrawerEntry.id}</p>
+              </div>
+              <button onClick={() => setAuditLogDrawerEntry(null)} className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-muted transition-colors text-muted-foreground"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                <div>
+                  <p className="text-[11px] text-muted-foreground font-medium mb-0.5">Action</p>
+                  {(() => {
+                    const actionStyle: Record<string, { badge: string; icon: React.ReactNode }> = {
+                      Create: { badge: "bg-emerald-100 text-emerald-700 border border-emerald-200", icon: <Plus className="h-3 w-3" /> },
+                      Edit:   { badge: "bg-blue-100 text-blue-700 border border-blue-200",          icon: <Edit className="h-3 w-3" /> },
+                      Delete: { badge: "bg-red-100 text-red-600 border border-red-200",             icon: <Trash2 className="h-3 w-3" /> },
+                    }
+                    const as = actionStyle[auditLogDrawerEntry.action] ?? actionStyle["Edit"]
+                    return <span className={cn("inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full", as.badge)}>{as.icon}{auditLogDrawerEntry.action}</span>
+                  })()}
+                </div>
+                <div><p className="text-[11px] text-muted-foreground font-medium mb-0.5">Entity</p><p className="text-sm font-medium">{auditLogDrawerEntry.entity}</p></div>
+                <div><p className="text-[11px] text-muted-foreground font-medium mb-0.5">Record ID</p><p className="font-mono text-xs font-semibold text-primary">{row.propertyId}</p></div>
+                <div>
+                  <p className="text-[11px] text-muted-foreground font-medium mb-0.5">User</p>
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-5 w-5 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0"><User className="h-3 w-3 text-primary" /></div>
+                    <p className="text-sm font-medium">{auditLogDrawerEntry.user}</p>
+                  </div>
+                </div>
+                <div className="col-span-2"><p className="text-[11px] text-muted-foreground font-medium mb-0.5">Timestamp</p><p className="text-sm">{auditLogDrawerEntry.ts}</p></div>
+              </div>
+              <div className="border-t border-border" />
+              <div>
+                <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide mb-2">What Changed</p>
+                <div className="rounded-xl border border-border overflow-hidden">
+                  <div className="bg-muted px-4 py-2 grid grid-cols-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    <span>Field</span><span>Before</span><span>After</span>
+                  </div>
+                  {auditLogDrawerEntry.action === "Create" ? (
+                    <div className="px-4 py-3 text-xs text-muted-foreground italic">New record — no previous values.</div>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {auditLogDrawerEntry.label === "Availability changed" && (
+                        <div className="px-4 py-2.5 grid grid-cols-3 text-xs"><span className="font-medium text-foreground">Availability</span><span className="text-muted-foreground">Available</span><span className="font-medium text-amber-700">Hold</span></div>
+                      )}
+                      {auditLogDrawerEntry.label === "Price updated" && (
+                        <div className="px-4 py-2.5 grid grid-cols-3 text-xs"><span className="font-medium text-foreground">Price</span><span className="text-muted-foreground">{(row.price ? row.price - 150000 : 0).toLocaleString()} EGP</span><span className="font-medium text-green-700">{(row.price ?? 0).toLocaleString()} EGP</span></div>
+                      )}
+                      {auditLogDrawerEntry.label === "Listing status changed" && (
+                        <div className="px-4 py-2.5 grid grid-cols-3 text-xs"><span className="font-medium text-foreground">Listing Status</span><span className="text-muted-foreground">Hidden</span><span className="font-medium text-green-700">Active</span></div>
+                      )}
+                      {auditLogDrawerEntry.label === "Unit details updated" && (
+                        <>
+                          <div className="px-4 py-2.5 grid grid-cols-3 text-xs"><span className="font-medium text-foreground">Finishing Type</span><span className="text-muted-foreground">Standard</span><span className="font-medium">Semi-Finished</span></div>
+                          <div className="px-4 py-2.5 grid grid-cols-3 text-xs"><span className="font-medium text-foreground">Floor Number</span><span className="text-muted-foreground">3</span><span className="font-medium">5</span></div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 function ViewPropertyDrawer({
   row,
   defaultTab,
@@ -1907,6 +2239,43 @@ function ViewPropertyDrawer({
           side="right"
           className="!w-[720px] !max-w-[93vw] flex flex-col p-0 gap-0 overflow-hidden"
         >
+          {/* Quick actions — near the close (X) button */}
+          <div className="absolute right-12 top-4 z-20 flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => window.open(`https://www.nawy.com/property/${row.propertyId}`, "_blank", "noopener")}
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <Globe className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>View on listing website</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => window.open(`/e-realty/properties/${row.propertyId}`, "_blank", "noopener")}
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <Building2 className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>View on E-realty platform</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => window.open(`/properties/grouped/${row.propertyId}`, "_blank", "noopener")}
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <Edit className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>View and Edit on IMS</TooltipContent>
+            </Tooltip>
+          </div>
+
           {/* ── Header */}
           <div className="shrink-0 border-b border-border bg-card px-6 pt-5 pb-4 space-y-3">
 
@@ -2147,469 +2516,61 @@ function ViewPropertyDrawer({
             )}
 
             {/* Payment Plans */}
-            {activeTab === "payment-plans" && (
-              <div className="p-6 space-y-7">
-                {PAYMENT_PLAN_GROUPS.map((group, gi) => (
-                  <PriceGroup key={gi} group={group} groupIndex={gi} totalGroups={PAYMENT_PLAN_GROUPS.length} expandedPlans={expandedPlans} setExpandedPlans={setExpandedPlans} />
-                ))}
-              </div>
-            )}
-
-            {/* Images */}
-            {activeTab === "images" && (
-              <MediaGalleryTab
-                field="images"
-                items={row.images}
-                label="Image"
-                onUpload={() => setUploadState("images")}
-                onView={(idx) => setCarouselState({ imgs: row.images, idx, field: "images" })}
-                onRemove={(idx) => onUpdateRow(row.propertyId, { images: row.images.filter((_, i) => i !== idx) })}
-                onReorder={(items) => onUpdateRow(row.propertyId, { images: items })}
-              />
-            )}
-
-            {/* Floor Plans */}
-            {activeTab === "floor-plans" && (
-              <MediaGalleryTab
-                field="floorPlans"
-                items={row.floorPlans}
-                label="Floor Plan"
-                onUpload={() => setUploadState("floorPlans")}
-                onView={(idx) => setCarouselState({ imgs: row.floorPlans, idx, field: "floorPlans" })}
-                onRemove={(idx) => onUpdateRow(row.propertyId, { floorPlans: row.floorPlans.filter((_, i) => i !== idx) })}
-                onReorder={(items) => onUpdateRow(row.propertyId, { floorPlans: items })}
-              />
-            )}
+            {/* Shared panels: payment-plans · images · floor-plans · entries-log · activity-log · price-history (view-only here) */}
+            <PropertyDetailTab tab={activeTab} row={row} onUpdateRow={onUpdateRow} readOnly />
 
             {/* Amenities */}
             {activeTab === "amenities" && (
               <div className="p-6 space-y-6">
-                {/* Amenities */}
+                {/* Linked Amenities (read-only) */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Amenities ({amenityDraft.length} selected)
-                    </h4>
-                    {amenityChanged && (
-                      <Button size="sm" variant="default" className="h-7 text-xs gap-1.5"
-                        onClick={() => onUpdateRow(row.propertyId, { amenities: amenityDraft })}>
-                        <Check className="h-3 w-3" />Save
-                      </Button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {amenitiesPool.map((name) => {
-                      const Icon = AMENITY_ICONS[name] ?? Sparkles
-                      const sel = amenityDraft.includes(name)
-                      return (
-                        <button
-                          key={name}
-                          onClick={() =>
-                            setAmenityDraft((prev) =>
-                              sel ? prev.filter((v) => v !== name) : [...prev, name],
-                            )
-                          }
-                          className={cn(
-                            "flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors text-left",
-                            sel
-                              ? "border-primary bg-primary/5 text-primary font-medium"
-                              : "border-border bg-card hover:bg-muted text-foreground",
-                          )}
-                        >
-                          <Icon className="h-4 w-4 flex-shrink-0" />
-                          <span className="truncate">{name}</span>
-                          {sel && <Check className="h-3 w-3 ml-auto flex-shrink-0" />}
-                        </button>
-                      )
-                    })}
-                  </div>
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Amenities ({row.amenities.length})
+                  </h4>
+                  {row.amenities.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No amenities linked.</p>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2">
+                      {row.amenities.map((name) => {
+                        const Icon = AMENITY_ICONS[name] ?? Sparkles
+                        return (
+                          <div key={name} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground">
+                            <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                            <span className="truncate">{name}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
 
-                {/* Services */}
+                {/* Linked Services (read-only) */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Services ({serviceDraft.length} selected)
-                    </h4>
-                    {serviceChanged && (
-                      <Button size="sm" variant="default" className="h-7 text-xs gap-1.5"
-                        onClick={() => onUpdateRow(row.propertyId, { services: serviceDraft })}>
-                        <Check className="h-3 w-3" />Save
-                      </Button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {servicesPool.map((name) => {
-                      const Icon = AMENITY_ICONS[name] ?? Wrench
-                      const sel = serviceDraft.includes(name)
-                      return (
-                        <button
-                          key={name}
-                          onClick={() =>
-                            setServiceDraft((prev) =>
-                              sel ? prev.filter((v) => v !== name) : [...prev, name],
-                            )
-                          }
-                          className={cn(
-                            "flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors text-left",
-                            sel
-                              ? "border-primary bg-primary/5 text-primary font-medium"
-                              : "border-border bg-card hover:bg-muted text-foreground",
-                          )}
-                        >
-                          <Icon className="h-4 w-4 flex-shrink-0" />
-                          <span className="truncate">{name}</span>
-                          {sel && <Check className="h-3 w-3 ml-auto flex-shrink-0" />}
-                        </button>
-                      )
-                    })}
-                  </div>
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Services ({row.services.length})
+                  </h4>
+                  {row.services.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No services linked.</p>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2">
+                      {row.services.map((name) => {
+                        const Icon = AMENITY_ICONS[name] ?? Wrench
+                        return (
+                          <div key={name} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground">
+                            <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                            <span className="truncate">{name}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* Entries Logs */}
-            {activeTab === "entries-log" && (
-              <div className="p-4 space-y-2.5">
-                {[
-                  { id: "ENT-2026-00814", ts: "14 May 2026, 09:42", createdBy: "Sara Mostafa", status: "Modified" as const },
-                  { id: "ENT-2026-00791", ts: "11 May 2026, 15:18", createdBy: "Khaled Ibrahim", status: "Unmodified" as const },
-                  { id: "ENT-2026-00754", ts: "07 May 2026, 11:04", createdBy: "Sara Mostafa", status: "New" as const },
-                  { id: "ENT-2026-00712", ts: "02 May 2026, 08:55", createdBy: "Ahmed Nour", status: "Returned" as const },
-                  { id: "ENT-2026-00689", ts: "28 Apr 2026, 16:30", createdBy: "Khaled Ibrahim", status: "Modified" as const },
-                  { id: "ENT-2026-00651", ts: "23 Apr 2026, 10:12", createdBy: "Sara Mostafa", status: "Missing" as const },
-                  { id: "ENT-2026-00620", ts: "19 Apr 2026, 13:47", createdBy: "Omar Fathi", status: "Unmodified" as const },
-                  { id: "ENT-2026-00598", ts: "14 Apr 2026, 09:20", createdBy: "Ahmed Nour", status: "New" as const },
-                ].map((entry) => {
-                  const statusBadge: Record<string, string> = {
-                    New:        "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400",
-                    Modified:   "bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-900/40 dark:text-amber-400",
-                    Unmodified: "bg-muted text-muted-foreground border border-border",
-                    Missing:    "bg-red-100 text-red-600 border border-red-200 dark:bg-red-900/40 dark:text-red-400",
-                    Returned:   "bg-blue-100 text-blue-600 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-400",
-                  }
-                  return (
-                    <div key={entry.id} className="rounded-xl border border-border bg-card px-4 py-3 flex items-center justify-between gap-3">
-                      {/* Entry ID — fixed width so all IDs align */}
-                      <a
-                        href={`/entries/${entry.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-mono text-xs font-semibold text-primary hover:underline underline-offset-2 shrink-0 w-36"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {entry.id}
-                      </a>
-                      {/* Status badge — fixed width so badges align */}
-                      <span className={cn("text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 w-24 text-center", statusBadge[entry.status])}>
-                        {entry.status}
-                      </span>
-                      {/* User — fills remaining space */}
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground ml-4">
-                        <User className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{entry.createdBy}</span>
-                      </span>
-                      {/* Timestamp — pushed to the right */}
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0 ml-auto">
-                        <Clock className="h-3 w-3" />{entry.ts}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Audit Logs */}
-            {activeTab === "activity-log" && (
-              <div className="p-4 space-y-2.5">
-                {dummyAuditLogs.map((log) => {
-                  const actionStyle: Record<string, { badge: string; icon: React.ReactNode }> = {
-                    Create: { badge: "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400", icon: <Plus className="h-3 w-3" /> },
-                    Edit:   { badge: "bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-400",             icon: <Edit className="h-3 w-3" /> },
-                    Delete: { badge: "bg-red-100 text-red-600 border border-red-200 dark:bg-red-900/40 dark:text-red-400",                  icon: <Trash2 className="h-3 w-3" /> },
-                  }
-                  const as = actionStyle[log.action] ?? actionStyle["Edit"]
-                  return (
-                    <div key={log.id} className="rounded-xl border border-border bg-card px-4 py-3 flex items-center justify-between gap-3">
-                      {/* 1. Log ID + copy */}
-                      <span className="inline-flex items-center gap-1 group/lid shrink-0">
-                        <span className="font-mono text-xs font-semibold text-foreground">{log.id}</span>
-                        <CopyBtn value={log.id} className="opacity-0 group-hover/lid:opacity-100 transition-opacity" />
-                      </span>
-                      {/* 2. Action type tag */}
-                      <span className={cn("inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full shrink-0", as.badge)}>
-                        {as.icon}{log.action}
-                      </span>
-                      {/* 3. User — fills space */}
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground ml-4">
-                        <User className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{log.user}</span>
-                      </span>
-                      {/* 4. Timestamp */}
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0 whitespace-nowrap">
-                        <Clock className="h-3 w-3" />{log.ts}
-                      </span>
-                      {/* 5. View icon button */}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setAuditLogDrawerEntry(log) }}
-                        className="shrink-0 h-7 w-7 rounded-lg border border-border bg-muted/60 hover:bg-muted flex items-center justify-center transition-colors"
-                        title="View log details"
-                      >
-                        <Eye className="h-3.5 w-3.5 text-muted-foreground" />
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Price History */}
-            {activeTab === "price-history" && (() => {
-              type PhCol = "date" | "price" | "change" | "action" | "user"
-              const togglePhSort = (col: PhCol) => {
-                setPhSort((prev) =>
-                  prev.col === col
-                    ? { col, dir: prev.dir === "asc" ? "desc" : "asc" }
-                    : { col, dir: col === "date" ? "desc" : "asc" }
-                )
-              }
-              const sorted = [...dummyPriceHistory].sort((a, b) => {
-                let cmp = 0
-                if (phSort.col === "date")   cmp = a.date.localeCompare(b.date)
-                if (phSort.col === "price")  cmp = a.price - b.price
-                if (phSort.col === "change") cmp = (a.change ?? 0) - (b.change ?? 0)
-                if (phSort.col === "action") cmp = a.action.localeCompare(b.action)
-                if (phSort.col === "user")   cmp = a.user.localeCompare(b.user)
-                return phSort.dir === "asc" ? cmp : -cmp
-              })
-              const phActionStyle: Record<string, string> = {
-                Create:   "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400",
-                Edit:     "bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-400",
-                "Sold Off": "bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-900/40 dark:text-purple-400",
-              }
-              const SortIcon = ({ col }: { col: PhCol }) => (
-                phSort.col === col
-                  ? <span className="ml-1 inline-block">{phSort.dir === "asc" ? "↑" : "↓"}</span>
-                  : <ArrowUpDown className="ml-1 h-3 w-3 inline-block opacity-30" />
-              )
-              return (
-                <div className="p-5">
-                  <div className="rounded-xl border border-border overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-                        <tr>
-                          <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("date")}>
-                            Date<SortIcon col="date" />
-                          </th>
-                          <th className="text-right px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("price")}>
-                            Price<SortIcon col="price" />
-                          </th>
-                          <th className="text-right px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("change")}>
-                            Change<SortIcon col="change" />
-                          </th>
-                          <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("action")}>
-                            Action<SortIcon col="action" />
-                          </th>
-                          <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("user")}>
-                            Updated by<SortIcon col="user" />
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {sorted.map((entry, i) => (
-                          <tr key={i} className="hover:bg-muted/30 transition-colors">
-                            <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">{entry.date}</td>
-                            <td className="px-4 py-3 text-right font-semibold tabular-nums text-xs">
-                              {entry.price.toLocaleString()} <span className="text-muted-foreground font-normal">EGP</span>
-                            </td>
-                            <td className="px-4 py-3 text-right tabular-nums text-xs">
-                              {entry.change === null ? (
-                                <span className="text-muted-foreground">—</span>
-                              ) : entry.change > 0 ? (
-                                <span className="text-green-600 font-medium">+{entry.change.toLocaleString()}</span>
-                              ) : (
-                                <span className="text-red-600 font-medium">{entry.change.toLocaleString()}</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={cn("inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full", phActionStyle[entry.action] ?? "")}>
-                                {entry.action}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-xs font-medium">{entry.user}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )
-            })()}
 
           </div>
 
-          {/* Carousel — inside SheetContent so Radix focus trap allows interaction */}
-          {carouselState && (
-            <ImageCarousel
-              images={carouselState.imgs}
-              startIndex={carouselState.idx}
-              onClose={() => setCarouselState(null)}
-              onReorder={(imgs) => {
-                onUpdateRow(row.propertyId, { [carouselState.field]: imgs })
-                setCarouselState((s) => (s ? { ...s, imgs } : null))
-              }}
-              onRemove={(idx) => {
-                const next = carouselState.imgs.filter((_, i) => i !== idx)
-                onUpdateRow(row.propertyId, { [carouselState.field]: next })
-                if (next.length === 0) setCarouselState(null)
-                else setCarouselState((s) => (s ? { ...s, imgs: next } : null))
-              }}
-            />
-          )}
-
-          {/* Upload dialog — inside SheetContent so Radix focus trap allows interaction */}
-          {uploadState && (
-            <UploadDialog
-              open
-              onClose={() => setUploadState(null)}
-              onUpload={(urls) => {
-                const field = uploadState
-                const current = field === "images" ? row.images : row.floorPlans
-                onUpdateRow(row.propertyId, { [field]: [...current, ...urls] })
-              }}
-            />
-          )}
-
-          {/* ── Audit Log Detail Drawer — overlays the unit drawer */}
-          {auditLogDrawerEntry && (
-            <div
-              className="absolute inset-0 z-50 flex"
-              onClick={() => setAuditLogDrawerEntry(null)}
-            >
-              {/* Scrim */}
-              <div className="flex-1 bg-black/30" />
-              {/* Panel */}
-              <div
-                className="w-[480px] h-full bg-background border-l border-border flex flex-col shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* Header */}
-                <div className="shrink-0 border-b border-border px-5 pt-5 pb-4 flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Audit Log</p>
-                    <p className="font-mono text-sm font-bold">{auditLogDrawerEntry.id}</p>
-                  </div>
-                  <button
-                    onClick={() => setAuditLogDrawerEntry(null)}
-                    className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-muted transition-colors text-muted-foreground"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-
-                {/* Body */}
-                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-                  {/* Meta grid */}
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-                    <div>
-                      <p className="text-[11px] text-muted-foreground font-medium mb-0.5">Action</p>
-                      {(() => {
-                        const actionStyle: Record<string, { badge: string; icon: React.ReactNode }> = {
-                          Create: { badge: "bg-emerald-100 text-emerald-700 border border-emerald-200", icon: <Plus className="h-3 w-3" /> },
-                          Edit:   { badge: "bg-blue-100 text-blue-700 border border-blue-200",          icon: <Edit className="h-3 w-3" /> },
-                          Delete: { badge: "bg-red-100 text-red-600 border border-red-200",             icon: <Trash2 className="h-3 w-3" /> },
-                        }
-                        const as = actionStyle[auditLogDrawerEntry.action] ?? actionStyle["Edit"]
-                        return (
-                          <span className={cn("inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full", as.badge)}>
-                            {as.icon}{auditLogDrawerEntry.action}
-                          </span>
-                        )
-                      })()}
-                    </div>
-                    <div>
-                      <p className="text-[11px] text-muted-foreground font-medium mb-0.5">Entity</p>
-                      <p className="text-sm font-medium">{auditLogDrawerEntry.entity}</p>
-                    </div>
-                    <div>
-                      <p className="text-[11px] text-muted-foreground font-medium mb-0.5">Record ID</p>
-                      <p className="font-mono text-xs font-semibold text-primary">{row.propertyId}</p>
-                    </div>
-                    <div>
-                      <p className="text-[11px] text-muted-foreground font-medium mb-0.5">User</p>
-                      <div className="flex items-center gap-1.5">
-                        <div className="h-5 w-5 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
-                          <User className="h-3 w-3 text-primary" />
-                        </div>
-                        <p className="text-sm font-medium">{auditLogDrawerEntry.user}</p>
-                      </div>
-                    </div>
-                    <div className="col-span-2">
-                      <p className="text-[11px] text-muted-foreground font-medium mb-0.5">Timestamp</p>
-                      <p className="text-sm">{auditLogDrawerEntry.ts}</p>
-                    </div>
-                  </div>
-
-                  {/* Divider */}
-                  <div className="border-t border-border" />
-
-                  {/* What changed */}
-                  <div>
-                    <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide mb-2">What Changed</p>
-                    <div className="rounded-xl border border-border overflow-hidden">
-                      <div className="bg-muted px-4 py-2 grid grid-cols-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-                        <span>Field</span>
-                        <span>Before</span>
-                        <span>After</span>
-                      </div>
-                      {/* Hardcoded field diff rows based on the log label */}
-                      {auditLogDrawerEntry.action === "Create" ? (
-                        <div className="px-4 py-3 text-xs text-muted-foreground italic">New record — no previous values.</div>
-                      ) : (
-                        <div className="divide-y divide-border">
-                          {auditLogDrawerEntry.label === "Availability changed" && (
-                            <div className="px-4 py-2.5 grid grid-cols-3 text-xs">
-                              <span className="font-medium text-foreground">Availability</span>
-                              <span className="text-muted-foreground">Available</span>
-                              <span className="font-medium text-amber-700">Hold</span>
-                            </div>
-                          )}
-                          {auditLogDrawerEntry.label === "Price updated" && (
-                            <div className="px-4 py-2.5 grid grid-cols-3 text-xs">
-                              <span className="font-medium text-foreground">Price</span>
-                              <span className="text-muted-foreground">{(row.price ? row.price - 150000 : 0).toLocaleString()} EGP</span>
-                              <span className="font-medium text-green-700">{(row.price ?? 0).toLocaleString()} EGP</span>
-                            </div>
-                          )}
-                          {auditLogDrawerEntry.label === "Listing status changed" && (
-                            <div className="px-4 py-2.5 grid grid-cols-3 text-xs">
-                              <span className="font-medium text-foreground">Listing Status</span>
-                              <span className="text-muted-foreground">Hidden</span>
-                              <span className="font-medium text-green-700">Active</span>
-                            </div>
-                          )}
-                          {auditLogDrawerEntry.label === "Unit details updated" && (
-                            <>
-                              <div className="px-4 py-2.5 grid grid-cols-3 text-xs">
-                                <span className="font-medium text-foreground">Finishing Type</span>
-                                <span className="text-muted-foreground">Standard</span>
-                                <span className="font-medium">Semi-Finished</span>
-                              </div>
-                              <div className="px-4 py-2.5 grid grid-cols-3 text-xs">
-                                <span className="font-medium text-foreground">Floor Number</span>
-                                <span className="text-muted-foreground">3</span>
-                                <span className="font-medium">5</span>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
         </SheetContent>
       </Sheet>
@@ -4712,7 +4673,7 @@ function DateRangeDropdown({
   )
 }
 
-export function AllPropertiesPage() {
+export function AllPropertiesPage({ onOpenGroupDetail }: { onOpenGroupDetail?: (d: GroupDetailPayload) => void } = {}) {
   const allRows = useMemo(() => createRows(), [])
 
   // ── Shared filter state ────────────────────────────────────────────────────
@@ -5278,6 +5239,7 @@ export function AllPropertiesPage() {
               filterGroups={filterGroups}
               groupConnector={groupConnector}
               groupByColumn={groupByColumn}
+              onOpenGroupDetail={onOpenGroupDetail}
             />
           </TabsContent>
           <TabsContent value="detailed" className="mt-0">

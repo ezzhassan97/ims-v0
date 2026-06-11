@@ -5,6 +5,7 @@ import React from "react"
 import {
   AlertTriangle,
   Archive,
+  ArrowLeft,
   ArrowRightLeft,
   ArrowUpDown,
   Banknote,
@@ -35,6 +36,7 @@ import {
   MapPin,
   MoveRight,
   MoreVertical,
+  Pencil,
   Percent,
   Plus,
   Ruler,
@@ -50,9 +52,11 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { EmbeddedPropertyTable, createRows, type ColId, type PropertyRow } from "@/components/all-properties-page"
+import { EmbeddedPropertyTable, PropertyDetailTab, createRows, type ColId, type PropertyRow } from "@/components/all-properties-page"
 
 export interface SharedFilterState {
   searchQuery: string
@@ -117,7 +121,7 @@ interface GroupedProperty {
   areaMax: number
   bedroom: number
   bathroom: number
-  saleType: "Primary" | "Resale" | "Nawy Now" | "Rental" | "Launch"
+  saleType: "Primary" | "Resale" | "Nawy Now" | "Rental" | "Launch" | "Financing"
   entryType: "Automatic" | "Manual"
   listingStatus: "Published" | "Hidden"
   saleStatus: "Available" | "Sold" | "Hold" | "Archived"
@@ -161,6 +165,8 @@ const badgeClass: Record<string, string> = {
   Resale: "border-purple-200 bg-purple-50 text-purple-700",
   "Nawy Now": "border-teal-200 bg-teal-50 text-teal-700",
   Rental: "border-orange-200 bg-orange-50 text-orange-700",
+  Launch: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  Financing: "border-rose-200 bg-rose-50 text-rose-700",
   Published: "border-emerald-200 bg-emerald-50 text-emerald-700",
   Hidden: "border-gray-200 bg-gray-50 text-gray-700",
   "OFF PLAN": "border-amber-200 bg-amber-50 text-amber-700",
@@ -206,10 +212,26 @@ function makeGroups(): GroupedProperty[] {
   const propertySubTypes = ["Garden Chalet", "Garden Apartment", "Studio", "Penthouse", "Open Space", "Twin House", "Roof Duplex", "Standard"]
   const compounds = ["Lasirena Palm Beach", "New Cairo Residences", "North Coast Bay", "Lagoon District"]
 
-  return Array.from({ length: 8 }, (_, i) => {
-    const units = 2 + (i % 6)
-    const available = Math.max(1, units - (i % 3))
-    const saleType = (["Primary", "Resale", "Nawy Now", "Rental"] as const)[i % 4]
+  // Business rules: sale type → entry type → detailed-property (DP) count per group.
+  // Each case repeated `count` times so the demo has ≥3 groups per case (Primary ≥5 total).
+  type SaleT = GroupedProperty["saleType"]
+  const CASES: { saleType: SaleT; entryType: "Manual" | "Automatic"; dp: number; count: number }[] = [
+    { saleType: "Launch",    entryType: "Manual",    dp: 2, count: 3 },
+    { saleType: "Primary",   entryType: "Manual",    dp: 2, count: 3 },
+    { saleType: "Primary",   entryType: "Automatic", dp: 5, count: 3 },
+    { saleType: "Resale",    entryType: "Manual",    dp: 1, count: 3 },
+    { saleType: "Nawy Now",  entryType: "Manual",    dp: 1, count: 3 },
+    { saleType: "Financing", entryType: "Manual",    dp: 1, count: 3 },
+    { saleType: "Rental",    entryType: "Manual",    dp: 1, count: 3 },
+  ]
+  const plan: { saleType: SaleT; entryType: "Manual" | "Automatic"; dp: number }[] = CASES.flatMap((c) =>
+    Array.from({ length: c.count }, () => ({ saleType: c.saleType, entryType: c.entryType, dp: c.dp })),
+  )
+
+  return plan.map((spec, i) => {
+    const saleType = spec.saleType
+    const units = spec.dp
+    const available = i % 4 === 3 ? Math.max(0, units - 1) : units
     const areaBase = 120 + i * 12
     const areaMin = areaBase
     const areaMax = areaBase + 24 + (i % 3) * 12
@@ -246,7 +268,7 @@ function makeGroups(): GroupedProperty[] {
       bedroom: bedrooms,
       bathroom: Math.max(1, bedrooms - 1),
       saleType,
-      entryType: i % 5 === 0 ? "Manual" : "Automatic",
+      entryType: spec.entryType,
       listingStatus: i % 6 === 0 ? "Hidden" : "Published",
       saleStatus,
       propertyCategory: categories[i % categories.length],
@@ -284,8 +306,8 @@ function makeGroups(): GroupedProperty[] {
         duration: 6,
         downpayment: 20,
         status: (ui < available ? "Available" : "Sold") as "Available" | "Sold",
-        offering: saleType === "Rental" ? "Primary" : saleType,
-        financing: i % 2 === 1,
+        offering: saleType === "Resale" || saleType === "Nawy Now" ? saleType : "Primary",
+        financing: saleType === "Financing",
         nawyNow: saleType === "Nawy Now",
         gardenArea: i % 2 === 0 ? 85 : undefined,
         roofArea: i % 3 === 0 ? 40 : undefined,
@@ -484,6 +506,8 @@ function GroupCard({
   hiddenCols,
   isSelected,
   onSelect,
+  onView,
+  detailView = false,
 }: {
   group: GroupedProperty
   globalIndex: number
@@ -493,6 +517,9 @@ function GroupCard({
   hiddenCols: ColId[]
   isSelected: boolean
   onSelect: (shiftKey: boolean) => void
+  onView: () => void
+  /** When rendered inside the details page: no checkbox, edit instead of view, no expand, no media section */
+  detailView?: boolean
 }) {
   const [descExpanded, setDescExpanded] = useState(false)
   const [descOverflows, setDescOverflows] = useState(false)
@@ -535,12 +562,14 @@ function GroupCard({
       {/* ── Section 1: IDs · Tags · Action Buttons ── */}
       <div className="flex items-center gap-4 px-5 py-2.5 border-b border-border">
         {/* Checkbox */}
-        <Checkbox
-          checked={isSelected}
-          onCheckedChange={() => {}}
-          onClick={(e) => { e.stopPropagation(); onSelect((e as React.MouseEvent).shiftKey) }}
-          className="shrink-0"
-        />
+        {!detailView && (
+          <Checkbox
+            checked={isSelected}
+            onCheckedChange={() => {}}
+            onClick={(e) => { e.stopPropagation(); onSelect((e as React.MouseEvent).shiftKey) }}
+            className="shrink-0"
+          />
+        )}
 
         {/* IDs with copy-on-hover */}
         <div className="flex items-center gap-2.5 shrink-0 text-xs text-muted-foreground">
@@ -587,9 +616,15 @@ function GroupCard({
           <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="Open on website">
             <ExternalLink className="h-3 w-3" />
           </Button>
-          <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="View on IMS">
-            <Eye className="h-3 w-3" />
-          </Button>
+          {detailView ? (
+            <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="Edit" onClick={onView}>
+              <Pencil className="h-3 w-3" />
+            </Button>
+          ) : (
+            <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="View on IMS" onClick={onView}>
+              <Eye className="h-3 w-3" />
+            </Button>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="More actions">
@@ -606,9 +641,11 @@ function GroupCard({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" onClick={onToggle} title="Expand units">
-            {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-          </Button>
+          {!detailView && (
+            <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" onClick={onToggle} title="Expand units">
+              {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -689,6 +726,7 @@ function GroupCard({
       </div>
 
       {/* ── Section 4: Images · Floor Plans · Amenities · Payment Plans ── */}
+      {!detailView && (
       <div className="px-5 py-3 border-b border-border">
         <div className="grid grid-cols-4 gap-x-6">
           {/* Col 1: Images */}
@@ -736,6 +774,7 @@ function GroupCard({
           </div>
         </div>
       </div>
+      )}
 
       {/* ── Timestamps: bottom-right ── */}
       <div className="px-5 py-2 flex justify-end gap-x-4 text-xs text-muted-foreground">
@@ -1442,18 +1481,144 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm }: Change
   )
 }
 
+export type GroupDetailPayload = { group: GroupedProperty; allRows: PropertyRow[]; index: number }
+
+const GROUPED_HIDDEN_COLS: ColId[] = [
+  "propertyId", "propertyMetadataId", "developer", "project", "phase",
+  "entryType", "saleType", "listingStatus", "propertyCategory", "propertyType", "propertySubType",
+  "district", "area", "subarea", "source",
+]
+
+const DETAIL_TABS = [
+  { value: "additional-info", label: "Additional Info" },
+  { value: "detailed-properties", label: "Detailed Properties" },
+  { value: "floor-plans", label: "Floor Plans" },
+  { value: "gallery", label: "Gallery" },
+  { value: "payment-plans", label: "Payment Plans" },
+  { value: "price-history", label: "Price History" },
+  { value: "attachments", label: "Attachments" },
+  { value: "ingestion-entries", label: "Entries" },
+  { value: "audit-logs", label: "Audit Logs" },
+]
+
+// Tabs that reuse the unit-drawer panels (value → PropertyDetailTab tab id)
+const SHARED_PANEL_MAP: Record<string, string> = {
+  "floor-plans": "floor-plans",
+  gallery: "images",
+  "payment-plans": "payment-plans",
+  "price-history": "price-history",
+  "ingestion-entries": "entries-log",
+  "audit-logs": "activity-log",
+}
+
+// ── Grouped Property details page ───────────────────────────────────────────────
+export function GroupedPropertyDetails({
+  group,
+  allRows,
+  index,
+  onBack,
+}: {
+  group: GroupedProperty
+  allRows: PropertyRow[]
+  index: number
+  onBack: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const units = allRows.slice(index * 3, index * 3 + group.details.length)
+  // Representative unit row that drives the shared drawer panels (gallery, plans, etc.)
+  const [repRow, setRepRow] = useState<PropertyRow | null>(units[0] ?? null)
+  const updateRepRow = (_id: string, patch: Partial<PropertyRow>) => setRepRow((r) => (r ? { ...r, ...patch } : r))
+
+  return (
+    <div className="min-h-screen bg-secondary/40">
+      <div className="space-y-4 p-4">
+        {/* Back (above breadcrumb, plain text + icon) */}
+        <div className="space-y-2 px-1 pt-1">
+          <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+            <ArrowLeft className="h-4 w-4" /> Back
+          </button>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <button onClick={onBack} className="flex items-center hover:text-foreground"><Home className="h-3.5 w-3.5" /></button>
+            <ChevronRight className="h-3 w-3" />
+            <span>Properties</span>
+            <ChevronRight className="h-3 w-3" />
+            <button onClick={onBack} className="hover:text-foreground hover:underline">All Properties</button>
+            <ChevronRight className="h-3 w-3" />
+            <span className="max-w-[220px] truncate font-medium text-foreground">{group.id}</span>
+          </div>
+        </div>
+
+        {/* ── Main container: the exact grouped property card ── */}
+        <GroupCard
+          group={group}
+          globalIndex={index}
+          allRows={allRows}
+          isExpanded={expanded}
+          onToggle={() => setExpanded((e) => !e)}
+          hiddenCols={GROUPED_HIDDEN_COLS}
+          isSelected={false}
+          onSelect={() => {}}
+          onView={() => {}}
+          detailView
+        />
+
+        {/* ── Tabs ── */}
+        <Tabs defaultValue="additional-info" className="space-y-4">
+          <TabsList className="bg-card">
+            {DETAIL_TABS.map((t) => <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>)}
+          </TabsList>
+
+          <TabsContent value="detailed-properties">
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="mb-3 flex items-baseline gap-2">
+                <h3 className="text-sm font-semibold">Detailed Properties</h3>
+                <span className="text-xs text-muted-foreground">({group.details.length} units)</span>
+              </div>
+              <EmbeddedPropertyTable rows={units} hiddenColumns={["developer", "project", "phase", "saleType", "propertyCategory", "propertyType", "propertySubType", "district", "area", "subarea", "source"]} />
+            </div>
+          </TabsContent>
+
+          {DETAIL_TABS.filter((t) => t.value !== "detailed-properties").map((t) => {
+            const panelTab = SHARED_PANEL_MAP[t.value]
+            return (
+              <TabsContent key={t.value} value={t.value}>
+                {panelTab ? (
+                  <div className="rounded-xl border border-border bg-card">
+                    {repRow ? (
+                      <PropertyDetailTab tab={panelTab} row={repRow} onUpdateRow={updateRepRow} />
+                    ) : (
+                      <div className="px-6 py-16 text-center text-sm text-muted-foreground">No units in this group.</div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex min-h-[280px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card py-16 text-center">
+                    <p className="text-sm font-medium text-foreground">{t.label}</p>
+                    <p className="text-xs text-muted-foreground">Content for this tab will be defined next (varies by {group.saleType} sale type).</p>
+                  </div>
+                )}
+              </TabsContent>
+            )
+          })}
+        </Tabs>
+      </div>
+    </div>
+  )
+}
+
 export function GroupedPropertiesView({
   filters,
   sortConfigs = [],
   filterGroups = [],
   groupConnector = "AND",
   groupByColumn = null,
+  onOpenGroupDetail,
 }: {
   filters: SharedFilterState
   sortConfigs?: SortConfig[]
   filterGroups?: FilterGroup[]
   groupConnector?: "AND" | "OR"
   groupByColumn?: string | null
+  onOpenGroupDetail?: (d: GroupDetailPayload) => void
 }) {
   const [groups, setGroups] = useState<GroupedProperty[]>(() => makeGroups())
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([groups[0]?.id].filter(Boolean)))
@@ -1464,6 +1629,9 @@ export function GroupedPropertiesView({
   const lastSelectedIdxRef = useRef<number | null>(null)
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   const [showChangeCompound, setShowChangeCompound] = useState(false)
+
+  const openDetail = (group: GroupedProperty, index: number) =>
+    onOpenGroupDetail?.({ group, allRows, index })
 
   const filteredGroups = useMemo(() => {
     const query = filters.searchQuery.toLowerCase()
@@ -1530,12 +1698,6 @@ export function GroupedPropertiesView({
       return next
     })
   }
-
-  const GROUPED_HIDDEN_COLS: ColId[] = [
-    "propertyId", "propertyMetadataId", "developer", "project", "phase",
-    "entryType", "saleType", "listingStatus", "propertyCategory", "propertyType", "propertySubType",
-    "district", "area", "subarea", "source",
-  ]
 
   return (
     <div className="space-y-4">
@@ -1662,6 +1824,7 @@ export function GroupedPropertiesView({
                         hiddenCols={GROUPED_HIDDEN_COLS}
                         isSelected={selectedCards.has(group.id)}
                         onSelect={(shiftKey) => handleCardSelect(group.id, globalIndex, shiftKey)}
+                        onView={() => openDetail(group, (currentPage - 1) * pageSize + globalIndex)}
                       />
                     )
                   })}
@@ -1681,6 +1844,7 @@ export function GroupedPropertiesView({
                 hiddenCols={GROUPED_HIDDEN_COLS}
                 isSelected={selectedCards.has(group.id)}
                 onSelect={(shiftKey) => handleCardSelect(group.id, groupIndex, shiftKey)}
+                onView={() => openDetail(group, globalIndex)}
               />
             )
           })}

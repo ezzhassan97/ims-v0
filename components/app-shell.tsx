@@ -19,13 +19,18 @@ import { NawySpacePage } from "@/components/nawy-space-page"
 import { ProjectsNewPage } from "@/components/projects-new-page"
 import { RenderImagesPage } from "@/components/render-images-page"
 import { PropertiesConfigurationsPage } from "@/components/properties-configurations-page"
+import { GroupedPropertyDetails, type GroupDetailPayload } from "@/components/grouped-properties-page"
 import { cn } from "@/lib/utils"
 
 export function AppShell() {
   const [activePage, setActivePage] = useState("Projects")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [groupDetail, setGroupDetail] = useState<GroupDetailPayload | null>(null)
 
   const renderContent = () => {
+    if (groupDetail) {
+      return <GroupedPropertyDetails group={groupDetail.group} allRows={groupDetail.allRows} index={groupDetail.index} onBack={() => setGroupDetail(null)} />
+    }
     switch (activePage) {
       case "Projects":
         return <ProjectsPage />
@@ -34,7 +39,7 @@ export function AppShell() {
       case "Launches":
         return <LaunchesPage />
       case "All Properties":
-        return <AllPropertiesPage />
+        return <AllPropertiesPage onOpenGroupDetail={setGroupDetail} />
       case "Testing Playground":
         return <TestingPlayground />
       case "Quality System":
@@ -66,7 +71,7 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-screen bg-background">
-      <Sidebar onPageChange={setActivePage} activePage={activePage} onCollapseChange={setSidebarCollapsed} />
+      <Sidebar onPageChange={(p) => { setActivePage(p); setGroupDetail(null) }} activePage={activePage} onCollapseChange={setSidebarCollapsed} />
       <main className={cn("flex-1 overflow-auto transition-all duration-300", sidebarCollapsed ? "ml-16" : "ml-64")}>
         {renderContent()}
       </main>
