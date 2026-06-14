@@ -111,6 +111,7 @@ interface GroupedProperty {
   propertyMetadataId: string
   nawyNowId?: string
   resalePropertyId?: string
+  financingAvailable?: boolean
   title: string
   description: string
   availableUnits: number
@@ -121,7 +122,7 @@ interface GroupedProperty {
   areaMax: number
   bedroom: number
   bathroom: number
-  saleType: "Primary" | "Resale" | "Nawy Now" | "Rental" | "Launch" | "Financing"
+  saleType: "Primary" | "Resale" | "Nawy Now" | "Rental" | "Launch"
   entryType: "Automatic" | "Manual"
   listingStatus: "Published" | "Hidden"
   saleStatus: "Available" | "Sold" | "Hold" | "Archived"
@@ -166,7 +167,6 @@ const badgeClass: Record<string, string> = {
   "Nawy Now": "border-teal-200 bg-teal-50 text-teal-700",
   Rental: "border-orange-200 bg-orange-50 text-orange-700",
   Launch: "border-indigo-200 bg-indigo-50 text-indigo-700",
-  Financing: "border-rose-200 bg-rose-50 text-rose-700",
   Published: "border-emerald-200 bg-emerald-50 text-emerald-700",
   Hidden: "border-gray-200 bg-gray-50 text-gray-700",
   "OFF PLAN": "border-amber-200 bg-amber-50 text-amber-700",
@@ -215,17 +215,18 @@ function makeGroups(): GroupedProperty[] {
   // Business rules: sale type → entry type → detailed-property (DP) count per group.
   // Each case repeated `count` times so the demo has ≥3 groups per case (Primary ≥5 total).
   type SaleT = GroupedProperty["saleType"]
-  const CASES: { saleType: SaleT; entryType: "Manual" | "Automatic"; dp: number; count: number }[] = [
+  // `financing` = a Resale group with financing available (no separate "Financing" sale type exists).
+  const CASES: { saleType: SaleT; entryType: "Manual" | "Automatic"; dp: number; count: number; financing?: boolean }[] = [
     { saleType: "Launch",    entryType: "Manual",    dp: 2, count: 3 },
     { saleType: "Primary",   entryType: "Manual",    dp: 2, count: 3 },
     { saleType: "Primary",   entryType: "Automatic", dp: 5, count: 3 },
     { saleType: "Resale",    entryType: "Manual",    dp: 1, count: 3 },
+    { saleType: "Resale",    entryType: "Manual",    dp: 1, count: 3, financing: true },
     { saleType: "Nawy Now",  entryType: "Manual",    dp: 1, count: 3 },
-    { saleType: "Financing", entryType: "Manual",    dp: 1, count: 3 },
     { saleType: "Rental",    entryType: "Manual",    dp: 1, count: 3 },
   ]
-  const plan: { saleType: SaleT; entryType: "Manual" | "Automatic"; dp: number }[] = CASES.flatMap((c) =>
-    Array.from({ length: c.count }, () => ({ saleType: c.saleType, entryType: c.entryType, dp: c.dp })),
+  const plan: { saleType: SaleT; entryType: "Manual" | "Automatic"; dp: number; financing?: boolean }[] = CASES.flatMap((c) =>
+    Array.from({ length: c.count }, () => ({ saleType: c.saleType, entryType: c.entryType, dp: c.dp, financing: c.financing })),
   )
 
   return plan.map((spec, i) => {
@@ -246,8 +247,9 @@ function makeGroups(): GroupedProperty[] {
       id: String(111729 + i * 418),
       propertyMetadataId: String(234000 + i * 137),
       // Resale ⇄ Nawy Now cross-link (Nawy Now units are listed from a resale property)
-      nawyNowId: saleType === "Resale" ? `NN-${String(50100 + i * 17)}` : undefined,
+      nawyNowId: saleType === "Resale" && !spec.financing ? `NN-${String(50100 + i * 17)}` : undefined,
       resalePropertyId: saleType === "Nawy Now" ? `RSL-${String(70200 + i * 23)}` : undefined,
+      financingAvailable: saleType === "Resale" && !!spec.financing,
       title: `tamera for sale in ${compounds[i % compounds.length]} with ${bedrooms} bedrooms in ${["Ain Sokhna", "New Cairo", "North Coast", "Sheikh Zayed"][i % 4]} building ${String.fromCharCode(65 + i)}`,
       description: [
         "Grouped by matching project, unit attributes, payment plan, and listing source. Units share the same floor plan, payment schedule, finishing level, and are part of the same phase release under the developer's primary allocation cycle.",
@@ -307,7 +309,7 @@ function makeGroups(): GroupedProperty[] {
         downpayment: 20,
         status: (ui < available ? "Available" : "Sold") as "Available" | "Sold",
         offering: saleType === "Resale" || saleType === "Nawy Now" ? saleType : "Primary",
-        financing: saleType === "Financing",
+        financing: !!spec.financing,
         nawyNow: saleType === "Nawy Now",
         gardenArea: i % 2 === 0 ? 85 : undefined,
         roofArea: i % 3 === 0 ? 40 : undefined,
@@ -586,6 +588,14 @@ function GroupCard({
               <span className="flex items-center gap-1">
                 Nawy Now ID: <LinkedId value={group.nawyNowId} href={`/nawy-now/${group.nawyNowId}`} />
               </span>
+            </>
+          )}
+          {group.saleType === "Resale" && group.financingAvailable && (
+            <>
+              <span>·</span>
+              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700 text-[11px] font-medium">
+                Financing Available
+              </Badge>
             </>
           )}
           {group.saleType === "Nawy Now" && group.resalePropertyId && (
@@ -1486,7 +1496,8 @@ export type GroupDetailPayload = { group: GroupedProperty; allRows: PropertyRow[
 const GROUPED_HIDDEN_COLS: ColId[] = [
   "propertyId", "propertyMetadataId", "developer", "project", "phase",
   "entryType", "saleType", "listingStatus", "propertyCategory", "propertyType", "propertySubType",
-  "district", "area", "subarea", "source",
+  "district", "area", "subarea", "source", "availabilityUpdatedAt",
+  "priceUpdatedAt", "propertyCreatedAt", "propertyUpdatedAt",
 ]
 
 const DETAIL_TABS = [
@@ -1574,7 +1585,7 @@ export function GroupedPropertyDetails({
                 <h3 className="text-sm font-semibold">Detailed Properties</h3>
                 <span className="text-xs text-muted-foreground">({group.details.length} units)</span>
               </div>
-              <EmbeddedPropertyTable rows={units} hiddenColumns={["developer", "project", "phase", "saleType", "propertyCategory", "propertyType", "propertySubType", "district", "area", "subarea", "source"]} />
+              <EmbeddedPropertyTable rows={units} hiddenColumns={["developer", "project", "phase", "saleType", "propertyCategory", "propertyType", "propertySubType", "district", "area", "subarea", "source", "availabilityUpdatedAt", "priceUpdatedAt", "propertyCreatedAt", "propertyUpdatedAt"]} />
             </div>
           </TabsContent>
 

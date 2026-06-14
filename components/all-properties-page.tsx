@@ -150,6 +150,9 @@ export interface PropertyRow {
   lastUpdated: string
   createdAt: string
   availabilityUpdatedAt: string
+  priceUpdatedAt: string
+  propertyCreatedAt: string
+  propertyUpdatedAt: string
 }
 
 type VirtualColId = "pricePerMeter" | "paymentOptions"
@@ -214,6 +217,7 @@ export const COLUMNS: ColumnDef[] = [
   { id: "monthlyInstallment", label: "Monthly installment", width: 210 },
   { id: "pricePerMeter", label: "Price per m²", width: 150, align: "right" },
   { id: "paymentOptions", label: "Payment options", width: 230 },
+  { id: "priceUpdatedAt", label: "Price Updated At", width: 190 },
   { id: "unitView", label: "Unit view", width: 150 },
   { id: "unitOrientation", label: "Unit orientation", width: 155 },
   { id: "openRoofArea", label: "Open roof area", width: 140, align: "right" },
@@ -237,9 +241,11 @@ export const COLUMNS: ColumnDef[] = [
   { id: "services", label: "Services", width: 250 },
   { id: "floorPlans", label: "Floor plans", width: 220 },
   { id: "images", label: "Images", width: 220 },
-  { id: "createdAt", label: "Created at", width: 190 },
-  { id: "availabilityUpdatedAt", label: "Availability updated", width: 190 },
-  { id: "lastUpdated", label: "Last updated", width: 190 },
+  { id: "createdAt", label: "DP Created At", width: 175 },
+  { id: "lastUpdated", label: "DP Updated At", width: 175 },
+  { id: "propertyCreatedAt", label: "Property Created At", width: 190 },
+  { id: "availabilityUpdatedAt", label: "Property Availability Updated", width: 230 },
+  { id: "propertyUpdatedAt", label: "Property Updated At", width: 190 },
 ]
 
 // ── Static options ─────────────────────────────────────────────────────────────
@@ -462,6 +468,9 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
     lastUpdated: new Date(Date.now() - (index + 1) * 7 * 3600000).toISOString(),
     createdAt: new Date(Date.now() - (index + 1) * 30 * 24 * 3600000).toISOString(),
     availabilityUpdatedAt: new Date(Date.now() - (index + 1) * 3 * 3600000).toISOString(),
+    priceUpdatedAt: new Date(Date.now() - (index + 1) * 5 * 3600000).toISOString(),
+    propertyCreatedAt: new Date(Date.now() - (index + 1) * 45 * 24 * 3600000).toISOString(),
+    propertyUpdatedAt: new Date(Date.now() - (index + 1) * 12 * 3600000).toISOString(),
   }
 }
 
@@ -2501,9 +2510,12 @@ function ViewPropertyDrawer({
                 <Section title="Timestamps">
                   <div className="col-span-2 flex items-start gap-8 flex-wrap">
                     {[
-                      { label: "Created At", value: formatTimestamp(row.createdAt) },
-                      { label: "Availability Updated", value: formatTimestamp(row.availabilityUpdatedAt) },
-                      { label: "Last Updated", value: formatTimestamp(row.lastUpdated) },
+                      { label: "DP Created At", value: formatTimestamp(row.createdAt) },
+                      { label: "DP Updated At", value: formatTimestamp(row.lastUpdated) },
+                      { label: "Price Updated At", value: formatTimestamp(row.priceUpdatedAt) },
+                      { label: "Property Created At", value: formatTimestamp(row.propertyCreatedAt) },
+                      { label: "Property Availability Updated", value: formatTimestamp(row.availabilityUpdatedAt) },
+                      { label: "Property Updated At", value: formatTimestamp(row.propertyUpdatedAt) },
                     ].map(({ label, value }) => (
                       <div key={label} className="space-y-0.5">
                         <dt className="text-[11px] font-medium text-muted-foreground">{label}</dt>
@@ -2842,6 +2854,12 @@ export function EmbeddedPropertyTable({
         return <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">{formatTimestamp(row.availabilityUpdatedAt)}</span>
       case "lastUpdated":
         return <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">{formatTimestamp(row.lastUpdated)}</span>
+      case "priceUpdatedAt":
+        return <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">{formatTimestamp(row.priceUpdatedAt)}</span>
+      case "propertyCreatedAt":
+        return <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">{formatTimestamp(row.propertyCreatedAt)}</span>
+      case "propertyUpdatedAt":
+        return <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">{formatTimestamp(row.propertyUpdatedAt)}</span>
       default:
         return nil(row[column.id as keyof PropertyRow] as React.ReactNode)
     }
@@ -3453,6 +3471,24 @@ export function DetailedPropertiesView({ filters }: { filters: FilterProps }) {
         return (
           <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">
             {formatTimestamp(row.lastUpdated)}
+          </span>
+        )
+      case "priceUpdatedAt":
+        return (
+          <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">
+            {formatTimestamp(row.priceUpdatedAt)}
+          </span>
+        )
+      case "propertyCreatedAt":
+        return (
+          <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">
+            {formatTimestamp(row.propertyCreatedAt)}
+          </span>
+        )
+      case "propertyUpdatedAt":
+        return (
+          <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">
+            {formatTimestamp(row.propertyUpdatedAt)}
           </span>
         )
       default:
