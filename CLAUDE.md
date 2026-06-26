@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Deployment
+
+Production is hosted on Vercel at **https://ims-nawy.vercel.app**.
+
+- Vercel project: **`ims`** — project ID `prj_ELl78nAdrrPf0tQ69zGc0USsgfT1` (team `ezzhassan97-gmailcoms-projects`). It owns the `ims-nawy.vercel.app` domain.
+- Single GitHub remote: **`origin` → `https://github.com/ezzhassan97/ims-v0` (branch `main`)**, under the `ezzhassan97` GitHub account. Vercel auto-deploys on every push to this repo's `main`.
+- To ship: commit, then **`git push origin main`**. The push triggers the production build; the new deployment auto-claims `ims-nawy.vercel.app`.
+- Requires the `ezzhassan97` GitHub account to be active (`gh auth switch --user ezzhassan97`).
+- Do **not** create a separate `ims-nawy` Vercel project or `vercel alias` the domain manually — the domain belongs to the `ims` project and is reclaimed on each git deploy.
+
 ## Commands
 
 ```bash
