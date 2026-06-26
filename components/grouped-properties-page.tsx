@@ -40,6 +40,7 @@ import {
   Percent,
   Plus,
   Ruler,
+  Save,
   Tag,
   Wrench,
   X,
@@ -50,13 +51,30 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { EmbeddedPropertyTable, PropertyDetailTab, createRows, type ColId, type PropertyRow } from "@/components/all-properties-page"
+import {
+  AdditionalInfoTab,
+  variationOf,
+  FieldShell,
+  TextInput,
+  NumberInput,
+  SelectInput,
+  RangeInput,
+  decimalErr,
+  priceErr,
+  intRangeErr,
+  withCommas,
+  CURRENCY_OPTIONS,
+  FINISHING_OPTIONS,
+  DELIVERY_TYPE_OPTIONS,
+} from "@/components/additional-info-tab"
+import { toast } from "sonner"
 
 export interface SharedFilterState {
   searchQuery: string
@@ -104,9 +122,9 @@ interface DetailedProperty {
   terraceArea?: number
 }
 
-interface EntityRef { name: string; id: string; url: string }
+export interface EntityRef { name: string; id: string; url: string }
 
-interface GroupedProperty {
+export interface GroupedProperty {
   id: string
   propertyMetadataId: string
   nawyNowId?: string
@@ -499,6 +517,79 @@ function EntityCell({ label, icon, entity }: { label: string; icon?: React.React
   )
 }
 
+// Cascading Category → Type → Subtype tree (mock)
+const TYPE_TREE: Record<string, Record<string, string[]>> = {
+  Residential: {
+    Apartment: ["Standard", "Penthouse", "Garden Apartment", "Studio"],
+    Villa: ["Standalone", "Twin House", "Townhouse"],
+    Chalet: ["Garden Chalet", "Studio", "Typical"],
+    Duplex: ["Roof Duplex", "Garden Duplex"],
+  },
+  Commercial: {
+    Office: ["Open Space", "Partitioned"],
+    Retail: ["Shop", "Showroom"],
+  },
+}
+
+const SALE_STATUS_OPTIONS = ["Available", "Hold", "Sold", "Archived"] as const
+
+/** Ensure a select can always display its seeded value, even if not in the canonical option list (mock data may differ). */
+function withCurrent(options: string[], current: string): string[] {
+  return current && !options.includes(current) ? [...options, current] : options
+}
+
+/** Property Type options grouped under their category, ensuring the current selection is always representable. */
+function buildTypeGroups(curCat: string, curType: string): { category: string; types: string[] }[] {
+  const groups = Object.entries(TYPE_TREE).map(([category, types]) => ({ category, types: Object.keys(types) }))
+  if (curType) {
+    const g = groups.find((x) => x.category === curCat)
+    if (g) { if (!g.types.includes(curType)) g.types = [...g.types, curType] }
+    else groups.push({ category: curCat, types: [curType] })
+  }
+  return groups
+}
+
+interface ContainerForm {
+  category: string
+  type: string
+  subtype: string
+  finishing: string
+  deliveryType: string
+  deliveryDate: string
+  grossMin: string
+  grossMax: string
+  bedrooms: string
+  bathrooms: string
+  priceMin: string
+  priceMax: string
+  price: string
+  currency: string
+}
+
+function seedContainer(group: GroupedProperty): ContainerForm {
+  return {
+    category: group.propertyCategory,
+    type: group.propertyType,
+    subtype: group.propertySubType,
+    finishing: group.finishing,
+    deliveryType: group.deliveryType,
+    deliveryDate: group.deliveryDate,
+    grossMin: String(group.areaMin),
+    grossMax: String(group.areaMax),
+    bedrooms: String(group.bedroom),
+    bathrooms: String(group.bathroom),
+    priceMin: String(group.priceMin),
+    priceMax: String(group.priceMax),
+    price: String(group.priceMin),
+    currency: "EGP",
+  }
+}
+
+/** Today's date as yyyy-mm-dd (browser local). */
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
 function GroupCard({
   group,
   globalIndex,
@@ -527,10 +618,133 @@ function GroupCard({
   const [descOverflows, setDescOverflows] = useState(false)
   const [carousel, setCarousel] = useState<{ images: string[]; index: number } | null>(null)
   const [listingStatus, setListingStatus] = useState<"Published" | "Hidden">(group.listingStatus)
+  const [saleStatus, setSaleStatus] = useState<GroupedProperty["saleStatus"]>(group.saleStatus)
+  const [financing, setFinancing] = useState(!!group.financingAvailable)
   const [confirmArchive, setConfirmArchive] = useState(false)
   const descRef = useRef<HTMLParagraphElement>(null)
   const desc = group.description || ""
-  const isAvailable = group.saleStatus === "Available"
+  const isAvailable = saleStatus === "Available"
+
+  // ── Container edit mode (details page only) ──
+  const variation = variationOf(group)
+  const isPA = variation === "primary-automatic"
+  const rangePrice = variation === "launch" || variation === "primary-manual"
+  const isResale = group.saleType === "Resale"
+  const [editing, setEditing] = useState(false)
+  const [cSaved, setCSaved] = useState<ContainerForm>(() => seedContainer(group))
+  const [form, setForm] = useState<ContainerForm>(cSaved)
+  const [cErrors, setCErrors] = useState<Record<string, string>>({})
+  const [statusDialog, setStatusDialog] = useState(false)
+  const [statusPick, setStatusPick] = useState<GroupedProperty["saleStatus"]>(group.saleStatus)
+  const [moveOpen, setMoveOpen] = useState(false)
+
+  // ── Mandatory-field rules (edit state) ──
+  // All container fields are mandatory except: bedrooms/bathrooms when Residential,
+  // and the max of the gross-area and price ranges. For Launch, only Type is mandatory.
+  const req = (key: string): boolean => {
+    if (isPA) return false
+    if (variation === "launch") return key === "type"
+    if (key === "grossMax" || key === "priceMax") return false
+    if ((key === "bedrooms" || key === "bathrooms") && form.category === "Residential") return false
+    return true
+  }
+
+  const validateContainer = (f: ContainerForm): Record<string, string> => {
+    const e: Record<string, string> = {}
+    const reqKey = (key: string): boolean => {
+      if (isPA) return false
+      if (variation === "launch") return key === "type"
+      if (key === "grossMax" || key === "priceMax") return false
+      if ((key === "bedrooms" || key === "bathrooms") && f.category === "Residential") return false
+      return true
+    }
+    if (!isPA) {
+      // Type (cascading) — mandatory unless exempt
+      if (reqKey("type") && (!f.category || !f.type || !f.subtype)) e.type = "Required"
+      if (reqKey("finishing") && !f.finishing) e.finishing = "Required"
+      if (reqKey("delivery") && (!f.deliveryType || !f.deliveryDate)) e.delivery = "Required"
+    }
+    // Gross area
+    const gMin = decimalErr(f.grossMin, 2000)
+    if (gMin) e.grossMin = gMin
+    else if (reqKey("grossMin") && !f.grossMin) e.grossMin = "Required"
+    const gMax = decimalErr(f.grossMax, 2000)
+    if (gMax) e.grossMax = gMax
+    if (!gMin && !gMax && f.grossMin && f.grossMax && parseFloat(f.grossMax) < parseFloat(f.grossMin)) e.grossMax = "Max must be ≥ min"
+    // Bedrooms / bathrooms
+    const bed = intRangeErr(f.bedrooms, 0, 19)
+    if (bed) e.bedrooms = bed
+    else if (reqKey("bedrooms") && !f.bedrooms) e.bedrooms = "Required"
+    const bath = intRangeErr(f.bathrooms, 0, 19)
+    if (bath) e.bathrooms = bath
+    else if (reqKey("bathrooms") && !f.bathrooms) e.bathrooms = "Required"
+    // Price
+    if (!isPA) {
+      if (rangePrice) {
+        const pMin = priceErr(f.priceMin)
+        if (pMin) e.priceMin = pMin
+        else if (reqKey("priceMin") && !f.priceMin) e.priceMin = "Required"
+        const pMax = priceErr(f.priceMax)
+        if (pMax) e.priceMax = pMax
+        if (!pMin && !pMax && f.priceMin && f.priceMax && parseFloat(f.priceMax) <= parseFloat(f.priceMin)) e.priceMax = "Max must be greater than min"
+      } else {
+        const p = priceErr(f.price)
+        if (p) e.price = p
+        else if (reqKey("price") && !f.price) e.price = "Required"
+      }
+    }
+    return e
+  }
+
+  const setField = (patch: Partial<ContainerForm>) => {
+    setForm((prev) => {
+      const next = { ...prev, ...patch }
+      // Cross-field: Delivery Type ⟺ Delivery Date stay consistent
+      if (patch.deliveryDate !== undefined && patch.deliveryDate) {
+        next.deliveryType = patch.deliveryDate > todayISO() ? "OFF PLAN" : "READY TO MOVE"
+      }
+      if (patch.deliveryType !== undefined) {
+        const future = next.deliveryDate > todayISO()
+        if (next.deliveryType === "OFF PLAN" && !future) next.deliveryDate = `${Number(todayISO().slice(0, 4)) + 1}${todayISO().slice(4)}`
+        if (next.deliveryType === "READY TO MOVE" && future) next.deliveryDate = todayISO()
+      }
+      setCErrors(validateContainer(next))
+      return next
+    })
+  }
+
+  const startContainerEdit = () => { setForm({ ...cSaved }); setCErrors({}); setEditing(true) }
+  const cancelContainerEdit = () => { setEditing(false); setCErrors({}) }
+  const saveContainer = () => {
+    const e = validateContainer(form)
+    if (Object.keys(e).length) { setCErrors(e); return }
+    setCSaved(form)
+    setEditing(false)
+    toast.success("Property details updated")
+  }
+  const hasContainerErrors = Object.keys(cErrors).length > 0
+
+  const applyStatusChange = (next: GroupedProperty["saleStatus"]) => {
+    setSaleStatus(next)
+    if (next !== "Available") setListingStatus("Hidden")
+    setStatusDialog(false)
+    toast.success(`Status changed to ${next}`)
+  }
+
+  const toggleListing = () => {
+    if (listingStatus === "Hidden" && saleStatus !== "Available") { toast.error("Only Available listings can be made visible"); return }
+    const next = listingStatus === "Published" ? "Hidden" : "Published"
+    setListingStatus(next)
+    toast.success(next === "Published" ? "Listing is now visible" : "Listing hidden")
+  }
+
+  const toggleFinancing = () => {
+    setFinancing((f) => {
+      const nf = !f
+      toast.success(nf ? "Financing allowed" : "Financing disabled")
+      return nf
+    })
+  }
 
   useLayoutEffect(() => {
     const el = descRef.current
@@ -555,7 +769,21 @@ function GroupCard({
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setConfirmArchive(false)}>Cancel</Button>
-              <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white" onClick={() => setConfirmArchive(false)}>Archive</Button>
+              <Button
+                size="sm"
+                className="bg-red-600 hover:bg-red-700 text-white"
+                onClick={() => {
+                  setConfirmArchive(false)
+                  if (detailView) {
+                    setSaleStatus("Archived")
+                    setListingStatus("Hidden")
+                    setCSaved((s) => ({ ...s, saleStatus: "Archived", visible: false }))
+                    toast.success("Group archived")
+                  }
+                }}
+              >
+                Archive
+              </Button>
             </div>
           </div>
         </div>
@@ -590,7 +818,7 @@ function GroupCard({
               </span>
             </>
           )}
-          {group.saleType === "Resale" && group.financingAvailable && (
+          {group.saleType === "Resale" && financing && (
             <>
               <span>·</span>
               <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700 text-[11px] font-medium">
@@ -614,8 +842,8 @@ function GroupCard({
             {group.availableUnits} / {group.totalUnits} Available
           </Badge>
           <StatusBadge value={group.saleType} />
-          <Badge variant="outline" className={cn("border text-xs", SALE_STATUS_CLS[group.saleStatus])}>
-            {group.saleStatus}
+          <Badge variant="outline" className={cn("border text-xs", SALE_STATUS_CLS[saleStatus])}>
+            {saleStatus}
           </Badge>
           <StatusBadge value={listingStatus} />
           <StatusBadge value={group.entryType} />
@@ -626,35 +854,81 @@ function GroupCard({
           <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="Open on website">
             <ExternalLink className="h-3 w-3" />
           </Button>
+
           {detailView ? (
-            <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="Edit" onClick={onView}>
-              <Pencil className="h-3 w-3" />
-            </Button>
+            editing ? (
+              <>
+                <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={cancelContainerEdit}>
+                  <X className="h-3 w-3 mr-1" /> Cancel
+                </Button>
+                <Button size="sm" className="h-6 px-2 text-xs" onClick={saveContainer} disabled={hasContainerErrors}>
+                  <Save className="h-3 w-3 mr-1" /> Save
+                </Button>
+              </>
+            ) : (
+              <>
+                {!isPA && (
+                  <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="Edit details" onClick={startContainerEdit}>
+                    <Pencil className="h-3 w-3" />
+                  </Button>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="More actions">
+                      <MoreVertical className="h-3 w-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuItem onClick={toggleListing}>
+                      {listingStatus === "Published" ? <EyeOff className="h-3.5 w-3.5 mr-2" /> : <Eye className="h-3.5 w-3.5 mr-2" />}
+                      {listingStatus === "Published" ? "Hide Listing" : "Show Listing"}
+                    </DropdownMenuItem>
+                    {!isPA && (
+                      <DropdownMenuItem onClick={() => { setStatusPick(saleStatus); setStatusDialog(true) }}>
+                        <ArrowUpDown className="h-3.5 w-3.5 mr-2" /> Change Sale Status
+                      </DropdownMenuItem>
+                    )}
+                    {isResale && (
+                      <DropdownMenuItem onClick={toggleFinancing}>
+                        <Banknote className="h-3.5 w-3.5 mr-2" /> {financing ? "Disable Financing" : "Allow Financing"}
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+                      <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Move Compound
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => setConfirmArchive(true)}>
+                      <Archive className="h-3.5 w-3.5 mr-2 text-red-500" /> Archive
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )
           ) : (
-            <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="View on IMS" onClick={onView}>
-              <Eye className="h-3 w-3" />
-            </Button>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="More actions">
-                <MoreVertical className="h-3 w-3" />
+            <>
+              <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="View on IMS" onClick={onView}>
+                <Eye className="h-3 w-3" />
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onClick={() => setListingStatus(listingStatus === "Published" ? "Hidden" : "Published")}>
-                {listingStatus === "Published" ? "Hide Listing" : "Show Listing"}
-              </DropdownMenuItem>
-              <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => setConfirmArchive(true)}>
-                <Archive className="h-3.5 w-3.5 mr-2 text-red-500" />
-                Archive
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {!detailView && (
-            <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" onClick={onToggle} title="Expand units">
-              {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-            </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" title="More actions">
+                    <MoreVertical className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={() => setListingStatus(listingStatus === "Published" ? "Hidden" : "Published")}>
+                    {listingStatus === "Published" ? "Hide Listing" : "Show Listing"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => setConfirmArchive(true)}>
+                    <Archive className="h-3.5 w-3.5 mr-2 text-red-500" />
+                    Archive
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" onClick={onToggle} title="Expand units">
+                {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -693,6 +967,7 @@ function GroupCard({
       {/* ── Section 3: Main Info 4-col grid ── */}
       <div className="px-5 py-3 border-b border-border">
         <div className="grid grid-cols-4 gap-x-6 gap-y-3">
+          {/* Always read-only entity cells */}
           <EntityCell label="Developer" icon={<Building2 className="h-3 w-3" />} entity={group.developer} />
           <EntityCell label="Project" icon={<Home className="h-3 w-3" />} entity={group.project} />
           <EntityCell label="Phase" icon={<Layers className="h-3 w-3" />} entity={group.phase} />
@@ -708,30 +983,113 @@ function GroupCard({
               Area — <CopyableId value={group.locationId} />
             </div>
           </div>
-          <FieldCell label="Type" icon={<Tag className="h-3 w-3" />}>
-            {[group.propertyCategory, group.propertyType, group.propertySubType].filter(Boolean).join(" · ")}
-          </FieldCell>
-          <FieldCell label="Finishing" icon={<Wrench className="h-3 w-3" />}>
-            {group.finishing}
-          </FieldCell>
-          <FieldCell label="Delivery" icon={<CalendarDays className="h-3 w-3" />}>
-            {group.deliveryType} · {fmtDate(group.deliveryDate)}
-          </FieldCell>
-          <FieldCell label="Area" icon={<Ruler className="h-3 w-3" />}>
-            {group.areaMin}–{group.areaMax} SQM
-          </FieldCell>
-          <FieldCell label="Source" icon={<Globe className="h-3 w-3" />}>
-            {group.source}
-          </FieldCell>
-          <FieldCell label="Bedrooms" icon={<BedDouble className="h-3 w-3" />}>
-            {group.bedroom}
-          </FieldCell>
-          <FieldCell label="Bathrooms" icon={<Bath className="h-3 w-3" />}>
-            {group.bathroom}
-          </FieldCell>
-          <FieldCell label="Price" icon={<Banknote className="h-3 w-3" />}>
-            {group.priceMin.toLocaleString()} – {group.priceMax.toLocaleString()} EGP
-          </FieldCell>
+
+          {/* Type — grouped Property Type + dependent Subtype on one line, within one column */}
+          <FieldShell label="Type" icon={<Tag className="h-3 w-3" />} required={editing && req("type")} error={editing ? cErrors.type : undefined}>
+            {editing && !isPA ? (
+              <div className="flex items-center gap-1.5">
+                <div className="flex-1 min-w-0">
+                  <Select
+                    value={form.type ? `${form.category}|${form.type}` : undefined}
+                    onValueChange={(v) => { const [cat, t] = v.split("|"); setField({ category: cat, type: t, subtype: "" }) }}
+                  >
+                    <SelectTrigger className={cn("h-8 w-full text-sm", cErrors.type && "border-red-500")}><SelectValue placeholder="Type" /></SelectTrigger>
+                    <SelectContent>
+                      {buildTypeGroups(form.category, form.type).map((g) => (
+                        <SelectGroup key={g.category}>
+                          <SelectLabel>{g.category}</SelectLabel>
+                          {g.types.map((t) => <SelectItem key={`${g.category}|${t}`} value={`${g.category}|${t}`}>{t}</SelectItem>)}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <SelectInput value={form.subtype} onChange={(v) => setField({ subtype: v })} options={withCurrent(form.category && form.type ? (TYPE_TREE[form.category]?.[form.type] ?? []) : [], form.subtype)} placeholder="Subtype" error={cErrors.type} />
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs font-medium text-foreground">{[cSaved.category, cSaved.type, cSaved.subtype].filter(Boolean).join(" · ") || "—"}</div>
+            )}
+          </FieldShell>
+
+          {/* Finishing */}
+          <FieldShell label="Finishing" icon={<Wrench className="h-3 w-3" />} required={editing && req("finishing")} error={editing ? cErrors.finishing : undefined}>
+            {editing && !isPA ? (
+              <SelectInput value={form.finishing} onChange={(v) => setField({ finishing: v })} options={withCurrent(FINISHING_OPTIONS, form.finishing)} error={cErrors.finishing} />
+            ) : (
+              <div className="text-xs font-medium text-foreground">{cSaved.finishing || "—"}</div>
+            )}
+          </FieldShell>
+
+          {/* Delivery — type + date on one line, within one column */}
+          <FieldShell label="Delivery" icon={<CalendarDays className="h-3 w-3" />} required={editing && req("delivery")} error={editing ? cErrors.delivery : undefined}>
+            {editing && !isPA ? (
+              <div className="flex items-center gap-1.5">
+                <div className="flex-1 min-w-0">
+                  <SelectInput value={form.deliveryType} onChange={(v) => setField({ deliveryType: v })} options={DELIVERY_TYPE_OPTIONS} error={cErrors.delivery} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <Input type="date" value={form.deliveryDate} onChange={(e) => setField({ deliveryDate: e.target.value })} className={cn("h-8 w-full min-w-0 text-sm", cErrors.delivery && "border-red-500")} />
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs font-medium text-foreground">{cSaved.deliveryType} · {fmtDate(cSaved.deliveryDate)}</div>
+            )}
+          </FieldShell>
+
+          {/* Gross Area */}
+          <FieldShell label="Gross Area" icon={<Ruler className="h-3 w-3" />} required={editing && req("grossMin")} error={editing ? (cErrors.grossMin || cErrors.grossMax) : undefined}>
+            {editing && !isPA ? (
+              <RangeInput value={{ min: form.grossMin, max: form.grossMax }} onChange={(r) => setField({ grossMin: r.min, grossMax: r.max })} error={cErrors.grossMin || cErrors.grossMax} />
+            ) : (
+              <div className="text-xs font-medium text-foreground">{cSaved.grossMin}–{cSaved.grossMax} SQM</div>
+            )}
+          </FieldShell>
+
+          {/* Source (read-only) */}
+          <FieldShell label="Source" icon={<Globe className="h-3 w-3" />}>
+            <div className="text-xs font-medium text-foreground">{group.source}</div>
+          </FieldShell>
+
+          {/* Bedrooms */}
+          <FieldShell label="Bedrooms" icon={<BedDouble className="h-3 w-3" />} required={editing && req("bedrooms")} error={editing ? cErrors.bedrooms : undefined}>
+            {editing && !isPA ? (
+              <NumberInput value={form.bedrooms} onChange={(v) => setField({ bedrooms: v })} error={cErrors.bedrooms} />
+            ) : (
+              <div className="text-xs font-medium text-foreground">{cSaved.bedrooms}</div>
+            )}
+          </FieldShell>
+
+          {/* Bathrooms */}
+          <FieldShell label="Bathrooms" icon={<Bath className="h-3 w-3" />} required={editing && req("bathrooms")} error={editing ? cErrors.bathrooms : undefined}>
+            {editing && !isPA ? (
+              <NumberInput value={form.bathrooms} onChange={(v) => setField({ bathrooms: v })} error={cErrors.bathrooms} />
+            ) : (
+              <div className="text-xs font-medium text-foreground">{cSaved.bathrooms}</div>
+            )}
+          </FieldShell>
+
+          {/* Price (+ currency) */}
+          <FieldShell label="Price" icon={<Banknote className="h-3 w-3" />} required={editing && (rangePrice ? req("priceMin") : req("price"))} error={editing ? (cErrors.price || cErrors.priceMin || cErrors.priceMax) : undefined}>
+            {editing && !isPA ? (
+              <div className="flex items-start gap-1.5">
+                {rangePrice ? (
+                  <RangeInput value={{ min: form.priceMin, max: form.priceMax }} onChange={(r) => setField({ priceMin: r.min, priceMax: r.max })} error={cErrors.priceMin || cErrors.priceMax} format={withCommas} />
+                ) : (
+                  <NumberInput value={form.price} onChange={(v) => setField({ price: v })} error={cErrors.price} format={withCommas} />
+                )}
+                <div className="w-20 shrink-0"><SelectInput value={form.currency} onChange={(v) => setField({ currency: v })} options={CURRENCY_OPTIONS} /></div>
+              </div>
+            ) : (
+              <div className="text-xs font-medium text-foreground">
+                {rangePrice
+                  ? `${Number(cSaved.priceMin || 0).toLocaleString()} – ${Number(cSaved.priceMax || 0).toLocaleString()}`
+                  : Number(cSaved.price || 0).toLocaleString()} {cSaved.currency}
+              </div>
+            )}
+          </FieldShell>
+
         </div>
       </div>
 
@@ -815,6 +1173,39 @@ function GroupCard({
           images={carousel.images}
           startIndex={carousel.index}
           onClose={() => setCarousel(null)}
+        />
+      )}
+
+      {/* ── Change Status dialog (details page) ── */}
+      {detailView && (
+        <Dialog open={statusDialog} onOpenChange={setStatusDialog}>
+          <DialogContent className="max-w-xs">
+            <DialogHeader>
+              <DialogTitle>Change status</DialogTitle>
+              <DialogDescription>Set the sale status for all units in this group.</DialogDescription>
+            </DialogHeader>
+            <div className="py-1">
+              <SelectInput value={statusPick} onChange={(v) => setStatusPick(v as GroupedProperty["saleStatus"])} options={[...SALE_STATUS_OPTIONS]} />
+              {statusPick === "Available" && group.availableUnits === 0 && (
+                <p className="mt-2 text-[11px] font-medium text-red-600">No available units — can't be set to Available.</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setStatusDialog(false)}>Cancel</Button>
+              <Button size="sm" disabled={statusPick === "Available" && group.availableUnits === 0} onClick={() => applyStatusChange(statusPick)}>Apply</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ── Move Compound modal (details page) ── */}
+      {detailView && (
+        <ChangeProjectModal
+          open={moveOpen}
+          onClose={() => setMoveOpen(false)}
+          selectedGroups={[group]}
+          eligibleTypes={ALL_SALE_TYPES}
+          onConfirm={() => { setMoveOpen(false); toast.success("Compound move scheduled") }}
         />
       )}
     </div>
@@ -991,10 +1382,13 @@ interface ChangeProjectModalProps {
   onClose: () => void
   selectedGroups: GroupedProperty[]
   onConfirm: (moves: { groupIds: string[]; devId: string; projectId: string; phaseId: string | null }[]) => void
+  /** Sale types allowed to move. Defaults to bulk-action behavior; details page passes all types. */
+  eligibleTypes?: GroupedProperty["saleType"][]
 }
 
-function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm }: ChangeProjectModalProps) {
-  const eligibleTypes: GroupedProperty["saleType"][] = ["Primary", "Launch"]
+const ALL_SALE_TYPES: GroupedProperty["saleType"][] = ["Primary", "Resale", "Nawy Now", "Rental", "Launch"]
+
+function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligibleTypes = ["Primary", "Launch"] }: ChangeProjectModalProps) {
   const eligible = selectedGroups.filter(g => eligibleTypes.includes(g.saleType))
   const ineligible = selectedGroups.filter(g => !eligibleTypes.includes(g.saleType))
 
@@ -1132,7 +1526,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm }: Change
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
                   <span className="text-sm font-medium text-emerald-700">{eligible.length} eligible</span>
-                  <span className="text-xs text-muted-foreground">(Primary · Launch)</span>
+                  <span className="text-xs text-muted-foreground">({eligibleTypes.join(" · ")})</span>
                 </div>
                 {ineligible.length > 0 && (
                   <>
@@ -1503,11 +1897,11 @@ const GROUPED_HIDDEN_COLS: ColId[] = [
 const DETAIL_TABS = [
   { value: "additional-info", label: "Additional Info" },
   { value: "detailed-properties", label: "Detailed Properties" },
+  { value: "payment-plans", label: "Payment Plans" },
   { value: "floor-plans", label: "Floor Plans" },
   { value: "gallery", label: "Gallery" },
-  { value: "payment-plans", label: "Payment Plans" },
-  { value: "price-history", label: "Price History" },
   { value: "attachments", label: "Attachments" },
+  { value: "price-history", label: "Price History" },
   { value: "ingestion-entries", label: "Entries" },
   { value: "audit-logs", label: "Audit Logs" },
 ]
@@ -1593,7 +1987,9 @@ export function GroupedPropertyDetails({
             const panelTab = SHARED_PANEL_MAP[t.value]
             return (
               <TabsContent key={t.value} value={t.value}>
-                {panelTab ? (
+                {t.value === "additional-info" ? (
+                  <AdditionalInfoTab group={group} />
+                ) : panelTab ? (
                   <div className="rounded-xl border border-border bg-card">
                     {repRow ? (
                       <PropertyDetailTab tab={panelTab} row={repRow} onUpdateRow={updateRepRow} />
@@ -1604,7 +2000,7 @@ export function GroupedPropertyDetails({
                 ) : (
                   <div className="flex min-h-[280px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card py-16 text-center">
                     <p className="text-sm font-medium text-foreground">{t.label}</p>
-                    <p className="text-xs text-muted-foreground">Content for this tab will be defined next (varies by {group.saleType} sale type).</p>
+                    <p className="text-xs text-muted-foreground">Coming soon.</p>
                   </div>
                 )}
               </TabsContent>

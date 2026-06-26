@@ -4851,7 +4851,7 @@ export function AllPropertiesPage({ onOpenGroupDetail }: { onOpenGroupDetail?: (
   )
 
   const [showAllFilters, setShowAllFilters] = useState(false)
-  const [activeTab, setActiveTab] = useState("detailed")
+  const [activeTab, setActiveTab] = useState("grouped")
   // Sort state — shared across both tabs
   const [sortConfigs, setSortConfigs] = useState<SortConfig[]>([])
   const [showSortPopover, setShowSortPopover] = useState(false)
@@ -4936,7 +4936,7 @@ export function AllPropertiesPage({ onOpenGroupDetail }: { onOpenGroupDetail?: (
           </p>
         </div>
 
-        <Tabs defaultValue="detailed" className="space-y-4" onValueChange={setActiveTab}>
+        <Tabs defaultValue="grouped" className="space-y-4" onValueChange={setActiveTab}>
           <TabsList className="bg-card">
             <TabsTrigger value="grouped">Grouped Properties</TabsTrigger>
             <TabsTrigger value="detailed">Detailed Properties</TabsTrigger>
