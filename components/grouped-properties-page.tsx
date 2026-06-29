@@ -63,6 +63,7 @@ import { EmbeddedPropertyTable, PropertyDetailTab, createRows, type ColId, type 
 import {
   AdditionalInfoTab,
   variationOf,
+  type Variation,
   FieldShell,
   TextInput,
   NumberInput,
@@ -527,7 +528,7 @@ function EntityCell({ label, icon, entity }: { label: string; icon?: React.React
 }
 
 // Cascading Category → Type → Subtype tree (mock)
-const TYPE_TREE: Record<string, Record<string, string[]>> = {
+export const TYPE_TREE: Record<string, Record<string, string[]>> = {
   Residential: {
     Apartment: ["Standard", "Penthouse", "Garden Apartment", "Studio"],
     Villa: ["Standalone", "Twin House", "Townhouse"],
@@ -548,7 +549,7 @@ function withCurrent(options: string[], current: string): string[] {
 }
 
 /** Property Type options grouped under their category, ensuring the current selection is always representable. */
-function buildTypeGroups(curCat: string, curType: string): { category: string; types: string[] }[] {
+export function buildTypeGroups(curCat: string, curType: string): { category: string; types: string[] }[] {
   const groups = Object.entries(TYPE_TREE).map(([category, types]) => ({ category, types: Object.keys(types) }))
   if (curType) {
     const g = groups.find((x) => x.category === curCat)
@@ -2070,6 +2071,7 @@ export function GroupedPropertiesView({
   groupConnector = "AND",
   groupByColumn = null,
   onOpenGroupDetail,
+  onCreateProperty,
 }: {
   filters: SharedFilterState
   sortConfigs?: SortConfig[]
@@ -2077,6 +2079,7 @@ export function GroupedPropertiesView({
   groupConnector?: "AND" | "OR"
   groupByColumn?: string | null
   onOpenGroupDetail?: (d: GroupDetailPayload) => void
+  onCreateProperty?: (v: Variation) => void
 }) {
   const [groups, setGroups] = useState<GroupedProperty[]>(() => makeGroups())
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([groups[0]?.id].filter(Boolean)))
@@ -2199,11 +2202,11 @@ export function GroupedPropertiesView({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem>Launch</DropdownMenuItem>
-            <DropdownMenuItem>Primary Manual</DropdownMenuItem>
-            <DropdownMenuItem>Resale</DropdownMenuItem>
-            <DropdownMenuItem>Nawy Now</DropdownMenuItem>
-            <DropdownMenuItem>Rental</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onCreateProperty?.("launch")}>Launch</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onCreateProperty?.("primary-manual")}>Primary Manual</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onCreateProperty?.("resale")}>Resale</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onCreateProperty?.("nawy-now")}>Nawy Now</DropdownMenuItem>
+            <DropdownMenuItem disabled>Rental</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

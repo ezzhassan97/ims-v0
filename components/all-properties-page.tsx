@@ -76,6 +76,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { initialUnits, projectPhases, type Unit } from "@/lib/mock-data"
 import { GroupedPropertiesView, type SharedFilterState, type GroupDetailPayload } from "@/components/grouped-properties-page"
+import type { Variation } from "@/components/additional-info-tab"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Availability = "Available" | "Hold" | "Sold-Off" | "Archived"
@@ -725,7 +726,7 @@ function getSortValue(row: PropertyRow, column: ColId) {
 }
 
 // ── Image Carousel ─────────────────────────────────────────────────────────────
-function ImageCarousel({
+export function ImageCarousel({
   images,
   startIndex,
   onClose,
@@ -1190,7 +1191,7 @@ function MediaCell({
 }
 
 // ── Payment Plans types & data ────────────────────────────────────────────────
-interface PlanCardData {
+export interface PlanCardData {
   id: string
   name: string
   status: "Active" | "Hidden"
@@ -1226,7 +1227,7 @@ interface PlanCardData {
 }
 interface PriceGroup { price: number; priceUpdatedAt?: string; plans: PlanCardData[] }
 
-const PAYMENT_PLAN_GROUPS: PriceGroup[] = [
+export const PAYMENT_PLAN_GROUPS: PriceGroup[] = [
   {
     price: 3_500_000,
     priceUpdatedAt: "18 Apr 2026, 02:15 PM",
@@ -1443,7 +1444,8 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, readO
   )
 }
 
-function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean }) {
+export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false, onRemove, fullWidth = false, selected, onSelectToggle }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean; onRemove?: () => void; fullWidth?: boolean; selected?: boolean; onSelectToggle?: () => void }) {
+  const selectable = selected !== undefined || onSelectToggle !== undefined
   const [copiedId, setCopiedId] = useState(false)
   const [confirmUnlink, setConfirmUnlink] = useState(false)
   const copyId = () => {
@@ -1452,15 +1454,26 @@ function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOn
     setTimeout(() => setCopiedId(false), 1500)
   }
   const isCashOnly = plan.planType === "Cash"
-  const canUnlink = totalInGroup > 1
+  const canUnlink = onRemove ? true : totalInGroup > 1
 
   return (
-    <div className="bg-white border border-border rounded-[10px] w-[320px] min-h-[220px] overflow-hidden flex flex-col hover:shadow-[0_2px_10px_rgba(10,31,68,0.07)] transition-shadow shrink-0">
+    <div className={cn("bg-white border rounded-[10px] min-h-[220px] overflow-hidden flex flex-col hover:shadow-[0_2px_10px_rgba(10,31,68,0.07)] transition-shadow", fullWidth ? "w-full" : "w-[320px] shrink-0", selected ? "border-primary ring-2 ring-primary/30" : "border-border")}>
       {/* Header */}
       <div className="px-3 pt-2.5 pb-[9px] border-b border-border flex flex-col gap-1">
         {/* Name + Actions */}
         <div className="flex items-start justify-between gap-1.5 pb-[7px] border-b border-border">
-          <span className="text-[13px] font-semibold text-[#0D1B2E] truncate flex-1 min-w-0" title={plan.name}>{plan.name}</span>
+          <div className="flex min-w-0 flex-1 items-start gap-2">
+            {selectable && (
+              <button
+                onClick={() => onSelectToggle?.()}
+                className={cn("mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-colors", selected ? "border-primary bg-primary" : "border-[#C8D0DC] hover:border-primary")}
+                title={selected ? "Deselect" : "Select"}
+              >
+                {selected && <Check className="h-3 w-3 text-primary-foreground" />}
+              </button>
+            )}
+            <span className="truncate text-[13px] font-semibold text-[#0D1B2E]" title={plan.name}>{plan.name}</span>
+          </div>
           <div className="flex items-center gap-0.5 flex-shrink-0 mt-px">
             <button className="w-[22px] h-[22px] rounded-[4px] border-0 bg-transparent cursor-pointer flex items-center justify-center p-0 text-[#8C9BB5] hover:bg-slate-100 hover:text-[#5A6A85] transition-all" title="View"><Eye className="w-[13px] h-[13px]" /></button>
             {!readOnly && (
@@ -1479,7 +1492,7 @@ function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOn
           <div className="mt-1 mb-0.5 flex items-center gap-1.5 px-2 py-1.5 bg-red-50 border border-red-200 rounded-[6px]">
             <span className="text-[11px] text-red-700 font-medium flex-1">Unlink this plan?</span>
             <button onClick={() => setConfirmUnlink(false)} className="text-[11px] text-[#5A6A85] hover:text-[#0D1B2E] px-1.5 py-0.5 rounded transition-colors">Cancel</button>
-            <button onClick={() => setConfirmUnlink(false)} className="text-[11px] text-white bg-red-500 hover:bg-red-600 px-2 py-0.5 rounded transition-colors font-medium">Unlink</button>
+            <button onClick={() => { onRemove?.(); setConfirmUnlink(false) }} className="text-[11px] text-white bg-red-500 hover:bg-red-600 px-2 py-0.5 rounded transition-colors font-medium">Unlink</button>
           </div>
         )}
         {/* ID row */}
@@ -1712,8 +1725,8 @@ function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOn
 }
 
 // ── Media Gallery Tab ─────────────────────────────────────────────────────────
-function MediaGalleryTab({
-  field, items, label, onUpload, onView, onRemove, onReorder, readOnly = false,
+export function MediaGalleryTab({
+  field, items, label, onUpload, onView, onRemove, onReorder, readOnly = false, hideHeader = false,
 }: {
   field: string; items: string[]; label: string
   onUpload: () => void
@@ -1721,6 +1734,7 @@ function MediaGalleryTab({
   onRemove: (idx: number) => void
   onReorder: (items: string[]) => void
   readOnly?: boolean
+  hideHeader?: boolean
 }) {
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -1740,17 +1754,19 @@ function MediaGalleryTab({
   const imgId = (i: number) => `${field === "images" ? "IMG" : "FLP"}-${String(i + 1).padStart(3, "0")}`
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {items.length} {items.length === 1 ? label : `${label}s`}
-        </h4>
-        {!readOnly && (
-          <Button size="sm" variant="outline" onClick={onUpload} className="h-7 text-xs gap-1.5">
-            <Plus className="h-3 w-3" />Add {label}s
-          </Button>
-        )}
-      </div>
+    <div className={cn("space-y-4", hideHeader ? "" : "p-6")}>
+      {!hideHeader && (
+        <div className="flex items-center justify-between">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {items.length} {items.length === 1 ? label : `${label}s`}
+          </h4>
+          {!readOnly && (
+            <Button size="sm" variant="outline" onClick={onUpload} className="h-7 text-xs gap-1.5">
+              <Plus className="h-3 w-3" />Add {label}s
+            </Button>
+          )}
+        </div>
+      )}
       {items.length === 0 ? (
         <div
           onClick={readOnly ? undefined : onUpload}
@@ -2958,7 +2974,7 @@ export function EmbeddedPropertyTable({
 }
 
 // ── Main view ──────────────────────────────────────────────────────────────────
-export function DetailedPropertiesView({ filters }: { filters: FilterProps }) {
+export function DetailedPropertiesView({ filters, onCreateProperty }: { filters: FilterProps; onCreateProperty?: (v: Variation) => void }) {
   const {
     searchQuery,
     developerFilter,
@@ -3632,11 +3648,11 @@ export function DetailedPropertiesView({ filters }: { filters: FilterProps }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem>Launch</DropdownMenuItem>
-              <DropdownMenuItem>Primary Manual</DropdownMenuItem>
-              <DropdownMenuItem>Resale</DropdownMenuItem>
-              <DropdownMenuItem>Nawy Now</DropdownMenuItem>
-              <DropdownMenuItem>Rental</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCreateProperty?.("launch")}>Launch</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCreateProperty?.("primary-manual")}>Primary Manual</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCreateProperty?.("resale")}>Resale</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCreateProperty?.("nawy-now")}>Nawy Now</DropdownMenuItem>
+              <DropdownMenuItem disabled>Rental</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -4720,7 +4736,7 @@ function DateRangeDropdown({
   )
 }
 
-export function AllPropertiesPage({ onOpenGroupDetail }: { onOpenGroupDetail?: (d: GroupDetailPayload) => void } = {}) {
+export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty }: { onOpenGroupDetail?: (d: GroupDetailPayload) => void; onCreateProperty?: (v: Variation) => void } = {}) {
   const allRows = useMemo(() => createRows(), [])
 
   // ── Shared filter state ────────────────────────────────────────────────────
@@ -5287,10 +5303,11 @@ export function AllPropertiesPage({ onOpenGroupDetail }: { onOpenGroupDetail?: (
               groupConnector={groupConnector}
               groupByColumn={groupByColumn}
               onOpenGroupDetail={onOpenGroupDetail}
+              onCreateProperty={onCreateProperty}
             />
           </TabsContent>
           <TabsContent value="detailed" className="mt-0">
-            <DetailedPropertiesView filters={filterPropsWithClear} />
+            <DetailedPropertiesView filters={filterPropsWithClear} onCreateProperty={onCreateProperty} />
           </TabsContent>
         </Tabs>
       </div>
