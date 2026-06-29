@@ -329,7 +329,6 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
             </SubSection>
 
             <SubSection label="Classification">
-              <FieldShell label="Developer Type"><SelectInput value={form.developerType as string} onChange={(v) => setField("developerType", v)} options={DEVELOPER_TYPE_OPTIONS} /></FieldShell>
               <FieldShell label="Type" icon={<Tag className="h-3 w-3" />} required error={errors.type} className="lg:col-span-2">
                 <div className="flex items-center gap-1.5">
                   <div className="flex-1 min-w-0">
@@ -347,11 +346,17 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
                   <div className="flex-1 min-w-0"><SelectInput value={form.subtype as string} onChange={(v) => setField("subtype", v)} options={form.category && form.type ? (TYPE_TREE[form.category as string]?.[form.type as string] ?? []) : []} placeholder="Subtype" error={errors.type} /></div>
                 </div>
               </FieldShell>
+              <FieldShell label="Developer Type"><SelectInput value={form.developerType as string} onChange={(v) => setField("developerType", v)} options={DEVELOPER_TYPE_OPTIONS} /></FieldShell>
               <FieldShell label="Finishing" icon={<Wrench className="h-3 w-3" />} required={isRequired("finishing")} error={errors.finishing}><SelectInput value={form.finishing as string} onChange={(v) => setField("finishing", v)} options={FINISHING_OPTIONS} error={errors.finishing} /></FieldShell>
               <FieldShell label="Unit View"><SelectInput value={form.unitView as string} onChange={(v) => setField("unitView", v)} options={UNIT_VIEW_OPTIONS} /></FieldShell>
               <FieldShell label="Unit Orientation"><SelectInput value={form.unitOrientation as string} onChange={(v) => setField("unitOrientation", v)} options={UNIT_ORIENTATION_OPTIONS} /></FieldShell>
               {showRNN && <FieldShell label="Building Type"><TextInput value={form.buildingType as string} onChange={(v) => setField("buildingType", v)} /></FieldShell>}
               {showRNN && <FieldShell label="Building Number"><TextInput value={form.buildingNumber as string} onChange={(v) => setField("buildingNumber", v)} /></FieldShell>}
+            </SubSection>
+
+            <SubSection label="Capacity">
+              <FieldShell label="Bedrooms" icon={<BedDouble className="h-3 w-3" />} required={isRequired("bedrooms")} error={errors.bedrooms}>{numInput("bedrooms")}</FieldShell>
+              <FieldShell label="Bathrooms" icon={<Bath className="h-3 w-3" />} required={isRequired("bathrooms")} error={errors.bathrooms}>{numInput("bathrooms")}</FieldShell>
             </SubSection>
 
             <SubSection label="Delivery">
@@ -363,10 +368,10 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
               </FieldShell>
             </SubSection>
 
-            <SubSection label="Floor & Area">
-              <FieldShell label="Floor Number">{numInput("floorNumber")}</FieldShell>
+            <SubSection label="Areas and Floor">
               <FieldShell label="Gross Area (SQM)" icon={<Ruler className="h-3 w-3" />} required={isRequired("grossMin")} error={errors.grossArea}>{numInput("grossArea")}</FieldShell>
               <FieldShell label="Net Area (SQM)" error={errors.netArea}>{numInput("netArea")}</FieldShell>
+              <FieldShell label="Floor Number">{numInput("floorNumber")}</FieldShell>
             </SubSection>
 
             <SubSection label="Additional Areas">
@@ -392,11 +397,6 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
                 <FieldShell label="Is Branded"><BooleanToggle value={form.isBranded as boolean} onChange={(v) => setField("isBranded", v)} /></FieldShell>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 lg:grid-cols-3"><FieldShell label="Parking Slots" error={errors.parkingSlots}>{numInput("parkingSlots")}</FieldShell></div>
-            </SubSection>
-
-            <SubSection label="Capacity">
-              <FieldShell label="Bedrooms" icon={<BedDouble className="h-3 w-3" />} required={isRequired("bedrooms")} error={errors.bedrooms}>{numInput("bedrooms")}</FieldShell>
-              <FieldShell label="Bathrooms" icon={<Bath className="h-3 w-3" />} required={isRequired("bathrooms")} error={errors.bathrooms}>{numInput("bathrooms")}</FieldShell>
             </SubSection>
 
             <SubSection label="Amenities & Services" noGrid>
