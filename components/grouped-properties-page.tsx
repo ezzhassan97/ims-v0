@@ -11,6 +11,8 @@ import {
   Banknote,
   Bath,
   BedDouble,
+  Check,
+  Clock,
   Building2,
   CalendarDays,
   CheckCircle2,
@@ -480,6 +482,13 @@ const SALE_STATUS_CLS: Record<string, string> = {
   Archived: "border-gray-200 bg-gray-50 text-gray-500",
 }
 
+const STATUS_META: Record<string, { icon: React.ElementType; cls: string; note: string }> = {
+  Available: { icon: CheckCircle2, cls: "border-emerald-300 bg-emerald-50 text-emerald-700", note: "Listed and bookable on the website." },
+  Hold: { icon: Clock, cls: "border-amber-300 bg-amber-50 text-amber-700", note: "Temporarily reserved; not bookable." },
+  Sold: { icon: Banknote, cls: "border-red-300 bg-red-50 text-red-700", note: "All units sold; no longer available." },
+  Archived: { icon: Archive, cls: "border-gray-300 bg-gray-100 text-gray-600", note: "Removed from listings and hidden from the website." },
+}
+
 function FieldCell({ label, icon, children }: { label: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
@@ -896,10 +905,6 @@ function GroupCard({
                     <DropdownMenuItem onClick={() => setMoveOpen(true)}>
                       <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Move Compound
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => setConfirmArchive(true)}>
-                      <Archive className="h-3.5 w-3.5 mr-2 text-red-500" /> Archive
-                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </>
@@ -915,13 +920,23 @@ function GroupCard({
                     <MoreVertical className="h-3 w-3" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem onClick={() => setListingStatus(listingStatus === "Published" ? "Hidden" : "Published")}>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem onClick={toggleListing}>
+                    {listingStatus === "Published" ? <EyeOff className="h-3.5 w-3.5 mr-2" /> : <Eye className="h-3.5 w-3.5 mr-2" />}
                     {listingStatus === "Published" ? "Hide Listing" : "Show Listing"}
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50" onClick={() => setConfirmArchive(true)}>
-                    <Archive className="h-3.5 w-3.5 mr-2 text-red-500" />
-                    Archive
+                  {!isPA && (
+                    <DropdownMenuItem onClick={() => { setStatusPick(saleStatus); setStatusDialog(true) }}>
+                      <ArrowUpDown className="h-3.5 w-3.5 mr-2" /> Change Sale Status
+                    </DropdownMenuItem>
+                  )}
+                  {isResale && (
+                    <DropdownMenuItem onClick={toggleFinancing}>
+                      <Banknote className="h-3.5 w-3.5 mr-2" /> {financing ? "Disable Financing" : "Allow Financing"}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+                    <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Move Compound
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -1176,38 +1191,66 @@ function GroupCard({
         />
       )}
 
-      {/* ── Change Status dialog (details page) ── */}
-      {detailView && (
-        <Dialog open={statusDialog} onOpenChange={setStatusDialog}>
-          <DialogContent className="max-w-xs">
-            <DialogHeader>
-              <DialogTitle>Change status</DialogTitle>
-              <DialogDescription>Set the sale status for all units in this group.</DialogDescription>
-            </DialogHeader>
-            <div className="py-1">
-              <SelectInput value={statusPick} onChange={(v) => setStatusPick(v as GroupedProperty["saleStatus"])} options={[...SALE_STATUS_OPTIONS]} />
-              {statusPick === "Available" && group.availableUnits === 0 && (
-                <p className="mt-2 text-[11px] font-medium text-red-600">No available units — can't be set to Available.</p>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" size="sm" onClick={() => setStatusDialog(false)}>Cancel</Button>
-              <Button size="sm" disabled={statusPick === "Available" && group.availableUnits === 0} onClick={() => applyStatusChange(statusPick)}>Apply</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
+      {/* ── Change Sale Status dialog ── */}
+      <Dialog open={statusDialog} onOpenChange={setStatusDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Change sale status</DialogTitle>
+            <DialogDescription>Updates the sale status for all {group.totalUnits} unit{group.totalUnits !== 1 ? "s" : ""} in this group.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5 py-1">
+            {SALE_STATUS_OPTIONS.map((s) => {
+              const meta = STATUS_META[s]
+              const Icon = meta.icon
+              const selected = statusPick === s
+              const disabled = s === "Available" && group.availableUnits === 0
+              return (
+                <button
+                  key={s}
+                  disabled={disabled}
+                  onClick={() => setStatusPick(s)}
+                  className={cn(
+                    "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
+                    selected ? meta.cls : "border-border hover:bg-muted",
+                    disabled && "cursor-not-allowed opacity-40",
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium">{s}</div>
+                    <div className="text-[11px] opacity-80">{meta.note}</div>
+                  </div>
+                  {selected && <Check className="h-4 w-4 shrink-0" />}
+                </button>
+              )
+            })}
+          </div>
+          <div className="rounded-md bg-muted/60 px-3 py-2 text-[11px] text-muted-foreground">
+            {statusPick === "Available" && group.availableUnits === 0 ? (
+              <span className="font-medium text-red-600">No available units — this group can't be set to Available.</span>
+            ) : statusPick === "Archived" ? (
+              <span>Archiving hides this group from the website. You can restore it later by changing the status.</span>
+            ) : statusPick !== "Available" ? (
+              <span>Setting status to <span className="font-medium text-foreground">{statusPick}</span> will hide it from the website.</span>
+            ) : (
+              <span>Confirm to set the status to <span className="font-medium text-foreground">{statusPick}</span> for this group.</span>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setStatusDialog(false)}><X className="mr-1 h-3 w-3" /> Cancel</Button>
+            <Button size="sm" disabled={statusPick === "Available" && group.availableUnits === 0} onClick={() => applyStatusChange(statusPick)}>Confirm</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      {/* ── Move Compound modal (details page) ── */}
-      {detailView && (
-        <ChangeProjectModal
-          open={moveOpen}
-          onClose={() => setMoveOpen(false)}
-          selectedGroups={[group]}
-          eligibleTypes={ALL_SALE_TYPES}
-          onConfirm={() => { setMoveOpen(false); toast.success("Compound move scheduled") }}
-        />
-      )}
+      {/* ── Move Compound modal ── */}
+      <ChangeProjectModal
+        open={moveOpen}
+        onClose={() => setMoveOpen(false)}
+        selectedGroups={[group]}
+        eligibleTypes={ALL_SALE_TYPES}
+        onConfirm={() => { setMoveOpen(false); toast.success("Compound move scheduled") }}
+      />
     </div>
   )
 }
@@ -1887,11 +1930,19 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
 
 export type GroupDetailPayload = { group: GroupedProperty; allRows: PropertyRow[]; index: number }
 
+// Columns already shown on the grouped-property container card → hidden in the
+// embedded per-unit table. Sale status ("availability") and "listingStatus" are
+// intentionally kept visible (they belong on both levels).
 const GROUPED_HIDDEN_COLS: ColId[] = [
-  "propertyId", "propertyMetadataId", "developer", "project", "phase",
-  "entryType", "saleType", "listingStatus", "propertyCategory", "propertyType", "propertySubType",
-  "district", "area", "subarea", "source", "availabilityUpdatedAt",
-  "priceUpdatedAt", "propertyCreatedAt", "propertyUpdatedAt",
+  "propertyId", "propertyMetadataId",
+  "developer", "project", "phase",
+  "district", "area", "subarea",
+  "propertyCategory", "propertyType", "propertySubType",
+  "finishingType", "finishingLevel",
+  "deliveryType", "deliveryDate",
+  "grossBua", "bedrooms", "bathrooms", "price",
+  "source", "saleType", "entryType",
+  "availabilityUpdatedAt", "priceUpdatedAt", "propertyCreatedAt", "propertyUpdatedAt",
 ]
 
 const DETAIL_TABS = [
@@ -1979,7 +2030,7 @@ export function GroupedPropertyDetails({
                 <h3 className="text-sm font-semibold">Detailed Properties</h3>
                 <span className="text-xs text-muted-foreground">({group.details.length} units)</span>
               </div>
-              <EmbeddedPropertyTable rows={units} hiddenColumns={["developer", "project", "phase", "saleType", "propertyCategory", "propertyType", "propertySubType", "district", "area", "subarea", "source", "availabilityUpdatedAt", "priceUpdatedAt", "propertyCreatedAt", "propertyUpdatedAt"]} />
+              <EmbeddedPropertyTable rows={units} hiddenColumns={GROUPED_HIDDEN_COLS} />
             </div>
           </TabsContent>
 

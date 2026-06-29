@@ -88,7 +88,7 @@ interface FieldSpec {
   detailKey?: keyof GroupedProperty["details"][number]
   maxLen?: number
   /** validation flavor for numeric fields */
-  numeric?: "floor" | "net" | "area"
+  numeric?: "floor" | "net" | "area" | "money" | "count"
 }
 
 const ALL: Variation[] = ["launch", "primary-automatic", "primary-manual", "resale", "nawy-now", "rental"]
@@ -119,11 +119,14 @@ const FIELD_SPECS: FieldSpec[] = [
   { key: "outdoorArea", label: "Outdoor Area", kind: "number", section: "areas", visibleIn: NOT_PA, range: true, numeric: "area" },
   { key: "storageArea", label: "Storage Area", kind: "number", section: "areas", visibleIn: NOT_PA, range: true, numeric: "area" },
   { key: "basementArea", label: "Basement Area", kind: "number", section: "areas", visibleIn: NOT_PA, range: true, numeric: "area" },
-  // Features
+  // Features — booleans first (one row), then the numeric fields below
   { key: "hasParking", label: "Has Parking", kind: "boolean", section: "features", visibleIn: NOT_PA },
   { key: "hasStorage", label: "Has Storage", kind: "boolean", section: "features", visibleIn: NOT_PA },
   { key: "isServiced", label: "Is Serviced", kind: "boolean", section: "features", visibleIn: NOT_PA },
   { key: "isBranded", label: "Is Branded", kind: "boolean", section: "features", visibleIn: NOT_PA },
+  { key: "parkingSlots", label: "Parking Slots", kind: "number", section: "features", visibleIn: NOT_PA, range: true, numeric: "count" },
+  { key: "storagePrice", label: "Storage Price", kind: "number", section: "features", visibleIn: NOT_PA, range: true, numeric: "money" },
+  { key: "outdoorPrice", label: "Outdoor Price", kind: "number", section: "features", visibleIn: NOT_PA, range: true, numeric: "money" },
   // Amenities & services
   { key: "amenities", label: "Amenities", kind: "multiselect", section: "amenities-services", visibleIn: ALL, options: AMENITY_OPTIONS },
   { key: "services", label: "Services", kind: "multiselect", section: "amenities-services", visibleIn: ALL, options: SERVICE_OPTIONS },
@@ -180,6 +183,22 @@ export function intRangeErr(v: string, lo: number, hi: number): string | null {
   return null
 }
 
+/** Monetary amount: non-negative, up to 2 decimals, comma-tolerant, no upper cap. */
+export function moneyErr(v: string): string | null {
+  if (v === "") return null
+  const raw = v.replace(/,/g, "")
+  if (!/^\d+(\.\d{1,2})?$/.test(raw)) return "Positive amount, up to 2 decimals"
+  if (parseFloat(raw) < 0) return "Cannot be negative"
+  return null
+}
+
+/** Non-negative whole count. */
+export function countErr(v: string): string | null {
+  if (v === "") return null
+  if (!/^\d+$/.test(v)) return "Whole number"
+  return null
+}
+
 /** Format a numeric string with thousands separators, preserving a trailing/partial decimal. */
 export function withCommas(v: string): string {
   if (v === "") return ""
@@ -204,8 +223,12 @@ function validateField(spec: FieldSpec, value: FieldValue, ctx: Ctx): string | n
   if (spec.kind !== "number") return null
 
   const endpoint = (v: string): string | null => {
-    if (spec.numeric === "floor") return floorEndpointErr(v)
-    return decimalErr(v, 2000)
+    switch (spec.numeric) {
+      case "floor": return floorEndpointErr(v)
+      case "money": return moneyErr(v)
+      case "count": return countErr(v)
+      default: return decimalErr(v, 2000) // net, area
+    }
   }
 
   if (isRangeVal(value)) {
@@ -458,12 +481,13 @@ function readDisplay(spec: FieldSpec, value: FieldValue): React.ReactNode {
       </div>
     )
   }
+  const fmt = spec.numeric === "money" ? withCommas : (x: string) => x
   if (isRangeVal(value)) {
     if (!value.min && !value.max) return <span className="text-muted-foreground">—</span>
-    return <span>{value.min || "?"} – {value.max || "?"}</span>
+    return <span>{fmt(value.min) || "?"} – {fmt(value.max) || "?"}</span>
   }
   const s = value as string
-  return s ? <span>{s}</span> : <span className="text-muted-foreground">—</span>
+  return s ? <span>{fmt(s)}</span> : <span className="text-muted-foreground">—</span>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -520,10 +544,12 @@ export function AdditionalInfoTab({ group }: { group: GroupedProperty }) {
         return <BooleanToggle value={v as boolean} onChange={(nv) => setField(spec, nv)} />
       case "multiselect":
         return <MultiChips selected={v as string[]} onChange={(nv) => setField(spec, nv)} options={spec.options ?? []} />
-      case "number":
+      case "number": {
+        const fmt = spec.numeric === "money" ? withCommas : undefined
         return range
-          ? <RangeInput value={v as RangeVal} onChange={(nv) => setField(spec, nv)} error={err} />
-          : <NumberInput value={v as string} onChange={(nv) => setField(spec, nv)} error={err} />
+          ? <RangeInput value={v as RangeVal} onChange={(nv) => setField(spec, nv)} error={err} format={fmt} />
+          : <NumberInput value={v as string} onChange={(nv) => setField(spec, nv)} error={err} format={fmt} />
+      }
     }
   }
 
@@ -532,7 +558,7 @@ export function AdditionalInfoTab({ group }: { group: GroupedProperty }) {
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
         <div>
           <h3 className="text-sm font-semibold">Additional Info</h3>
-          <p className="text-xs text-muted-foreground">Fields shown depend on sale &amp; entry type.</p>
+          <p className="text-xs text-muted-foreground">Extra Property Fields</p>
         </div>
         {isEditing ? (
           <div className="flex items-center gap-2">
@@ -556,19 +582,34 @@ export function AdditionalInfoTab({ group }: { group: GroupedProperty }) {
           if (secFields.length === 0) return null
           const isFeatures = id === "features"
           const isChips = id === "amenities-services"
+
+          const cell = (spec: FieldSpec) => (
+            <FieldShell key={spec.key} label={spec.label} error={isEditing ? errors[spec.key] : undefined}>
+              {isEditing ? renderEdit(spec) : <div className="text-sm font-medium text-foreground">{readDisplay(spec, source[spec.key])}</div>}
+            </FieldShell>
+          )
+
           return (
             <div key={id} className="px-5 py-4">
               <h4 className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</h4>
-              <div className={cn(
-                "grid gap-x-6 gap-y-4",
-                isChips ? "grid-cols-1" : isFeatures ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 lg:grid-cols-3",
-              )}>
-                {secFields.map((spec) => (
-                  <FieldShell key={spec.key} label={spec.label} error={isEditing ? errors[spec.key] : undefined}>
-                    {isEditing ? renderEdit(spec) : <div className="text-sm font-medium text-foreground">{readDisplay(spec, source[spec.key])}</div>}
-                  </FieldShell>
-                ))}
-              </div>
+              {isFeatures ? (
+                <div className="space-y-4">
+                  {/* Boolean flags on one row */}
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+                    {secFields.filter((f) => f.kind === "boolean").map(cell)}
+                  </div>
+                  {/* Numeric fields below (Parking Slots, Storage Price, Outdoor Price) */}
+                  {secFields.some((f) => f.kind !== "boolean") && (
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-4 lg:grid-cols-3">
+                      {secFields.filter((f) => f.kind !== "boolean").map(cell)}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className={cn("grid gap-x-6 gap-y-4", isChips ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-3")}>
+                  {secFields.map(cell)}
+                </div>
+              )}
             </div>
           )
         })}
