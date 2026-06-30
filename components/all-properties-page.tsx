@@ -151,6 +151,7 @@ export interface PropertyRow {
   lastUpdated: string
   createdAt: string
   availabilityUpdatedAt: string
+  dpAvailabilityUpdatedAt: string
   priceUpdatedAt: string
   propertyCreatedAt: string
   propertyUpdatedAt: string
@@ -246,6 +247,7 @@ export const COLUMNS: ColumnDef[] = [
   { id: "lastUpdated", label: "DP Updated At", width: 175 },
   { id: "propertyCreatedAt", label: "Property Created At", width: 190 },
   { id: "availabilityUpdatedAt", label: "Property Availability Updated", width: 230 },
+  { id: "dpAvailabilityUpdatedAt", label: "DP Availability Updated At", width: 220 },
   { id: "propertyUpdatedAt", label: "Property Updated At", width: 190 },
 ]
 
@@ -469,6 +471,7 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
     lastUpdated: new Date(Date.now() - (index + 1) * 7 * 3600000).toISOString(),
     createdAt: new Date(Date.now() - (index + 1) * 30 * 24 * 3600000).toISOString(),
     availabilityUpdatedAt: new Date(Date.now() - (index + 1) * 3 * 3600000).toISOString(),
+    dpAvailabilityUpdatedAt: new Date(Date.now() - (index + 1) * 5 * 3600000).toISOString(),
     priceUpdatedAt: new Date(Date.now() - (index + 1) * 5 * 3600000).toISOString(),
     propertyCreatedAt: new Date(Date.now() - (index + 1) * 45 * 24 * 3600000).toISOString(),
     propertyUpdatedAt: new Date(Date.now() - (index + 1) * 12 * 3600000).toISOString(),
@@ -592,12 +595,14 @@ function AmenitiesCell({
   type,
   onUpdate,
   onViewInDrawer,
+  viewOnly = false,
 }: {
   values: string[]
   allOptions: string[]
   type: "amenities" | "services"
   onUpdate: (vals: string[]) => void
   onViewInDrawer?: () => void
+  viewOnly?: boolean
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const MAX_VISIBLE = 3
@@ -646,9 +651,9 @@ function AmenitiesCell({
         <button
           className="flex-shrink-0 h-6 w-6 rounded flex items-center justify-center border border-border bg-white hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
           onClick={handleEdit}
-          title={`Edit ${type}`}
+          title={`${viewOnly ? "View" : "Edit"} ${type}`}
         >
-          <Edit className="h-3 w-3" />
+          {viewOnly ? <Eye className="h-3 w-3" /> : <Edit className="h-3 w-3" />}
         </button>
       </div>
       {!onViewInDrawer && (
@@ -1084,9 +1089,17 @@ function UploadDialog({
 function MediaCell({
   images,
   onUpdate,
+  viewOnly = false,
+  onManage,
+  manageEditable = false,
 }: {
   images: string[]
   onUpdate: (imgs: string[]) => void
+  viewOnly?: boolean
+  // When set, the single right-side icon (edit if manageEditable, else view) opens this handler
+  // (e.g. the unit drawer) instead of the inline carousel/upload.
+  onManage?: () => void
+  manageEditable?: boolean
 }) {
   const [carouselOpen, setCarouselOpen] = useState(false)
   const [carouselStart, setCarouselStart] = useState(0)
@@ -1109,12 +1122,12 @@ function MediaCell({
               {visible.map((img, idx) => (
                 <div
                   key={idx}
-                  draggable
-                  onDragStart={() => setDragIdx(idx)}
+                  draggable={!viewOnly}
+                  onDragStart={() => !viewOnly && setDragIdx(idx)}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => {
                     e.preventDefault()
-                    if (dragIdx === null || dragIdx === idx) return
+                    if (viewOnly || dragIdx === null || dragIdx === idx) return
                     const next = [...images]
                     const [moved] = next.splice(dragIdx, 1)
                     next.splice(idx, 0, moved)
@@ -1123,7 +1136,8 @@ function MediaCell({
                   }}
                   onDragEnd={() => setDragIdx(null)}
                   className={cn(
-                    "relative group/img rounded overflow-hidden cursor-grab active:cursor-grabbing flex-shrink-0 border border-border",
+                    "relative group/img rounded overflow-hidden flex-shrink-0 border border-border",
+                    viewOnly ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
                     dragIdx === idx && "opacity-30",
                   )}
                   style={{ width: 40, height: 32 }}
@@ -1138,15 +1152,17 @@ function MediaCell({
                       setCarouselOpen(true)
                     }}
                   />
-                  <button
-                    className="absolute top-0 right-0 bg-black/60 hover:bg-red-600 rounded-bl p-0.5 text-white opacity-0 group-hover/img:opacity-100 transition-opacity"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onUpdate(images.filter((_, i) => i !== idx))
-                    }}
-                  >
-                    <X className="h-2.5 w-2.5" />
-                  </button>
+                  {!viewOnly && (
+                    <button
+                      className="absolute top-0 right-0 bg-black/60 hover:bg-red-600 rounded-bl p-0.5 text-white opacity-0 group-hover/img:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onUpdate(images.filter((_, i) => i !== idx))
+                      }}
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  )}
                   <div className="absolute inset-0 bg-black/0 hover:bg-black/20 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity pointer-events-none">
                     <ZoomIn className="h-3 w-3 text-white" />
                   </div>
@@ -1163,29 +1179,48 @@ function MediaCell({
             </>
           )}
         </div>
-        {/* Add button — always right-aligned, never clipped */}
-        <button
-          onClick={() => setUploadOpen(true)}
-          className="flex-shrink-0 w-7 h-7 rounded border border-dashed border-border bg-transparent hover:bg-muted hover:border-primary/50 flex items-center justify-center transition-colors"
-          title="Add images"
-        >
-          <Plus className="h-3 w-3 text-muted-foreground" />
-        </button>
+        {/* Right action — single icon: manage(edit)/view via drawer, view carousel, or inline add */}
+        {onManage ? (
+          <button
+            onClick={onManage}
+            className="flex-shrink-0 w-7 h-7 rounded border border-border bg-white hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+            title={manageEditable ? "Manage floor plans" : "View floor plans"}
+          >
+            {manageEditable ? <Edit className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+          </button>
+        ) : viewOnly ? (
+          <button
+            onClick={() => { if (images.length) { setCarouselStart(0); setCarouselOpen(true) } }}
+            disabled={images.length === 0}
+            className="flex-shrink-0 w-7 h-7 rounded border border-border bg-white hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="View"
+          >
+            <Eye className="h-3 w-3" />
+          </button>
+        ) : (
+          <button onClick={() => setUploadOpen(true)} title="Add images"
+            className="flex-shrink-0 w-7 h-7 rounded border border-dashed border-border bg-transparent hover:bg-muted hover:border-primary/50 flex items-center justify-center transition-colors">
+            <Plus className="h-3 w-3 text-muted-foreground" />
+          </button>
+        )}
       </div>
       {carouselOpen && images.length > 0 && (
         <ImageCarousel
           images={images}
           startIndex={Math.min(carouselStart, images.length - 1)}
+          readOnly={viewOnly}
           onClose={() => setCarouselOpen(false)}
           onReorder={onUpdate}
           onRemove={(idx) => onUpdate(images.filter((_, i) => i !== idx))}
         />
       )}
-      <UploadDialog
-        open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
-        onUpload={(urls) => onUpdate([...images, ...urls])}
-      />
+      {!viewOnly && !onManage && (
+        <UploadDialog
+          open={uploadOpen}
+          onClose={() => setUploadOpen(false)}
+          onUpload={(urls) => onUpdate([...images, ...urls])}
+        />
+      )}
     </>
   )
 }
@@ -2164,11 +2199,14 @@ function ViewPropertyDrawer({
   defaultTab,
   onClose,
   onUpdateRow,
+  editableTabs = [],
 }: {
   row: PropertyRow | null
   defaultTab: string
   onClose: () => void
   onUpdateRow: (id: string, updates: Partial<PropertyRow>) => void
+  // Shared-panel tab ids that should be editable (default: all read-only)
+  editableTabs?: string[]
 }) {
   const [activeTab, setActiveTab] = useState(defaultTab)
   const [amenityDraft, setAmenityDraft] = useState<string[]>([])
@@ -2551,8 +2589,8 @@ function ViewPropertyDrawer({
             )}
 
             {/* Payment Plans */}
-            {/* Shared panels: payment-plans · images · floor-plans · entries-log · activity-log · price-history (view-only here) */}
-            <PropertyDetailTab tab={activeTab} row={row} onUpdateRow={onUpdateRow} readOnly />
+            {/* Shared panels: payment-plans · images · floor-plans · entries-log · activity-log · price-history */}
+            <PropertyDetailTab tab={activeTab} row={row} onUpdateRow={onUpdateRow} readOnly={!editableTabs.includes(activeTab)} />
 
             {/* Amenities */}
             {activeTab === "amenities" && (
@@ -2631,10 +2669,15 @@ interface FilterProps extends SharedFilterState {
 export function EmbeddedPropertyTable({
   rows: initialRows,
   hiddenColumns,
+  variation,
 }: {
   rows: PropertyRow[]
   hiddenColumns: ColId[]
+  variation?: Variation
 }) {
+  // Floor plans editable per-unit only when sale type is Primary Automatic;
+  // amenities/services/images are always view-only in this embedded table.
+  const floorPlansEditable = variation === "primary-automatic"
   const [rows, setRows] = useState<PropertyRow[]>(initialRows)
   const [editingPrice, setEditingPrice] = useState<string | null>(null)
   const [priceDraft, setPriceDraft] = useState("")
@@ -2783,13 +2826,13 @@ export function EmbeddedPropertyTable({
         return <TagBadge value={row.unitOrientation} />
       case "amenities":
         return (
-          <AmenitiesCell values={row.amenities} allOptions={amenitiesPool} type="amenities"
+          <AmenitiesCell values={row.amenities} allOptions={amenitiesPool} type="amenities" viewOnly
             onUpdate={(vals) => updateRow(row.propertyId, { amenities: vals })}
             onViewInDrawer={() => setViewDrawer({ propertyId: row.propertyId, tab: "amenities" })} />
         )
       case "services":
         return (
-          <AmenitiesCell values={row.services} allOptions={servicesPool} type="services"
+          <AmenitiesCell values={row.services} allOptions={servicesPool} type="services" viewOnly
             onUpdate={(vals) => updateRow(row.propertyId, { services: vals })}
             onViewInDrawer={() => setViewDrawer({ propertyId: row.propertyId, tab: "amenities" })} />
         )
@@ -2860,21 +2903,31 @@ export function EmbeddedPropertyTable({
                   onClick={() => setViewDrawer({ propertyId: row.propertyId, tab: "payment-plans" })}
                   className="flex-shrink-0 h-6 w-6 rounded border border-border bg-white hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  <Eye className="h-3 w-3" />
+                  {floorPlansEditable ? <Edit className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                 </button>
               </TooltipTrigger>
-              <TooltipContent>View payment options</TooltipContent>
+              <TooltipContent>{floorPlansEditable ? "Manage payment plans" : "View payment options"}</TooltipContent>
             </Tooltip>
           </div>
         )
       case "floorPlans":
-        return <MediaCell images={row.floorPlans} onUpdate={(imgs) => updateRow(row.propertyId, { floorPlans: imgs })} />
+        return (
+          <MediaCell
+            images={row.floorPlans}
+            onUpdate={(imgs) => updateRow(row.propertyId, { floorPlans: imgs })}
+            viewOnly
+            onManage={() => setViewDrawer({ propertyId: row.propertyId, tab: "floor-plans" })}
+            manageEditable={floorPlansEditable}
+          />
+        )
       case "images":
-        return <MediaCell images={row.images} onUpdate={(imgs) => updateRow(row.propertyId, { images: imgs })} />
+        return <MediaCell images={row.images} onUpdate={(imgs) => updateRow(row.propertyId, { images: imgs })} viewOnly />
       case "createdAt":
         return <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">{formatTimestamp(row.createdAt)}</span>
       case "availabilityUpdatedAt":
         return <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">{formatTimestamp(row.availabilityUpdatedAt)}</span>
+      case "dpAvailabilityUpdatedAt":
+        return <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">{formatTimestamp(row.dpAvailabilityUpdatedAt)}</span>
       case "lastUpdated":
         return <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">{formatTimestamp(row.lastUpdated)}</span>
       case "priceUpdatedAt":
@@ -2965,6 +3018,7 @@ export function EmbeddedPropertyTable({
         defaultTab={viewDrawer?.tab ?? "unit-details"}
         onClose={() => setViewDrawer(null)}
         onUpdateRow={updateRow}
+        editableTabs={floorPlansEditable ? ["floor-plans", "payment-plans"] : []}
       />
 
       {/* Mini drawers */}
@@ -3488,6 +3542,12 @@ export function DetailedPropertiesView({ filters, onCreateProperty }: { filters:
         return (
           <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">
             {formatTimestamp(row.availabilityUpdatedAt)}
+          </span>
+        )
+      case "dpAvailabilityUpdatedAt":
+        return (
+          <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">
+            {formatTimestamp(row.dpAvailabilityUpdatedAt)}
           </span>
         )
       case "lastUpdated":

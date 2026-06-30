@@ -2031,7 +2031,7 @@ export function GroupedPropertyDetails({
                 <h3 className="text-sm font-semibold">Detailed Properties</h3>
                 <span className="text-xs text-muted-foreground">({group.details.length} units)</span>
               </div>
-              <EmbeddedPropertyTable rows={units} hiddenColumns={GROUPED_HIDDEN_COLS} />
+              <EmbeddedPropertyTable rows={units} hiddenColumns={GROUPED_HIDDEN_COLS} variation={variationOf(group)} />
             </div>
           </TabsContent>
 
@@ -2044,7 +2044,7 @@ export function GroupedPropertyDetails({
                 ) : panelTab ? (
                   <div className="rounded-xl border border-border bg-card">
                     {repRow ? (
-                      <PropertyDetailTab tab={panelTab} row={repRow} onUpdateRow={updateRepRow} />
+                      <PropertyDetailTab tab={panelTab} row={repRow} onUpdateRow={updateRepRow} readOnly={variationOf(group) === "primary-automatic" && (panelTab === "floor-plans" || panelTab === "payment-plans")} />
                     ) : (
                       <div className="px-6 py-16 text-center text-sm text-muted-foreground">No units in this group.</div>
                     )}
