@@ -1941,6 +1941,7 @@ export function PropertyDetailTab({
   onUpdateRow,
   readOnly = false,
   variation,
+  priceRange,
 }: {
   tab: string
   row: PropertyRow
@@ -1948,6 +1949,8 @@ export function PropertyDetailTab({
   readOnly?: boolean
   /** Sale-type variation (grouped context) — drives per-tab behaviour. */
   variation?: Variation
+  /** Group price range (grouped context) — drives Launch/Primary-Manual range vs starting price. */
+  priceRange?: { min: number; max: number }
 }) {
   const [carouselState, setCarouselState] = useState<{ imgs: string[]; idx: number; field: "images" | "floorPlans" } | null>(null)
   const [uploadState, setUploadState] = useState<"images" | "floorPlans" | null>(null)
@@ -1975,15 +1978,23 @@ export function PropertyDetailTab({
   // ── Payment plans (per sale-type variation) ──────────────────────────────────
   // PA → view only (edit happens in the per-unit Detailed Properties drawer).
   // Resale / Nawy-Now → 1 price + 1 plan, cannot unlink but can edit.
-  // Launch / Primary-Manual → 1–2 prices, each with its linked plans.
+  // Launch / Primary-Manual → ONE price (single value or a range). Its payment plans
+  //   are SHARED — linked to both endpoints of a range at once, never split per-price.
+  const isLaunchOrPM = variation === "launch" || variation === "primary-manual"
   const ppViewOnly = readOnly || isPA
   const ppLockRemoval = variation === "resale" || variation === "nawy-now"
+  // Some Launch/Primary-Manual units carry a price range, others just a starting price.
+  const ppNumId = parseInt((row.propertyMetadataId ?? row.propertyId ?? "").replace(/\D/g, ""), 10) || 0
+  const showPriceRange = isLaunchOrPM && !!priceRange && priceRange.max > priceRange.min && ppNumId % 2 === 0
+  const startingPrice = priceRange?.min ?? row.price ?? 3_500_000
+  const [sharedPlans, setSharedPlans] = useState<PlanCardData[]>(() => PAYMENT_PLAN_GROUPS[0].plans)
+  const removeSharedPlan = (id: string) => setSharedPlans((ps) => ps.filter((p) => p.id !== id))
   const [ppGroups, setPpGroups] = useState<PriceGroup[]>(() => {
     if (variation === "resale" || variation === "nawy-now") {
       const g = PAYMENT_PLAN_GROUPS[0]
       return [{ ...g, plans: g.plans.slice(0, 1) }]
     }
-    if (variation === "launch" || variation === "primary-manual") return PAYMENT_PLAN_GROUPS.slice(0, 2)
+    if (variation === "launch" || variation === "primary-manual") return [] // Launch/PM use the shared block below
     return PAYMENT_PLAN_GROUPS
   })
   const [detailsPlan, setDetailsPlan] = useState<PlanCardData | null>(null)
@@ -2009,31 +2020,65 @@ export function PropertyDetailTab({
       {/* Payment Plans */}
       {tab === "payment-plans" && (
         <div className="p-6 space-y-7">
-          {(variation === "launch" || variation === "primary-manual") && ppGroups.length > 0 && (
-            <div className="rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-sm text-muted-foreground">
-              {ppGroups.length > 1 ? (
-                <>Price range <span className="font-semibold text-foreground">{Math.min(...ppGroups.map((g) => g.price)).toLocaleString()} – {Math.max(...ppGroups.map((g) => g.price)).toLocaleString()} EGP</span></>
-              ) : (
-                <>Starting price <span className="font-semibold text-foreground">{ppGroups[0].price.toLocaleString()} EGP</span></>
-              )}
-            </div>
-          )}
           {isPA && (
             <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
               <Lock className="h-3.5 w-3.5" />View only — edit payment plans per unit from the Detailed Properties tab.
             </div>
           )}
-          {ppGroups.map((group, gi) => (
-            <PriceGroup
-              key={gi} group={group} groupIndex={gi} totalGroups={ppGroups.length}
-              expandedPlans={expandedPlans} setExpandedPlans={setExpandedPlans}
-              viewOnly={ppViewOnly} lockRemoval={ppLockRemoval}
-              onRemovePlan={(planId) => removePlan(gi, planId)}
-              onRemovePrice={() => removePrice(gi)}
-              onView={(plan) => setDetailsPlan(plan)}
-            />
-          ))}
-          {ppGroups.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">No payment plans linked.</p>}
+
+          {isLaunchOrPM ? (
+            /* Launch / Primary-Manual: ONE price (single value or a range) with a SHARED plan set */
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-[15px] font-bold tabular-nums text-foreground whitespace-nowrap">
+                  {showPriceRange
+                    ? `${priceRange!.min.toLocaleString()} – ${priceRange!.max.toLocaleString()} EGP`
+                    : `${startingPrice.toLocaleString()} EGP`}
+                </span>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground whitespace-nowrap">
+                  {showPriceRange ? "Range price" : "Starting price"}
+                </span>
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-[11px] text-muted-foreground whitespace-nowrap">{sharedPlans.length} {sharedPlans.length === 1 ? "plan" : "plans"}</span>
+              </div>
+              {showPriceRange && (
+                <p className="text-[11px] text-muted-foreground">These payment plans are linked to both prices in the range.</p>
+              )}
+              <div className="flex flex-wrap items-start gap-2.5">
+                {sharedPlans.map((plan) => (
+                  <LinkedPlanCard
+                    key={plan.id}
+                    plan={plan}
+                    readOnly={ppViewOnly}
+                    isExpanded={expandedPlans.has(plan.id)}
+                    totalInGroup={sharedPlans.length}
+                    onView={() => setDetailsPlan(plan)}
+                    onRemove={!ppViewOnly && sharedPlans.length > 1 ? () => removeSharedPlan(plan.id) : undefined}
+                    onToggleExpand={() => setExpandedPlans((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(plan.id)) next.delete(plan.id); else next.add(plan.id)
+                      return next
+                    })}
+                  />
+                ))}
+                {sharedPlans.length === 0 && <p className="w-full py-10 text-center text-sm text-muted-foreground">No payment plans linked.</p>}
+              </div>
+            </div>
+          ) : (
+            <>
+              {ppGroups.map((group, gi) => (
+                <PriceGroup
+                  key={gi} group={group} groupIndex={gi} totalGroups={ppGroups.length}
+                  expandedPlans={expandedPlans} setExpandedPlans={setExpandedPlans}
+                  viewOnly={ppViewOnly} lockRemoval={ppLockRemoval}
+                  onRemovePlan={(planId) => removePlan(gi, planId)}
+                  onRemovePrice={() => removePrice(gi)}
+                  onView={(plan) => setDetailsPlan(plan)}
+                />
+              ))}
+              {ppGroups.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">No payment plans linked.</p>}
+            </>
+          )}
         </div>
       )}
 
@@ -2277,6 +2322,7 @@ export function PropertyDetailTab({
           onClose={() => setEditingPlan(null)}
           onSave={(saved) => {
             setPpGroups((prev) => prev.map((g) => ({ ...g, plans: g.plans.map((p) => (p.id === editingPlan.id ? { ...saved, id: p.id } : p)) })))
+            setSharedPlans((prev) => prev.map((p) => (p.id === editingPlan.id ? { ...saved, id: p.id } : p)))
             setEditingPlan(null)
           }}
         />

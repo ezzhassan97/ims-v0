@@ -1099,7 +1099,7 @@ function GroupCard({
               </div>
             ) : (
               <div className="text-xs font-medium text-foreground">
-                {rangePrice
+                {rangePrice || isPA
                   ? `${Number(cSaved.priceMin || 0).toLocaleString()} – ${Number(cSaved.priceMax || 0).toLocaleString()}`
                   : Number(cSaved.price || 0).toLocaleString()} {cSaved.currency}
               </div>
@@ -1985,6 +1985,9 @@ export function GroupedPropertyDetails({
   // Representative unit row that drives the shared drawer panels (gallery, plans, etc.)
   const [repRow, setRepRow] = useState<PropertyRow | null>(units[0] ?? null)
   const updateRepRow = (_id: string, patch: Partial<PropertyRow>) => setRepRow((r) => (r ? { ...r, ...patch } : r))
+  // Entries tab exists only for Primary units (Primary Manual / Primary Automatic).
+  const isPrimaryVariation = variationOf(group) === "primary-manual" || variationOf(group) === "primary-automatic"
+  const detailTabs = DETAIL_TABS.filter((t) => t.value !== "ingestion-entries" || isPrimaryVariation)
 
   return (
     <div className="min-h-screen bg-secondary/40">
@@ -2022,7 +2025,7 @@ export function GroupedPropertyDetails({
         {/* ── Tabs ── */}
         <Tabs defaultValue="additional-info" className="space-y-4">
           <TabsList className="bg-card">
-            {DETAIL_TABS.map((t) => <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>)}
+            {detailTabs.map((t) => <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>)}
           </TabsList>
 
           <TabsContent value="detailed-properties">
@@ -2035,7 +2038,7 @@ export function GroupedPropertyDetails({
             </div>
           </TabsContent>
 
-          {DETAIL_TABS.filter((t) => t.value !== "detailed-properties").map((t) => {
+          {detailTabs.filter((t) => t.value !== "detailed-properties").map((t) => {
             const panelTab = SHARED_PANEL_MAP[t.value]
             return (
               <TabsContent key={t.value} value={t.value}>
@@ -2044,7 +2047,7 @@ export function GroupedPropertyDetails({
                 ) : panelTab ? (
                   <div className="rounded-xl border border-border bg-card">
                     {repRow ? (
-                      <PropertyDetailTab tab={panelTab} row={repRow} onUpdateRow={updateRepRow} variation={variationOf(group)} />
+                      <PropertyDetailTab tab={panelTab} row={repRow} onUpdateRow={updateRepRow} variation={variationOf(group)} priceRange={{ min: group.priceMin, max: group.priceMax }} />
                     ) : (
                       <div className="px-6 py-16 text-center text-sm text-muted-foreground">No units in this group.</div>
                     )}
