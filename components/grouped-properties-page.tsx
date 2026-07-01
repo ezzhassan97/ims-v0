@@ -2044,7 +2044,7 @@ export function GroupedPropertyDetails({
                 ) : panelTab ? (
                   <div className="rounded-xl border border-border bg-card">
                     {repRow ? (
-                      <PropertyDetailTab tab={panelTab} row={repRow} onUpdateRow={updateRepRow} readOnly={variationOf(group) === "primary-automatic" && (panelTab === "floor-plans" || panelTab === "payment-plans")} />
+                      <PropertyDetailTab tab={panelTab} row={repRow} onUpdateRow={updateRepRow} variation={variationOf(group)} />
                     ) : (
                       <div className="px-6 py-16 text-center text-sm text-muted-foreground">No units in this group.</div>
                     )}

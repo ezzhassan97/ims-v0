@@ -30,6 +30,7 @@ import {
   Film,
   Filter,
   Flame,
+  FolderPlus,
   Globe,
   GripVertical,
   Group,
@@ -49,6 +50,7 @@ import {
   Upload,
   User,
   Waves,
+  Wand2,
   Wind,
   Wrench,
   MoreHorizontal,
@@ -77,6 +79,10 @@ import { cn } from "@/lib/utils"
 import { initialUnits, projectPhases, type Unit } from "@/lib/mock-data"
 import { GroupedPropertiesView, type SharedFilterState, type GroupDetailPayload } from "@/components/grouped-properties-page"
 import type { Variation } from "@/components/additional-info-tab"
+import { AddMediaDialog } from "@/components/add-media-dialog"
+import { ChooseAssetsDrawer } from "@/components/choose-assets-drawer"
+import { PaymentPlanDrawer } from "@/components/payment-plan-builder"
+import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Availability = "Available" | "Hold" | "Sold-Off" | "Archived"
@@ -289,6 +295,7 @@ const PROJECT_LIBRARY = Array.from({ length: 12 }, (_, i) => ({
   id: `lib-${i}`,
   url: imageSeeds[i % imageSeeds.length],
   name: ["Exterior view", "Lobby", "Pool area", "Bedroom", "Kitchen", "Living room", "Terrace", "Garden", "Clubhouse", "Master bath", "Aerial view", "Facade"][i],
+  category: ["Exterior", "Interior", "Amenity", "Interior", "Interior", "Interior", "Exterior", "Amenity", "Amenity", "Interior", "Exterior", "Exterior"][i],
 }))
 
 // ── Badge colors ───────────────────────────────────────────────────────────────
@@ -1415,13 +1422,17 @@ export const PAYMENT_PLAN_GROUPS: PriceGroup[] = [
   },
 ]
 
-function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, readOnly = false }: {
+function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewOnly = false, lockRemoval = false, onRemovePlan, onRemovePrice, onView }: {
   group: PriceGroup; groupIndex: number; totalGroups: number
   expandedPlans: Set<string>; setExpandedPlans: React.Dispatch<React.SetStateAction<Set<string>>>
-  readOnly?: boolean
+  viewOnly?: boolean
+  lockRemoval?: boolean
+  onRemovePlan?: (planId: string) => void
+  onRemovePrice?: () => void
+  onView?: (plan: PlanCardData) => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const canDelete = totalGroups > 1
+  const canDeletePrice = !viewOnly && !lockRemoval && totalGroups > 1
   return (
     <div className="space-y-3">
       {/* Price header */}
@@ -1438,48 +1449,53 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, readO
         <span className="text-[11px] text-muted-foreground whitespace-nowrap flex-shrink-0">
           {group.plans.length} {group.plans.length === 1 ? "plan" : "plans"}
         </span>
-        {/* Delete price button (hidden when read-only) */}
-        {!readOnly && (!confirmDelete ? (
+        {/* Delete price button */}
+        {canDeletePrice && (!confirmDelete ? (
           <button
-            onClick={() => canDelete && setConfirmDelete(true)}
-            title={canDelete ? "Delete price" : "Cannot delete — only one price"}
-            className={cn("flex-shrink-0 w-5 h-5 rounded flex items-center justify-center transition-all",
-              canDelete ? "text-red-400 hover:bg-red-50 hover:text-red-600 cursor-pointer" : "text-border cursor-not-allowed opacity-40"
-            )}
+            onClick={() => setConfirmDelete(true)}
+            title="Delete price"
+            className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-red-400 hover:bg-red-50 hover:text-red-600 cursor-pointer transition-all"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         ) : (
           <div className="flex items-center gap-1.5 px-2 py-1 bg-red-50 border border-red-200 rounded-[6px] flex-shrink-0">
-            <span className="text-[11px] text-red-700 font-medium">Delete price?</span>
+            <span className="text-[11px] text-red-700 font-medium">Delete price &amp; its plans?</span>
             <button onClick={() => setConfirmDelete(false)} className="text-[11px] text-[#5A6A85] hover:text-[#0D1B2E] px-1 rounded transition-colors">Cancel</button>
-            <button onClick={() => setConfirmDelete(false)} className="text-[11px] text-white bg-red-500 hover:bg-red-600 px-1.5 rounded transition-colors font-medium">Delete</button>
+            <button onClick={() => { onRemovePrice?.(); setConfirmDelete(false) }} className="text-[11px] text-white bg-red-500 hover:bg-red-600 px-1.5 rounded transition-colors font-medium">Delete</button>
           </div>
         ))}
       </div>
       {/* Cards */}
       <div className="flex flex-wrap gap-2.5 items-start">
-        {group.plans.map((plan) => (
-          <LinkedPlanCard
-            key={plan.id}
-            plan={plan}
-            readOnly={readOnly}
-            isExpanded={expandedPlans.has(plan.id)}
-            totalInGroup={group.plans.length}
-            onToggleExpand={() => setExpandedPlans((prev) => {
-              const next = new Set(prev)
-              if (next.has(plan.id)) next.delete(plan.id)
-              else next.add(plan.id)
-              return next
-            })}
-          />
-        ))}
+        {group.plans.map((plan) => {
+          const canUnlink = !viewOnly && !lockRemoval && (group.plans.length > 1 || totalGroups > 1)
+          const cascade = group.plans.length === 1 && totalGroups > 1
+          return (
+            <LinkedPlanCard
+              key={plan.id}
+              plan={plan}
+              readOnly={viewOnly}
+              isExpanded={expandedPlans.has(plan.id)}
+              totalInGroup={group.plans.length}
+              onView={() => onView?.(plan)}
+              onRemove={canUnlink ? () => onRemovePlan?.(plan.id) : undefined}
+              cascadeRemovesPrice={cascade}
+              onToggleExpand={() => setExpandedPlans((prev) => {
+                const next = new Set(prev)
+                if (next.has(plan.id)) next.delete(plan.id)
+                else next.add(plan.id)
+                return next
+              })}
+            />
+          )
+        })}
       </div>
     </div>
   )
 }
 
-export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false, onRemove, fullWidth = false, selected, onSelectToggle }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean; onRemove?: () => void; fullWidth?: boolean; selected?: boolean; onSelectToggle?: () => void }) {
+export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false, onRemove, onView, cascadeRemovesPrice = false, fullWidth = false, selected, onSelectToggle }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean; onRemove?: () => void; onView?: () => void; cascadeRemovesPrice?: boolean; fullWidth?: boolean; selected?: boolean; onSelectToggle?: () => void }) {
   const selectable = selected !== undefined || onSelectToggle !== undefined
   const [copiedId, setCopiedId] = useState(false)
   const [confirmUnlink, setConfirmUnlink] = useState(false)
@@ -1510,7 +1526,7 @@ export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup,
             <span className="truncate text-[13px] font-semibold text-[#0D1B2E]" title={plan.name}>{plan.name}</span>
           </div>
           <div className="flex items-center gap-0.5 flex-shrink-0 mt-px">
-            <button className="w-[22px] h-[22px] rounded-[4px] border-0 bg-transparent cursor-pointer flex items-center justify-center p-0 text-[#8C9BB5] hover:bg-slate-100 hover:text-[#5A6A85] transition-all" title="View"><Eye className="w-[13px] h-[13px]" /></button>
+            <button onClick={onView} className="w-[22px] h-[22px] rounded-[4px] border-0 bg-transparent cursor-pointer flex items-center justify-center p-0 text-[#8C9BB5] hover:bg-slate-100 hover:text-[#5A6A85] transition-all" title="View details"><Eye className="w-[13px] h-[13px]" /></button>
             {!readOnly && (
               <button
                 onClick={() => canUnlink && setConfirmUnlink(true)}
@@ -1525,9 +1541,9 @@ export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup,
         {/* Unlink confirmation inline */}
         {!readOnly && confirmUnlink && (
           <div className="mt-1 mb-0.5 flex items-center gap-1.5 px-2 py-1.5 bg-red-50 border border-red-200 rounded-[6px]">
-            <span className="text-[11px] text-red-700 font-medium flex-1">Unlink this plan?</span>
+            <span className="text-[11px] text-red-700 font-medium flex-1">{cascadeRemovesPrice ? "Last plan on this price — its price will be removed too." : "Unlink this plan?"}</span>
             <button onClick={() => setConfirmUnlink(false)} className="text-[11px] text-[#5A6A85] hover:text-[#0D1B2E] px-1.5 py-0.5 rounded transition-colors">Cancel</button>
-            <button onClick={() => { onRemove?.(); setConfirmUnlink(false) }} className="text-[11px] text-white bg-red-500 hover:bg-red-600 px-2 py-0.5 rounded transition-colors font-medium">Unlink</button>
+            <button onClick={() => { onRemove?.(); setConfirmUnlink(false) }} className="text-[11px] text-white bg-red-500 hover:bg-red-600 px-2 py-0.5 rounded transition-colors font-medium">{cascadeRemovesPrice ? "Remove" : "Unlink"}</button>
           </div>
         )}
         {/* ID row */}
@@ -1762,6 +1778,7 @@ export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup,
 // ── Media Gallery Tab ─────────────────────────────────────────────────────────
 export function MediaGalleryTab({
   field, items, label, onUpload, onView, onRemove, onReorder, readOnly = false, hideHeader = false,
+  reorderOnly = false, onAddFromProject, onAutoMatch, matching = false,
 }: {
   field: string; items: string[]; label: string
   onUpload: () => void
@@ -1770,10 +1787,18 @@ export function MediaGalleryTab({
   onReorder: (items: string[]) => void
   readOnly?: boolean
   hideHeader?: boolean
+  /** Only drag-reorder is allowed — no add / remove (Primary-Automatic floor plans). */
+  reorderOnly?: boolean
+  onAddFromProject?: () => void
+  onAutoMatch?: () => void
+  matching?: boolean
 }) {
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  // Full edit (add/remove) vs. drag-only vs. fully locked.
+  const canEdit = !readOnly && !reorderOnly
+  const canDrag = !readOnly
 
   const handleDrop = (dropIdx: number) => {
     if (dragIndex === null || dragIndex === dropIdx) return
@@ -1791,43 +1816,56 @@ export function MediaGalleryTab({
   return (
     <div className={cn("space-y-4", hideHeader ? "" : "p-6")}>
       {!hideHeader && (
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {items.length} {items.length === 1 ? label : `${label}s`}
+            {reorderOnly && <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-muted-foreground">Drag to reorder</span>}
           </h4>
-          {!readOnly && (
-            <Button size="sm" variant="outline" onClick={onUpload} className="h-7 text-xs gap-1.5">
-              <Plus className="h-3 w-3" />Add {label}s
-            </Button>
+          {canEdit && (
+            <div className="flex items-center gap-1.5">
+              {onAutoMatch && (
+                <Button size="sm" variant="outline" onClick={onAutoMatch} disabled={matching} className="h-7 gap-1.5 text-xs">
+                  <Wand2 className={cn("h-3 w-3", matching && "animate-pulse")} />{matching ? "Matching…" : "Automatching"}
+                </Button>
+              )}
+              {onAddFromProject && (
+                <Button size="sm" variant="outline" onClick={onAddFromProject} className="h-7 gap-1.5 text-xs">
+                  <FolderPlus className="h-3 w-3" />Add from project
+                </Button>
+              )}
+              <Button size="sm" onClick={onUpload} className="h-7 gap-1.5 text-xs">
+                <Plus className="h-3 w-3" />Add {label}s
+              </Button>
+            </div>
           )}
         </div>
       )}
       {items.length === 0 ? (
         <div
-          onClick={readOnly ? undefined : onUpload}
+          onClick={canEdit ? onUpload : undefined}
           className={cn(
             "rounded-xl border-2 border-dashed border-border p-14 flex flex-col items-center gap-3 transition-colors",
-            !readOnly && "cursor-pointer hover:border-primary/40 hover:bg-muted/20",
+            canEdit && "cursor-pointer hover:border-primary/40 hover:bg-muted/20",
           )}
         >
           <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
             <Upload className="h-5 w-5 text-muted-foreground" />
           </div>
-          <p className="text-sm text-muted-foreground">No {label.toLowerCase()}s {readOnly ? "" : "yet — click to upload"}</p>
+          <p className="text-sm text-muted-foreground">No {label.toLowerCase()}s {canEdit ? "yet — click to upload" : ""}</p>
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-3">
           {items.map((img, i) => (
             <div
               key={i}
-              draggable={!readOnly}
-              onDragStart={readOnly ? undefined : () => setDragIndex(i)}
-              onDragOver={readOnly ? undefined : (e) => { e.preventDefault(); setDragOverIndex(i) }}
-              onDragEnd={readOnly ? undefined : () => { setDragIndex(null); setDragOverIndex(null) }}
-              onDrop={readOnly ? undefined : () => handleDrop(i)}
+              draggable={canDrag}
+              onDragStart={canDrag ? () => setDragIndex(i) : undefined}
+              onDragOver={canDrag ? (e) => { e.preventDefault(); setDragOverIndex(i) } : undefined}
+              onDragEnd={canDrag ? () => { setDragIndex(null); setDragOverIndex(null) } : undefined}
+              onDrop={canDrag ? () => handleDrop(i) : undefined}
               className={cn(
                 "relative group rounded-lg overflow-hidden border aspect-video transition-all select-none",
-                !readOnly && "cursor-grab active:cursor-grabbing",
+                canDrag && "cursor-grab active:cursor-grabbing",
                 dragOverIndex === i && dragIndex !== i ? "border-primary ring-2 ring-primary/30 scale-[1.02]" : "border-border hover:border-primary/50",
                 dragIndex === i ? "opacity-40" : "opacity-100",
               )}
@@ -1839,8 +1877,8 @@ export function MediaGalleryTab({
                 {i + 1}
               </div>
 
-              {/* Remove button — top right (hidden when read-only) */}
-              {!readOnly && (confirmRemove === i ? (
+              {/* Remove button — top right (only in full-edit mode) */}
+              {canEdit && (confirmRemove === i ? (
                 <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1 bg-black/80 backdrop-blur-sm rounded-md px-1.5 py-1">
                   <span className="text-[10px] text-white/80 font-medium">Remove?</span>
                   <button onClick={(e) => { e.stopPropagation(); setConfirmRemove(null) }} className="text-[10px] text-white/60 hover:text-white transition-colors px-0.5">No</button>
@@ -1892,17 +1930,61 @@ export function PropertyDetailTab({
   row,
   onUpdateRow,
   readOnly = false,
+  variation,
 }: {
   tab: string
   row: PropertyRow
   onUpdateRow: (id: string, updates: Partial<PropertyRow>) => void
   readOnly?: boolean
+  /** Sale-type variation (grouped context) — drives per-tab behaviour. */
+  variation?: Variation
 }) {
   const [carouselState, setCarouselState] = useState<{ imgs: string[]; idx: number; field: "images" | "floorPlans" } | null>(null)
   const [uploadState, setUploadState] = useState<"images" | "floorPlans" | null>(null)
+  const [fromProjectState, setFromProjectState] = useState<"images" | "floorPlans" | null>(null)
+  const [matching, setMatching] = useState<"images" | "floorPlans" | null>(null)
   const [expandedPlans, setExpandedPlans] = useState<Set<string>>(new Set())
+  const isPA = variation === "primary-automatic"
+
+  const appendMedia = (field: "images" | "floorPlans", urls: string[]) => {
+    if (!urls.length) return
+    const current = field === "images" ? row.images : row.floorPlans
+    onUpdateRow(row.propertyId, { [field]: [...current, ...urls] })
+  }
+  const runAutoMatch = (field: "images" | "floorPlans") => {
+    if (matching) return
+    setMatching(field)
+    setTimeout(() => {
+      const picks = PROJECT_LIBRARY.slice(0, 3).map((a) => a.url)
+      const current = field === "images" ? row.images : row.floorPlans
+      appendMedia(field, picks.filter((u) => !current.includes(u)))
+      setMatching(null)
+    }, 1000)
+  }
+
+  // ── Payment plans (per sale-type variation) ──────────────────────────────────
+  // PA → view only (edit happens in the per-unit Detailed Properties drawer).
+  // Resale / Nawy-Now → 1 price + 1 plan, cannot unlink but can edit.
+  // Launch / Primary-Manual → 1–2 prices, each with its linked plans.
+  const ppViewOnly = readOnly || isPA
+  const ppLockRemoval = variation === "resale" || variation === "nawy-now"
+  const [ppGroups, setPpGroups] = useState<PriceGroup[]>(() => {
+    if (variation === "resale" || variation === "nawy-now") {
+      const g = PAYMENT_PLAN_GROUPS[0]
+      return [{ ...g, plans: g.plans.slice(0, 1) }]
+    }
+    if (variation === "launch" || variation === "primary-manual") return PAYMENT_PLAN_GROUPS.slice(0, 2)
+    return PAYMENT_PLAN_GROUPS
+  })
+  const [detailsPlan, setDetailsPlan] = useState<PlanCardData | null>(null)
+  const [editingPlan, setEditingPlan] = useState<PlanCardData | null>(null)
+  // Unlink a plan; if it was the last one on its price (and >1 price exists), the price is dropped too.
+  const removePlan = (gi: number, planId: string) =>
+    setPpGroups((prev) => prev
+      .map((g, i) => (i === gi ? { ...g, plans: g.plans.filter((p) => p.id !== planId) } : g))
+      .filter((g) => g.plans.length > 0))
+  const removePrice = (gi: number) => setPpGroups((prev) => prev.filter((_, i) => i !== gi))
   const [auditLogDrawerEntry, setAuditLogDrawerEntry] = useState<{ id: string; action: "Edit" | "Create" | "Delete"; entity: string; label: string; detail: string; user: string; ts: string } | null>(null)
-  const [phSort, setPhSort] = useState<{ col: "date" | "price" | "change" | "action" | "user"; dir: "asc" | "desc" }>({ col: "date", dir: "desc" })
 
   const dummyAuditLogs = [
     { id: "LOG-A8F3C2", action: "Edit" as const, entity: "Properties", label: "Availability changed", detail: "Available → Hold", user: "Sarah M.", ts: formatTimestamp(new Date(Date.now() - 2 * 24 * 3600000).toISOString()) },
@@ -1912,48 +1994,68 @@ export function PropertyDetailTab({
     { id: "LOG-E2A8F7", action: "Create" as const, entity: "Properties", label: "Property created", detail: `Entry: ${row.entryType}`, user: row.entryType === "Automatic" ? "System" : "Omar F.", ts: formatTimestamp(row.createdAt) },
   ]
 
-  const basePrice = row.price ?? 0
-  const dummyPriceHistory = [
-    { date: formatTimestamp(new Date(Date.now() - 2 * 24 * 3600000).toISOString()), price: basePrice, change: 150000, action: "Edit" as const, user: "Ahmed K." },
-    { date: formatTimestamp(new Date(Date.now() - 10 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice - 150000), change: -250000, action: "Edit" as const, user: "Ahmed K." },
-    { date: formatTimestamp(new Date(Date.now() - 25 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice + 100000), change: 100000, action: "Edit" as const, user: "Sara M." },
-    { date: formatTimestamp(new Date(Date.now() - 45 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice + 50000), change: null, action: "Create" as const, user: "System" },
-    { date: formatTimestamp(new Date(Date.now() - 60 * 24 * 3600000).toISOString()), price: Math.max(0, basePrice - 300000), change: null, action: "Sold Off" as const, user: "Ahmed K." },
-  ]
-
   return (
     <>
       {/* Payment Plans */}
       {tab === "payment-plans" && (
         <div className="p-6 space-y-7">
-          {PAYMENT_PLAN_GROUPS.map((group, gi) => (
-            <PriceGroup key={gi} group={group} groupIndex={gi} totalGroups={PAYMENT_PLAN_GROUPS.length} expandedPlans={expandedPlans} setExpandedPlans={setExpandedPlans} readOnly={readOnly} />
+          {(variation === "launch" || variation === "primary-manual") && ppGroups.length > 0 && (
+            <div className="rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-sm text-muted-foreground">
+              {ppGroups.length > 1 ? (
+                <>Price range <span className="font-semibold text-foreground">{Math.min(...ppGroups.map((g) => g.price)).toLocaleString()} – {Math.max(...ppGroups.map((g) => g.price)).toLocaleString()} EGP</span></>
+              ) : (
+                <>Starting price <span className="font-semibold text-foreground">{ppGroups[0].price.toLocaleString()} EGP</span></>
+              )}
+            </div>
+          )}
+          {isPA && (
+            <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
+              <Lock className="h-3.5 w-3.5" />View only — edit payment plans per unit from the Detailed Properties tab.
+            </div>
+          )}
+          {ppGroups.map((group, gi) => (
+            <PriceGroup
+              key={gi} group={group} groupIndex={gi} totalGroups={ppGroups.length}
+              expandedPlans={expandedPlans} setExpandedPlans={setExpandedPlans}
+              viewOnly={ppViewOnly} lockRemoval={ppLockRemoval}
+              onRemovePlan={(planId) => removePlan(gi, planId)}
+              onRemovePrice={() => removePrice(gi)}
+              onView={(plan) => setDetailsPlan(plan)}
+            />
           ))}
+          {ppGroups.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">No payment plans linked.</p>}
         </div>
       )}
 
-      {/* Images / Gallery */}
+      {/* Images / Gallery — fully editable for every sale type (incl. Primary-Automatic) */}
       {tab === "images" && (
         <MediaGalleryTab
           field="images"
           items={row.images}
           label="Image"
           readOnly={readOnly}
+          matching={matching === "images"}
           onUpload={() => setUploadState("images")}
+          onAddFromProject={() => setFromProjectState("images")}
+          onAutoMatch={() => runAutoMatch("images")}
           onView={(idx) => setCarouselState({ imgs: row.images, idx, field: "images" })}
           onRemove={(idx) => onUpdateRow(row.propertyId, { images: row.images.filter((_, i) => i !== idx) })}
           onReorder={(items) => onUpdateRow(row.propertyId, { images: items })}
         />
       )}
 
-      {/* Floor Plans */}
+      {/* Floor Plans — Primary-Automatic: drag-reorder only (no add / unlink) */}
       {tab === "floor-plans" && (
         <MediaGalleryTab
           field="floorPlans"
           items={row.floorPlans}
           label="Floor Plan"
           readOnly={readOnly}
+          reorderOnly={isPA}
+          matching={matching === "floorPlans"}
           onUpload={() => setUploadState("floorPlans")}
+          onAddFromProject={() => setFromProjectState("floorPlans")}
+          onAutoMatch={() => runAutoMatch("floorPlans")}
           onView={(idx) => setCarouselState({ imgs: row.floorPlans, idx, field: "floorPlans" })}
           onRemove={(idx) => onUpdateRow(row.propertyId, { floorPlans: row.floorPlans.filter((_, i) => i !== idx) })}
           onReorder={(items) => onUpdateRow(row.propertyId, { floorPlans: items })}
@@ -2036,50 +2138,49 @@ export function PropertyDetailTab({
 
       {/* Price History */}
       {tab === "price-history" && (() => {
-        type PhCol = "date" | "price" | "change" | "action" | "user"
-        const togglePhSort = (col: PhCol) => {
-          setPhSort((prev) => (prev.col === col ? { col, dir: prev.dir === "asc" ? "desc" : "asc" } : { col, dir: col === "date" ? "desc" : "asc" }))
+        const allPlans = PAYMENT_PLAN_GROUPS.flatMap((g) => g.plans)
+        const base = row.price || 3_500_000
+        const rows: Array<{ date: string; price: number; currency: string; status: "Available" | "Sold"; calc: number | null; planId: string; by: string }> = [
+          { date: formatTimestamp(new Date(Date.now() - 2 * 24 * 3600000).toISOString()),  price: base,           currency: "EGP", status: "Available", calc: null,      planId: "50680", by: "Ahmed K." },
+          { date: formatTimestamp(new Date(Date.now() - 10 * 24 * 3600000).toISOString()), price: 72_000,         currency: "USD", status: "Available", calc: 3_513_600, planId: "51055", by: "Sara M." },
+          { date: formatTimestamp(new Date(Date.now() - 25 * 24 * 3600000).toISOString()), price: base - 100_000, currency: "EGP", status: "Sold",      calc: null,      planId: "51230", by: "System" },
+          { date: formatTimestamp(new Date(Date.now() - 45 * 24 * 3600000).toISOString()), price: 68_000,         currency: "USD", status: "Sold",      calc: 3_318_400, planId: "51102", by: "Mariam N." },
+          { date: formatTimestamp(new Date(Date.now() - 60 * 24 * 3600000).toISOString()), price: base - 300_000, currency: "EGP", status: "Sold",      calc: null,      planId: "51445", by: "Ahmed K." },
+        ]
+        const statusStyle: Record<string, string> = {
+          Available: "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400",
+          Sold:      "bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-900/40 dark:text-purple-400",
         }
-        const sorted = [...dummyPriceHistory].sort((a, b) => {
-          let cmp = 0
-          if (phSort.col === "date")   cmp = a.date.localeCompare(b.date)
-          if (phSort.col === "price")  cmp = a.price - b.price
-          if (phSort.col === "change") cmp = (a.change ?? 0) - (b.change ?? 0)
-          if (phSort.col === "action") cmp = a.action.localeCompare(b.action)
-          if (phSort.col === "user")   cmp = a.user.localeCompare(b.user)
-          return phSort.dir === "asc" ? cmp : -cmp
-        })
-        const phActionStyle: Record<string, string> = {
-          Create:   "bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400",
-          Edit:     "bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-400",
-          "Sold Off": "bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-900/40 dark:text-purple-400",
-        }
-        const SortIcon = ({ col }: { col: PhCol }) => (
-          phSort.col === col ? <span className="ml-1 inline-block">{phSort.dir === "asc" ? "↑" : "↓"}</span> : <ArrowUpDown className="ml-1 h-3 w-3 inline-block opacity-30" />
-        )
         return (
           <div className="p-5">
             <div className="rounded-xl border border-border overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-muted border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
                   <tr>
-                    <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("date")}>Date<SortIcon col="date" /></th>
-                    <th className="text-right px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("price")}>Price<SortIcon col="price" /></th>
-                    <th className="text-right px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("change")}>Change<SortIcon col="change" /></th>
-                    <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("action")}>Action<SortIcon col="action" /></th>
-                    <th className="text-left px-4 py-3 cursor-pointer select-none hover:text-foreground transition-colors" onClick={() => togglePhSort("user")}>Updated by<SortIcon col="user" /></th>
+                    <th className="text-left px-4 py-3">Date</th>
+                    <th className="text-right px-4 py-3">Price</th>
+                    <th className="text-left px-4 py-3">Status</th>
+                    <th className="text-right px-4 py-3">Calculated Price</th>
+                    <th className="text-left px-4 py-3">Payment Plan ID</th>
+                    <th className="text-left px-4 py-3">Updated By</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {sorted.map((entry, i) => (
+                  {rows.map((entry, i) => (
                     <tr key={i} className="hover:bg-muted/30 transition-colors">
                       <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">{entry.date}</td>
-                      <td className="px-4 py-3 text-right font-semibold tabular-nums text-xs">{entry.price.toLocaleString()} <span className="text-muted-foreground font-normal">EGP</span></td>
-                      <td className="px-4 py-3 text-right tabular-nums text-xs">
-                        {entry.change === null ? <span className="text-muted-foreground">—</span> : entry.change > 0 ? <span className="text-green-600 font-medium">+{entry.change.toLocaleString()}</span> : <span className="text-red-600 font-medium">{entry.change.toLocaleString()}</span>}
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums text-xs whitespace-nowrap">{entry.price.toLocaleString()} <span className="text-muted-foreground font-normal">{entry.currency}</span></td>
+                      <td className="px-4 py-3"><span className={cn("inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full", statusStyle[entry.status])}>{entry.status}</span></td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs whitespace-nowrap">
+                        {entry.calc !== null ? <span className="font-medium">{entry.calc.toLocaleString()} <span className="text-muted-foreground font-normal">EGP</span></span> : <span className="text-muted-foreground">—</span>}
                       </td>
-                      <td className="px-4 py-3"><span className={cn("inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full", phActionStyle[entry.action] ?? "")}>{entry.action}</span></td>
-                      <td className="px-4 py-3 text-xs font-medium">{entry.user}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => { const p = allPlans.find((x) => x.id === entry.planId); if (p) setDetailsPlan(p) }}
+                          className="font-mono text-xs font-medium text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                        >{entry.planId}</button>
+                      </td>
+                      <td className="px-4 py-3 text-xs font-medium">{entry.by}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2106,15 +2207,59 @@ export function PropertyDetailTab({
         />
       )}
 
-      {/* Upload dialog */}
+      {/* Add media dialog — Upload from device + WhatsApp library */}
       {uploadState && (
-        <UploadDialog
+        <AddMediaDialog
           open
           onClose={() => setUploadState(null)}
-          onUpload={(urls) => {
-            const field = uploadState
-            const current = field === "images" ? row.images : row.floorPlans
-            onUpdateRow(row.propertyId, { [field]: [...current, ...urls] })
+          label={uploadState === "images" ? "Image" : "Floor Plan"}
+          onAdd={(urls) => appendMedia(uploadState, urls)}
+        />
+      )}
+
+      {/* Add from project — searchable / filterable drawer */}
+      {fromProjectState && (() => {
+        const field = fromProjectState
+        const label = field === "images" ? "Image" : "Floor Plan"
+        const current = field === "images" ? row.images : row.floorPlans
+        return (
+          <ChooseAssetsDrawer
+            open
+            onClose={() => setFromProjectState(null)}
+            title={`Add ${label}s from project`}
+            description="Pick from assets already attached to this project."
+            items={PROJECT_LIBRARY}
+            searchKeys={["name", "id"]}
+            searchPlaceholder={`Search ${label.toLowerCase()}s…`}
+            filters={[{ key: "category", label: "Category", options: ["Exterior", "Interior", "Amenity"] }]}
+            layout="grid"
+            alreadySelectedIds={PROJECT_LIBRARY.filter((p) => current.includes(p.url)).map((p) => p.id)}
+            renderItem={(it) => (
+              <div>
+                <img src={it.url as string} alt="" className="aspect-video w-full object-cover" />
+                <div className="px-1.5 py-1"><p className="truncate text-[11px] font-medium">{it.name as string}</p><p className="truncate text-[10px] text-muted-foreground">{it.category as string}</p></div>
+              </div>
+            )}
+            onConfirm={(sel) => { appendMedia(field, sel.map((s) => s.url as string)); setFromProjectState(null) }}
+          />
+        )
+      })()}
+
+      {/* Payment plan details drawer (View) + edit drawer */}
+      <PaymentPlanDetailsDrawer
+        plan={detailsPlan}
+        onClose={() => setDetailsPlan(null)}
+        onEdit={ppViewOnly ? undefined : () => { setEditingPlan(detailsPlan); setDetailsPlan(null) }}
+      />
+      {editingPlan && (
+        <PaymentPlanDrawer
+          open
+          title="Edit Payment Plan"
+          submitLabel="Save Changes"
+          onClose={() => setEditingPlan(null)}
+          onSave={(saved) => {
+            setPpGroups((prev) => prev.map((g) => ({ ...g, plans: g.plans.map((p) => (p.id === editingPlan.id ? { ...saved, id: p.id } : p)) })))
+            setEditingPlan(null)
           }}
         />
       )}

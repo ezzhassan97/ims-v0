@@ -33,10 +33,14 @@ export function PaymentPlanDrawer({
   open,
   onClose,
   onSave,
+  title = "Add Payment Plans",
+  submitLabel = "Save Plan",
 }: {
   open: boolean
   onClose: () => void
   onSave: (plan: PlanCardData) => void
+  title?: string
+  submitLabel?: string
 }) {
   const empty = () => ({
     developer: "", project: "", name: "",
@@ -87,7 +91,7 @@ export function PaymentPlanDrawer({
       <SheetContent side="right" className="flex h-full w-[760px] max-w-[96vw] flex-col overflow-hidden p-0">
         {/* header */}
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
-          <SheetTitle className="text-lg font-semibold">Add Payment Plans</SheetTitle>
+          <SheetTitle className="text-lg font-semibold">{title}</SheetTitle>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
         </div>
 
@@ -211,7 +215,7 @@ export function PaymentPlanDrawer({
           </div>
           <div className="flex justify-end gap-2 border-t border-border px-6 py-3">
             <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-            <Button size="sm" disabled={!valid} onClick={save}>Save Plan</Button>
+            <Button size="sm" disabled={!valid} onClick={save}>{submitLabel}</Button>
           </div>
         </div>
       </SheetContent>
