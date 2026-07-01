@@ -291,12 +291,22 @@ const AMENITY_ICONS: Record<string, React.ElementType> = {
 }
 
 // Mock project library images for the upload dialog
+// Distinct urls (query suffix) so library items don't collide with each other or the unit's existing media.
 const PROJECT_LIBRARY = Array.from({ length: 12 }, (_, i) => ({
-  id: `lib-${i}`,
-  url: imageSeeds[i % imageSeeds.length],
+  id: `IMG-${String(i + 1).padStart(3, "0")}`,
+  url: `${imageSeeds[i % imageSeeds.length]}?a=img-${i + 1}`,
   name: ["Exterior view", "Lobby", "Pool area", "Bedroom", "Kitchen", "Living room", "Terrace", "Garden", "Clubhouse", "Master bath", "Aerial view", "Facade"][i],
   category: ["Exterior", "Interior", "Amenity", "Interior", "Interior", "Interior", "Exterior", "Amenity", "Amenity", "Interior", "Exterior", "Exterior"][i],
 }))
+
+// Floor-plan asset pool for the "Add from project" picker (each carries a property type).
+const FLOOR_PLAN_LIBRARY = Array.from({ length: 9 }, (_, i) => ({
+  id: `FLP-${String(i + 1).padStart(3, "0")}`,
+  url: `${imageSeeds[i % imageSeeds.length]}?a=flp-${i + 1}`,
+  name: ["Type A — 2BR", "Type B — 3BR", "Ground floor", "Roof duplex", "Studio layout", "Corner unit", "Garden apartment", "Penthouse", "Twin house"][i],
+  propertyType: ["Apartment", "Apartment", "Duplex", "Penthouse", "Studio", "Townhouse", "Apartment", "Penthouse", "Twin House"][i],
+}))
+const FLOOR_PLAN_TYPES = ["Apartment", "Duplex", "Penthouse", "Studio", "Townhouse", "Twin House"]
 
 // ── Badge colors ───────────────────────────────────────────────────────────────
 const BADGE_CLASS: Record<string, string> = {
@@ -2217,33 +2227,41 @@ export function PropertyDetailTab({
         />
       )}
 
-      {/* Add from project — searchable / filterable drawer */}
-      {fromProjectState && (() => {
-        const field = fromProjectState
-        const label = field === "images" ? "Image" : "Floor Plan"
-        const current = field === "images" ? row.images : row.floorPlans
-        return (
-          <ChooseAssetsDrawer
-            open
-            onClose={() => setFromProjectState(null)}
-            title={`Add ${label}s from project`}
-            description="Pick from assets already attached to this project."
-            items={PROJECT_LIBRARY}
-            searchKeys={["name", "id"]}
-            searchPlaceholder={`Search ${label.toLowerCase()}s…`}
-            filters={[{ key: "category", label: "Category", options: ["Exterior", "Interior", "Amenity"] }]}
-            layout="grid"
-            alreadySelectedIds={PROJECT_LIBRARY.filter((p) => current.includes(p.url)).map((p) => p.id)}
-            renderItem={(it) => (
-              <div>
-                <img src={it.url as string} alt="" className="aspect-video w-full object-cover" />
-                <div className="px-1.5 py-1"><p className="truncate text-[11px] font-medium">{it.name as string}</p><p className="truncate text-[10px] text-muted-foreground">{it.category as string}</p></div>
-              </div>
-            )}
-            onConfirm={(sel) => { appendMedia(field, sel.map((s) => s.url as string)); setFromProjectState(null) }}
-          />
-        )
-      })()}
+      {/* Add images from project — searchable / filterable picker */}
+      {fromProjectState === "images" && (
+        <ChooseAssetsDrawer
+          open
+          onClose={() => setFromProjectState(null)}
+          title="Add Images from project"
+          description="Pick from assets already attached to this project."
+          items={PROJECT_LIBRARY}
+          searchKeys={["id", "name"]}
+          searchPlaceholder="Search images…"
+          filters={[{ key: "category", label: "Category", options: ["Exterior", "Interior", "Amenity"] }]}
+          layout="grid"
+          mediaKind="image"
+          alreadySelectedIds={PROJECT_LIBRARY.filter((p) => row.images.includes(p.url)).map((p) => p.id)}
+          onConfirm={(sel) => { appendMedia("images", sel.map((s) => s.url)); setFromProjectState(null) }}
+        />
+      )}
+
+      {/* Add floor plans from project — searchable / filterable picker */}
+      {fromProjectState === "floorPlans" && (
+        <ChooseAssetsDrawer
+          open
+          onClose={() => setFromProjectState(null)}
+          title="Add Floor Plans from project"
+          description="Pick from assets already attached to this project."
+          items={FLOOR_PLAN_LIBRARY}
+          searchKeys={["id", "propertyType", "name"]}
+          searchPlaceholder="Search floor plans…"
+          filters={[{ key: "propertyType", label: "Property type", options: FLOOR_PLAN_TYPES }]}
+          layout="grid"
+          mediaKind="floorPlan"
+          alreadySelectedIds={FLOOR_PLAN_LIBRARY.filter((p) => row.floorPlans.includes(p.url)).map((p) => p.id)}
+          onConfirm={(sel) => { appendMedia("floorPlans", sel.map((s) => s.url)); setFromProjectState(null) }}
+        />
+      )}
 
       {/* Payment plan details drawer (View) + edit drawer */}
       <PaymentPlanDetailsDrawer

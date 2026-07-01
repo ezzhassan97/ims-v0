@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Check, Search, UploadCloud } from "lucide-react"
+import { Check, Search, UploadCloud, Maximize2, X } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
@@ -37,8 +37,9 @@ export function AddMediaDialog({
   const [q, setQ] = useState("")
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [uploads, setUploads] = useState<string[]>([])
+  const [lightbox, setLightbox] = useState<string | null>(null)
 
-  useEffect(() => { if (open) { setTab("upload"); setQ(""); setPicked(new Set()); setUploads([]) } }, [open])
+  useEffect(() => { if (open) { setTab("upload"); setQ(""); setPicked(new Set()); setUploads([]); setLightbox(null) } }, [open])
 
   const filtered = useMemo(() => {
     const n = q.trim().toLowerCase()
@@ -93,11 +94,12 @@ export function AddMediaDialog({
               {filtered.map((w) => {
                 const on = picked.has(w.id)
                 return (
-                  <button key={w.id} onClick={() => toggle(w.id)} className={cn("relative overflow-hidden rounded-lg border text-left transition-all", on ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/50")}>
+                  <div key={w.id} onClick={() => toggle(w.id)} className={cn("group relative cursor-pointer overflow-hidden rounded-lg border text-left transition-all", on ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/50")}>
                     <img src={w.url} alt={w.name} className="aspect-video w-full object-cover" />
+                    <button onClick={(e) => { e.stopPropagation(); setLightbox(w.url) }} className="absolute left-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white opacity-0 shadow transition-opacity hover:bg-black/75 group-hover:opacity-100" title="View full screen"><Maximize2 className="h-3 w-3" /></button>
                     <div className="px-1.5 py-1"><p className="truncate text-[11px] font-medium">{w.name}</p><p className="truncate text-[10px] text-muted-foreground">{w.from}</p></div>
                     {on && <div className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"><Check className="h-3 w-3" /></div>}
-                  </button>
+                  </div>
                 )
               })}
               {filtered.length === 0 && <p className="col-span-3 py-8 text-center text-sm text-muted-foreground">No matches</p>}
@@ -109,6 +111,16 @@ export function AddMediaDialog({
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" disabled={count === 0} onClick={confirm}>Add{count > 0 ? ` ${count}` : ""}</Button>
         </DialogFooter>
+
+        {/* Full-screen preview */}
+        {lightbox && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/85 p-8" onClick={() => setLightbox(null)}>
+            <button onClick={() => setLightbox(null)} className="absolute right-5 top-5 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20" title="Close">
+              <X className="h-5 w-5" />
+            </button>
+            <img src={lightbox} alt="" className="max-h-full max-w-full rounded-lg object-contain shadow-2xl" onClick={(e) => e.stopPropagation()} />
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

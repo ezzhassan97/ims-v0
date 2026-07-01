@@ -482,19 +482,17 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
         renderItem={(p, ctx) => <LinkedPlanCard plan={p} totalInGroup={1} isExpanded={false} onToggleExpand={() => {}} readOnly fullWidth selected={ctx.selected} onSelectToggle={ctx.disabled ? undefined : ctx.toggle} />}
         onConfirm={(sel) => { setPlans((xs) => [...xs, ...sel.filter((s) => !xs.some((x) => x.id === s.id))]); setDrawer(null) }} />
 
-      <ChooseAssetsDrawer open={drawer === "floorPlans"} onClose={() => setDrawer(null)} layout="grid"
+      <ChooseAssetsDrawer open={drawer === "floorPlans"} onClose={() => setDrawer(null)} layout="grid" mediaKind="floorPlan"
         title="Choose floor plans" description="Select one or more floor plans to attach."
-        items={FLOOR_PLAN_POOL} searchKeys={["id", "name"]} searchPlaceholder="Search by floor plan ID"
+        items={FLOOR_PLAN_POOL} searchKeys={["id", "name", "type"]} searchPlaceholder="Search by floor plan ID"
         filters={[{ key: "type", label: "Type", options: FLOOR_PLAN_TYPES }]}
         alreadySelectedIds={FLOOR_PLAN_POOL.filter((p) => floorPlanUrls.includes(p.url)).map((p) => p.id)}
-        renderItem={(f) => (<div><img src={f.url} alt={f.name} className="aspect-video w-full object-cover" /><div className="px-1.5 py-1"><p className="truncate text-[11px] font-medium">{f.name}</p><p className="truncate text-[10px] text-muted-foreground">{f.id}</p></div></div>)}
         onConfirm={(sel) => { setFloorPlanUrls((xs) => [...xs, ...sel.map((s) => s.url).filter((u) => !xs.includes(u))]); setDrawer(null) }} />
 
-      <ChooseAssetsDrawer open={drawer === "images"} onClose={() => setDrawer(null)} layout="grid"
+      <ChooseAssetsDrawer open={drawer === "images"} onClose={() => setDrawer(null)} layout="grid" mediaKind="image"
         title="Choose images" description="Select one or more images to attach."
         items={IMAGE_POOL} searchKeys={["id", "name"]} searchPlaceholder="Search by image ID"
         alreadySelectedIds={IMAGE_POOL.filter((p) => imageUrls.includes(p.url)).map((p) => p.id)}
-        renderItem={(f) => (<div><img src={f.url} alt={f.name} className="aspect-video w-full object-cover" /><div className="px-1.5 py-1"><p className="truncate text-[11px] font-medium">{f.name}</p><p className="truncate text-[10px] text-muted-foreground">{f.id}</p></div></div>)}
         onConfirm={(sel) => { setImageUrls((xs) => [...xs, ...sel.map((s) => s.url).filter((u) => !xs.includes(u))]); setDrawer(null) }} />
 
       {/* Add media dialog (Upload + WhatsApp library) */}
