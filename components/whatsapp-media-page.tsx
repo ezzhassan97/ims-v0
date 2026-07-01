@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter, FloatingBulkBar, BulkBarButton } from "@/components/table-kit"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  Search, Calendar, ChevronLeft, ChevronRight, MoreHorizontal,
+  Search, Calendar, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, MoreHorizontal,
   Copy, Check, FileText, FileImage, FileVideo, FileSpreadsheet,
   X, Download, Archive, Tag, UserCheck, ExternalLink, ChevronDown,
 } from "lucide-react"
@@ -188,18 +190,19 @@ function MultiSelect({
           </div>
           <div className="max-h-52 overflow-y-auto">
             {filtered.map((o) => (
-              <button
+              <div
                 key={o}
-                type="button"
+                role="option"
+                aria-selected={value.includes(o)}
                 onClick={() => toggle(o)}
                 className={cn(
-                  "w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-secondary transition-colors",
+                  "w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left cursor-pointer hover:bg-secondary transition-colors",
                   value.includes(o) && "bg-primary/5",
                 )}
               >
-                <Checkbox checked={value.includes(o)} className="h-4 w-4 flex-shrink-0" onCheckedChange={() => toggle(o)} />
+                <Checkbox checked={value.includes(o)} className="h-4 w-4 flex-shrink-0 pointer-events-none" />
                 {o}
-              </button>
+              </div>
             ))}
             {filtered.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No results</p>}
           </div>
@@ -294,18 +297,19 @@ function InlineMultiSelect({
           </div>
           <div className="max-h-48 overflow-y-auto">
             {filtered.map((o) => (
-              <button
+              <div
                 key={o}
-                type="button"
+                role="option"
+                aria-selected={value.includes(o)}
                 onClick={() => toggle(o)}
                 className={cn(
-                  "w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-secondary transition-colors",
+                  "w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left cursor-pointer hover:bg-secondary transition-colors",
                   value.includes(o) && "bg-primary/5",
                 )}
               >
-                <Checkbox checked={value.includes(o)} className="h-4 w-4 flex-shrink-0" onCheckedChange={() => toggle(o)} />
+                <Checkbox checked={value.includes(o)} className="h-4 w-4 flex-shrink-0 pointer-events-none" />
                 {o}
-              </button>
+              </div>
             ))}
             {filtered.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No results</p>}
           </div>
@@ -376,7 +380,7 @@ function FileDetailsSheet({
 
         <div className="flex-1 overflow-y-auto">
           {/* Preview */}
-          <div className="w-full h-52 bg-secondary/30 flex flex-col items-center justify-center border-b border-border gap-3">
+          <div className="w-full h-52 bg-muted/60 flex flex-col items-center justify-center border-b border-border gap-3">
             <FileIcon ext={item.fileExt} size="lg" />
             <p className="text-xs text-muted-foreground font-mono px-4 text-center break-all">{item.fileName}</p>
           </div>
@@ -389,7 +393,7 @@ function FileDetailsSheet({
             </div>
 
             {/* Developer */}
-            <div className="flex items-center gap-2.5 p-3 rounded-lg bg-secondary/30 border border-border">
+            <div className="flex items-center gap-2.5 p-3 rounded-lg bg-muted/60 border border-border">
               <img src={item.developerLogo} alt={item.developerName} className="w-8 h-8 rounded-full flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold leading-none">{item.developerName}</p>
@@ -465,28 +469,28 @@ function FileDetailsSheet({
 
 // ── Bulk action bar ───────────────────────────────────────────────────────────
 
-function BulkActionBar({ count, onClear }: { count: number; onClear: () => void }) {
+function BulkActionBar({ count, total, onSelectAll, onClear }: { count: number; total: number; onSelectAll: () => void; onClear: () => void }) {
   if (count === 0) return null
   return (
-    <div className="flex items-center gap-3 px-4 py-2 bg-primary/5 border border-primary/20 rounded-lg">
-      <span className="text-sm font-medium">{count} file{count !== 1 ? "s" : ""} selected</span>
-      <div className="flex items-center gap-2 ml-auto">
-        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs bg-background">
-          <Tag className="h-3.5 w-3.5" />Classify
-        </Button>
-        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs bg-background">
-          <UserCheck className="h-3.5 w-3.5" />Assign
-        </Button>
-        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs bg-background">
-          <Download className="h-3.5 w-3.5" />Download
-        </Button>
-        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs bg-background text-destructive hover:text-destructive">
-          <Archive className="h-3.5 w-3.5" />Archive
-        </Button>
-        <button onClick={onClear} className="text-muted-foreground hover:text-foreground ml-1">
-          <X className="h-4 w-4" />
-        </button>
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-0 overflow-hidden rounded-xl bg-zinc-900 text-white shadow-2xl select-none text-sm">
+      <div className="flex items-center gap-3 px-4 py-2.5">
+        <span className="font-semibold tabular-nums">{count} selected</span>
+        {total > count ? (
+          <button onClick={onSelectAll} className="text-xs font-medium text-zinc-400 transition-colors hover:text-white">Select all {total.toLocaleString()}</button>
+        ) : (
+          <button onClick={onClear} className="text-xs font-medium text-zinc-400 transition-colors hover:text-white">Clear</button>
+        )}
       </div>
+      <div className="h-8 w-px bg-zinc-700" />
+      <button className="flex items-center gap-1.5 px-4 py-2.5 transition-colors hover:bg-zinc-800"><Tag className="h-3.5 w-3.5 text-zinc-400" />Classify</button>
+      <div className="h-8 w-px bg-zinc-700" />
+      <button className="flex items-center gap-1.5 px-4 py-2.5 transition-colors hover:bg-zinc-800"><UserCheck className="h-3.5 w-3.5 text-zinc-400" />Assign</button>
+      <div className="h-8 w-px bg-zinc-700" />
+      <button className="flex items-center gap-1.5 px-4 py-2.5 transition-colors hover:bg-zinc-800"><Download className="h-3.5 w-3.5 text-zinc-400" />Download</button>
+      <div className="h-8 w-px bg-zinc-700" />
+      <button className="flex items-center gap-1.5 px-4 py-2.5 text-red-300 transition-colors hover:bg-red-950/50"><Archive className="h-3.5 w-3.5" />Archive</button>
+      <div className="h-8 w-px bg-zinc-700" />
+      <button onClick={onClear} className="px-3 py-2.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"><X className="h-4 w-4" /></button>
     </div>
   )
 }
@@ -563,120 +567,60 @@ export function WhatsAppMediaPage() {
   const developerNames = ALL_DEVELOPERS.map((d) => d.name)
 
   return (
-    <div className="flex flex-col h-full min-h-screen bg-background">
+    <div className="flex flex-col h-full min-h-screen bg-secondary/40">
       {/* Page header */}
-      <div className="border-b border-border bg-background px-6 py-4 flex-shrink-0">
+      <div className="px-6 pt-6 pb-2 flex-shrink-0">
         <h1 className="text-xl font-semibold">WhatsApp Media</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Browse and manage media files received via WhatsApp</p>
       </div>
 
-      {/* Filter bar — order: search | developer | project | file type | media class | date range | clear */}
-      <div className="px-6 py-3 border-b border-border bg-background flex-shrink-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Search */}
-          <div className="relative min-w-[200px] flex-1 max-w-xs">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            <Input
-              placeholder="File name or ID"
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-              className="pl-8 h-9 text-sm"
-            />
-          </div>
-
-          {/* Developer */}
-          <MultiSelect
-            label="Developer"
-            options={developerNames}
-            value={developerFilter}
-            onChange={(v) => { setDeveloperFilter(v); setPage(1) }}
-            className="w-40"
-          />
-
-          {/* Project */}
-          <MultiSelect
-            label="Project"
-            options={ALL_PROJECTS}
-            value={projectFilter}
-            onChange={(v) => { setProjectFilter(v); setPage(1) }}
-            className="w-40"
-          />
-
-          {/* File type */}
-          <MultiSelect
-            label="File type"
-            options={FILE_TYPE_GROUPS}
-            value={fileTypeFilter}
-            onChange={(v) => { setFileTypeFilter(v); setPage(1) }}
-            className="w-36"
-          />
-
-          {/* Media class */}
-          <MultiSelect
-            label="Media class"
-            options={MEDIA_CLASSES}
-            value={mediaClassFilter}
-            onChange={(v) => { setMediaClassFilter(v); setPage(1) }}
-            className="w-40"
-          />
-
-          {/* Date range — single pair of compacted inputs */}
-          <div className="flex items-center gap-1 border border-input rounded-md h-9 px-2 bg-background">
-            <Calendar className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
-              className="text-sm bg-transparent outline-none w-[120px] text-foreground placeholder:text-muted-foreground"
-              title="From date"
-            />
-            <span className="text-muted-foreground text-xs px-1">—</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
-              className="text-sm bg-transparent outline-none w-[120px] text-foreground placeholder:text-muted-foreground"
-              title="To date"
-            />
-          </div>
-
-          {hasFilters && (
-            <button onClick={clearFilters} className="ml-auto text-sm text-primary hover:underline font-medium whitespace-nowrap">
-              Clear filter
-            </button>
-          )}
-        </div>
+      {/* Filter bar */}
+      <div className="px-6 pt-2 pb-1 flex-shrink-0">
+        <TableToolbar
+          search={search}
+          onSearch={(v) => { setSearch(v); setPage(1) }}
+          searchPlaceholder="File name or ID"
+          activeFilters={developerFilter.length + projectFilter.length + fileTypeFilter.length + mediaClassFilter.length + ((dateFrom || dateTo) ? 1 : 0)}
+          onAllFilters={hasFilters ? clearFilters : undefined}
+          filters={
+          <>
+            <MultiSelect label="Developer" options={developerNames} value={developerFilter} onChange={(v) => { setDeveloperFilter(v); setPage(1) }} className="w-40" />
+            <MultiSelect label="Project" options={ALL_PROJECTS} value={projectFilter} onChange={(v) => { setProjectFilter(v); setPage(1) }} className="w-40" />
+            <MultiSelect label="File type" options={FILE_TYPE_GROUPS} value={fileTypeFilter} onChange={(v) => { setFileTypeFilter(v); setPage(1) }} className="w-36" />
+            <MultiSelect label="Media class" options={MEDIA_CLASSES} value={mediaClassFilter} onChange={(v) => { setMediaClassFilter(v); setPage(1) }} className="w-40" />
+            <div className="flex items-center gap-1 border border-input rounded-md h-8 px-2 bg-background">
+              <Calendar className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+              <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} className="text-sm bg-transparent outline-none w-[110px] text-foreground" title="From date" />
+              <span className="text-muted-foreground text-xs px-1">—</span>
+              <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} className="text-sm bg-transparent outline-none w-[110px] text-foreground" title="To date" />
+            </div>
+          </>
+          }
+        />
       </div>
 
       {/* Table area */}
       <div className="flex-1 overflow-auto px-6 py-4">
-        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-semibold">Media</h2>
-            <Badge variant="secondary" className="text-xs font-medium">{filtered.length} assets</Badge>
-          </div>
-          <BulkActionBar count={selected.size} onClear={() => setSelected(new Set())} />
-        </div>
-
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <TableCard>
+          <TableCardHeader title="Media" count={filtered.length} />
           <div className="overflow-x-auto">
             <table className="w-full text-sm" style={{ minWidth: "900px" }}>
               <thead>
-                <tr className="border-b border-border bg-secondary/30">
+                <tr className="border-b border-border bg-muted/60">
                   {/* sticky checkbox col */}
-                  <th className="sticky left-0 z-10 bg-secondary/30 w-10 px-4 py-3">
+                  <th className="sticky left-0 z-10 bg-muted/60 w-10 px-4 py-3">
                     <Checkbox checked={allOnPageSelected} data-indeterminate={someOnPageSelected} onCheckedChange={toggleAll} className="h-4 w-4" />
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Developer</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">File Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">File Size</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">File Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Media Class</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Projects</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Created At</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Updated At</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Developer</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">File Name</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">File Size</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">File Type</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Media Class</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Projects</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Created At</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Updated At</th>
                   {/* sticky action col */}
-                  <th className="sticky right-0 z-10 bg-secondary/30 w-10 px-4 py-3" />
+                  <th className="sticky right-0 z-10 bg-muted/60 w-10 px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -690,7 +634,7 @@ export function WhatsAppMediaPage() {
                   <tr
                     key={item.id}
                     className={cn(
-                      "hover:bg-secondary/20 transition-colors cursor-pointer",
+                      "hover:bg-muted/40 transition-colors cursor-pointer",
                       selected.has(item.id) && "bg-primary/5",
                     )}
                     onClick={() => openDetail(item)}
@@ -809,33 +753,17 @@ export function WhatsAppMediaPage() {
               </tbody>
             </table>
           </div>
-        </div>
 
-        {/* Pagination */}
-        <div className="flex items-center justify-end gap-4 mt-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            Rows per page:
-            <select
-              value={rowsPerPage}
-              onChange={(e) => { setRowsPerPage(Number(e.target.value)); setPage(1) }}
-              className="h-7 px-2 text-xs rounded-md border border-border bg-background outline-none cursor-pointer"
-            >
-              {ROWS_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </div>
-          <span className="text-sm text-muted-foreground">
-            {filtered.length === 0 ? "0" : `${(page - 1) * rowsPerPage + 1}–${Math.min(page * rowsPerPage, filtered.length)}`} of {filtered.length}
-          </span>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+          <TableFooter page={page} pageSize={rowsPerPage} total={filtered.length} onPage={setPage} onPageSize={(n) => { setRowsPerPage(n); setPage(1) }} label="assets" />
+        </TableCard>
       </div>
+
+      <FloatingBulkBar count={selected.size} total={filtered.length} onSelectAll={() => setSelected(new Set(filtered.map((i) => i.id)))} onClear={() => setSelected(new Set())}>
+        <BulkBarButton icon={<Tag className="h-3.5 w-3.5 text-zinc-400" />}>Classify</BulkBarButton>
+        <BulkBarButton icon={<UserCheck className="h-3.5 w-3.5 text-zinc-400" />}>Assign</BulkBarButton>
+        <BulkBarButton icon={<Download className="h-3.5 w-3.5 text-zinc-400" />}>Download</BulkBarButton>
+        <BulkBarButton icon={<Archive className="h-3.5 w-3.5" />} danger>Archive</BulkBarButton>
+      </FloatingBulkBar>
 
       <FileDetailsSheet item={detailItem} open={detailOpen} onOpenChange={setDetailOpen} onSave={handleSave} />
     </div>

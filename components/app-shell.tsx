@@ -14,6 +14,7 @@ import { ConstructionUpdatesPage } from "@/components/construction-updates-page"
 import { WhatsAppMediaPage } from "@/components/whatsapp-media-page"
 import { WhatsAppConfigurationsPage } from "@/components/whatsapp-configurations-page"
 import { AllPropertiesPage } from "@/components/all-properties-page"
+import { DevelopersPage } from "@/components/developers-page"
 import { QualitySystemPage } from "@/components/quality-system-page"
 import { NawySpacePage } from "@/components/nawy-space-page"
 import { ProjectsNewPage } from "@/components/projects-new-page"
@@ -46,6 +47,8 @@ export function AppShell() {
         return <LaunchesPage />
       case "All Properties":
         return <AllPropertiesPage onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
+      case "Developers":
+        return <DevelopersPage />
       case "Testing Playground":
         return <TestingPlayground />
       case "Quality System":

@@ -52,6 +52,7 @@ import { Card } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { soldUnitsData, type SoldUnit } from "@/lib/sold-units-mock"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter } from "@/components/table-kit"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -650,19 +651,15 @@ export function SoldUnitsPage() {
       </div>
 
       {/* Search + Filters toolbar */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Search */}
-          <div className="relative w-80">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by Sale ID, developer, project..."
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-              className="pl-9 h-9"
-            />
-          </div>
-
+      <TableToolbar
+        search={search}
+        onSearch={(v) => { setSearch(v); setPage(1) }}
+        searchPlaceholder="Search by Sale ID, developer, project..."
+        activeFilters={activeFilterChips.length}
+        onAllFilters={() => setShowFiltersDrawer(true)}
+        onAdvancedFilters={() => setShowFiltersDrawer(true)}
+        filters={
+        <>
           {/* Quick filter: Sale Type */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -718,86 +715,73 @@ export function SoldUnitsPage() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Advanced filters */}
-          <Button
-            variant="outline"
-            size="sm"
-            className={cn("h-9 gap-1.5", showFiltersDrawer && "border-primary text-primary")}
-            onClick={() => setShowFiltersDrawer(true)}
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
-            Filters
-            {activeFilterChips.length > 0 && (
-              <span className="ml-0.5 bg-primary text-primary-foreground rounded-full text-[10px] h-4 w-4 flex items-center justify-center font-bold">
-                {activeFilterChips.length}
-              </span>
-            )}
-          </Button>
-        </div>
+        </>
+        }
+      />
 
-        {/* Active filter chips */}
-        {activeFilterChips.length > 0 && (
-          <div className="flex items-center gap-2 flex-wrap">
-            {activeFilterChips.map((f) => (
-              <FilterChip key={f.id} label={f.label} onRemove={() => removeFilter(f.id)} />
-            ))}
-            <button onClick={clearAllFilters} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors">
-              Clear all
-            </button>
-          </div>
-        )}
-      </div>
+      {/* Active filter chips */}
+      {activeFilterChips.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {activeFilterChips.map((f) => (
+            <FilterChip key={f.id} label={f.label} onRemove={() => removeFilter(f.id)} />
+          ))}
+          <button onClick={clearAllFilters} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors">
+            Clear all
+          </button>
+        </div>
+      )}
 
       {/* Table card */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
+      <TableCard>
+        <TableCardHeader title="Sold Units" count={filtered.length} />
         <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse min-w-[1800px]">
           <thead className="sticky top-0 z-10 bg-muted/60 border-b border-border">
             <tr>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap w-36">
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap w-36">
                 <button className="flex items-center hover:text-foreground transition-colors" onClick={() => handleSort("id")}>
                   Sale ID <SortIcon field="id" />
                 </button>
               </th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap w-52">Developer</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap w-44">Project</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">Sale Type</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">Property Type</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap w-52">Developer</th>
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap w-44">Project</th>
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">Sale Type</th>
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">Property Type</th>
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">
                 <button className="flex items-center hover:text-foreground transition-colors" onClick={() => handleSort("grossArea")}>
                   Gross Area <SortIcon field="grossArea" />
                 </button>
               </th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">
                 <button className="flex items-center hover:text-foreground transition-colors" onClick={() => handleSort("saleAmount")}>
                   Sale Amount <SortIcon field="saleAmount" />
                 </button>
               </th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap w-32">Match Status</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap w-44">
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap w-32">Match Status</th>
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap w-44">
                 <button className="flex items-center hover:text-foreground transition-colors" onClick={() => handleSort("matchingConfidence")}>
                   Match Confidence <SortIcon field="matchingConfidence" />
                 </button>
               </th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">Matched Property ID</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">Matched Detailed ID</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">Matched Price</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">Matched Property ID</th>
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">Matched Detailed ID</th>
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">Matched Price</th>
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">
                 <button className="flex items-center hover:text-foreground transition-colors" onClick={() => handleSort("saleDate")}>
                   Sale Date <SortIcon field="saleDate" />
                 </button>
               </th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">
                 <button className="flex items-center hover:text-foreground transition-colors" onClick={() => handleSort("createdAt")}>
                   Created At <SortIcon field="createdAt" />
                 </button>
               </th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap">
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">
                 <button className="flex items-center hover:text-foreground transition-colors" onClick={() => handleSort("updatedAt")}>
                   Updated At <SortIcon field="updatedAt" />
                 </button>
               </th>
-              <th className="sticky right-0 bg-muted/60 px-4 py-3 text-xs font-semibold text-muted-foreground whitespace-nowrap border-l border-border w-14"></th>
+              <th className="sticky right-0 bg-muted/60 px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap border-l border-border w-14"></th>
             </tr>
           </thead>
           <tbody>
@@ -811,7 +795,7 @@ export function SoldUnitsPage() {
               pageData.map((sale) => (
                 <tr
                   key={sale.id}
-                  className="border-b border-border transition-colors hover:bg-secondary/40 cursor-pointer bg-card"
+                  className="border-b border-border transition-colors hover:bg-muted/40 cursor-pointer bg-card"
                   onClick={() => openDrawer(sale)}
                 >
                   {/* Sale ID */}
@@ -964,43 +948,8 @@ export function SoldUnitsPage() {
         </table>
         </div>
 
-        {/* Pagination — sits at the bottom of the table card */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-          <div className="flex items-center gap-3">
-            <p className="text-xs text-muted-foreground">
-              Showing {filtered.length === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1}–{Math.min(safeCurrentPage * pageSize, filtered.length)} of{" "}
-              <span className="font-semibold text-foreground">{filtered.length}</span> results
-            </p>
-            <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setPage(1) }}>
-              <SelectTrigger className="h-8 w-24 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[10, 25, 50, 100].map((n) => (
-                  <SelectItem key={n} value={String(n)} className="text-xs">{n} / page</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage(1)} disabled={safeCurrentPage === 1}>
-              <ChevronsLeft className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage((p) => p - 1)} disabled={safeCurrentPage === 1}>
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </Button>
-            <span className="text-xs px-3 text-foreground font-medium tabular-nums">
-              {safeCurrentPage} / {totalPages}
-            </span>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage((p) => p + 1)} disabled={safeCurrentPage === totalPages}>
-              <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage(totalPages)} disabled={safeCurrentPage === totalPages}>
-              <ChevronsRight className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-      </div>
+        <TableFooter page={safeCurrentPage} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="results" />
+      </TableCard>
 
       {/* Advanced Filters Sheet */}
       <Sheet open={showFiltersDrawer} onOpenChange={setShowFiltersDrawer}>

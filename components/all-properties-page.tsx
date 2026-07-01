@@ -309,7 +309,13 @@ const FLOOR_PLAN_LIBRARY = Array.from({ length: 9 }, (_, i) => ({
 const FLOOR_PLAN_TYPES = ["Apartment", "Duplex", "Penthouse", "Studio", "Townhouse", "Twin House"]
 
 // ── Badge colors ───────────────────────────────────────────────────────────────
-const BADGE_CLASS: Record<string, string> = {
+export const BADGE_CLASS: Record<string, string> = {
+  // developer priority
+  Highest: "bg-red-100 text-red-700 border-red-200",
+  High: "bg-orange-100 text-orange-700 border-orange-200",
+  Medium: "bg-amber-100 text-amber-700 border-amber-200",
+  Low: "bg-green-100 text-green-700 border-green-200",
+  Lowest: "bg-gray-100 text-gray-700 border-gray-200",
   // entry / sale types / statuses (keep existing)
   Automatic: "bg-blue-100 text-blue-700 border-blue-200",
   Manual: "bg-gray-100 text-gray-700 border-gray-200",
@@ -540,7 +546,7 @@ function CopyBtn({ value, className }: { value: string; className?: string }) {
   )
 }
 
-function CopyableText({ value, muted = false }: { value: string | null; muted?: boolean }) {
+export function CopyableText({ value, muted = false }: { value: string | null; muted?: boolean }) {
   const [copied, setCopied] = useState(false)
   if (!value) return <EmptyValue />
   return (
@@ -561,7 +567,7 @@ function CopyableText({ value, muted = false }: { value: string | null; muted?: 
   )
 }
 
-function StoryBadge({
+export function StoryBadge({
   value,
   onChange,
   options,
@@ -1432,11 +1438,12 @@ export const PAYMENT_PLAN_GROUPS: PriceGroup[] = [
   },
 ]
 
-function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewOnly = false, lockRemoval = false, onRemovePlan, onRemovePrice, onView }: {
+function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewOnly = false, lockRemoval = false, singleColumn = false, onRemovePlan, onRemovePrice, onView }: {
   group: PriceGroup; groupIndex: number; totalGroups: number
   expandedPlans: Set<string>; setExpandedPlans: React.Dispatch<React.SetStateAction<Set<string>>>
   viewOnly?: boolean
   lockRemoval?: boolean
+  singleColumn?: boolean
   onRemovePlan?: (planId: string) => void
   onRemovePrice?: () => void
   onView?: (plan: PlanCardData) => void
@@ -1486,6 +1493,7 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewO
               key={plan.id}
               plan={plan}
               readOnly={viewOnly}
+              fullWidth={singleColumn}
               isExpanded={expandedPlans.has(plan.id)}
               totalInGroup={group.plans.length}
               onView={() => onView?.(plan)}
@@ -1942,6 +1950,7 @@ export function PropertyDetailTab({
   readOnly = false,
   variation,
   priceRange,
+  singleColumn = false,
 }: {
   tab: string
   row: PropertyRow
@@ -1951,6 +1960,8 @@ export function PropertyDetailTab({
   variation?: Variation
   /** Group price range (grouped context) — drives Launch/Primary-Manual range vs starting price. */
   priceRange?: { min: number; max: number }
+  /** Render payment-plan cards one-per-row (compact side-drawer view). */
+  singleColumn?: boolean
 }) {
   const [carouselState, setCarouselState] = useState<{ imgs: string[]; idx: number; field: "images" | "floorPlans" } | null>(null)
   const [uploadState, setUploadState] = useState<"images" | "floorPlans" | null>(null)
@@ -2050,6 +2061,7 @@ export function PropertyDetailTab({
                     key={plan.id}
                     plan={plan}
                     readOnly={ppViewOnly}
+                    fullWidth={singleColumn}
                     isExpanded={expandedPlans.has(plan.id)}
                     totalInGroup={sharedPlans.length}
                     onView={() => setDetailsPlan(plan)}
@@ -2070,7 +2082,7 @@ export function PropertyDetailTab({
                 <PriceGroup
                   key={gi} group={group} groupIndex={gi} totalGroups={ppGroups.length}
                   expandedPlans={expandedPlans} setExpandedPlans={setExpandedPlans}
-                  viewOnly={ppViewOnly} lockRemoval={ppLockRemoval}
+                  viewOnly={ppViewOnly} lockRemoval={ppLockRemoval} singleColumn={singleColumn}
                   onRemovePlan={(planId) => removePlan(gi, planId)}
                   onRemovePrice={() => removePrice(gi)}
                   onView={(plan) => setDetailsPlan(plan)}
@@ -2230,10 +2242,17 @@ export function PropertyDetailTab({
                         {entry.calc !== null ? <span className="font-medium">{entry.calc.toLocaleString()} <span className="text-muted-foreground font-normal">EGP</span></span> : <span className="text-muted-foreground">—</span>}
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          onClick={() => { const p = allPlans.find((x) => x.id === entry.planId); if (p) setDetailsPlan(p) }}
-                          className="font-mono text-xs font-medium text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid"
-                        >{entry.planId}</button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => { const p = allPlans.find((x) => x.id === entry.planId); if (p) setDetailsPlan(p) }}
+                            className="font-mono text-xs font-medium text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                          >{entry.planId}</button>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(entry.planId).catch(() => {})}
+                            className="flex h-4 w-4 items-center justify-center text-muted-foreground transition-colors hover:text-primary"
+                            title="Copy payment plan ID"
+                          ><Copy className="h-3 w-3" /></button>
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-xs font-medium">{entry.by}</td>
                     </tr>

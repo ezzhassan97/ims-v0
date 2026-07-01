@@ -57,6 +57,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { EmbeddedPropertyTable, PropertyDetailTab, createRows, type ColId, type PropertyRow } from "@/components/all-properties-page"
@@ -631,6 +632,7 @@ function GroupCard({
   const [saleStatus, setSaleStatus] = useState<GroupedProperty["saleStatus"]>(group.saleStatus)
   const [financing, setFinancing] = useState(!!group.financingAvailable)
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [ppDrawerOpen, setPpDrawerOpen] = useState(false)
   const descRef = useRef<HTMLParagraphElement>(null)
   const desc = group.description || ""
   const isAvailable = saleStatus === "Available"
@@ -1151,7 +1153,7 @@ function GroupCard({
                 <span className="font-medium">{group.offers}</span>
                 <span className="text-muted-foreground">offers</span>
               </span>
-              <Button variant="outline" size="icon-sm" className="bg-transparent h-5 w-5 ml-0.5" title="View payment plans">
+              <Button variant="outline" size="icon-sm" className="bg-transparent h-5 w-5 ml-0.5" title="View payment plans" onClick={() => setPpDrawerOpen(true)}>
                 <Eye className="h-3 w-3" />
               </Button>
             </div>
@@ -1191,6 +1193,32 @@ function GroupCard({
           onClose={() => setCarousel(null)}
         />
       )}
+
+      {/* ── Payment Plans view drawer (read-only compact version of the Payment Plans tab) ── */}
+      <Sheet open={ppDrawerOpen} onOpenChange={setPpDrawerOpen}>
+        <SheetContent side="right" className="flex h-full w-[480px] flex-col overflow-hidden p-0 max-w-[94vw]!">
+          <SheetHeader className="shrink-0 space-y-1 border-b border-border px-6 py-4">
+            <SheetTitle className="flex items-center gap-2 text-base">
+              Payment Plans
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                {({ launch: "Launch", "primary-manual": "Primary Manual", "primary-automatic": "Primary Automatic", resale: "Resale", "nawy-now": "Nawy Now", rental: "Rental" } as Record<string, string>)[variation] ?? group.saleType}
+              </span>
+            </SheetTitle>
+            <SheetDescription className="font-mono text-xs">{group.id} · {group.project.name}</SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto">
+            {(() => {
+              const ppUnits = allRows.slice(globalIndex * 3, globalIndex * 3 + group.details.length)
+              const ppRepRow = ppUnits[0] ?? allRows[globalIndex % Math.max(1, allRows.length)] ?? allRows[0]
+              return ppRepRow ? (
+                <PropertyDetailTab tab="payment-plans" row={ppRepRow} onUpdateRow={() => {}} variation={variation} priceRange={{ min: group.priceMin, max: group.priceMax }} readOnly singleColumn />
+              ) : (
+                <p className="px-6 py-16 text-center text-sm text-muted-foreground">No units in this group.</p>
+              )
+            })()}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* ── Change Sale Status dialog ── */}
       <Dialog open={statusDialog} onOpenChange={setStatusDialog}>

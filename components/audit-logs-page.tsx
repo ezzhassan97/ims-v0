@@ -27,6 +27,7 @@ import { Separator } from "@/components/ui/separator"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarUI } from "@/components/ui/calendar"
 import { cn } from "@/lib/utils"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter } from "@/components/table-kit"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -389,7 +390,7 @@ function DetailDrawer({ log, open, onClose }: { log: AuditLog | null; open: bool
 
         {/* Field diff */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-1">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-3">
             {log.action === "Create" ? "Created Fields" : log.action === "Delete" ? "Deleted Fields" : "Changed Fields"}
             {log.action === "Edit" && (
               <span className="ml-2 normal-case font-normal text-muted-foreground/70">
@@ -558,24 +559,13 @@ export function AuditLogsPage() {
       </div>
 
       {/* Search + Filters */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Search */}
-          <div className="relative w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by Log ID or Record ID..."
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-              className="pl-9 h-9"
-            />
-            {search && (
-              <button onClick={() => { setSearch(""); setPage(1) }} className="absolute right-2 top-1/2 -translate-y-1/2">
-                <X className="h-3.5 w-3.5 text-muted-foreground" />
-              </button>
-            )}
-          </div>
-
+      <TableToolbar
+        search={search}
+        onSearch={(v) => { setSearch(v); setPage(1) }}
+        searchPlaceholder="Search by Log ID or Record ID..."
+        activeFilters={activeChips.length}
+        filters={
+        <>
           {/* User filter */}
           <Select value={userFilter || "all"} onValueChange={(v) => { setUserFilter(v === "all" ? "" : v); setPage(1) }}>
             <SelectTrigger className={cn("h-9 w-44", userFilter && "border-primary text-primary")}>
@@ -636,35 +626,31 @@ export function AuditLogsPage() {
             </PopoverContent>
           </Popover>
 
-          {activeChips.length > 0 && (
-            <button onClick={() => { setUserFilter(""); setActionFilter(""); setDateFrom(undefined); setDateTo(undefined); setPage(1) }} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
-              Clear all
-            </button>
-          )}
+        </>
+        }
+      />
+      {activeChips.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {activeChips.map((c) => <FilterChip key={c.label} label={c.label} onRemove={c.clear} />)}
+          <button onClick={() => { setUserFilter(""); setActionFilter(""); setDateFrom(undefined); setDateTo(undefined); setPage(1) }} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">Clear all</button>
         </div>
-
-        {/* Active chips */}
-        {activeChips.length > 0 && (
-          <div className="flex items-center gap-2 flex-wrap">
-            {activeChips.map((c) => <FilterChip key={c.label} label={c.label} onRemove={c.clear} />)}
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Table */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
+      <TableCard>
+        <TableCardHeader title="Audit Logs" count={filtered.length} />
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse min-w-[900px]">
             <thead>
-              <tr className="border-b border-border bg-secondary/40">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-36">Log ID</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-32">Entity</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-32">Record ID</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-28">Action</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-40">User</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Before</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">After</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide w-40">Created At</th>
+              <tr className="border-b border-border bg-muted/60">
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-36">Log ID</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-32">Entity</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-32">Record ID</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-28">Action</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-40">User</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Before</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">After</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-40">Created At</th>
                 <th className="px-4 py-3 w-16"></th>
               </tr>
             </thead>
@@ -679,10 +665,7 @@ export function AuditLogsPage() {
                 paginated.map((log, i) => (
                   <tr
                     key={log.id}
-                    className={cn(
-                      "border-b border-border transition-colors hover:bg-secondary/30 cursor-pointer",
-                      i % 2 === 1 && "bg-secondary/10",
-                    )}
+                    className="border-b border-border transition-colors hover:bg-muted/40 cursor-pointer"
                     onClick={() => openDrawer(log)}
                   >
                     <td className="px-4 py-3">
@@ -740,41 +723,8 @@ export function AuditLogsPage() {
           </table>
         </div>
 
-        {/* Pagination */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-          <div className="flex items-center gap-3">
-            <p className="text-xs text-muted-foreground">
-              Showing {filtered.length === 0 ? 0 : (safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, filtered.length)} of{" "}
-              <span className="font-semibold text-foreground">{filtered.length}</span> results
-            </p>
-            <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setPage(1) }}>
-              <SelectTrigger className="h-8 w-24 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAGE_SIZE_OPTIONS.map((n) => (
-                  <SelectItem key={n} value={String(n)} className="text-xs">{n} / page</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage(1)} disabled={safePage === 1}>
-              <ChevronsLeft className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage((p) => p - 1)} disabled={safePage === 1}>
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </Button>
-            <span className="text-xs px-3 font-medium tabular-nums">{safePage} / {totalPages}</span>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage((p) => p + 1)} disabled={safePage === totalPages}>
-              <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage(totalPages)} disabled={safePage === totalPages}>
-              <ChevronsRight className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-      </div>
+        <TableFooter page={safePage} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="results" />
+      </TableCard>
 
       <DetailDrawer log={drawerLog} open={drawerOpen} onClose={() => setDrawerOpen(false)} />
     </div>
