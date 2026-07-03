@@ -52,7 +52,7 @@ import { Card } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { soldUnitsData, type SoldUnit } from "@/lib/sold-units-mock"
-import { TableCard, TableCardHeader, TableToolbar, TableFooter } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter, DateRangeFilter, FilterSelect, COL_SEP } from "@/components/table-kit"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -211,13 +211,13 @@ function LinkedIdCell({ id, href }: { id: string; href?: string }) {
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="font-mono text-xs text-primary underline underline-offset-2 hover:opacity-80 transition-opacity flex items-center gap-0.5"
+          className="font-mono text-[10px] text-primary underline underline-offset-2 hover:opacity-80 transition-opacity flex items-center gap-0.5"
         >
           {id}
           <ExternalLink className="h-2.5 w-2.5 flex-shrink-0" />
         </a>
       ) : (
-        <span className="font-mono text-xs text-foreground">{id}</span>
+        <span className="font-mono text-[10px] text-foreground">{id}</span>
       )}
       <button
         onClick={copy}
@@ -660,61 +660,10 @@ export function SoldUnitsPage() {
         onAdvancedFilters={() => setShowFiltersDrawer(true)}
         filters={
         <>
-          {/* Quick filter: Sale Type */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className={cn("h-9 gap-1.5", saleTypeFilter && "border-primary text-primary")}>
-                {saleTypeFilter || "Sale Type"}
-                <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={() => { setSaleTypeFilter(""); setPage(1) }}>All Types</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => { setSaleTypeFilter("Primary"); setPage(1) }}>Primary</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setSaleTypeFilter("Resale"); setPage(1) }}>Resale</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Quick filter: Developer */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className={cn("h-9 gap-1.5 max-w-44", devFilter && "border-primary text-primary")}>
-                <span className="truncate">{devFilter ? allDevelopers.find((d) => d.id === devFilter)?.name : "Developer"}</span>
-                <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="max-h-64 overflow-y-auto">
-              <DropdownMenuItem onClick={() => { setDevFilter(""); setPage(1) }}>All Developers</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {allDevelopers.map((d) => (
-                <DropdownMenuItem key={d.id} onClick={() => { setDevFilter(d.id); setPage(1) }}>
-                  <div>
-                    <p className="text-sm">{d.name}</p>
-                    <p className="text-[10px] text-muted-foreground font-mono">{d.id}</p>
-                  </div>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Quick filter: Property Type */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className={cn("h-9 gap-1.5", propTypeFilter && "border-primary text-primary")}>
-                {propTypeFilter || "Property Type"}
-                <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={() => { setPropTypeFilter(""); setPage(1) }}>All Types</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {allPropTypes.map((t) => (
-                <DropdownMenuItem key={t} onClick={() => { setPropTypeFilter(t); setPage(1) }}>{t}</DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
+          <FilterSelect label="Sale Type" value={saleTypeFilter} options={["Primary", "Resale"]} onChange={(v) => { setSaleTypeFilter(v); setPage(1) }} className="w-36" />
+          <FilterSelect label="Developer" value={devFilter} options={allDevelopers.map((d) => ({ value: d.id, label: d.name, sublabel: d.id }))} onChange={(v) => { setDevFilter(v); setPage(1) }} className="w-44" />
+          <FilterSelect label="Property Type" value={propTypeFilter} options={allPropTypes} onChange={(v) => { setPropTypeFilter(v); setPage(1) }} className="w-40" />
+          <DateRangeFilter label="Sale Date Range" dateFrom={saleDateFrom} dateTo={saleDateTo} onChangeFrom={(v) => { setSaleDateFrom(v); setPage(1) }} onChangeTo={(v) => { setSaleDateTo(v); setPage(1) }} />
         </>
         }
       />
@@ -735,16 +684,16 @@ export function SoldUnitsPage() {
       <TableCard>
         <TableCardHeader title="Sold Units" count={filtered.length} />
         <div className="overflow-x-auto">
-        <table className="w-full text-sm border-collapse min-w-[1800px]">
+        <table className={cn("w-max text-sm border-collapse", COL_SEP)}>
           <thead className="sticky top-0 z-10 bg-muted/60 border-b border-border">
             <tr>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap w-36">
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">
                 <button className="flex items-center hover:text-foreground transition-colors" onClick={() => handleSort("id")}>
                   Sale ID <SortIcon field="id" />
                 </button>
               </th>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap w-52">Developer</th>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap w-44">Project</th>
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">Developer</th>
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">Project</th>
               <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">Sale Type</th>
               <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">Property Type</th>
               <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">
@@ -757,8 +706,8 @@ export function SoldUnitsPage() {
                   Sale Amount <SortIcon field="saleAmount" />
                 </button>
               </th>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap w-32">Match Status</th>
-              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap w-44">
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">Match Status</th>
+              <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">
                 <button className="flex items-center hover:text-foreground transition-colors" onClick={() => handleSort("matchingConfidence")}>
                   Match Confidence <SortIcon field="matchingConfidence" />
                 </button>

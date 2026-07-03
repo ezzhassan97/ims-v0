@@ -814,7 +814,7 @@ function GroupCard({
         )}
 
         {/* IDs with copy-on-hover */}
-        <div className="flex items-center gap-2.5 shrink-0 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2.5 shrink-0 text-[10px] text-muted-foreground">
           <span className="flex items-center gap-1">
             Property ID: <CopyableId value={group.id} />
           </span>

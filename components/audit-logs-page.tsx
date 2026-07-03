@@ -27,7 +27,7 @@ import { Separator } from "@/components/ui/separator"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarUI } from "@/components/ui/calendar"
 import { cn } from "@/lib/utils"
-import { TableCard, TableCardHeader, TableToolbar, TableFooter } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter, DateRangeFilter, FilterSelect, COL_SEP } from "@/components/table-kit"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -247,7 +247,7 @@ function CopyableId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <span className="flex items-center gap-1.5 group/id">
-      <span className="font-mono text-xs">{id}</span>
+      <span className="font-mono text-[10px]">{id}</span>
       <button
         onClick={(e) => {
           e.stopPropagation()
@@ -442,8 +442,8 @@ export function AuditLogsPage() {
   const [search, setSearch] = useState("")
   const [userFilter, setUserFilter] = useState("")
   const [actionFilter, setActionFilter] = useState<ActionType | "">("")
-  const [dateFrom, setDateFrom] = useState<Date | undefined>()
-  const [dateTo, setDateTo] = useState<Date | undefined>()
+  const [dateFrom, setDateFrom] = useState("")
+  const [dateTo, setDateTo] = useState("")
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [drawerLog, setDrawerLog] = useState<AuditLog | null>(null)
@@ -462,7 +462,7 @@ export function AuditLogsPage() {
     }
     if (userFilter) result = result.filter((l) => l.user.name === userFilter)
     if (actionFilter) result = result.filter((l) => l.action === actionFilter)
-    if (dateFrom) result = result.filter((l) => new Date(l.createdAt) >= dateFrom)
+    if (dateFrom) result = result.filter((l) => new Date(l.createdAt) >= new Date(dateFrom))
     if (dateTo) {
       const end = new Date(dateTo)
       end.setHours(23, 59, 59, 999)
@@ -478,8 +478,8 @@ export function AuditLogsPage() {
   const activeChips: { label: string; clear: () => void }[] = []
   if (userFilter) activeChips.push({ label: `User: ${userFilter}`, clear: () => { setUserFilter(""); setPage(1) } })
   if (actionFilter) activeChips.push({ label: `Action: ${actionFilter}`, clear: () => { setActionFilter(""); setPage(1) } })
-  if (dateFrom) activeChips.push({ label: `From: ${dateFrom.toLocaleDateString("en-GB")}`, clear: () => { setDateFrom(undefined); setPage(1) } })
-  if (dateTo) activeChips.push({ label: `To: ${dateTo.toLocaleDateString("en-GB")}`, clear: () => { setDateTo(undefined); setPage(1) } })
+  if (dateFrom) activeChips.push({ label: `From: ${dateFrom}`, clear: () => { setDateFrom(""); setPage(1) } })
+  if (dateTo) activeChips.push({ label: `To: ${dateTo}`, clear: () => { setDateTo(""); setPage(1) } })
 
   const uniqueUsers = Array.from(new Set(ALL_LOGS.map((l) => l.user.name))).sort()
 
@@ -566,73 +566,16 @@ export function AuditLogsPage() {
         activeFilters={activeChips.length}
         filters={
         <>
-          {/* User filter */}
-          <Select value={userFilter || "all"} onValueChange={(v) => { setUserFilter(v === "all" ? "" : v); setPage(1) }}>
-            <SelectTrigger className={cn("h-9 w-44", userFilter && "border-primary text-primary")}>
-              <SelectValue placeholder="All Users" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Users</SelectItem>
-              {uniqueUsers.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-            </SelectContent>
-          </Select>
-
-          {/* Action filter */}
-          <Select value={actionFilter || "all"} onValueChange={(v) => { setActionFilter(v === "all" ? "" : v as ActionType); setPage(1) }}>
-            <SelectTrigger className={cn("h-9 w-36", actionFilter && "border-primary text-primary")}>
-              <SelectValue placeholder="All Actions" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Actions</SelectItem>
-              <SelectItem value="Create">Create</SelectItem>
-              <SelectItem value="Edit">Edit</SelectItem>
-              <SelectItem value="Delete">Delete</SelectItem>
-            </SelectContent>
-          </Select>
-
-          {/* Date from */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className={cn("h-9 gap-1.5", dateFrom && "border-primary text-primary")}>
-                <Calendar className="h-3.5 w-3.5" />
-                {dateFrom ? dateFrom.toLocaleDateString("en-GB") : "From date"}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <CalendarUI
-                mode="single"
-                selected={dateFrom}
-                onSelect={(d) => { setDateFrom(d); setPage(1) }}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>
-
-          {/* Date to */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className={cn("h-9 gap-1.5", dateTo && "border-primary text-primary")}>
-                <Calendar className="h-3.5 w-3.5" />
-                {dateTo ? dateTo.toLocaleDateString("en-GB") : "To date"}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <CalendarUI
-                mode="single"
-                selected={dateTo}
-                onSelect={(d) => { setDateTo(d); setPage(1) }}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>
-
+          <FilterSelect label="All Users" value={userFilter} options={uniqueUsers} onChange={(v) => { setUserFilter(v); setPage(1) }} className="w-44" />
+          <FilterSelect label="All Actions" value={actionFilter} options={["Create", "Edit", "Delete"]} onChange={(v) => { setActionFilter(v as ActionType | ""); setPage(1) }} className="w-36" />
+          <DateRangeFilter label="Date Range" dateFrom={dateFrom} dateTo={dateTo} onChangeFrom={(v) => { setDateFrom(v); setPage(1) }} onChangeTo={(v) => { setDateTo(v); setPage(1) }} />
         </>
         }
       />
       {activeChips.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
           {activeChips.map((c) => <FilterChip key={c.label} label={c.label} onRemove={c.clear} />)}
-          <button onClick={() => { setUserFilter(""); setActionFilter(""); setDateFrom(undefined); setDateTo(undefined); setPage(1) }} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">Clear all</button>
+          <button onClick={() => { setUserFilter(""); setActionFilter(""); setDateFrom(""); setDateTo(""); setPage(1) }} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">Clear all</button>
         </div>
       )}
 
@@ -640,18 +583,18 @@ export function AuditLogsPage() {
       <TableCard>
         <TableCardHeader title="Audit Logs" count={filtered.length} />
         <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse min-w-[900px]">
+          <table className={cn("w-max text-sm border-collapse", COL_SEP)}>
             <thead>
               <tr className="border-b border-border bg-muted/60">
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-36">Log ID</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-32">Entity</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-32">Record ID</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-28">Action</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-40">User</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Log ID</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Entity</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Record ID</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Action</th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">User</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Before</th>
                 <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">After</th>
-                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide w-40">Created At</th>
-                <th className="px-4 py-3 w-16"></th>
+                <th className="text-left px-4 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Created At</th>
+                <th className="sticky right-0 z-10 bg-muted/60 border-l border-border px-3 py-3 w-12"></th>
               </tr>
             </thead>
             <tbody>
@@ -665,7 +608,7 @@ export function AuditLogsPage() {
                 paginated.map((log, i) => (
                   <tr
                     key={log.id}
-                    className="border-b border-border transition-colors hover:bg-muted/40 cursor-pointer"
+                    className="group border-b border-border transition-colors hover:bg-muted/40 cursor-pointer"
                     onClick={() => openDrawer(log)}
                   >
                     <td className="px-4 py-3">
@@ -706,7 +649,7 @@ export function AuditLogsPage() {
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                       {formatDateTime(log.createdAt)}
                     </td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <td className="sticky right-0 z-10 border-l border-border bg-card px-3 py-3 transition-colors group-hover:bg-muted/40" onClick={(e) => e.stopPropagation()}>
                       <Button
                         variant="ghost"
                         size="icon"

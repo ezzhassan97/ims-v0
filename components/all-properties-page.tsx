@@ -2962,7 +2962,7 @@ export function EmbeddedPropertyTable({
         return (
           <span className="inline-flex items-center gap-1 group/pid">
             <a href={`/properties/${row.propertyId}`} target="_blank" rel="noopener noreferrer"
-               className="font-mono text-xs font-medium text-primary hover:underline underline-offset-2"
+               className="font-mono text-[10px] font-medium text-primary hover:underline underline-offset-2"
                onClick={(e) => e.stopPropagation()}>
               {row.propertyId}
             </a>
@@ -2970,9 +2970,9 @@ export function EmbeddedPropertyTable({
           </span>
         )
       case "propertyMetadataId":
-        return <span className="font-mono text-xs"><CopyableText value={row.propertyMetadataId} /></span>
+        return <span className="font-mono text-[10px]"><CopyableText value={row.propertyMetadataId} /></span>
       case "detailedPropertyId":
-        return <span className="font-mono text-xs"><CopyableText value={row.detailedPropertyId} /></span>
+        return <span className="font-mono text-[10px]"><CopyableText value={row.detailedPropertyId} /></span>
       case "entryType":
         return <StoryBadge value={row.entryType} />
       case "district":
@@ -3000,7 +3000,7 @@ export function EmbeddedPropertyTable({
             </span>
             <div className="min-w-0">
               <div className="truncate text-sm font-medium underline decoration-transparent group-hover/devlink:decoration-current transition-all">{row.developer.name}</div>
-              <div className="font-mono text-xs"><CopyableText value={row.developer.id} muted /></div>
+              <div className="font-mono text-[10px]"><CopyableText value={row.developer.id} muted /></div>
             </div>
           </a>
         )
@@ -3011,7 +3011,7 @@ export function EmbeddedPropertyTable({
                className="truncate font-medium underline decoration-transparent hover:decoration-current transition-all text-sm">
               {row.project.name}
             </a>
-            <div className="font-mono text-xs"><CopyableText value={row.project.id} muted /></div>
+            <div className="font-mono text-[10px]"><CopyableText value={row.project.id} muted /></div>
           </div>
         )
       case "phase":
@@ -3021,7 +3021,7 @@ export function EmbeddedPropertyTable({
                className="truncate font-medium underline decoration-transparent hover:decoration-current transition-all text-sm">
               {row.phase.name}
             </a>
-            <div className="font-mono text-xs"><CopyableText value={row.phase.id} muted /></div>
+            <div className="font-mono text-[10px]"><CopyableText value={row.phase.id} muted /></div>
           </div>
         ) : <EmptyValue />
       case "saleType":
@@ -3485,7 +3485,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty }: { filters:
               href={`/properties/${row.propertyId}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="font-mono text-xs font-medium text-primary hover:underline underline-offset-2"
+              className="font-mono text-[10px] font-medium text-primary hover:underline underline-offset-2"
               onClick={(e) => e.stopPropagation()}
             >
               {row.propertyId}
@@ -3495,13 +3495,13 @@ export function DetailedPropertiesView({ filters, onCreateProperty }: { filters:
         )
       case "propertyMetadataId":
         return (
-          <span className="font-mono text-xs">
+          <span className="font-mono text-[10px]">
             <CopyableText value={row.propertyMetadataId} />
           </span>
         )
       case "detailedPropertyId":
         return (
-          <span className="font-mono text-xs">
+          <span className="font-mono text-[10px]">
             <CopyableText value={row.detailedPropertyId} />
           </span>
         )
@@ -3538,7 +3538,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty }: { filters:
               <div className="truncate text-sm font-medium underline decoration-transparent group-hover/devlink:decoration-current transition-all">
                 {row.developer.name}
               </div>
-              <div className="font-mono text-xs">
+              <div className="font-mono text-[10px]">
                 <CopyableText value={row.developer.id} muted />
               </div>
             </div>
@@ -3555,7 +3555,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty }: { filters:
             >
               {row.project.name}
             </a>
-            <div className="font-mono text-xs">
+            <div className="font-mono text-[10px]">
               <CopyableText value={row.project.id} muted />
             </div>
           </div>
@@ -3571,7 +3571,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty }: { filters:
             >
               {row.phase.name}
             </a>
-            <div className="font-mono text-xs">
+            <div className="font-mono text-[10px]">
               <CopyableText value={row.phase.id} muted />
             </div>
           </div>

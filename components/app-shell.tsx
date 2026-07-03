@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Sidebar } from "@/components/sidebar"
-import { ProjectsPage } from "@/components/projects-page"
+import { ProjectsPage } from "@/components/projects-list-page"
 import { ComingSoon } from "@/components/coming-soon"
 import { TestingPlayground } from "@/components/testing-playground"
 import { ValidationRulesPage } from "@/components/validation-rules-page"

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { TableCard, TableCardHeader, TableToolbar, TableFooter, FloatingBulkBar, BulkBarButton } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter, FloatingBulkBar, BulkBarButton, DateRangeFilter, FilterMultiSelect, COL_SEP } from "@/components/table-kit"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -261,11 +261,13 @@ function InlineMultiSelect({
         {value.length === 0 ? (
           <span className="text-muted-foreground text-xs italic">{placeholder}</span>
         ) : (
-          <span className="text-sm flex items-center gap-1 flex-wrap">
-            <span className="truncate max-w-[120px]">{value.slice(0, 2).join(", ")}</span>
+          <span className="flex items-center gap-1 flex-wrap">
+            {value.slice(0, 2).map((v) => (
+              <span key={v} className="inline-flex max-w-[120px] items-center truncate rounded-md border border-border bg-white px-1.5 py-0.5 text-[11px] font-medium text-foreground">{v}</span>
+            ))}
             {overflowItems.length > 0 && (
               <span className="relative group/tip">
-                <Badge variant="outline" className="text-xs px-1.5 py-0 cursor-default">+{overflowItems.length}</Badge>
+                <Badge variant="outline" className="cursor-default bg-white px-1.5 py-0 text-[11px]">+{overflowItems.length}</Badge>
                 {/* Tooltip */}
                 <span className="pointer-events-none absolute z-50 bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-popover border border-border rounded-lg shadow-lg px-2.5 py-1.5 min-w-max opacity-0 group-hover/tip:opacity-100 transition-opacity">
                   <span className="flex flex-col gap-0.5">
@@ -498,6 +500,19 @@ function BulkActionBar({ count, total, onSelectAll, onClear }: { count: number; 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function WhatsAppMediaPage() {
+  return (
+    <div className="min-h-screen space-y-4 bg-secondary/40 p-6">
+      <div>
+        <h1 className="text-xl font-semibold">WhatsApp Media</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">Browse and manage media files received via WhatsApp</p>
+      </div>
+      <WhatsAppMediaTable />
+    </div>
+  )
+}
+
+/** The WhatsApp Media table + toolbar + bulk bar (reused inside the Developer details tab). */
+export function WhatsAppMediaTable({ hideDeveloperFilter = false }: { hideDeveloperFilter?: boolean }) {
   const [items, setItems] = useState(whatsappMediaItems)
   const [search, setSearch] = useState("")
   const [fileTypeFilter, setFileTypeFilter] = useState<string[]>([])
@@ -567,44 +582,31 @@ export function WhatsAppMediaPage() {
   const developerNames = ALL_DEVELOPERS.map((d) => d.name)
 
   return (
-    <div className="flex flex-col h-full min-h-screen bg-secondary/40">
-      {/* Page header */}
-      <div className="px-6 pt-6 pb-2 flex-shrink-0">
-        <h1 className="text-xl font-semibold">WhatsApp Media</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Browse and manage media files received via WhatsApp</p>
-      </div>
-
+    <div className="space-y-4">
       {/* Filter bar */}
-      <div className="px-6 pt-2 pb-1 flex-shrink-0">
-        <TableToolbar
-          search={search}
-          onSearch={(v) => { setSearch(v); setPage(1) }}
-          searchPlaceholder="File name or ID"
-          activeFilters={developerFilter.length + projectFilter.length + fileTypeFilter.length + mediaClassFilter.length + ((dateFrom || dateTo) ? 1 : 0)}
-          onAllFilters={hasFilters ? clearFilters : undefined}
-          filters={
-          <>
-            <MultiSelect label="Developer" options={developerNames} value={developerFilter} onChange={(v) => { setDeveloperFilter(v); setPage(1) }} className="w-40" />
-            <MultiSelect label="Project" options={ALL_PROJECTS} value={projectFilter} onChange={(v) => { setProjectFilter(v); setPage(1) }} className="w-40" />
-            <MultiSelect label="File type" options={FILE_TYPE_GROUPS} value={fileTypeFilter} onChange={(v) => { setFileTypeFilter(v); setPage(1) }} className="w-36" />
-            <MultiSelect label="Media class" options={MEDIA_CLASSES} value={mediaClassFilter} onChange={(v) => { setMediaClassFilter(v); setPage(1) }} className="w-40" />
-            <div className="flex items-center gap-1 border border-input rounded-md h-8 px-2 bg-background">
-              <Calendar className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-              <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} className="text-sm bg-transparent outline-none w-[110px] text-foreground" title="From date" />
-              <span className="text-muted-foreground text-xs px-1">—</span>
-              <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} className="text-sm bg-transparent outline-none w-[110px] text-foreground" title="To date" />
-            </div>
-          </>
-          }
-        />
-      </div>
+      <TableToolbar
+        search={search}
+        onSearch={(v) => { setSearch(v); setPage(1) }}
+        searchPlaceholder="File name or ID"
+        activeFilters={(hideDeveloperFilter ? 0 : developerFilter.length) + projectFilter.length + fileTypeFilter.length + mediaClassFilter.length + ((dateFrom || dateTo) ? 1 : 0)}
+        onAllFilters={hasFilters ? clearFilters : undefined}
+        filters={
+        <>
+          {!hideDeveloperFilter && <FilterMultiSelect label="Developer" options={developerNames} value={developerFilter} onChange={(v) => { setDeveloperFilter(v); setPage(1) }} className="w-40" />}
+          <FilterMultiSelect label="Project" options={ALL_PROJECTS} value={projectFilter} onChange={(v) => { setProjectFilter(v); setPage(1) }} className="w-40" />
+          <FilterMultiSelect label="File type" options={FILE_TYPE_GROUPS} value={fileTypeFilter} onChange={(v) => { setFileTypeFilter(v); setPage(1) }} className="w-36" />
+          <FilterMultiSelect label="Media class" options={MEDIA_CLASSES} value={mediaClassFilter} onChange={(v) => { setMediaClassFilter(v); setPage(1) }} className="w-40" />
+          <DateRangeFilter label="Date Range" dateFrom={dateFrom} dateTo={dateTo} onChangeFrom={(v) => { setDateFrom(v); setPage(1) }} onChangeTo={(v) => { setDateTo(v); setPage(1) }} />
+        </>
+        }
+      />
 
       {/* Table area */}
-      <div className="flex-1 overflow-auto px-6 py-4">
+      <div>
         <TableCard>
           <TableCardHeader title="Media" count={filtered.length} />
           <div className="overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: "900px" }}>
+            <table className={cn("w-max text-sm", COL_SEP)}>
               <thead>
                 <tr className="border-b border-border bg-muted/60">
                   {/* sticky checkbox col */}
@@ -657,7 +659,7 @@ export function WhatsAppMediaPage() {
                         <div className="min-w-0">
                           <p className="text-sm font-medium leading-none truncate max-w-[110px]">{item.developerName}</p>
                           <div className="flex items-center gap-0.5 mt-0.5">
-                            <code className="text-xs font-mono text-muted-foreground">{item.developerId}</code>
+                            <code className="text-[10px] font-mono text-muted-foreground">{item.developerId}</code>
                             <CopyBtn value={item.developerId} />
                           </div>
                         </div>
@@ -677,7 +679,7 @@ export function WhatsAppMediaPage() {
                             {item.fileName.length > 30 ? item.fileName.slice(0, 30) + "…" : item.fileName}
                           </button>
                           <div className="flex items-center gap-0.5 group" onClick={(e) => e.stopPropagation()}>
-                            <code className="text-xs font-mono text-muted-foreground">{item.id}</code>
+                            <code className="text-[10px] font-mono text-muted-foreground">{item.id}</code>
                             <CopyBtn value={item.id} />
                           </div>
                         </div>
@@ -686,7 +688,7 @@ export function WhatsAppMediaPage() {
 
                     {/* File size */}
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-sm text-muted-foreground font-mono">{formatBytes(item.fileSize)}</span>
+                      <span className="text-xs text-muted-foreground font-mono">{formatBytes(item.fileSize)}</span>
                     </td>
 
                     {/* File type */}

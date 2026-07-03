@@ -1,8 +1,10 @@
 "use client"
 
 import { useState } from "react"
+import { Home, ChevronRight } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ProjectHeader } from "@/components/project-header"
+import type { ProjectRow } from "@/lib/projects-mock"
 import { MasterplanMap } from "@/components/masterplan-map"
 import { BuildingsList } from "@/components/buildings-list"
 import { PropertiesTable } from "@/components/properties-table"
@@ -30,7 +32,7 @@ import {
   systemAmenities,
 } from "@/lib/mock-data"
 
-export function ProjectsPage() {
+export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBack?: () => void }) {
   const [buildings, setBuildings] = useState<Building[]>(initialBuildings)
   const [units, setUnits] = useState<Unit[]>(initialUnits)
   const [splittingRules, setSplittingRules] = useState<SplittingRule[]>(initialSplittingRules)
@@ -264,6 +266,14 @@ export function ProjectsPage() {
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="max-w-[1600px] mx-auto space-y-4">
+        {onBack && (
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <button onClick={onBack} className="flex items-center hover:text-foreground"><Home className="h-3.5 w-3.5" /></button>
+            <ChevronRight className="h-3 w-3" />
+            <button onClick={onBack} className="hover:text-foreground hover:underline">Projects</button>
+            {project && <><ChevronRight className="h-3 w-3" /><span className="font-medium text-foreground">{project.name}</span></>}
+          </div>
+        )}
         <ProjectHeader />
 
         <Tabs defaultValue="buildings" className="w-full">

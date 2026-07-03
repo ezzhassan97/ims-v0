@@ -5,7 +5,7 @@ import {
   Search, SlidersHorizontal, ArrowUpDown, Columns3, Plus, Copy, Check, ChevronDown,
   ArrowRight, Home, ChevronRight, Pencil, ChevronUp, MoreHorizontal, MessageCircle,
   ChevronLeft, ChevronsLeft, ChevronsRight, Building2, FileText, Users, HelpCircle,
-  Image as ImageIcon, Group as GroupIcon,
+  Image as ImageIcon, Group as GroupIcon, GripVertical, Trash2, Save, X, UploadCloud,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,8 +14,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { StoryBadge } from "@/components/all-properties-page"
-import { TableCard, TableCardHeader, TableToolbar, TableFooter } from "@/components/table-kit"
-import { DEVELOPERS, type Developer, type DevPriority, type DevListingStatus } from "@/lib/developers-mock"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, IdTag, COL_SEP } from "@/components/table-kit"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+import { RichTextEditor } from "@/components/rich-text-editor"
+import { WhatsAppMediaTable } from "@/components/whatsapp-media-page"
+import { DeveloperCreatePage } from "@/components/developer-create-page"
+import { DEVELOPERS, type Developer, type DevPriority, type DevListingStatus, type DevOrg } from "@/lib/developers-mock"
 
 const PRIORITIES: DevPriority[] = ["Lowest", "Low", "Medium", "High", "Highest"]
 
@@ -43,39 +48,17 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 /** Image + Name + (ID + copy) cell — used by Developer Name and WhatsApp Group columns. */
-function EntityCell({ image, name, idLabel, idValue, rounded = "rounded-lg" }: {
-  image: string; name: string; idLabel: string; idValue: string; rounded?: string
+function EntityCell({ image, name, id, label, rounded = "rounded-lg" }: {
+  image: string; name: string; id: string; label?: string; rounded?: string
 }) {
   return (
     <div className="flex items-center gap-3">
       <img src={image} alt="" className={cn("h-9 w-9 shrink-0 border border-border object-cover", rounded)} />
       <div className="min-w-0">
         <p className="truncate font-medium text-foreground">{name}</p>
-        <div className="flex items-center gap-1">
-          <span className="font-mono text-[11px] text-muted-foreground">{idLabel}</span>
-          <CopyBtn text={idValue} />
-        </div>
+        <IdTag value={id} label={label} />
       </div>
     </div>
-  )
-}
-
-function FilterDropdown({ label, value, options, onChange }: {
-  label: string; value: string; options: string[]; onChange: (v: string) => void
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-muted/50">
-          {value === "all" ? label : value}
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        <DropdownMenuItem onClick={() => onChange("all")} className="text-sm">{label}</DropdownMenuItem>
-        {options.map((o) => <DropdownMenuItem key={o} onClick={() => onChange(o)} className="text-sm">{o}</DropdownMenuItem>)}
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 
@@ -85,21 +68,26 @@ const GROUP_BY_LABEL: Record<GroupByKey, string> = { none: "Group by", priority:
 export function DevelopersPage() {
   const [rows, setRows] = useState<Developer[]>(DEVELOPERS)
   const [selected, setSelected] = useState<Developer | null>(null)
+  const [creating, setCreating] = useState(false)
   const [q, setQ] = useState("")
-  const [statusF, setStatusF] = useState("all")
-  const [priorityF, setPriorityF] = useState("all")
-  const [orgF, setOrgF] = useState("all")
+  const [statusF, setStatusF] = useState("")
+  const [priorityF, setPriorityF] = useState("")
+  const [orgF, setOrgF] = useState("")
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+
+  const toggleGroup = (label: string) =>
+    setCollapsedGroups((prev) => { const n = new Set(prev); n.has(label) ? n.delete(label) : n.add(label); return n })
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return rows.filter((d) => {
       if (needle && !`${d.name} ${d.id}`.toLowerCase().includes(needle)) return false
-      if (statusF !== "all" && d.listingStatus !== statusF) return false
-      if (priorityF !== "all" && d.priority !== priorityF) return false
-      if (orgF !== "all" && !d.organizations.includes(orgF as never)) return false
+      if (statusF && d.listingStatus !== statusF) return false
+      if (priorityF && d.priority !== priorityF) return false
+      if (orgF && !d.organizations.includes(orgF as never)) return false
       return true
     })
   }, [rows, q, statusF, priorityF, orgF])
@@ -122,15 +110,18 @@ export function DevelopersPage() {
   const update = (id: number, patch: Partial<Developer>) =>
     setRows((rs) => rs.map((d) => (d.id === id ? { ...d, ...patch } : d)))
 
+  if (creating) {
+    return <DeveloperCreatePage onBack={() => setCreating(false)} onCreate={() => setCreating(false)} />
+  }
   if (selected) {
     const live = rows.find((d) => d.id === selected.id) ?? selected
-    return <DeveloperDetails developer={live} onBack={() => setSelected(null)} />
+    return <DeveloperDetails developer={live} onBack={() => setSelected(null)} onUpdate={(patch) => update(live.id, patch)} />
   }
 
   const renderRow = (d: Developer) => (
     <tr key={d.id} onClick={() => setSelected(d)} className="group cursor-pointer transition-colors hover:bg-muted/40">
       <td className="py-3 pl-5 pr-4">
-        <EntityCell image={d.logo} name={d.name} idLabel={`ID# ${d.id}`} idValue={String(d.id)} />
+        <EntityCell image={d.logo} name={d.name} id={String(d.id)} />
       </td>
       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <StoryBadge value={d.priority} options={PRIORITIES} onChange={(v) => update(d.id, { priority: v as DevPriority })} />
@@ -145,7 +136,7 @@ export function DevelopersPage() {
       </td>
       <td className="px-4 py-3">
         {d.whatsappGroup ? (
-          <EntityCell image={d.whatsappGroup.image} name={d.whatsappGroup.name} idLabel={d.whatsappGroup.id} idValue={d.whatsappGroup.id} rounded="rounded-full" />
+          <EntityCell image={d.whatsappGroup.image} name={d.whatsappGroup.name} id={d.whatsappGroup.id} rounded="rounded-full" />
         ) : (
           <Badge variant="outline" className="border border-red-200 bg-red-50 text-xs font-medium text-red-600">No WhatsApp linked</Badge>
         )}
@@ -178,9 +169,9 @@ export function DevelopersPage() {
           searchPlaceholder="Developer Name or ID"
           filters={
             <>
-              <FilterDropdown label="All Status" value={statusF} options={["Active", "Hidden"]} onChange={(v) => { setStatusF(v); setPage(1) }} />
-              <FilterDropdown label="All Priority" value={priorityF} options={PRIORITIES} onChange={(v) => { setPriorityF(v); setPage(1) }} />
-              <FilterDropdown label="All Organizations" value={orgF} options={["Nawy", "Partners"]} onChange={(v) => { setOrgF(v); setPage(1) }} />
+              <FilterSelect label="All Status" value={statusF} options={["Active", "Hidden"]} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-36" />
+              <FilterSelect label="All Priority" value={priorityF} options={PRIORITIES} onChange={(v) => { setPriorityF(v); setPage(1) }} className="w-36" />
+              <FilterSelect label="All Organizations" value={orgF} options={["Nawy", "Partners"]} onChange={(v) => { setOrgF(v); setPage(1) }} className="w-40" />
             </>
           }
           groupControl={
@@ -199,10 +190,10 @@ export function DevelopersPage() {
 
         {/* Table card */}
         <TableCard>
-          <TableCardHeader title="Developers" count={filtered.length} cta={<Button size="sm" className="gap-1.5"><Plus className="h-4 w-4" />Add developer</Button>} />
+          <TableCardHeader title="Developers" count={filtered.length} cta={<Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}><Plus className="h-4 w-4" />Add developer</Button>} />
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] text-sm">
+            <table className={cn("w-full min-w-[1100px] text-sm", COL_SEP)}>
               <thead className="border-b border-border bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <Th className="pl-5">Developer Name</Th>
@@ -221,15 +212,16 @@ export function DevelopersPage() {
                 {groups ? (
                   groups.map((g) => (
                     <Fragment key={g.label}>
-                      <tr className="bg-muted/40">
-                        <td colSpan={10} className="px-5 py-2">
-                          <div className="flex items-center gap-2">
+                      <tr className="cursor-pointer bg-muted/40 hover:bg-muted/60" onClick={() => toggleGroup(g.label)}>
+                        <td colSpan={10} className="p-0">
+                          <div className="sticky left-0 flex w-max items-center gap-2 px-5 py-2">
+                            <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", collapsedGroups.has(g.label) && "-rotate-90")} />
                             <StoryBadge value={g.label} />
                             <span className="text-xs text-muted-foreground">{g.rows.length} developer{g.rows.length !== 1 ? "s" : ""}</span>
                           </div>
                         </td>
                       </tr>
-                      {g.rows.map(renderRow)}
+                      {!collapsedGroups.has(g.label) && g.rows.map(renderRow)}
                     </Fragment>
                   ))
                 ) : (
@@ -263,15 +255,26 @@ function PagerBtn({ children, onClick, disabled }: { children: React.ReactNode; 
 
 // ── Developer Details ────────────────────────────────────────────────────────
 const DETAIL_TABS = [
-  { value: "projects", label: "Projects", icon: Building2 },
   { value: "seo", label: "SEO", icon: FileText },
-  { value: "contacts", label: "Contacts", icon: Users },
   { value: "faqs", label: "FAQs", icon: HelpCircle },
+  { value: "projects", label: "Projects", icon: Building2 },
   { value: "whatsapp-media", label: "WhatsApp Media", icon: ImageIcon },
+  { value: "contacts", label: "Contacts", icon: Users },
 ]
+const PRIORITY_OPTS: DevPriority[] = ["Lowest", "Low", "Medium", "High", "Highest"]
 
-function DeveloperDetails({ developer, onBack }: { developer: Developer; onBack: () => void }) {
-  const [collapsed, setCollapsed] = useState(false)
+function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Developer; onBack: () => void; onUpdate: (patch: Partial<Developer>) => void }) {
+  const [collapsed, setCollapsed] = useState(true) // collapsed by default
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(developer)
+  const startEdit = () => { setDraft(developer); setEditing(true); setCollapsed(false) }
+  const saveEdit = () => {
+    onUpdate({ officialName: draft.officialName, nameEn: draft.nameEn, nameAr: draft.nameAr, name: draft.nameEn, priority: draft.priority, organizations: draft.organizations, listingStatus: draft.listingStatus, nawyEligible: draft.nawyEligible })
+    setEditing(false)
+  }
+  const toggleOrg = (o: DevOrg) => setDraft((d) => ({ ...d, organizations: d.organizations.includes(o) ? d.organizations.filter((x) => x !== o) : [...d.organizations, o] }))
+  const expanded = editing || !collapsed
+
   return (
     <div className="min-h-screen bg-secondary/40">
       <div className="space-y-4 p-6">
@@ -282,7 +285,7 @@ function DeveloperDetails({ developer, onBack }: { developer: Developer; onBack:
         </div>
 
         {/* Main container */}
-        <div className="rounded-xl border border-border bg-card shadow-sm">
+        <div className="rounded-xl border border-border bg-card">
           <div className="flex items-start justify-between gap-3 px-6 py-5">
             <div className="flex items-center gap-4">
               <img src={developer.logo} alt="" className="h-14 w-14 rounded-full border border-border object-cover" />
@@ -294,38 +297,63 @@ function DeveloperDetails({ developer, onBack }: { developer: Developer; onBack:
                 <div className="mt-0.5 flex items-center gap-1 text-sm text-muted-foreground">ID: {developer.id} <CopyBtn text={String(developer.id)} /></div>
               </div>
             </div>
-            <div className="flex items-center gap-1">
-              <IconBtn title="Edit"><Pencil className="h-4 w-4" /></IconBtn>
-              <IconBtn title={collapsed ? "Expand" : "Collapse"} onClick={() => setCollapsed((c) => !c)}>{collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}</IconBtn>
-              <IconBtn title="More"><MoreHorizontal className="h-4 w-4" /></IconBtn>
+            <div className="flex items-center gap-1.5">
+              {editing ? (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
+                  <Button size="sm" className="gap-1.5" onClick={saveEdit}><Save className="h-3.5 w-3.5" />Save</Button>
+                </>
+              ) : (
+                <>
+                  <IconBtn title="Edit" onClick={startEdit}><Pencil className="h-4 w-4" /></IconBtn>
+                  <IconBtn title={collapsed ? "Expand" : "Collapse"} onClick={() => setCollapsed((c) => !c)}>{collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}</IconBtn>
+                  <IconBtn title="More"><MoreHorizontal className="h-4 w-4" /></IconBtn>
+                </>
+              )}
             </div>
           </div>
 
-          {!collapsed && (
+          {expanded && (
             <div className="space-y-5 border-t border-border px-6 py-5">
               <div className="grid grid-cols-2 gap-x-8 gap-y-4 md:grid-cols-3 lg:grid-cols-5">
-                <Field label="Official Registered Name" value={developer.officialName} />
-                <Field label="Name (EN)" value={developer.nameEn} />
-                <Field label="Name (AR)" value={developer.nameAr} rtl />
+                <EditField label="Official Registered Name" editing={editing} value={editing ? draft.officialName : developer.officialName} onChange={(v) => setDraft((d) => ({ ...d, officialName: v }))} />
+                <EditField label="Name (EN)" editing={editing} value={editing ? draft.nameEn : developer.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
+                <EditField label="Name (AR)" rtl editing={editing} value={editing ? draft.nameAr : developer.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
                 <div>
                   <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Priority</p>
-                  <div className="mt-1"><StoryBadge value={developer.priority} /></div>
+                  {editing ? (
+                    <Select value={draft.priority} onValueChange={(v) => setDraft((d) => ({ ...d, priority: v as DevPriority }))}>
+                      <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>{PRIORITY_OPTS.map((p) => <SelectItem key={p} value={p} className="text-sm">{p}</SelectItem>)}</SelectContent>
+                    </Select>
+                  ) : <div className="mt-1"><StoryBadge value={developer.priority} /></div>}
                 </div>
                 <div>
                   <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Organization</p>
                   <div className="mt-1 flex flex-wrap gap-1">
-                    {developer.organizations.map((o) => <Badge key={o} variant="outline" className="border text-xs font-medium">{o}</Badge>)}
+                    {editing
+                      ? (["Nawy", "Partners"] as DevOrg[]).map((o) => (
+                        <button key={o} onClick={() => toggleOrg(o)} className={cn("rounded-md border px-2 py-0.5 text-xs font-medium transition-colors", draft.organizations.includes(o) ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted")}>{o}</button>
+                      ))
+                      : developer.organizations.map((o) => <Badge key={o} variant="outline" className="border text-xs font-medium">{o}</Badge>)}
                   </div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-x-8 gap-y-4 md:grid-cols-3 lg:grid-cols-5">
                 <div>
                   <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Listing status</p>
-                  <div className="mt-1"><StoryBadge value={developer.listingStatus} /></div>
+                  {editing ? (
+                    <Select value={draft.listingStatus} onValueChange={(v) => setDraft((d) => ({ ...d, listingStatus: v as DevListingStatus }))}>
+                      <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="Active" className="text-sm">Active</SelectItem><SelectItem value="Hidden" className="text-sm">Hidden</SelectItem></SelectContent>
+                    </Select>
+                  ) : <div className="mt-1"><StoryBadge value={developer.listingStatus} /></div>}
                 </div>
                 <div>
                   <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Nawy Eligible</p>
-                  <Badge variant="outline" className={cn("mt-1 border text-xs font-medium", developer.nawyEligible ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "text-muted-foreground")}>{developer.nawyEligible ? "Yes" : "No"}</Badge>
+                  {editing
+                    ? <div className="mt-1.5"><Switch checked={draft.nawyEligible} onCheckedChange={(v) => setDraft((d) => ({ ...d, nawyEligible: v }))} /></div>
+                    : <Badge variant="outline" className={cn("mt-1 border text-xs font-medium", developer.nawyEligible ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "text-muted-foreground")}>{developer.nawyEligible ? "Yes" : "No"}</Badge>}
                 </div>
               </div>
             </div>
@@ -333,19 +361,30 @@ function DeveloperDetails({ developer, onBack }: { developer: Developer; onBack:
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="projects" className="space-y-4">
+        <Tabs defaultValue="seo" className="space-y-4">
           <TabsList className="bg-card">
             {DETAIL_TABS.map((t) => (
               <TabsTrigger key={t.value} value={t.value} className="gap-1.5"><t.icon className="h-3.5 w-3.5" />{t.label}</TabsTrigger>
             ))}
           </TabsList>
-          <TabsContent value="projects"><ProjectsTab developer={developer} /></TabsContent>
           <TabsContent value="seo"><SeoTab developer={developer} /></TabsContent>
-          <TabsContent value="contacts"><ContactsTab /></TabsContent>
           <TabsContent value="faqs"><FaqsTab developer={developer} /></TabsContent>
-          <TabsContent value="whatsapp-media"><WhatsAppMediaTab /></TabsContent>
+          <TabsContent value="projects"><ProjectsTab developer={developer} /></TabsContent>
+          <TabsContent value="whatsapp-media"><WhatsAppMediaTable hideDeveloperFilter /></TabsContent>
+          <TabsContent value="contacts"><ContactsTab /></TabsContent>
         </Tabs>
       </div>
+    </div>
+  )
+}
+
+function EditField({ label, value, editing, onChange, rtl }: { label: string; value: string; editing: boolean; onChange: (v: string) => void; rtl?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      {editing
+        ? <Input value={value} onChange={(e) => onChange(e.target.value)} dir={rtl ? "rtl" : undefined} className={cn("mt-1 h-8 text-sm", rtl && "text-right")} />
+        : <p className={cn("mt-1 truncate text-sm font-medium text-foreground", rtl && "text-right")} dir={rtl ? "rtl" : undefined} title={value}>{value}</p>}
     </div>
   )
 }
@@ -406,29 +445,45 @@ function ProjectsTab({ developer }: { developer: Developer }) {
 }
 
 function SeoTab({ developer }: { developer: Developer }) {
+  const [descEn, setDescEn] = useState(`<p>${developer.descriptionEn}</p>`)
+  const [descAr, setDescAr] = useState(`<p>${developer.descriptionAr}</p>`)
+  const [metaTitleEn, setMetaTitleEn] = useState(`${developer.name} — Projects & Properties`)
+  const [metaTitleAr, setMetaTitleAr] = useState(`${developer.nameAr} — المشروعات والعقارات`)
+  const [metaDescEn, setMetaDescEn] = useState("")
+  const [metaDescAr, setMetaDescAr] = useState("")
+  const wc = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0)
   return (
     <TabCard>
       <h3 className="mb-4 text-sm font-semibold">SEO Information</h3>
       <div className="grid gap-5 md:grid-cols-2">
         <div>
           <p className="mb-1.5 text-xs font-medium text-muted-foreground">Description EN</p>
-          <div className="min-h-[120px] rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm">{developer.descriptionEn}</div>
-          <p className="mt-1 text-[11px] text-muted-foreground">Words: {developer.descriptionEn.split(" ").length} · Characters: {developer.descriptionEn.length}</p>
+          <RichTextEditor value={descEn} onChange={setDescEn} placeholder="Write the English description…" />
         </div>
         <div>
           <p className="mb-1.5 text-right text-xs font-medium text-muted-foreground">Description AR</p>
-          <div dir="rtl" className="min-h-[120px] rounded-lg border border-border bg-muted/20 px-3 py-2 text-right text-sm">{developer.descriptionAr}</div>
-          <p className="mt-1 text-right text-[11px] text-muted-foreground">عدد الكلمات: {developer.descriptionAr.split(" ").length}</p>
+          <RichTextEditor value={descAr} onChange={setDescAr} dir="rtl" placeholder="اكتب الوصف بالعربية…" />
         </div>
         <div>
           <p className="mb-1.5 text-xs font-medium text-muted-foreground">Meta Title EN</p>
-          <Input defaultValue={`${developer.name} — Projects & Properties`} className="h-9" />
+          <Input value={metaTitleEn} onChange={(e) => setMetaTitleEn(e.target.value)} className="h-9" />
+          <p className="mt-1 text-[11px] text-muted-foreground">{wc(metaTitleEn)} words</p>
         </div>
         <div>
           <p className="mb-1.5 text-right text-xs font-medium text-muted-foreground">Meta Title AR</p>
-          <Input dir="rtl" defaultValue={`${developer.nameAr} — المشروعات والعقارات`} className="h-9 text-right" />
+          <Input value={metaTitleAr} onChange={(e) => setMetaTitleAr(e.target.value)} dir="rtl" className="h-9 text-right" />
+          <p className="mt-1 text-right text-[11px] text-muted-foreground">{wc(metaTitleAr)} كلمة</p>
+        </div>
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">Meta Description EN</p>
+          <textarea value={metaDescEn} onChange={(e) => setMetaDescEn(e.target.value)} rows={4} placeholder="Meta description in English…" className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50" />
+        </div>
+        <div>
+          <p className="mb-1.5 text-right text-xs font-medium text-muted-foreground">Meta Description AR</p>
+          <textarea value={metaDescAr} onChange={(e) => setMetaDescAr(e.target.value)} dir="rtl" rows={4} placeholder="الوصف التعريفي بالعربية…" className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-right text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50" />
         </div>
       </div>
+      <div className="mt-5 flex justify-end"><Button size="sm" className="gap-1.5"><Save className="h-3.5 w-3.5" />Save</Button></div>
     </TabCard>
   )
 }
@@ -460,46 +515,121 @@ function ContactsTab() {
   )
 }
 
+interface Faq { id: string; active: boolean; questionEn: string; answerEn: string; questionAr: string; answerAr: string }
+let faqCounter = 100
+
+function LangToggle({ lang, onChange }: { lang: "en" | "ar"; onChange: (l: "en" | "ar") => void }) {
+  return (
+    <div className="inline-flex rounded-full border border-border bg-muted p-0.5 text-xs font-semibold">
+      <button onClick={() => onChange("en")} className={cn("rounded-full px-3 py-1 transition-colors", lang === "en" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>English</button>
+      <button onClick={() => onChange("ar")} className={cn("rounded-full px-3 py-1 transition-colors", lang === "ar" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>Arabic (العربية)</button>
+    </div>
+  )
+}
+
 function FaqsTab({ developer }: { developer: Developer }) {
-  const faqs = [
-    { q: `Where are ${developer.name}'s projects located?`, a: "Across New Cairo, Sheikh Zayed, the North Coast, and 6th of October." },
-    { q: "What payment plans are available?", a: "Flexible plans from 5% down payment and up to 12 years of installments, varying by project." },
-    { q: "Is delivery on schedule?", a: "Projects follow the announced delivery timelines with periodic construction updates." },
-  ]
+  const [lang, setLang] = useState<"en" | "ar">("en")
+  const [faqs, setFaqs] = useState<Faq[]>([
+    { id: "faq-1", active: true, questionEn: `Where are ${developer.name}'s projects located?`, answerEn: "Across New Cairo, Sheikh Zayed, the North Coast, and 6th of October.", questionAr: "أين تقع مشروعات المطور؟", answerAr: "في القاهرة الجديدة والشيخ زايد والساحل الشمالي و6 أكتوبر." },
+    { id: "faq-2", active: true, questionEn: "What payment plans are available?", answerEn: "Flexible plans from 5% down payment and up to 12 years of installments.", questionAr: "ما أنظمة السداد المتاحة؟", answerAr: "أنظمة مرنة تبدأ من 5% مقدم وحتى 12 سنة أقساط." },
+    { id: "faq-3", active: false, questionEn: "Is delivery on schedule?", answerEn: "Projects follow the announced delivery timelines with periodic updates.", questionAr: "هل التسليم في الموعد؟", answerAr: "تلتزم المشروعات بمواعيد التسليم المعلنة مع تحديثات دورية." },
+  ])
+  const [editing, setEditing] = useState<Faq | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const isAr = lang === "ar"
+
+  const move = (from: number, to: number) => setFaqs((fs) => { const n = [...fs]; const [m] = n.splice(from, 1); n.splice(to, 0, m); return n })
+  const toggleActive = (id: string) => setFaqs((fs) => fs.map((f) => (f.id === id ? { ...f, active: !f.active } : f)))
+  const remove = (id: string) => setFaqs((fs) => fs.filter((f) => f.id !== id))
+  const save = (faq: Faq) => setFaqs((fs) => (fs.some((f) => f.id === faq.id) ? fs.map((f) => (f.id === faq.id ? faq : f)) : [...fs, faq]))
+
   return (
     <TabCard>
-      <div className="mb-3 flex items-baseline gap-2">
-        <h3 className="text-sm font-semibold">FAQs</h3>
-        <span className="text-xs text-muted-foreground">({faqs.length})</span>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div><h3 className="text-sm font-semibold">FAQs</h3><p className="text-xs text-muted-foreground">Manage developer FAQs by language</p></div>
+        <div className="flex items-center gap-2">
+          <LangToggle lang={lang} onChange={setLang} />
+          <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}><Plus className="h-4 w-4" />Add FAQ</Button>
+        </div>
       </div>
+
       <div className="space-y-2.5">
         {faqs.map((f, i) => (
-          <div key={i} className="rounded-lg border border-border p-3">
-            <p className="text-sm font-medium text-foreground">{f.q}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{f.a}</p>
+          <div
+            key={f.id}
+            draggable
+            onDragStart={() => setDragIdx(i)}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={() => { if (dragIdx !== null && dragIdx !== i) move(dragIdx, i); setDragIdx(null) }}
+            className={cn("rounded-lg border border-border p-3 transition-shadow", dragIdx === i && "opacity-50")}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <GripVertical className="h-4 w-4 cursor-grab text-muted-foreground active:cursor-grabbing" />
+                <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">#{i + 1}</span>
+                <StoryBadge value={f.active ? "Active" : "Hidden"} />
+              </div>
+              <div className="flex items-center gap-1">
+                <Switch checked={f.active} onCheckedChange={() => toggleActive(f.id)} />
+                <IconBtn title="Edit" onClick={() => setEditing(f)}><Pencil className="h-4 w-4" /></IconBtn>
+                <IconBtn title="Delete" onClick={() => remove(f.id)}><Trash2 className="h-4 w-4" /></IconBtn>
+              </div>
+            </div>
+            <p dir={isAr ? "rtl" : undefined} className={cn("mt-2 text-sm font-semibold text-foreground", isAr && "text-right")}>{(isAr ? f.questionAr : f.questionEn) || "—"}</p>
+            <div dir={isAr ? "rtl" : undefined} className={cn("mt-1.5 rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground", isAr && "text-right")}>{(isAr ? f.answerAr : f.answerEn) || "—"}</div>
           </div>
         ))}
+        {faqs.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">No FAQs yet — click "Add FAQ" to create one.</p>}
       </div>
+
+      {(creating || editing) && (
+        <FaqModal faq={editing} lang={lang} onLang={setLang} onClose={() => { setCreating(false); setEditing(null) }} onSave={(f) => { save(f); setCreating(false); setEditing(null) }} />
+      )}
     </TabCard>
   )
 }
 
-function WhatsAppMediaTab() {
-  const imgs = ["/aerial-view-masterplan-residential-development-blu.jpg", "/luxury-clubhouse-exterior.jpg", "/placeholder.jpg", "/placeholder-logo.png", "/placeholder-user.jpg", "/aerial-view-masterplan-residential-development-blu.jpg"]
+function FaqModal({ faq, lang, onLang, onClose, onSave }: { faq: Faq | null; lang: "en" | "ar"; onLang: (l: "en" | "ar") => void; onClose: () => void; onSave: (f: Faq) => void }) {
+  const [active, setActive] = useState(faq?.active ?? true)
+  const [qEn, setQEn] = useState(faq?.questionEn ?? "")
+  const [aEn, setAEn] = useState(faq?.answerEn ?? "")
+  const [qAr, setQAr] = useState(faq?.questionAr ?? "")
+  const [aAr, setAAr] = useState(faq?.answerAr ?? "")
+  const isAr = lang === "ar"
+  const q = isAr ? qAr : qEn
+  const a = isAr ? aAr : aEn
+  const setQ = isAr ? setQAr : setQEn
+  const setA = isAr ? setAAr : setAEn
+  const canSave = (qEn.trim() && aEn.trim()) || (qAr.trim() && aAr.trim())
   return (
-    <TabCard>
-      <div className="mb-3 flex items-baseline gap-2">
-        <h3 className="text-sm font-semibold">WhatsApp Media</h3>
-        <span className="text-xs text-muted-foreground">({imgs.length})</span>
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {imgs.map((src, i) => (
-          <div key={i} className="overflow-hidden rounded-lg border border-border">
-            <img src={src} alt="" className="aspect-video w-full object-cover" />
-            <div className="px-2 py-1.5"><p className="truncate text-[11px] font-medium">Media {i + 1}</p><p className="text-[10px] text-muted-foreground">Sales Group</p></div>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-6" onClick={onClose}>
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <h3 className="text-base font-semibold">{faq ? "Edit FAQ" : "Add New FAQ"}</h3>
+          <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-muted-foreground">Language</p>
+            <LangToggle lang={lang} onChange={onLang} />
           </div>
-        ))}
+          <label className="flex items-center gap-2"><Switch checked={active} onCheckedChange={setActive} /><span className="text-sm">Active</span></label>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">Question ({isAr ? "AR" : "EN"}) <span className="text-red-500">*</span></label>
+            <Input value={q} onChange={(e) => setQ(e.target.value)} dir={isAr ? "rtl" : undefined} placeholder={isAr ? "أدخل السؤال..." : "Enter question..."} className={cn("h-10", isAr && "text-right")} />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">Answer ({isAr ? "AR" : "EN"}) <span className="text-red-500">*</span></label>
+            <textarea value={a} onChange={(e) => setA(e.target.value)} dir={isAr ? "rtl" : undefined} rows={6} placeholder={isAr ? "أدخل الإجابة..." : "Enter answer..."} className={cn("w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50", isAr && "text-right")} />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={!canSave} onClick={() => onSave({ id: faq?.id ?? `faq-${++faqCounter}`, active, questionEn: qEn, answerEn: aEn, questionAr: qAr, answerAr: aAr })}>{faq ? "Save" : "Add FAQ"}</Button>
+        </div>
       </div>
-    </TabCard>
+    </div>
   )
 }
+

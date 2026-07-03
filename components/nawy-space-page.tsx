@@ -882,7 +882,7 @@ function CopyId({ value, className }: { value: string; className?: string }) {
     setTimeout(() => setCopied(false), 1500)
   }
   return (
-    <span className={cn("inline-flex items-center gap-1 group/cid font-mono text-xs text-muted-foreground", className)}>
+    <span className={cn("inline-flex items-center gap-1 group/cid font-mono text-[10px] text-muted-foreground", className)}>
       {value}
       <button
         onClick={copy}
@@ -2180,7 +2180,7 @@ function ImagesTab() {
         <td className="border-r border-border px-3 py-2.5">
           <div className="flex items-center gap-2.5">
             <SatThumbnail image={row} size="sm" />
-            <CopyId value={row.id} className="font-semibold text-foreground text-xs" />
+            <CopyId value={row.id} className="font-semibold text-foreground text-[10px]" />
           </div>
         </td>
 
@@ -2780,7 +2780,7 @@ function ImagesTab() {
                 <SheetHeader className="px-6 py-4 border-b border-border shrink-0 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <CopyId value={selected.id} className="font-semibold text-foreground text-xs" />
+                      <CopyId value={selected.id} className="font-semibold text-foreground text-[10px]" />
                       <QualityBadge quality={selected.quality} />
                       <TypeBadge type={selected.type} />
                       <CapturingStatusBadge status={selected.capturingStatus} />
@@ -3377,7 +3377,7 @@ function ConstructionProjectDrawer({
           <>
             <SheetHeader className="px-6 py-4 border-b border-border shrink-0 space-y-1.5">
               <div className="flex items-center gap-2 flex-wrap">
-                <CopyId value={group.projectId} className="font-semibold text-foreground text-xs" />
+                <CopyId value={group.projectId} className="font-semibold text-foreground text-[10px]" />
                 <AreaTag areaName={group.areaName} />
               </div>
               <SheetTitle className="text-base font-semibold">{group.projectName}</SheetTitle>
@@ -4020,7 +4020,7 @@ function CompoundDrawer({
       <SheetContent className="w-[680px] sm:max-w-[680px] flex flex-col p-0">
         <SheetHeader className="px-6 py-4 border-b border-border shrink-0 space-y-1.5">
           <div className="flex items-center gap-2 flex-wrap">
-            <CopyId value={compound.projectId} className="font-semibold text-foreground text-xs" />
+            <CopyId value={compound.projectId} className="font-semibold text-foreground text-[10px]" />
             <AreaTag areaName={compound.areaName} />
             <Badge variant="outline" className={cn("text-[11px] px-1.5 py-0", healthBadgeColor(compound.health))}>{compound.health}</Badge>
           </div>
@@ -4671,7 +4671,7 @@ function ConstructionAnalysisTab() {
               <>
                 <SheetHeader className="px-6 py-4 border-b border-border shrink-0 space-y-1.5">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <CopyId value={phase.phaseId} className="font-semibold text-foreground text-xs" />
+                    <CopyId value={phase.phaseId} className="font-semibold text-foreground text-[10px]" />
                     <AreaTag areaName={compound.areaName} />
                     <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0", healthBadgeColor(phase.health))}>{phase.health}</Badge>
                     <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0", trendBadgeColor(phase.trend))}>{phase.trend}</Badge>
@@ -4825,7 +4825,7 @@ function ConstructionAnalysisTab() {
               <>
                 <SheetHeader className="px-6 py-4 border-b border-border shrink-0 space-y-2">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <CopyId value={selected.id} className="font-semibold text-foreground text-xs" />
+                    <CopyId value={selected.id} className="font-semibold text-foreground text-[10px]" />
                     <QualityBadge quality={selected.quality} />
                     <TypeBadge type={selected.type} />
                     <CapturingStatusBadge status={selected.capturingStatus} />

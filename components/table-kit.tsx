@@ -1,14 +1,243 @@
 "use client"
 
 import type React from "react"
+import { useEffect, useRef, useState } from "react"
 import {
-  Search, X, Filter, SlidersHorizontal, ArrowUpDown, Group as GroupIcon, Columns3,
+  Search, X, Filter, SlidersHorizontal, ArrowUpDown, Group as GroupIcon, Columns3, ChevronDown, Check, Copy,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
+
+// ── Shared filter option shape ────────────────────────────────────────────────
+export type FilterOption = { value: string; label: string; sublabel?: string }
+function normalizeOptions(options: (string | FilterOption)[]): FilterOption[] {
+  return options.map((o) => (typeof o === "string" ? { value: o, label: o } : o))
+}
+
+/**
+ * Canonical ID chip used EVERYWHERE across the project — tiny mono, muted, copy-on-hover.
+ * Format: an entity-prefixed value (DEV-001, PRJ-0004) shows as-is; a bare value shows "ID: 542".
+ * Never "ID# …". Always this size (text-[10px]) so IDs stay smaller than names/tags.
+ */
+export function IdTag({ value, label, className }: { value: string; label?: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+  const shown = label ?? (/^[A-Za-z]{1,6}[-_]/.test(value) ? value : `ID: ${value}`)
+  return (
+    <span className={cn("group/id inline-flex items-center gap-1 font-mono text-[10px] leading-none text-muted-foreground", className)}>
+      {shown}
+      <button
+        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(value).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1200) }}
+        className="opacity-0 transition-opacity group-hover/id:opacity-100"
+        title="Copy ID"
+      >
+        {copied ? <Check className="h-2.5 w-2.5 text-emerald-500" /> : <Copy className="h-2.5 w-2.5 hover:text-foreground" />}
+      </button>
+    </span>
+  )
+}
+
+/**
+ * Lighter-than-rows vertical column separators — apply to every table's `<table>` className.
+ * Rows use `divide-border`; columns use `border-border/50` so they read as secondary.
+ */
+export const COL_SEP =
+  "[&_thead_th:not(:last-child)]:border-r [&_thead_th:not(:last-child)]:border-border/50 [&_tbody_td:not(:last-child)]:border-r [&_tbody_td:not(:last-child)]:border-border/50"
+
+/** Canonical single-select filter — flat h-8 white trigger, optional search. Use on every table page. */
+export function FilterSelect({
+  label, value, options, onChange, className, searchable, width = "w-52",
+}: {
+  label: string
+  value: string
+  options: (string | FilterOption)[]
+  onChange: (v: string) => void
+  className?: string
+  /** Force a search box (auto-enabled when > 6 options). */
+  searchable?: boolean
+  width?: string
+}) {
+  const opts = normalizeOptions(options)
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState("")
+  const ref = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const showSearch = searchable ?? opts.length > 6
+
+  useEffect(() => { if (open && showSearch) setTimeout(() => inputRef.current?.focus(), 40) }, [open, showSearch])
+  useEffect(() => {
+    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setQ("") } }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+
+  const selected = opts.find((o) => o.value === value)
+  const filtered = opts.filter((o) => o.label.toLowerCase().includes(q.toLowerCase()))
+  const active = value !== "" && value !== "all"
+
+  return (
+    <div ref={ref} className={cn("relative", className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex h-8 w-full items-center justify-between gap-1.5 rounded-md border bg-white px-2.5 text-sm transition-colors hover:bg-muted/50",
+          active ? "border-primary text-primary" : "border-input text-foreground",
+        )}
+      >
+        <span className="truncate text-left">{active && selected ? selected.label : label}</span>
+        <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open && (
+        <div className={cn("absolute left-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-border bg-card shadow-md", width)}>
+          {showSearch && (
+            <div className="border-b border-border p-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" className="w-full rounded-md border border-input bg-white py-1.5 pl-8 pr-3 text-sm outline-none placeholder:text-muted-foreground/60" />
+              </div>
+            </div>
+          )}
+          <div className="max-h-56 overflow-y-auto py-1">
+            <button onClick={() => { onChange(""); setOpen(false); setQ("") }} className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-secondary", !active && "text-primary")}>
+              <span className="flex h-3.5 w-3.5 items-center justify-center">{!active && <Check className="h-3.5 w-3.5" />}</span>
+              {label}
+            </button>
+            {filtered.map((o) => (
+              <button key={o.value} onClick={() => { onChange(o.value); setOpen(false); setQ("") }} className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-secondary", value === o.value && "bg-primary/5")}>
+                <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center">{value === o.value && <Check className="h-3.5 w-3.5 text-primary" />}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{o.label}</span>
+                  {o.sublabel && <span className="block truncate font-mono text-[10px] text-muted-foreground">{o.sublabel}</span>}
+                </span>
+              </button>
+            ))}
+            {filtered.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No results</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Canonical multi-select filter — flat h-8 white trigger with count badge, searchable. Use on every table page. */
+export function FilterMultiSelect({
+  label, options, value, onChange, className, width = "w-52",
+}: {
+  label: string
+  options: (string | FilterOption)[]
+  value: string[]
+  onChange: (v: string[]) => void
+  className?: string
+  width?: string
+}) {
+  const opts = normalizeOptions(options)
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState("")
+  const ref = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { if (open) setTimeout(() => inputRef.current?.focus(), 40) }, [open])
+  useEffect(() => {
+    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setQ("") } }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+
+  const filtered = opts.filter((o) => o.label.toLowerCase().includes(q.toLowerCase()))
+  const toggle = (v: string) => onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v])
+
+  return (
+    <div ref={ref} className={cn("relative", className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex h-8 w-full items-center justify-between gap-1.5 rounded-md border bg-white px-2.5 text-sm transition-colors hover:bg-muted/50",
+          value.length > 0 ? "border-primary text-primary" : "border-input text-foreground",
+        )}
+      >
+        <span className="flex min-w-0 items-center gap-1.5 truncate text-left">
+          <span className={cn(value.length === 0 && "text-muted-foreground")}>{label}</span>
+          {value.length > 0 && <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">{value.length}</span>}
+        </span>
+        <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open && (
+        <div className={cn("absolute left-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-border bg-card shadow-md", width)}>
+          <div className="border-b border-border p-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-3 text-sm outline-none placeholder:text-muted-foreground/60" />
+            </div>
+          </div>
+          <div className="max-h-52 overflow-y-auto">
+            {filtered.map((o) => (
+              <div key={o.value} role="option" aria-selected={value.includes(o.value)} onClick={() => toggle(o.value)} className={cn("flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm hover:bg-secondary", value.includes(o.value) && "bg-primary/5")}>
+                <Checkbox checked={value.includes(o.value)} className="pointer-events-none h-4 w-4 flex-shrink-0" />
+                <span className="min-w-0">
+                  <span className="block truncate">{o.label}</span>
+                  {o.sublabel && <span className="block truncate font-mono text-[10px] text-muted-foreground">{o.sublabel}</span>}
+                </span>
+              </div>
+            ))}
+            {filtered.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No results</p>}
+          </div>
+          {value.length > 0 && (
+            <div className="border-t border-border p-2"><button onClick={() => { onChange([]); setQ("") }} className="text-xs text-primary hover:underline">Clear all</button></div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Unified date-range filter — a single dropdown with From/To date pickers.
+ * Use this for EVERY date-range filter across the project (never two loose date inputs).
+ */
+export function DateRangeFilter({
+  dateFrom, dateTo, onChangeFrom, onChangeTo, label = "Date Range", className,
+}: {
+  dateFrom: string
+  dateTo: string
+  onChangeFrom: (v: string) => void
+  onChangeTo: (v: string) => void
+  label?: string
+  className?: string
+}) {
+  const isActive = !!dateFrom || !!dateTo
+  const display = dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : dateFrom ? `From ${dateFrom}` : dateTo ? `To ${dateTo}` : label
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button className={cn(
+          "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-3 text-xs font-medium transition-colors",
+          isActive ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground hover:bg-muted",
+          className,
+        )}>
+          {display}
+          {isActive && <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary-foreground/20 px-1 text-[10px] font-semibold">1</span>}
+          <ChevronDown className="h-3 w-3" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-60 p-3" align="start">
+        <p className="mb-2 text-xs font-semibold text-muted-foreground">{label}</p>
+        <div className="space-y-2">
+          <div><label className="mb-1 block text-[11px] text-muted-foreground">From</label><Input className="h-8 text-sm" type="date" value={dateFrom} onChange={(e) => onChangeFrom(e.target.value)} /></div>
+          <div><label className="mb-1 block text-[11px] text-muted-foreground">To</label><Input className="h-8 text-sm" type="date" value={dateTo} onChange={(e) => onChangeTo(e.target.value)} /></div>
+        </div>
+        {isActive && <button onClick={() => { onChangeFrom(""); onChangeTo("") }} className="mt-2 w-full rounded-md border-t border-border pt-2 text-center text-xs text-muted-foreground hover:text-foreground">Clear</button>}
+      </PopoverContent>
+    </Popover>
+  )
+}
 
 /**
  * Shared table design system (reference: the All Properties → Detailed Properties table).
@@ -102,24 +331,24 @@ export function TableFooter({
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   return (
     <div className="flex items-center justify-between border-t border-border px-5 py-3">
+      <p className="text-xs text-muted-foreground">
+        Showing {total === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of{" "}
+        <span className="font-semibold text-foreground">{total.toLocaleString()}</span> {label}
+      </p>
       <div className="flex items-center gap-3">
-        <p className="text-xs text-muted-foreground">
-          Showing {total === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of{" "}
-          <span className="font-semibold text-foreground">{total.toLocaleString()}</span> {label}
-        </p>
         <Select value={String(pageSize)} onValueChange={(v) => onPageSize(Number(v))}>
           <SelectTrigger className="h-8 w-24 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
             {pageSizes.map((n) => <SelectItem key={n} value={String(n)} className="text-xs">{n} / page</SelectItem>)}
           </SelectContent>
         </Select>
-      </div>
-      <div className="flex items-center gap-1">
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onPage(1)} disabled={page === 1}><ChevronsLeft className="h-3.5 w-3.5" /></Button>
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onPage(page - 1)} disabled={page === 1}><ChevronLeft className="h-3.5 w-3.5" /></Button>
-        <span className="px-3 text-xs font-medium tabular-nums text-foreground">{page} / {totalPages}</span>
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onPage(page + 1)} disabled={page >= totalPages}><ChevronRight className="h-3.5 w-3.5" /></Button>
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onPage(totalPages)} disabled={page >= totalPages}><ChevronsRight className="h-3.5 w-3.5" /></Button>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onPage(1)} disabled={page === 1}><ChevronsLeft className="h-3.5 w-3.5" /></Button>
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onPage(page - 1)} disabled={page === 1}><ChevronLeft className="h-3.5 w-3.5" /></Button>
+          <span className="px-3 text-xs font-medium tabular-nums text-foreground">{page} / {totalPages}</span>
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onPage(page + 1)} disabled={page >= totalPages}><ChevronRight className="h-3.5 w-3.5" /></Button>
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => onPage(totalPages)} disabled={page >= totalPages}><ChevronsRight className="h-3.5 w-3.5" /></Button>
+        </div>
       </div>
     </div>
   )
