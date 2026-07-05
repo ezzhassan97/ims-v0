@@ -12,6 +12,7 @@ import { SoldUnitsPage } from "@/components/sold-units-page"
 import { AuditLogsPage } from "@/components/audit-logs-page"
 import { ConstructionUpdatesPage } from "@/components/construction-updates-page"
 import { WhatsAppMediaPage } from "@/components/whatsapp-media-page"
+import { WhatsAppGroupsPage } from "@/components/whatsapp-groups-page"
 import { WhatsAppConfigurationsPage } from "@/components/whatsapp-configurations-page"
 import { AllPropertiesPage } from "@/components/all-properties-page"
 import { DevelopersPage } from "@/components/developers-page"
@@ -69,6 +70,8 @@ export function AppShell() {
         return <AuditLogsPage />
       case "Construction Updates":
         return <ConstructionUpdatesPage />
+      case "Whatsapp Groups":
+        return <WhatsAppGroupsPage />
       case "Whatsapp Media":
         return <WhatsAppMediaPage />
       case "Whatsapp Configurations":
