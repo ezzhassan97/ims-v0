@@ -601,7 +601,7 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-export function GroupCard({
+function GroupCard({
   group,
   globalIndex,
   allRows,
@@ -612,7 +612,6 @@ export function GroupCard({
   onSelect,
   onView,
   detailView = false,
-  renderExpanded,
 }: {
   group: GroupedProperty
   globalIndex: number
@@ -625,8 +624,6 @@ export function GroupCard({
   onView: () => void
   /** When rendered inside the details page: no checkbox, edit instead of view, no expand, no media section */
   detailView?: boolean
-  /** When provided, the expand section renders this instead of the detailed-properties unit table. */
-  renderExpanded?: React.ReactNode
 }) {
   const [descExpanded, setDescExpanded] = useState(false)
   const [descOverflows, setDescOverflows] = useState(false)
@@ -1176,20 +1173,16 @@ export function GroupCard({
 
       {/* ── Expanded: Detailed Properties ── */}
       {isExpanded && (
-        renderExpanded !== undefined ? (
-          <div className="border-t border-border px-5 py-4">{renderExpanded}</div>
-        ) : (
-          <div className="border-t border-border px-5 py-4">
-            <div className="mb-3 flex items-baseline gap-2">
-              <h3 className="text-sm font-semibold">Detailed Properties</h3>
-              <span className="text-xs text-muted-foreground">({group.details.length} units)</span>
-            </div>
-            <EmbeddedPropertyTable
-              rows={allRows.slice(globalIndex * 3, globalIndex * 3 + group.details.length)}
-              hiddenColumns={hiddenCols}
-            />
+        <div className="border-t border-border px-5 py-4">
+          <div className="mb-3 flex items-baseline gap-2">
+            <h3 className="text-sm font-semibold">Detailed Properties</h3>
+            <span className="text-xs text-muted-foreground">({group.details.length} units)</span>
           </div>
-        )
+          <EmbeddedPropertyTable
+            rows={allRows.slice(globalIndex * 3, globalIndex * 3 + group.details.length)}
+            hiddenColumns={hiddenCols}
+          />
+        </div>
       )}
 
       {/* ── Carousel overlay ── */}
