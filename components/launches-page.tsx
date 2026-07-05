@@ -61,6 +61,10 @@ import {
   List,
 } from "lucide-react"
 import { LaunchDetailsPage } from "@/components/launch-details-page"
+import {
+  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, DateRangeFilter,
+  FloatingBulkBar, BulkBarButton, IdTag, COL_SEP,
+} from "@/components/table-kit"
 import { cn } from "@/lib/utils"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -646,13 +650,14 @@ export function LaunchesPage() {
   const [editingLaunch, setEditingLaunch] = useState<Launch | null>(null)
   const [archiveTarget, setArchiveTarget] = useState<Launch | null>(null)
   const [dragFrom, setDragFrom] = useState<number | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const lastSelectedIndex = useRef<number | null>(null)
 
   // ── Filtering ──────────────────────────────────────────────────────────────
 
   const filtered = launches.filter((l) => {
-    if (searchId && !l.id.toLowerCase().includes(searchId.toLowerCase())) return false
-    if (searchProject && !l.projectNameEn.toLowerCase().includes(searchProject.toLowerCase())) return false
+    if (searchId && !`${l.id} ${l.projectNameEn}`.toLowerCase().includes(searchId.toLowerCase())) return false
     if (developerFilter !== "all" && l.developer.name !== developerFilter) return false
     if (launchStatusFilter !== "all" && l.launchStatus !== launchStatusFilter) return false
     if (approvalStatusFilter !== "all" && l.approvalStatus !== approvalStatusFilter) return false
@@ -665,6 +670,11 @@ export function LaunchesPage() {
 
   const listed = launches.filter((l) => l.listingStatus === "Active")
   const active = launches.filter((l) => l.launchStatus === "Active Launch")
+  const pendingLaunches = launches.filter((l) => l.approvalStatus === "Pending Review")
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const safePage = Math.min(page, totalPages)
+  const pageData = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const activeFilterCount = [developerFilter, launchStatusFilter, approvalStatusFilter, ingestionStatusFilter, listingStatusFilter].filter((f) => f !== "all").length + ((createdFrom || createdTo) ? 1 : 0)
 
   const stats = {
     total: filtered.length,
@@ -826,115 +836,43 @@ export function LaunchesPage() {
             ))}
           </div>
 
-          {/* Filters */}
-          <Card className="p-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Search ID</label>
-                <div className="flex items-center gap-2">
-                  <Search className="h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="LCH-001" value={searchId} onChange={(e) => setSearchId(e.target.value)} className="w-32 h-9" />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Search Project</label>
-                <div className="flex items-center gap-2">
-                  <Search className="h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="Project name" value={searchProject} onChange={(e) => setSearchProject(e.target.value)} className="w-44 h-9" />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Developer</label>
-                <Select value={developerFilter} onValueChange={setDeveloperFilter}>
-                  <SelectTrigger className="w-44 h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Developers</SelectItem>
-                    {DEVELOPERS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Launch Status</label>
-                <Select value={launchStatusFilter} onValueChange={setLaunchStatusFilter}>
-                  <SelectTrigger className="w-40 h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Statuses</SelectItem>
-                    <SelectItem value="Upcoming">Upcoming</SelectItem>
-                    <SelectItem value="Active Launch">Active Launch</SelectItem>
-                    <SelectItem value="Finished">Finished</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Approval</label>
-                <Select value={approvalStatusFilter} onValueChange={setApprovalStatusFilter}>
-                  <SelectTrigger className="w-40 h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Approvals</SelectItem>
-                    <SelectItem value="Pending Review">Pending Review</SelectItem>
-                    <SelectItem value="Approved">Approved</SelectItem>
-                    <SelectItem value="Rejected">Rejected</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Ingestion Status</label>
-                <Select value={ingestionStatusFilter} onValueChange={setIngestionStatusFilter}>
-                  <SelectTrigger className="w-40 h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="Ingested">Ingested</SelectItem>
-                    <SelectItem value="Not Ingested">Not Ingested</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Listing Status</label>
-                <Select value={listingStatusFilter} onValueChange={setListingStatusFilter}>
-                  <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="Active">Active</SelectItem>
-                    <SelectItem value="Hidden">Hidden</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Created Date Range</label>
-                <div className="flex items-center gap-1.5">
-                  <div className="relative">
-                    <CalendarIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                    <Input type="date" value={createdFrom} onChange={(e) => setCreatedFrom(e.target.value)} className="h-9 pl-8 w-36" />
-                  </div>
-                  <span className="text-xs text-muted-foreground">to</span>
-                  <div className="relative">
-                    <CalendarIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                    <Input type="date" value={createdTo} onChange={(e) => setCreatedTo(e.target.value)} className="h-9 pl-8 w-36" />
-                  </div>
-                </div>
-              </div>
-              <div className="ml-auto">
-                <Button onClick={() => { setEditingLaunch(null); setFormOpen(true) }}>
-                  <Plus className="h-4 w-4 mr-2" />Create Launch
-                </Button>
-              </div>
-            </div>
-          </Card>
+          {/* Filters + controls */}
+          <TableToolbar
+            search={searchId}
+            onSearch={(v) => { setSearchId(v); setPage(1) }}
+            searchPlaceholder="Launch ID or project name"
+            activeFilters={activeFilterCount}
+            filters={
+              <>
+                <FilterSelect label="All Developers" value={developerFilter === "all" ? "" : developerFilter} options={DEVELOPERS} onChange={(v) => { setDeveloperFilter(v || "all"); setPage(1) }} className="w-44" />
+                <FilterSelect label="Launch Status" value={launchStatusFilter === "all" ? "" : launchStatusFilter} options={["Upcoming", "Active Launch", "Finished"]} onChange={(v) => { setLaunchStatusFilter(v || "all"); setPage(1) }} className="w-40" />
+                <FilterSelect label="Approval" value={approvalStatusFilter === "all" ? "" : approvalStatusFilter} options={["Pending Review", "Approved", "Rejected"]} onChange={(v) => { setApprovalStatusFilter(v || "all"); setPage(1) }} className="w-40" />
+                <FilterSelect label="Ingestion" value={ingestionStatusFilter === "all" ? "" : ingestionStatusFilter} options={["Ingested", "Not Ingested"]} onChange={(v) => { setIngestionStatusFilter(v || "all"); setPage(1) }} className="w-40" />
+                <FilterSelect label="Listing" value={listingStatusFilter === "all" ? "" : listingStatusFilter} options={["Active", "Hidden"]} onChange={(v) => { setListingStatusFilter(v || "all"); setPage(1) }} className="w-36" />
+                <DateRangeFilter label="Created Date Range" dateFrom={createdFrom} dateTo={createdTo} onChangeFrom={(v) => { setCreatedFrom(v); setPage(1) }} onChangeTo={(v) => { setCreatedTo(v); setPage(1) }} />
+              </>
+            }
+          />
 
           {/* Table */}
-          <Card className="overflow-hidden">
+          <TableCard>
+            <TableCardHeader
+              title="Launches"
+              count={filtered.length}
+              cta={<Button size="sm" className="gap-1.5" onClick={() => { setEditingLaunch(null); setFormOpen(true) }}><Plus className="h-4 w-4" />Create Launch</Button>}
+            />
             <div className="overflow-x-auto">
-              <Table>
+              <Table className={cn("w-max text-sm [&_thead_th]:h-auto [&_thead_th]:py-3 [&_thead_th]:text-[11px] [&_thead_th]:font-semibold [&_thead_th]:uppercase [&_thead_th]:tracking-wide [&_thead_th]:text-muted-foreground", COL_SEP)}>
                 <TableHeader>
-                  <TableRow className="bg-secondary/30">
-                    <TableHead className="sticky left-0 z-20 bg-secondary/30 w-10">
+                  <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60">
+                    <TableHead className="sticky left-0 z-20 bg-muted/60 w-10">
                       <Checkbox
                         checked={selectedIds.length === filtered.length && filtered.length > 0}
                         onCheckedChange={(c) => selectAll(!!c)}
                         className="cursor-pointer"
                       />
                     </TableHead>
-                    <TableHead className="w-32">ID</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">ID</TableHead>
                     <TableHead>Developer</TableHead>
                     <TableHead>Project Name</TableHead>
                     <TableHead>Phase</TableHead>
@@ -959,32 +897,25 @@ export function LaunchesPage() {
                       <TableCell colSpan={19} className="text-center py-12 text-muted-foreground">No launches found</TableCell>
                     </TableRow>
                   )}
-                  {filtered.map((launch, idx) => (
+                  {pageData.map((launch, idx) => (
                     <TableRow
                       key={launch.id}
-                      className={cn(selectedIds.includes(launch.id) && "bg-primary/5")}
+                      className={cn("hover:bg-muted/40", selectedIds.includes(launch.id) && "bg-primary/5")}
                     >
                       {/* Sticky checkbox */}
-                      <TableCell className="sticky left-0 z-10 bg-background">
+                      <TableCell className={cn("sticky left-0 z-10", selectedIds.includes(launch.id) ? "bg-primary/5" : "bg-card")}>
                         <Checkbox
                           checked={selectedIds.includes(launch.id)}
                           onCheckedChange={(checked, event) => {
                             const shiftKey = (event as unknown as React.MouseEvent)?.shiftKey ?? false
-                            toggleSelect(launch.id, idx, shiftKey)
+                            toggleSelect(launch.id, (safePage - 1) * pageSize + idx, shiftKey)
                           }}
                           className="cursor-pointer"
                         />
                       </TableCell>
 
                       {/* ID */}
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs font-mono text-muted-foreground">{launch.id}</span>
-                          <button onClick={() => copy(launch.id, `id-${launch.id}`)} className="p-0.5 hover:bg-secondary rounded">
-                            {copiedId === `id-${launch.id}` ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
-                          </button>
-                        </div>
-                      </TableCell>
+                      <TableCell><IdTag value={launch.id} /></TableCell>
 
                       {/* Developer */}
                       <TableCell>
@@ -992,12 +923,7 @@ export function LaunchesPage() {
                           <img src={launch.developer.logo} alt={launch.developer.name} className="h-7 w-7 rounded object-cover bg-secondary flex-shrink-0" />
                           <div>
                             <p className="text-sm font-medium leading-tight">{launch.developer.name}</p>
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10px] text-muted-foreground">{launch.developer.id}</span>
-                              <button onClick={() => copy(launch.developer.id, `dev-${launch.id}`)} className="p-0.5 hover:bg-secondary rounded">
-                                {copiedId === `dev-${launch.id}` ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
-                              </button>
-                            </div>
+                            <IdTag value={launch.developer.id} />
                           </div>
                         </div>
                       </TableCell>
@@ -1161,7 +1087,7 @@ export function LaunchesPage() {
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(launch.updatedAt)}</TableCell>
 
                       {/* Actions - sticky right */}
-                      <TableCell className="sticky right-0 z-10 bg-background">
+                      <TableCell className={cn("sticky right-0 z-10 border-l border-border", selectedIds.includes(launch.id) ? "bg-primary/5" : "bg-card")}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -1198,24 +1124,26 @@ export function LaunchesPage() {
                 </TableBody>
               </Table>
             </div>
-          </Card>
+            <TableFooter page={safePage} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="launches" />
+          </TableCard>
         </TabsContent>
 
         {/* ── PENDING REVIEW TAB ──────────────────────────────────────────── */}
         <TabsContent value="pending" className="mt-4 space-y-4">
-          <Card className="overflow-hidden">
+          <TableCard>
+            <TableCardHeader title="Pending Review" count={pendingLaunches.length} />
             <div className="overflow-x-auto">
-              <Table>
+              <Table className={cn("w-max text-sm [&_thead_th]:h-auto [&_thead_th]:py-3 [&_thead_th]:text-[11px] [&_thead_th]:font-semibold [&_thead_th]:uppercase [&_thead_th]:tracking-wide [&_thead_th]:text-muted-foreground", COL_SEP)}>
                 <TableHeader>
-                  <TableRow className="bg-secondary/30">
-                    <TableHead className="sticky left-0 z-20 bg-secondary/30 w-10">
+                  <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60">
+                    <TableHead className="sticky left-0 z-20 bg-muted/60 w-10">
                       <Checkbox
-                        checked={selectedIds.length === launches.filter((l) => l.approvalStatus === "Pending Review").length && launches.filter((l) => l.approvalStatus === "Pending Review").length > 0}
-                        onCheckedChange={(c) => setSelectedIds(!!c ? launches.filter((l) => l.approvalStatus === "Pending Review").map((l) => l.id) : [])}
+                        checked={selectedIds.length === pendingLaunches.length && pendingLaunches.length > 0}
+                        onCheckedChange={(c) => setSelectedIds(!!c ? pendingLaunches.map((l) => l.id) : [])}
                         className="cursor-pointer"
                       />
                     </TableHead>
-                    <TableHead className="w-32">ID</TableHead>
+                    <TableHead className="whitespace-nowrap">ID</TableHead>
                     <TableHead>Developer</TableHead>
                     <TableHead>Project Name</TableHead>
                     <TableHead>Phase</TableHead>
@@ -1235,18 +1163,18 @@ export function LaunchesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {launches.filter((l) => l.approvalStatus === "Pending Review").length === 0 && (
+                  {pendingLaunches.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={19} className="text-center py-12 text-muted-foreground">No launches pending review</TableCell>
                     </TableRow>
                   )}
-                  {launches.filter((l) => l.approvalStatus === "Pending Review").map((launch, idx) => (
+                  {pendingLaunches.map((launch, idx) => (
                     <TableRow
                       key={launch.id}
-                      className={cn(selectedIds.includes(launch.id) && "bg-primary/5")}
+                      className={cn("hover:bg-muted/40", selectedIds.includes(launch.id) && "bg-primary/5")}
                     >
                       {/* Sticky checkbox */}
-                      <TableCell className="sticky left-0 z-10 bg-background">
+                      <TableCell className={cn("sticky left-0 z-10", selectedIds.includes(launch.id) ? "bg-primary/5" : "bg-card")}>
                         <Checkbox
                           checked={selectedIds.includes(launch.id)}
                           onCheckedChange={() => toggleSelect(launch.id, idx, false)}
@@ -1255,14 +1183,7 @@ export function LaunchesPage() {
                       </TableCell>
 
                       {/* ID */}
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs font-mono text-muted-foreground">{launch.id}</span>
-                          <button onClick={() => copy(launch.id, `pid-${launch.id}`)} className="p-0.5 hover:bg-secondary rounded">
-                            {copiedId === `pid-${launch.id}` ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
-                          </button>
-                        </div>
-                      </TableCell>
+                      <TableCell><IdTag value={launch.id} /></TableCell>
 
                       {/* Developer */}
                       <TableCell>
@@ -1270,12 +1191,7 @@ export function LaunchesPage() {
                           <img src={launch.developer.logo} alt={launch.developer.name} className="h-7 w-7 rounded object-cover bg-secondary flex-shrink-0" />
                           <div>
                             <p className="text-sm font-medium leading-tight">{launch.developer.name}</p>
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10px] text-muted-foreground">{launch.developer.id}</span>
-                              <button onClick={() => copy(launch.developer.id, `pdev-${launch.id}`)} className="p-0.5 hover:bg-secondary rounded">
-                                {copiedId === `pdev-${launch.id}` ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
-                              </button>
-                            </div>
+                            <IdTag value={launch.developer.id} />
                           </div>
                         </div>
                       </TableCell>
@@ -1425,7 +1341,7 @@ export function LaunchesPage() {
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(launch.updatedAt)}</TableCell>
 
                       {/* Actions - sticky right */}
-                      <TableCell className="sticky right-0 z-10 bg-background">
+                      <TableCell className={cn("sticky right-0 z-10 border-l border-border", selectedIds.includes(launch.id) ? "bg-primary/5" : "bg-card")}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -1462,7 +1378,7 @@ export function LaunchesPage() {
                 </TableBody>
               </Table>
             </div>
-          </Card>
+          </TableCard>
         </TabsContent>
 
         {/* ── LISTED TAB ──────────────────────────────────────────────────── */}
@@ -1500,40 +1416,18 @@ export function LaunchesPage() {
         </TabsContent>
       </Tabs>
 
-      {/* ── Bulk actions floating bar ──────────────────────────────────────── */}
-      {selectedIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
-          <div className="flex items-center gap-3 bg-card border border-border rounded-xl shadow-2xl px-4 py-3">
-            <span className="text-sm font-medium text-foreground">
-              {selectedIds.length} selected
-            </span>
-            <div className="w-px h-5 bg-border" />
-            <Button variant="outline" size="sm" className="bg-transparent h-8" onClick={bulkExport}>
-              Export CSV
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="bg-transparent h-8 gap-1">
-                  Approval Status <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => bulkSetApproval("Pending Review")}>Pending Review</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => bulkSetApproval("Approved")}>Approved</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => bulkSetApproval("Rejected")}>Rejected</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 text-muted-foreground hover:text-foreground"
-              onClick={() => setSelectedIds([])}
-            >
-              <X className="h-3.5 w-3.5 mr-1" />Clear
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* ── Bulk actions floating bar (shared) ─────────────────────────────── */}
+      <FloatingBulkBar
+        count={selectedIds.length}
+        total={filtered.length}
+        onSelectAll={() => setSelectedIds(filtered.map((l) => l.id))}
+        onClear={() => setSelectedIds([])}
+      >
+        <BulkBarButton icon={<CheckCircle className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => bulkSetApproval("Approved")}>Approve</BulkBarButton>
+        <BulkBarButton icon={<XCircle className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => bulkSetApproval("Rejected")}>Reject</BulkBarButton>
+        <BulkBarButton icon={<List className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => bulkSetListing("Active")}>List</BulkBarButton>
+        <BulkBarButton icon={<Archive className="h-3.5 w-3.5 text-zinc-400" />} onClick={bulkExport}>Export</BulkBarButton>
+      </FloatingBulkBar>
 
       {/* Dialogs */}
       <LaunchFormDialog
