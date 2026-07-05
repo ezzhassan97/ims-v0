@@ -11,6 +11,8 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { LinkedPlanCard, type PlanCardData } from "@/components/all-properties-page"
 import { PaymentPlanDrawer } from "@/components/payment-plan-builder"
+import { GroupCard, type GroupedProperty } from "@/components/grouped-properties-page"
+import { AdditionalInfoTab } from "@/components/additional-info-tab"
 import {
   Table,
   TableBody,
@@ -365,14 +367,21 @@ function OfferingEditField({
   )
 }
 
-// Common-sense validation, mirroring the grouped-properties edit logic.
-function offeringErrors(o: Offering): Partial<Record<keyof Offering, string>> {
-  const errs: Partial<Record<keyof Offering, string>> = {}
-  const intOk = (v: string) => v.trim() === "" || (/^\d+$/.test(v.trim()) && +v >= 0 && +v <= 19)
-  if (o.offeringName.trim() === "") errs.offeringName = "Required"
-  if (!intOk(o.bedrooms)) errs.bedrooms = "Whole number 0–19"
-  if (!intOk(o.bathrooms)) errs.bathrooms = "Whole number 0–19"
-  return errs
+// Parse "4,500,000 - 6,200,000" or "180 - 220 SQM" → [min, max].
+function parseRange(s: string): [number, number] {
+  const nums = (s.match(/[\d.,]+/g) ?? []).map((x) => Number(x.replace(/,/g, ""))).filter((n) => !Number.isNaN(n))
+  if (nums.length >= 2) return [nums[0], nums[1]]
+  if (nums.length === 1) return [nums[0], nums[0]]
+  return [0, 0]
+}
+
+// Convert a free-text delivery like "Oct. 2027" → the YYYY-MM-DD the grouped card expects.
+const MONTHS3: Record<string, string> = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" }
+function toISODate(s: string): string {
+  const m = s.toLowerCase().match(/([a-z]{3})[a-z.]*\s*(\d{4})/)
+  if (m && MONTHS3[m[1]]) return `${m[2]}-${MONTHS3[m[1]]}-01`
+  const y = s.match(/\d{4}/)
+  return y ? `${y[0]}-01-01` : "2027-01-01"
 }
 
 interface MediaItem {
@@ -649,6 +658,51 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
   const setOfferingListed = (id: number, val: boolean) => {
     setOfferings((prev) => prev.map((o) => (o.id === id ? { ...o, listed: val } : o)))
     if (val) setEditingOfferingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
+  }
+
+  // Map a launch offering to a GroupedProperty so it renders with the REAL grouped-property
+  // card (collapsed) + AdditionalInfoTab (expanded).
+  const offeringToGroup = (o: Offering): GroupedProperty => {
+    const [priceMin, priceMax] = parseRange(o.priceRange)
+    const [areaMin, areaMax] = parseRange(o.grossAreaRange)
+    return {
+      id: `LOFF-${o.id}`,
+      propertyMetadataId: `PMD-${o.id}`,
+      title: o.offeringName,
+      description: o.keywords,
+      availableUnits: o.offersCount,
+      totalUnits: o.offersCount + o.paymentPlansCount,
+      priceMin, priceMax, areaMin, areaMax,
+      bedroom: Number(o.bedrooms) || 0,
+      bathroom: Number(o.bathrooms) || 0,
+      saleType: "Launch",
+      entryType: "Manual",
+      listingStatus: o.listed ? "Published" : "Hidden",
+      saleStatus: "Available",
+      propertyCategory: o.propertyCategory,
+      propertyType: o.propertyType,
+      propertySubType: o.propertySubtype,
+      district: launch.area,
+      locationArea: launch.area,
+      subarea: null,
+      locationId: "0000",
+      source: launch.source,
+      developer: { name: launch.developer.name, id: launch.developer.id, url: "#" },
+      project: { name: launch.projectNameEn, id: "PRJ-LAUNCH", url: "#" },
+      phase: launch.phase ? { name: launch.phase, id: "PH-LAUNCH", url: "#" } : null,
+      deliveryType: o.deliveryType,
+      deliveryDate: toISODate(o.deliveryDate),
+      finishing: o.finishingType,
+      createdAt: launch.createdAt,
+      updatedAt: launch.updatedAt,
+      availabilityUpdatedAt: launch.updatedAt,
+      plans: o.paymentPlansCount,
+      offers: o.offersCount,
+      images: (offeringImages[o.id] ?? []).map((m) => m.url),
+      floorPlans: (offeringFloorPlans[o.id] ?? []).map((m) => m.url),
+      amenities: [],
+      details: [],
+    }
   }
 
   const addMediaFiles = (offeringId: number, type: "image" | "floorplan", files: FileList) => {
@@ -1075,148 +1129,22 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
               </Button>
             </div>
 
-            {offerings.map((offering) => {
-              const isListed = offering.listed
-              const isEditing = !isListed && editingOfferingIds.has(offering.id)
-              const isExpanded = expandedOfferingIds.has(offering.id)
-              const errs = offeringErrors(offering)
-              const images = offeringImages[offering.id] ?? []
-              const floorPlans = offeringFloorPlans[offering.id] ?? []
-              const openGrouped = () => window.open(`/properties/grouped/${offering.id}`, "_blank", "noopener")
+            {offerings.map((offering, i) => {
+              const g = offeringToGroup(offering)
               return (
-                <Card
+                <GroupCard
                   key={offering.id}
-                  onClick={isListed ? openGrouped : undefined}
-                  className={`p-5 border transition-colors ${isEditing ? "border-primary/50 bg-secondary/10" : isListed ? "cursor-pointer border-border hover:border-primary/40 hover:shadow-sm" : "border-border hover:border-primary/30"}`}
-                >
-                  {/* Card header: name + listing badge + actions */}
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex min-w-0 items-center gap-2">
-                      {isEditing ? (
-                        <div>
-                          <Input value={offering.offeringName} onChange={(e) => updateOffering(offering.id, "offeringName", e.target.value)} className={`h-8 w-64 text-base font-semibold ${errs.offeringName ? "border-red-400" : ""}`} />
-                          {errs.offeringName && <p className="mt-0.5 text-[11px] text-red-500">{errs.offeringName}</p>}
-                        </div>
-                      ) : (
-                        <h3 className="truncate text-base font-semibold">{offering.offeringName}</h3>
-                      )}
-                      <span className={`inline-flex flex-shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${isListed ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{isListed ? "Listed" : "Unlisted"}</span>
-                    </div>
-                    <div className="flex flex-shrink-0 items-center gap-1 ml-4" onClick={(e) => e.stopPropagation()}>
-                      {isListed ? (
-                        <>
-                          <Button variant="outline" size="sm" className="h-8" onClick={() => setOfferingListed(offering.id, false)}>Unlist</Button>
-                          <Button variant="ghost" size="sm" className="h-8" onClick={openGrouped}>Open details</Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button variant={isEditing ? "default" : "ghost"} size="sm" className="h-8 gap-1.5" onClick={() => toggleEditOffering(offering.id)}>
-                            {isEditing ? <><Check className="h-3.5 w-3.5" />Done</> : <><Edit className="h-3.5 w-3.5" />Edit</>}
-                          </Button>
-                          <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setOfferingListed(offering.id, true)}><Check className="h-3.5 w-3.5" />List</Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setDeletingOfferingId(offering.id)}><Trash2 className="h-4 w-4" /></Button>
-                        </>
-                      )}
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleExpandOffering(offering.id)}><ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`} /></Button>
-                    </div>
-                  </div>
-
-                  {/* Locked context: developer / project / phase / location (read-only, even in edit) */}
-                  <div className="mb-4 grid grid-cols-4 gap-x-6 gap-y-2 border-b border-border/60 pb-3">
-                    <OfferingContextField label="Developer" value={launch.developer.name} />
-                    <OfferingContextField label="Project" value={launch.projectNameEn} />
-                    <OfferingContextField label="Phase" value={launch.phase} />
-                    <OfferingContextField label="Location" value={launch.area} />
-                  </div>
-
-                  {/* Metadata grid */}
-                  <div className="grid grid-cols-4 gap-x-6 gap-y-4">
-                    {isEditing ? (
-                      <>
-                        <OfferingEditField icon={Building2} label="Property Category" value={offering.propertyCategory} onChange={(v) => updateOffering(offering.id, "propertyCategory", v)} />
-                        <OfferingEditField icon={LayoutGrid} label="Property Type" value={offering.propertyType} onChange={(v) => updateOffering(offering.id, "propertyType", v)} />
-                        <OfferingEditField icon={LayoutGrid} label="Property Sub-type" value={offering.propertySubtype} onChange={(v) => updateOffering(offering.id, "propertySubtype", v)} />
-                        <OfferingEditField icon={PaintBucket} label="Finishing Type" value={offering.finishingType} onChange={(v) => updateOffering(offering.id, "finishingType", v)} type="select" options={["Fully Finished", "Semi-Finished", "Core & Shell", "Not Finished"]} />
-                        <OfferingEditField icon={BedDouble} label="Bedrooms" value={offering.bedrooms} onChange={(v) => updateOffering(offering.id, "bedrooms", v)} type="number" error={errs.bedrooms} />
-                        <OfferingEditField icon={Bath} label="Bathrooms" value={offering.bathrooms} onChange={(v) => updateOffering(offering.id, "bathrooms", v)} type="number" error={errs.bathrooms} />
-                        <OfferingEditField icon={Ruler} label="Gross Area Range" value={offering.grossAreaRange} onChange={(v) => updateOffering(offering.id, "grossAreaRange", v)} />
-                        <div className="col-span-1">
-                          <OfferingEditField icon={Tag} label="Price Range" value={offering.priceRange} onChange={(v) => updateOffering(offering.id, "priceRange", v)} />
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <OfferingField icon={Building2} label="Property Category" value={offering.propertyCategory} />
-                        <OfferingField icon={LayoutGrid} label="Property Type" value={offering.propertyType} />
-                        <OfferingField icon={LayoutGrid} label="Property Sub-type" value={offering.propertySubtype} />
-                        <OfferingField icon={PaintBucket} label="Finishing Type" value={offering.finishingType} />
-                        <OfferingField icon={BedDouble} label="Bedrooms" value={offering.bedrooms} />
-                        <OfferingField icon={Bath} label="Bathrooms" value={offering.bathrooms} />
-                        <OfferingField icon={Ruler} label="Gross Area Range" value={offering.grossAreaRange} />
-                        <OfferingField icon={Tag} label="Price" value={offering.priceRange} />
-                      </>
-                    )}
-                  </div>
-
-                  {/* Expandable: more fields (not a unit table) */}
-                  {isExpanded && (
-                    <div className="mt-4 grid grid-cols-4 gap-x-6 gap-y-4 border-t border-border pt-4">
-                      {isEditing ? (
-                        <>
-                          <OfferingEditField icon={Building2} label="Developer Type" value={offering.developerType} onChange={(v) => updateOffering(offering.id, "developerType", v)} />
-                          <OfferingEditField icon={Truck} label="Delivery Type" value={offering.deliveryType} onChange={(v) => updateOffering(offering.id, "deliveryType", v)} type="select" options={["Off-plan", "Ready to move"]} />
-                          <OfferingEditField icon={Truck} label="Delivery Date" value={offering.deliveryDate} onChange={(v) => updateOffering(offering.id, "deliveryDate", v)} />
-                          <div className="col-span-4">
-                            <OfferingEditField icon={Tag} label="Keywords" value={offering.keywords} onChange={(v) => updateOffering(offering.id, "keywords", v)} />
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <OfferingField icon={Building2} label="Developer Type" value={offering.developerType} />
-                          <OfferingField icon={Truck} label="Delivery Type / Date" value={`${offering.deliveryType} / ${offering.deliveryDate}`} />
-                          <OfferingField icon={Tag} label="Is New" value={offering.isNew ? "Yes" : "No"} />
-                          <div className="col-span-4"><OfferingField icon={Tag} label="Keywords" value={offering.keywords} /></div>
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Bottom: images, floor plans, payment plans */}
-                  <div className="mt-4 grid grid-cols-3 gap-6 border-t border-border pt-4" onClick={(e) => e.stopPropagation()}>
-                    <DraggableMediaList
-                      label="Images"
-                      icon={ImageIcon}
-                      items={images}
-                      onReorder={(items) => setOfferingImages((prev) => ({ ...prev, [offering.id]: items }))}
-                      onRemove={(id) => removeMedia(offering.id, "image", id)}
-                      onAdd={(files) => addMediaFiles(offering.id, "image", files)}
-                    />
-                    <DraggableMediaList
-                      label="Floor Plans"
-                      icon={FileText}
-                      items={floorPlans}
-                      onReorder={(items) => setOfferingFloorPlans((prev) => ({ ...prev, [offering.id]: items }))}
-                      onRemove={(id) => removeMedia(offering.id, "floorplan", id)}
-                      onAdd={(files) => addMediaFiles(offering.id, "floorplan", files)}
-                    />
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground mb-2">
-                        Payment Plans{" "}
-                        <button className="text-primary underline underline-offset-2 hover:opacity-80">Details</button>
-                      </p>
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-1.5 text-sm">
-                          <LayoutGrid className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>Plans: <span className="font-medium">{offering.paymentPlansCount} Plans added</span></span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-sm">
-                          <Tag className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>Offers: <span className="font-medium">{offering.offersCount} Offers</span></span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
+                  group={g}
+                  globalIndex={i}
+                  allRows={[]}
+                  isExpanded={expandedOfferingIds.has(offering.id)}
+                  onToggle={() => toggleExpandOffering(offering.id)}
+                  hiddenCols={[]}
+                  isSelected={false}
+                  onSelect={() => {}}
+                  onView={() => {}}
+                  renderExpanded={<AdditionalInfoTab group={g} />}
+                />
               )
             })}
           </div>
