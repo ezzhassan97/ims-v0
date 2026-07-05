@@ -127,7 +127,7 @@ export function FilterSelect({
 
 /** Canonical multi-select filter — flat h-8 white trigger with count badge, searchable. Use on every table page. */
 export function FilterMultiSelect({
-  label, options, value, onChange, className, width = "w-52",
+  label, options, value, onChange, className, width = "w-52", tone = "primary",
 }: {
   label: string
   options: (string | FilterOption)[]
@@ -135,7 +135,11 @@ export function FilterMultiSelect({
   onChange: (v: string[]) => void
   className?: string
   width?: string
+  /** Active-state colour: "primary" (blue) or "danger" (red, matches the detailed-properties filters). */
+  tone?: "primary" | "danger"
 }) {
+  const activeBorder = tone === "danger" ? "border-red-400 text-red-600" : "border-primary text-primary"
+  const activeBadge = tone === "danger" ? "bg-red-500 text-white" : "bg-primary text-primary-foreground"
   const opts = normalizeOptions(options)
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState("")
@@ -159,12 +163,12 @@ export function FilterMultiSelect({
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "flex h-8 w-full items-center justify-between gap-1.5 rounded-md border bg-white px-2.5 text-sm transition-colors hover:bg-muted/50",
-          value.length > 0 ? "border-primary text-primary" : "border-input text-foreground",
+          value.length > 0 ? activeBorder : "border-input text-foreground",
         )}
       >
         <span className="flex min-w-0 items-center gap-1.5 truncate text-left">
           <span className={cn(value.length === 0 && "text-muted-foreground")}>{label}</span>
-          {value.length > 0 && <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">{value.length}</span>}
+          {value.length > 0 && <span className={cn("inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-semibold", activeBadge)}>{value.length}</span>}
         </span>
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
@@ -269,7 +273,7 @@ export function TableCardHeader({ title, count, cta }: { title: string; count?: 
 // ── Search + filters toolbar with a divider before the control actions ────────
 export function TableToolbar({
   search, onSearch, searchPlaceholder = "Search…", filters,
-  activeFilters = 0, onAllFilters, onAdvancedFilters, onSort, onColumns, groupControl,
+  activeFilters = 0, onAllFilters, onAdvancedFilters, onSort, onColumns, groupControl, sortControl,
 }: {
   search: string
   onSearch: (v: string) => void
@@ -282,6 +286,8 @@ export function TableToolbar({
   onColumns?: () => void
   /** Optional custom Group control (e.g. a Group-by dropdown). Falls back to a plain "Group" button. */
   groupControl?: React.ReactNode
+  /** Optional custom Sort control (e.g. a multi-level sort dropdown). Falls back to a plain "Sort" button. */
+  sortControl?: React.ReactNode
 }) {
   return (
     <div className="space-y-2.5 rounded-xl border border-border bg-card p-3">
@@ -307,7 +313,7 @@ export function TableToolbar({
           <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onAdvancedFilters}><SlidersHorizontal className="h-3.5 w-3.5" />Advanced Filters</Button>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onSort}><ArrowUpDown className="h-3.5 w-3.5" />Sort</Button>
+          {sortControl ?? <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onSort}><ArrowUpDown className="h-3.5 w-3.5" />Sort</Button>}
           {groupControl ?? <Button variant="outline" size="sm" className="h-8 gap-1.5"><GroupIcon className="h-3.5 w-3.5" />Group</Button>}
           <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onColumns}><Columns3 className="h-3.5 w-3.5" />Columns</Button>
         </div>

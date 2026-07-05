@@ -1,8 +1,8 @@
 "use client"
 
-import { Fragment, useMemo, useState } from "react"
+import { Fragment, useMemo, useRef, useState } from "react"
 import {
-  Search, SlidersHorizontal, ArrowUpDown, Columns3, Plus, Copy, Check, ChevronDown,
+  Search, SlidersHorizontal, ArrowUpDown, ArrowUp, ArrowDown, Columns3, Plus, Copy, Check, ChevronDown, Download,
   ArrowRight, Home, ChevronRight, Pencil, ChevronUp, MoreHorizontal, MessageCircle,
   ChevronLeft, ChevronsLeft, ChevronsRight, Building2, FileText, Users, HelpCircle,
   Image as ImageIcon, Group as GroupIcon, GripVertical, Trash2, Save, X, UploadCloud,
@@ -10,11 +10,12 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Checkbox } from "@/components/ui/checkbox"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { StoryBadge } from "@/components/all-properties-page"
-import { TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, IdTag, COL_SEP } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FloatingBulkBar, BulkBarButton, IdTag, COL_SEP } from "@/components/table-kit"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { RichTextEditor } from "@/components/rich-text-editor"
@@ -23,6 +24,32 @@ import { DeveloperCreatePage } from "@/components/developer-create-page"
 import { DEVELOPERS, type Developer, type DevPriority, type DevListingStatus, type DevOrg } from "@/lib/developers-mock"
 
 const PRIORITIES: DevPriority[] = ["Lowest", "Low", "Medium", "High", "Highest"]
+
+type SortKey = "priority" | "projects" | "phases" | "createdAt" | "updatedAt"
+const SORT_FIELDS: { key: SortKey; label: string }[] = [
+  { key: "priority", label: "Priority" },
+  { key: "projects", label: "Projects" },
+  { key: "phases", label: "Phases" },
+  { key: "createdAt", label: "Created At" },
+  { key: "updatedAt", label: "Last Updated" },
+]
+const PRIORITY_ORDER: DevPriority[] = ["Lowest", "Low", "Medium", "High", "Highest"]
+function sortVal(d: Developer, key: SortKey): string | number {
+  switch (key) {
+    case "priority": return PRIORITY_ORDER.indexOf(d.priority)
+    case "projects": return d.projectsTotal
+    case "phases": return d.phasesTotal
+    case "createdAt": return d.createdAt
+    case "updatedAt": return d.updatedAt
+  }
+}
+
+/** Organization chip — same line, brand colours (Nawy teal, Partners blue). */
+function OrgChip({ org }: { org: string }) {
+  const bg = org === "Nawy" ? "#7DCBC1" : org === "Partners" ? "#015C9A" : "#e5e7eb"
+  const fg = org === "Nawy" ? "#0D1B2E" : "#ffffff"
+  return <span className="inline-flex items-center whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-semibold" style={{ backgroundColor: bg, color: fg }}>{org}</span>
+}
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 function fmt(iso: string) {
@@ -70,11 +97,14 @@ export function DevelopersPage() {
   const [selected, setSelected] = useState<Developer | null>(null)
   const [creating, setCreating] = useState(false)
   const [q, setQ] = useState("")
-  const [statusF, setStatusF] = useState("")
-  const [priorityF, setPriorityF] = useState("")
-  const [orgF, setOrgF] = useState("")
+  const [statusF, setStatusF] = useState<string[]>([])
+  const [priorityF, setPriorityF] = useState<string[]>([])
+  const [orgF, setOrgF] = useState<string[]>([])
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [sorts, setSorts] = useState<{ key: SortKey; dir: "asc" | "desc" }[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const lastClickedRef = useRef<number | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
@@ -85,18 +115,35 @@ export function DevelopersPage() {
     const needle = q.trim().toLowerCase()
     return rows.filter((d) => {
       if (needle && !`${d.name} ${d.id}`.toLowerCase().includes(needle)) return false
-      if (statusF && d.listingStatus !== statusF) return false
-      if (priorityF && d.priority !== priorityF) return false
-      if (orgF && !d.organizations.includes(orgF as never)) return false
+      if (statusF.length && !statusF.includes(d.listingStatus)) return false
+      if (priorityF.length && !priorityF.includes(d.priority)) return false
+      if (orgF.length && !orgF.some((o) => d.organizations.includes(o as never))) return false
       return true
     })
   }, [rows, q, statusF, priorityF, orgF])
+
+  const sorted = useMemo(() => {
+    if (!sorts.length) return filtered
+    return [...filtered].sort((a, b) => {
+      for (const s of sorts) {
+        const av = sortVal(a, s.key), bv = sortVal(b, s.key)
+        const c = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv))
+        if (c !== 0) return s.dir === "asc" ? c : -c
+      }
+      return 0
+    })
+  }, [filtered, sorts])
+
+  // Header click → make this key the single primary sort (toggle dir if already primary).
+  const toggleHeaderSort = (key: SortKey) =>
+    setSorts((prev) => (prev[0]?.key === key ? [{ key, dir: prev[0].dir === "asc" ? "desc" : "asc" }] : [{ key, dir: "asc" }]))
+  const headerSort = (key: SortKey) => sorts.find((s) => s.key === key)
 
   const groups = useMemo(() => {
     if (groupBy === "none") return null
     const order = groupBy === "priority" ? ["Highest", "High", "Medium", "Low", "Lowest"] : ["Active", "Hidden"]
     const map = new Map<string, Developer[]>()
-    for (const d of filtered) {
+    for (const d of sorted) {
       const k = String(groupBy === "priority" ? d.priority : d.listingStatus)
       if (!map.has(k)) map.set(k, [])
       map.get(k)!.push(d)
@@ -104,11 +151,41 @@ export function DevelopersPage() {
     return order.filter((o) => map.has(o)).map((o) => ({ label: o, rows: map.get(o)! }))
   }, [filtered, groupBy])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+  const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize)
 
   const update = (id: number, patch: Partial<Developer>) =>
     setRows((rs) => rs.map((d) => (d.id === id ? { ...d, ...patch } : d)))
+
+  // ── Selection (shift-range / page / all-results) ──
+  const toggleRow = (id: number, index: number, shift: boolean) => {
+    setSelectedIds((prev) => {
+      const n = new Set(prev)
+      if (shift && lastClickedRef.current !== null) {
+        const lo = Math.min(lastClickedRef.current, index), hi = Math.max(lastClickedRef.current, index)
+        for (let i = lo; i <= hi; i++) if (pageRows[i]) n.add(pageRows[i].id)
+      } else {
+        n.has(id) ? n.delete(id) : n.add(id)
+        lastClickedRef.current = index
+      }
+      return n
+    })
+  }
+  const pageAllSelected = pageRows.length > 0 && pageRows.every((d) => selectedIds.has(d.id))
+  const togglePage = () => setSelectedIds((prev) => {
+    const n = new Set(prev)
+    if (pageAllSelected) pageRows.forEach((d) => n.delete(d.id)); else pageRows.forEach((d) => n.add(d.id))
+    return n
+  })
+  const exportSelected = () => {
+    const chosen = rows.filter((d) => selectedIds.has(d.id))
+    const csv = [
+      ["ID", "Name", "Priority", "Listing Status", "Organizations", "Projects", "Phases"].join(","),
+      ...chosen.map((d) => [d.id, `"${d.name}"`, d.priority, d.listingStatus, `"${d.organizations.join("; ")}"`, `${d.projectsListed}/${d.projectsTotal}`, `${d.phasesListed}/${d.phasesTotal}`].join(",")),
+    ].join("\n")
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }))
+    const a = document.createElement("a"); a.href = url; a.download = "developers.csv"; a.click(); URL.revokeObjectURL(url)
+  }
 
   if (creating) {
     return <DeveloperCreatePage onBack={() => setCreating(false)} onCreate={() => setCreating(false)} />
@@ -118,8 +195,11 @@ export function DevelopersPage() {
     return <DeveloperDetails developer={live} onBack={() => setSelected(null)} onUpdate={(patch) => update(live.id, patch)} />
   }
 
-  const renderRow = (d: Developer) => (
-    <tr key={d.id} onClick={() => setSelected(d)} className="group cursor-pointer transition-colors hover:bg-muted/40">
+  const renderRow = (d: Developer, index: number) => (
+    <tr key={d.id} onClick={() => setSelected(d)} className={cn("group cursor-pointer transition-colors hover:bg-muted/40", selectedIds.has(d.id) && "bg-primary/5")}>
+      <td className={cn("sticky left-0 z-10 w-10 px-4 py-3", selectedIds.has(d.id) ? "bg-primary/5" : "bg-card")} onClick={(e) => e.stopPropagation()}>
+        <Checkbox checked={selectedIds.has(d.id)} onCheckedChange={(checked, event) => toggleRow(d.id, index, (event as unknown as React.MouseEvent)?.shiftKey ?? false)} className="h-4 w-4" />
+      </td>
       <td className="py-3 pl-5 pr-4">
         <EntityCell image={d.logo} name={d.name} id={String(d.id)} />
       </td>
@@ -130,8 +210,8 @@ export function DevelopersPage() {
         <StoryBadge value={d.listingStatus} options={["Active", "Hidden"]} onChange={(v) => update(d.id, { listingStatus: v as DevListingStatus })} />
       </td>
       <td className="px-4 py-3">
-        <div className="flex flex-wrap gap-1">
-          {d.organizations.map((o) => <Badge key={o} variant="outline" className="border text-xs font-medium">{o}</Badge>)}
+        <div className="flex flex-nowrap items-center gap-1">
+          {d.organizations.map((o) => <OrgChip key={o} org={o} />)}
         </div>
       </td>
       <td className="px-4 py-3">
@@ -153,6 +233,18 @@ export function DevelopersPage() {
     </tr>
   )
 
+  const SortTh = ({ label, k, className }: { label: string; k: SortKey; className?: string }) => {
+    const s = headerSort(k)
+    return (
+      <th className={cn("whitespace-nowrap px-4 py-3 text-left", className)}>
+        <button onClick={() => toggleHeaderSort(k)} className="inline-flex items-center gap-1 uppercase hover:text-foreground">
+          {label}
+          {s ? (s.dir === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+        </button>
+      </th>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-secondary/40">
       <div className="space-y-4 p-6">
@@ -167,13 +259,15 @@ export function DevelopersPage() {
           search={q}
           onSearch={(v) => { setQ(v); setPage(1) }}
           searchPlaceholder="Developer Name or ID"
+          activeFilters={statusF.length + priorityF.length + orgF.length}
           filters={
             <>
-              <FilterSelect label="All Status" value={statusF} options={["Active", "Hidden"]} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-36" />
-              <FilterSelect label="All Priority" value={priorityF} options={PRIORITIES} onChange={(v) => { setPriorityF(v); setPage(1) }} className="w-36" />
-              <FilterSelect label="All Organizations" value={orgF} options={["Nawy", "Partners"]} onChange={(v) => { setOrgF(v); setPage(1) }} className="w-40" />
+              <FilterMultiSelect label="Status" tone="danger" value={statusF} options={["Active", "Hidden"]} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-36" />
+              <FilterMultiSelect label="Priority" tone="danger" value={priorityF} options={PRIORITIES} onChange={(v) => { setPriorityF(v); setPage(1) }} className="w-36" />
+              <FilterMultiSelect label="Organizations" tone="danger" value={orgF} options={["Nawy", "Partners"]} onChange={(v) => { setOrgF(v); setPage(1) }} className="w-44" />
             </>
           }
+          sortControl={<DevSortControl sorts={sorts} setSorts={setSorts} />}
           groupControl={
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -196,15 +290,18 @@ export function DevelopersPage() {
             <table className={cn("w-full min-w-[1100px] text-sm", COL_SEP)}>
               <thead className="border-b border-border bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <tr>
+                  <th className="sticky left-0 z-20 w-10 bg-muted/60 px-4 py-3">
+                    <Checkbox checked={pageAllSelected} onCheckedChange={togglePage} className="h-4 w-4" />
+                  </th>
                   <Th className="pl-5">Developer Name</Th>
-                  <Th>Priority</Th>
+                  <SortTh label="Priority" k="priority" />
                   <Th>Listing Status</Th>
                   <Th>Organization</Th>
                   <Th>WhatsApp Group</Th>
-                  <Th>Projects</Th>
-                  <Th>Phases</Th>
-                  <Th>Created At</Th>
-                  <Th>Last Updated</Th>
+                  <SortTh label="Projects" k="projects" />
+                  <SortTh label="Phases" k="phases" />
+                  <SortTh label="Created At" k="createdAt" />
+                  <SortTh label="Last Updated" k="updatedAt" />
                   <th className="sticky right-0 z-10 w-12 border-l border-border bg-muted/60" />
                 </tr>
               </thead>
@@ -213,7 +310,7 @@ export function DevelopersPage() {
                   groups.map((g) => (
                     <Fragment key={g.label}>
                       <tr className="cursor-pointer bg-muted/40 hover:bg-muted/60" onClick={() => toggleGroup(g.label)}>
-                        <td colSpan={10} className="p-0">
+                        <td colSpan={11} className="p-0">
                           <div className="sticky left-0 flex w-max items-center gap-2 px-5 py-2">
                             <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", collapsedGroups.has(g.label) && "-rotate-90")} />
                             <StoryBadge value={g.label} />
@@ -228,7 +325,7 @@ export function DevelopersPage() {
                   pageRows.map(renderRow)
                 )}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={10} className="px-5 py-16 text-center text-sm text-muted-foreground">No developers match your filters.</td></tr>
+                  <tr><td colSpan={11} className="px-5 py-16 text-center text-sm text-muted-foreground">No developers match your filters.</td></tr>
                 )}
               </tbody>
             </table>
@@ -241,8 +338,60 @@ export function DevelopersPage() {
             <TableFooter page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="developers" />
           )}
         </TableCard>
+
+        <FloatingBulkBar
+          count={selectedIds.size}
+          total={filtered.length}
+          onSelectAll={() => setSelectedIds(new Set(filtered.map((d) => d.id)))}
+          onClear={() => setSelectedIds(new Set())}
+        >
+          <BulkBarButton icon={<Download className="h-3.5 w-3.5 text-zinc-400" />} onClick={exportSelected}>Export</BulkBarButton>
+        </FloatingBulkBar>
       </div>
     </div>
+  )
+}
+
+function DevSortControl({ sorts, setSorts }: { sorts: { key: SortKey; dir: "asc" | "desc" }[]; setSorts: React.Dispatch<React.SetStateAction<{ key: SortKey; dir: "asc" | "desc" }[]>> }) {
+  const used = new Set(sorts.map((s) => s.key))
+  const available = SORT_FIELDS.filter((f) => !used.has(f.key))
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant={sorts.length ? "default" : "outline"} size="sm" className="h-8 gap-1.5">
+          <ArrowUpDown className="h-3.5 w-3.5" />Sort
+          {sorts.length > 0 && <span className="ml-0.5 rounded-full bg-primary-foreground/20 px-1.5 text-[10px] font-semibold">{sorts.length}</span>}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">Multi-level sort</DropdownMenuLabel>
+        {sorts.length === 0 && <p className="px-2 py-1.5 text-xs text-muted-foreground">No sort applied — add a level below.</p>}
+        {sorts.map((s, i) => (
+          <div key={s.key} className="flex items-center gap-2 px-2 py-1.5">
+            <span className="w-4 text-[11px] text-muted-foreground">{i + 1}.</span>
+            <span className="flex-1 text-sm">{SORT_FIELDS.find((f) => f.key === s.key)?.label}</span>
+            <button onClick={() => setSorts((p) => p.map((x, j) => (j === i ? { ...x, dir: "asc" } : x)))} className={cn("rounded p-1", s.dir === "asc" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}><ArrowUp className="h-3.5 w-3.5" /></button>
+            <button onClick={() => setSorts((p) => p.map((x, j) => (j === i ? { ...x, dir: "desc" } : x)))} className={cn("rounded p-1", s.dir === "desc" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}><ArrowDown className="h-3.5 w-3.5" /></button>
+            <button onClick={() => setSorts((p) => p.filter((_, j) => j !== i))} className="rounded p-1 text-muted-foreground hover:text-red-600"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        ))}
+        {available.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">Add level</DropdownMenuLabel>
+            {available.map((f) => (
+              <DropdownMenuItem key={f.key} onSelect={(e) => { e.preventDefault(); setSorts((p) => [...p, { key: f.key, dir: "asc" }]) }} className="text-sm">+ {f.label}</DropdownMenuItem>
+            ))}
+          </>
+        )}
+        {sorts.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setSorts([])} className="text-sm text-red-600">Clear sort</DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
