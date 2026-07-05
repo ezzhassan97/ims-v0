@@ -20,6 +20,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { RichTextEditor } from "@/components/rich-text-editor"
 import { WhatsAppMediaTable } from "@/components/whatsapp-media-page"
+import { ProjectsPage } from "@/components/projects-list-page"
+import { PROJECTS } from "@/lib/projects-mock"
 import { DeveloperCreatePage } from "@/components/developer-create-page"
 import { DEVELOPERS, type Developer, type DevPriority, type DevListingStatus, type DevOrg } from "@/lib/developers-mock"
 
@@ -553,44 +555,15 @@ function TabCard({ children }: { children: React.ReactNode }) {
   return <div className="rounded-xl border border-border bg-card p-6 shadow-sm">{children}</div>
 }
 
+/** Reuses the exact Projects table from the Projects page, scoped to this developer and
+ *  without the Developer filter — so future changes to the Projects table reflect here too. */
 function ProjectsTab({ developer }: { developer: Developer }) {
-  const projects = Array.from({ length: developer.projectsTotal }, (_, i) => ({
-    id: `PRJ-${developer.id}-${i + 1}`,
-    name: `${developer.name.split(" ")[0]} ${["Heights", "Residences", "Park", "Gardens", "Bay", "Hills", "Square", "Valley"][i % 8]}`,
-    phases: (i % 4) + 1,
-    units: 80 + i * 35,
-    listed: i < developer.projectsListed,
-  }))
-  return (
-    <TabCard>
-      <div className="mb-3 flex items-baseline gap-2">
-        <h3 className="text-sm font-semibold">Linked Projects</h3>
-        <span className="text-xs text-muted-foreground">({projects.length})</span>
-      </div>
-      {projects.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">No projects linked to this developer.</p>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              <tr><Th className="pl-4">Project</Th><Th>ID</Th><Th>Phases</Th><Th>Units</Th><Th>Status</Th></tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {projects.map((p) => (
-                <tr key={p.id} className="hover:bg-muted/30">
-                  <td className="py-2.5 pl-4 pr-4 font-medium">{p.name}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">{p.id}</td>
-                  <td className="px-4 py-2.5">{p.phases}</td>
-                  <td className="px-4 py-2.5">{p.units}</td>
-                  <td className="px-4 py-2.5"><StoryBadge value={p.listed ? "Active" : "Hidden"} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </TabCard>
-  )
+  const first = developer.name.split(" ")[0].toLowerCase()
+  const devProjects = PROJECTS.filter((p) => {
+    const pd = p.developer.name.toLowerCase()
+    return pd.startsWith(first) || first.startsWith(p.developer.name.split(" ")[0].toLowerCase())
+  })
+  return <ProjectsPage embedded hideDeveloperFilter rows={devProjects} />
 }
 
 function SeoTab({ developer }: { developer: Developer }) {

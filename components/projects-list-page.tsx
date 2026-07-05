@@ -84,8 +84,8 @@ function groupKeyOf(row: ProjectRow, key: GroupByKey) {
   }
 }
 
-export function ProjectsPage() {
-  const [rows, setRows] = useState<ProjectRow[]>(PROJECTS)
+export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embedded = false }: { rows?: ProjectRow[]; hideDeveloperFilter?: boolean; embedded?: boolean } = {}) {
+  const [rows, setRows] = useState<ProjectRow[]>(rowsProp ?? PROJECTS)
   const [selected, setSelected] = useState<ProjectRow | null>(null)
   const [q, setQ] = useState("")
   const [developerF, setDeveloperF] = useState("")
@@ -214,13 +214,14 @@ export function ProjectsPage() {
   )
 
   return (
-    <div className="min-h-screen bg-secondary/40">
-      <div className="space-y-4 p-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Projects</h1>
-          <p className="text-sm text-muted-foreground">All projects and phases in the system</p>
-        </div>
+    <div className={embedded ? "" : "min-h-screen bg-secondary/40"}>
+      <div className={embedded ? "space-y-4" : "space-y-4 p-6"}>
+        {!embedded && (
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Projects</h1>
+            <p className="text-sm text-muted-foreground">All projects and phases in the system</p>
+          </div>
+        )}
 
         {/* Analytics cards */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -238,7 +239,7 @@ export function ProjectsPage() {
           activeFilters={[developerF, districtF, areaF, listingF, primaryF, entryF].filter(Boolean).length}
           filters={
             <>
-              <FilterSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name, sublabel: d.id }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-44" />
+              {!hideDeveloperFilter && <FilterSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name, sublabel: d.id }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-44" />}
               <FilterSelect label="District" value={districtF} options={DISTRICTS} onChange={(v) => { setDistrictF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Area" value={areaF} options={AREAS} onChange={(v) => { setAreaF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Listing Status" value={listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v); setPage(1) }} className="w-40" />
