@@ -12,6 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { LinkedPlanCard, type PlanCardData } from "@/components/all-properties-page"
 import { PaymentPlanDrawer } from "@/components/payment-plan-builder"
 import { toast } from "sonner"
+import { AdditionalInfoTab } from "@/components/additional-info-tab"
+import type { GroupedProperty } from "@/components/grouped-properties-page"
 import {
   Table,
   TableBody,
@@ -520,6 +522,27 @@ const mockAttachments = [
   { id: 4, name: "Floor Plans.pdf", type: "PDF", status: "Active", uploadedAt: "2024-01-10" },
 ]
 
+// Map a launch offering → GroupedProperty so the embedded AdditionalInfoTab shows the real
+// launch-property fields (developer/unit/area/amenity extras) with the same edit state.
+function offeringToGroup(o: Offering, launch: Launch): GroupedProperty {
+  const [priceMin, priceMax] = parseRange(o.priceRange)
+  const [areaMin, areaMax] = parseRange(o.grossAreaRange)
+  return {
+    id: `LOFF-${o.id}`, propertyMetadataId: `PMD-${o.id}`, title: o.offeringName, description: o.keywords,
+    availableUnits: o.offersCount, totalUnits: o.offersCount + o.paymentPlansCount,
+    priceMin, priceMax, areaMin, areaMax, bedroom: Number(o.bedrooms) || 0, bathroom: Number(o.bathrooms) || 0,
+    saleType: "Launch", entryType: "Manual", listingStatus: o.listed ? "Published" : "Hidden", saleStatus: "Available",
+    propertyCategory: o.propertyCategory, propertyType: o.propertyType, propertySubType: o.propertySubtype,
+    district: launch.area, locationArea: launch.area, subarea: null, locationId: "0000", source: launch.source,
+    developer: { name: launch.developer.name, id: launch.developer.id, url: "#" },
+    project: { name: launch.projectNameEn, id: "PRJ-LAUNCH", url: "#" },
+    phase: launch.phase ? { name: launch.phase, id: "PH-LAUNCH", url: "#" } : null,
+    deliveryType: o.deliveryType, deliveryDate: toISODate(o.deliveryDate), finishing: o.finishingType,
+    createdAt: launch.createdAt, updatedAt: launch.updatedAt, availabilityUpdatedAt: launch.updatedAt,
+    plans: o.paymentPlansCount, offers: o.offersCount, images: [], floorPlans: [], amenities: [], details: [],
+  }
+}
+
 // ── Launch offering card (dedicated — mirrors the grouped-property card, launch-only handling) ──
 const FINISHING_OPTS = ["Fully Finished", "Semi-Finished", "Core & Shell", "Not Finished"]
 const MANDATORY_OFFERING: (keyof Offering)[] = ["offeringName", "propertyCategory", "propertyType", "bedrooms", "bathrooms", "finishingType", "grossAreaRange", "priceRange"]
@@ -639,13 +662,10 @@ function LaunchOfferingCard({
           {fld(Tag, "Price Range", "priceRange")}
         </div>
 
-        {/* Expanded: remaining fields (same edit state, not a nested card) */}
+        {/* Expanded: the full Additional Info fields (same edit state, no nested card header) */}
         {expanded && (
-          <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-border pt-4 md:grid-cols-4">
-            {fld(LayoutGrid, "Property Sub-type", "propertySubtype")}
-            {fld(Building2, "Developer Type", "developerType")}
-            {fld(Truck, "Delivery Type", "deliveryType", { type: "select", options: ["Off-plan", "Ready to move"] })}
-            {fld(Truck, "Delivery Date", "deliveryDate")}
+          <div className="mt-4 border-t border-border pt-2">
+            <AdditionalInfoTab group={offeringToGroup(o, launch)} embedded editing={editing} />
           </div>
         )}
 

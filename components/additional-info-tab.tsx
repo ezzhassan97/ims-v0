@@ -493,12 +493,14 @@ function readDisplay(spec: FieldSpec, value: FieldValue): React.ReactNode {
 // ─────────────────────────────────────────────────────────────────────────────
 // Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function AdditionalInfoTab({ group }: { group: GroupedProperty }) {
+export function AdditionalInfoTab({ group, embedded = false, editing: editingProp }: { group: GroupedProperty; embedded?: boolean; editing?: boolean }) {
   const variation = useMemo(() => variationOf(group), [group])
   const ctx: Ctx = { variation, grossMin: group.areaMin, grossMax: group.areaMax }
   const fields = useMemo(() => FIELD_SPECS.filter((f) => f.visibleIn.includes(variation)), [variation])
 
-  const [isEditing, setIsEditing] = useState(false)
+  // `editing` can be driven externally (embedded mode) so a parent card shares one edit state.
+  const [internalEditing, setIsEditing] = useState(false)
+  const isEditing = editingProp ?? internalEditing
   const [saved, setSaved] = useState<Record<string, FieldValue>>(() => seedDraft(group, variation))
   const [draft, setDraft] = useState<Record<string, FieldValue>>(saved)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -529,7 +531,7 @@ export function AdditionalInfoTab({ group }: { group: GroupedProperty }) {
   }
 
   const hasErrors = Object.keys(errors).length > 0
-  const source = isEditing ? draft : saved
+  const source = (isEditing || embedded) ? draft : saved
 
   const renderEdit = (spec: FieldSpec) => {
     const v = draft[spec.key]
@@ -554,7 +556,8 @@ export function AdditionalInfoTab({ group }: { group: GroupedProperty }) {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card">
+    <div className={embedded ? "" : "rounded-xl border border-border bg-card"}>
+      {!embedded && (
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
         <div>
           <h3 className="text-sm font-semibold">Additional Info</h3>
@@ -575,6 +578,7 @@ export function AdditionalInfoTab({ group }: { group: GroupedProperty }) {
           </Button>
         )}
       </div>
+      )}
 
       <div className="divide-y divide-border">
         {SECTION_ORDER.map(({ id, label }) => {
