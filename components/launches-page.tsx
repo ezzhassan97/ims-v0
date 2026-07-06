@@ -47,6 +47,8 @@ import {
   GripVertical,
   ShieldCheck,
   Download,
+  Bot,
+  EyeOff,
 } from "lucide-react"
 import { toast } from "sonner"
 import { LaunchDetailsPage } from "@/components/launch-details-page"
@@ -87,9 +89,17 @@ interface Launch {
   listingCompletion: number
   eoiAmount?: number
   coverImage?: string
+  /** AI-parsed updates from WhatsApp (undefined for manual launches). */
+  aiUpdates?: { count: number; lastAt: string }
+  ingestedAt?: string
   sentAt: string
   createdAt: string
   updatedAt: string
+}
+
+/** New AI update = the last AI update landed after the launch was last updated. */
+function hasNewAiUpdate(l: Launch): boolean {
+  return !!l.aiUpdates && new Date(l.aiUpdates.lastAt) > new Date(l.updatedAt)
 }
 
 type TabKey = "all" | "pending" | "listed" | "active"
@@ -124,6 +134,7 @@ const mockLaunches: Launch[] = [
     listingProject: { id: "LST-001", name: "Palm Hills October" },
     launchStatus: "Active", type: "Launch", source: "WhatsApp",
     listingCompletion: 85, eoiAmount: 50000, coverImage: COVER,
+    aiUpdates: { count: 3, lastAt: "2024-01-16T10:00:00" }, ingestedAt: "2024-01-11T07:00:00",
     sentAt: "2024-01-10T07:45:00", createdAt: "2024-01-10T09:00:00", updatedAt: "2024-01-15T14:30:00",
   },
   {
@@ -148,6 +159,7 @@ const mockLaunches: Launch[] = [
     listingProject: { id: "LST-003", name: "Sodic East" },
     launchStatus: "Active", type: "Launch", source: "WhatsApp",
     listingCompletion: 100, eoiAmount: 60000, coverImage: COVER,
+    aiUpdates: { count: 2, lastAt: "2024-01-12T09:00:00" }, ingestedAt: "2024-01-09T10:30:00",
     sentAt: "2024-01-08T06:30:00", createdAt: "2024-01-08T08:00:00", updatedAt: "2024-01-16T10:00:00",
   },
   {
@@ -173,6 +185,7 @@ const mockLaunches: Launch[] = [
     listingProject: { id: "LST-005", name: "ZED East" },
     launchStatus: "Closed", type: "Launch", source: "WhatsApp",
     listingCompletion: 100, eoiAmount: 90000, coverImage: COVER,
+    aiUpdates: { count: 1, lastAt: "2024-01-05T08:00:00" }, ingestedAt: "2023-12-22T09:00:00",
     sentAt: "2023-12-20T06:00:00", createdAt: "2023-12-20T07:30:00", updatedAt: "2024-01-10T12:00:00",
   },
   {
@@ -184,6 +197,7 @@ const mockLaunches: Launch[] = [
     approvalStatus: "Pending Review", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
     launchStatus: "Upcoming", type: "Launch", source: "WhatsApp",
     listingCompletion: 60, eoiAmount: 55000, coverImage: COVER,
+    aiUpdates: { count: 1, lastAt: "2024-01-17T08:00:00" },
     sentAt: "2024-01-14T08:40:00", createdAt: "2024-01-14T10:00:00", updatedAt: "2024-01-16T09:30:00",
   },
   {
@@ -197,6 +211,7 @@ const mockLaunches: Launch[] = [
     listingProject: { id: "LST-007", name: "Il Monte Galala" },
     launchStatus: "Active", type: "Launch", source: "WhatsApp",
     listingCompletion: 78, eoiAmount: 120000, coverImage: COVER,
+    aiUpdates: { count: 4, lastAt: "2024-01-15T12:00:00" }, ingestedAt: "2024-01-04T11:00:00",
     sentAt: "2024-01-03T07:15:00", createdAt: "2024-01-03T09:00:00", updatedAt: "2024-01-17T11:00:00",
   },
   {
@@ -210,6 +225,7 @@ const mockLaunches: Launch[] = [
     listingProject: { id: "LST-008", name: "Palm Hills New Cairo" },
     launchStatus: "Active", type: "Release", source: "Manual",
     listingCompletion: 92, eoiAmount: 65000, coverImage: COVER,
+    ingestedAt: "2024-01-10T09:15:00",
     sentAt: "2024-01-09T08:00:00", createdAt: "2024-01-09T08:30:00", updatedAt: "2024-01-18T14:00:00",
   },
   {
@@ -232,6 +248,7 @@ const mockLaunches: Launch[] = [
     approvalStatus: "Pending Review", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
     launchStatus: "Upcoming", type: "Launch", source: "WhatsApp",
     listingCompletion: 35, eoiAmount: 80000, coverImage: COVER,
+    aiUpdates: { count: 2, lastAt: "2024-01-20T11:00:00" },
     sentAt: "2024-01-17T08:20:00", createdAt: "2024-01-17T09:00:00", updatedAt: "2024-01-19T15:00:00",
   },
 ]
@@ -303,13 +320,13 @@ const LAUNCH_STATUS_TONE: Record<Launch["launchStatus"], keyof typeof CHIP_TONES
   "Active": "green", "Upcoming": "blue", "Closed": "purple",
 }
 
+/** Canonical launches timestamp format: "10 Jan 2024, 07:00 AM". */
 function formatDate(dateString: string | null | undefined) {
-  if (!dateString) return "-"
-  return new Date(dateString).toLocaleString("en-GB", {
-    day: "2-digit", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-    timeZone: "UTC",
-  })
+  if (!dateString) return "—"
+  const d = new Date(dateString)
+  const date = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })
+  const time = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "UTC" })
+  return `${date}, ${time}`
 }
 
 // ─── Create dialog ─────────────────────────────────────────────────────────────
@@ -683,6 +700,7 @@ export function LaunchesPage() {
   const [areaF, setAreaF] = useState<string[]>([])
   const [sourceF, setSourceF] = useState("all")
   const [alreadyCreatedF, setAlreadyCreatedF] = useState("all")
+  const [aiUpdatesF, setAiUpdatesF] = useState("all")
   const [launchStatusF, setLaunchStatusF] = useState("all")
   const [approvalF, setApprovalF] = useState("all")
   const [ingestionF, setIngestionF] = useState("all")
@@ -730,6 +748,7 @@ export function LaunchesPage() {
       if (sourceF !== "all" && l.source !== sourceF) return false
       if (alreadyCreatedF === "Existing" && !l.existingProject) return false
       if (alreadyCreatedF === "New" && l.existingProject) return false
+      if (aiUpdatesF === "New update" && !hasNewAiUpdate(l)) return false
       if (t !== "active" && launchStatusF !== "all" && l.launchStatus !== launchStatusF) return false
       if (t !== "pending" && approvalF !== "all" && l.approvalStatus !== approvalF) return false
       if (t !== "listed" && ingestionF !== "all" && l.ingestionStatus !== ingestionF) return false
@@ -749,7 +768,7 @@ export function LaunchesPage() {
 
   const activeFilterCount =
     (developerF.length ? 1 : 0) + (areaF.length ? 1 : 0) +
-    [sourceF, alreadyCreatedF, listingF].filter((f) => f !== "all").length +
+    [sourceF, alreadyCreatedF, aiUpdatesF, listingF].filter((f) => f !== "all").length +
     (tab !== "active" && launchStatusF !== "all" ? 1 : 0) +
     (tab !== "pending" && approvalF !== "all" ? 1 : 0) +
     (tab !== "listed" && ingestionF !== "all" ? 1 : 0) +
@@ -875,6 +894,17 @@ export function LaunchesPage() {
     </DropdownMenuItem>
   )
 
+  const toggleListingItem = (l: Launch) => (
+    <DropdownMenuItem onClick={() => {
+      const next = l.listingStatus === "Active" ? "Hidden" : "Active"
+      patch([l.id], { listingStatus: next })
+      toast.success(`${l.projectNameEn} listing set to ${next}`)
+    }}>
+      {l.listingStatus === "Active" ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
+      {l.listingStatus === "Active" ? "Hide Listing" : "Show Listing"}
+    </DropdownMenuItem>
+  )
+
   const rowMenu = (l: Launch) => {
     if (tab === "all" || tab === "pending") {
       const dimApproval = l.ingestionStatus === "Ingested"
@@ -899,8 +929,13 @@ export function LaunchesPage() {
                 </DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+            {toggleListingItem(l)}
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDialog({ kind: "archive", launch: l })}>
+            <DropdownMenuItem
+              disabled={l.ingestionStatus === "Ingested"}
+              className={cn("text-destructive focus:text-destructive", l.ingestionStatus === "Ingested" && "opacity-40")}
+              onClick={() => setDialog({ kind: "archive", launch: l })}
+            >
               <Archive className="h-4 w-4 mr-2" />Archive
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -927,6 +962,7 @@ export function LaunchesPage() {
                 </DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+            {toggleListingItem(l)}
           </DropdownMenuContent>
         </DropdownMenu>
       )
@@ -939,6 +975,7 @@ export function LaunchesPage() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {viewItem(l)}
+          {toggleListingItem(l)}
           <DropdownMenuSeparator />
           <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDialog({ kind: "close", launch: l })}>
             <XCircle className="h-4 w-4 mr-2" />Close Launch
@@ -982,8 +1019,17 @@ export function LaunchesPage() {
           </TableCell>
         )}
 
-        {/* ID */}
-        <TableCell><IdTag value={l.id} /></TableCell>
+        {/* ID (+ New AI update caption) */}
+        <TableCell>
+          <div className="flex flex-col gap-0.5">
+            <IdTag value={l.id} />
+            {hasNewAiUpdate(l) && (
+              <span className="inline-flex w-fit items-center gap-1 whitespace-nowrap rounded border border-purple-200 bg-purple-50 px-1.5 py-px text-[10px] font-medium text-purple-700">
+                <Bot className="h-2.5 w-2.5" />New AI update
+              </span>
+            )}
+          </div>
+        </TableCell>
 
         {/* Developer — clickable, opens new tab */}
         <TableCell>
@@ -1082,6 +1128,15 @@ export function LaunchesPage() {
           </div>
         </TableCell>
 
+        {/* AI Updates */}
+        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+          {l.aiUpdates ? (
+            <span className={cn(hasNewAiUpdate(l) && "font-medium text-purple-700")}>
+              {l.aiUpdates.count} update{l.aiUpdates.count === 1 ? "" : "s"}, {formatDate(l.aiUpdates.lastAt)}
+            </span>
+          ) : "—"}
+        </TableCell>
+
         {/* Sent At */}
         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.sentAt)}</TableCell>
 
@@ -1091,6 +1146,9 @@ export function LaunchesPage() {
         {/* Updated At */}
         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.updatedAt)}</TableCell>
 
+        {/* Ingested At */}
+        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.ingestedAt)}</TableCell>
+
         {/* Actions — frozen right */}
         <TableCell className={cn("sticky right-0 z-10 border-l border-border", selected ? "bg-primary/5" : "bg-card")}>
           {rowMenu(l)}
@@ -1099,7 +1157,7 @@ export function LaunchesPage() {
     )
   }
 
-  const colCount = tab === "active" ? 21 : 20
+  const colCount = tab === "active" ? 23 : 22
 
   const renderTable = (title: string, cta?: React.ReactNode) => (
     <TableCard>
@@ -1131,9 +1189,11 @@ export function LaunchesPage() {
               <TableHead>Type</TableHead>
               <TableHead>Source</TableHead>
               <TableHead>Completion</TableHead>
+              <TableHead>AI Updates</TableHead>
               <TableHead>Sent At</TableHead>
               <TableHead>Created At</TableHead>
               <TableHead>Updated At</TableHead>
+              <TableHead>Ingested At</TableHead>
               <TableHead className="sticky right-0 z-20 w-10 bg-secondary/30"></TableHead>
             </TableRow>
           </TableHeader>
@@ -1163,6 +1223,7 @@ export function LaunchesPage() {
           <FilterMultiSelect label="Area" options={AREAS} value={areaF} onChange={(v) => { setAreaF(v); setPage(1) }} tone="danger" className="w-36" />
           <FilterSelect label="Source" value={sourceF === "all" ? "" : sourceF} options={["WhatsApp", "Manual"]} onChange={(v) => { setSourceF(v || "all"); setPage(1) }} className="w-32" />
           <FilterSelect label="Already Created" value={alreadyCreatedF === "all" ? "" : alreadyCreatedF} options={["Existing", "New"]} onChange={(v) => { setAlreadyCreatedF(v || "all"); setPage(1) }} className="w-40" />
+          <FilterSelect label="AI Updates" value={aiUpdatesF === "all" ? "" : aiUpdatesF} options={["New update"]} onChange={(v) => { setAiUpdatesF(v || "all"); setPage(1) }} className="w-36" />
           {tab !== "active" && (
             <FilterSelect label="Launch Status" value={launchStatusF === "all" ? "" : launchStatusF} options={["Upcoming", "Active", "Closed"]} onChange={(v) => { setLaunchStatusF(v || "all"); setPage(1) }} className="w-38" />
           )}

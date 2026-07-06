@@ -8,7 +8,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { Progress } from "@/components/ui/progress"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { LinkedPlanCard, type PlanCardData } from "@/components/all-properties-page"
 import { PaymentPlanDrawer } from "@/components/payment-plan-builder"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
@@ -107,6 +110,8 @@ import {
   CalendarDays,
   Banknote,
   Globe,
+  Bot,
+  Database,
 } from "lucide-react"
 import { useRef, useEffect, useCallback } from "react"
 import { cn } from "@/lib/utils"
@@ -237,7 +242,14 @@ interface Launch {
   phase: string
   projectLevel: "Main Project" | "Phase"
   parentProjectId?: string
+  /** Matched system project id — undefined ⇒ unmatched free-text parent. */
+  projectId?: string
+  /** Already-created project in the system — undefined ⇒ "New". */
+  existingProject?: { id: string; name: string }
   area: string
+  areaId?: string
+  aiUpdates?: { count: number; lastAt: string }
+  ingestedAt?: string
   approvalStatus: "Pending Review" | "Approved" | "Rejected"
   ingestionStatus: "Ingested" | "Not Ingested"
   listingStatus: "Active" | "Hidden"
@@ -274,6 +286,7 @@ interface Offering {
   paymentPlansCount: number
   offersCount: number
   listed: boolean
+  listingStatus?: "Active" | "Hidden"
 }
 
 const initialOfferings: Offering[] = [
@@ -296,6 +309,7 @@ const initialOfferings: Offering[] = [
     paymentPlansCount: 2,
     offersCount: 1,
     listed: true,
+    listingStatus: "Active",
   },
   {
     id: 2,
@@ -426,6 +440,7 @@ function DraggableMediaList({
   onAdd,
   label,
   icon: Icon,
+  readOnly = false,
 }: {
   items: MediaItem[]
   onReorder: (items: MediaItem[]) => void
@@ -433,6 +448,8 @@ function DraggableMediaList({
   onAdd: (files: FileList) => void
   label: string
   icon: React.ElementType
+  /** Listed/ingested properties: media is view-only — no add, remove or reorder. */
+  readOnly?: boolean
 }) {
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
@@ -454,14 +471,16 @@ function DraggableMediaList({
     <div>
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-1 text-xs text-primary hover:opacity-80 transition-opacity"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1 text-xs text-primary hover:opacity-80 transition-opacity"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add
+          </button>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -475,38 +494,47 @@ function DraggableMediaList({
         {items.map((item, idx) => (
           <div
             key={item.id}
-            draggable
-            onDragStart={() => handleDragStart(idx)}
-            onDragEnter={() => handleDragEnter(idx)}
-            onDragEnd={handleDragEnd}
-            onDragOver={(e) => e.preventDefault()}
-            className="relative group w-14 h-14 rounded-md bg-secondary border border-border flex items-center justify-center cursor-grab active:cursor-grabbing overflow-hidden"
+            draggable={!readOnly}
+            onDragStart={readOnly ? undefined : () => handleDragStart(idx)}
+            onDragEnter={readOnly ? undefined : () => handleDragEnter(idx)}
+            onDragEnd={readOnly ? undefined : handleDragEnd}
+            onDragOver={readOnly ? undefined : (e) => e.preventDefault()}
+            className={cn(
+              "relative group w-14 h-14 rounded-md bg-secondary border border-border flex items-center justify-center overflow-hidden",
+              !readOnly && "cursor-grab active:cursor-grabbing",
+            )}
           >
             {item.url.startsWith("blob:") || item.url.startsWith("/") ? (
               <img src={item.url} alt={item.name} className="w-full h-full object-cover" />
             ) : (
               <Icon className="h-5 w-5 text-muted-foreground" />
             )}
-            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
-              <GripVertical className="h-3.5 w-3.5 text-white" />
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onRemove(item.id) }}
-                className="absolute top-0.5 right-0.5"
-              >
-                <X className="h-3 w-3 text-white" />
-              </button>
-            </div>
+            {!readOnly && (
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                <GripVertical className="h-3.5 w-3.5 text-white" />
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onRemove(item.id) }}
+                  className="absolute top-0.5 right-0.5"
+                >
+                  <X className="h-3 w-3 text-white" />
+                </button>
+              </div>
+            )}
           </div>
         ))}
         {items.length === 0 && (
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="w-14 h-14 rounded-md border border-dashed border-border flex items-center justify-center hover:border-primary/50 transition-colors"
-          >
-            <Plus className="h-4 w-4 text-muted-foreground" />
-          </button>
+          readOnly ? (
+            <p className="text-xs text-muted-foreground">—</p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-14 h-14 rounded-md border border-dashed border-border flex items-center justify-center hover:border-primary/50 transition-colors"
+            >
+              <Plus className="h-4 w-4 text-muted-foreground" />
+            </button>
+          )
         )}
       </div>
     </div>
@@ -567,6 +595,11 @@ function eoiErr(v: string): string | null {
   return null
 }
 
+/** New AI update = the last AI update landed after the launch was last updated. */
+function hasNewAiUpdateDetails(l: Launch): boolean {
+  return !!l.aiUpdates && new Date(l.aiUpdates.lastAt) > new Date(l.updatedAt)
+}
+
 // Map a launch offering → GroupedProperty so the embedded AdditionalInfoTab shows the real
 // launch-property fields (developer/unit/area/amenity extras) with the same edit state.
 function offeringToGroup(o: Offering, launch: Launch): GroupedProperty {
@@ -590,12 +623,11 @@ function offeringToGroup(o: Offering, launch: Launch): GroupedProperty {
 
 // ── Launch offering card (dedicated — mirrors the grouped-property card, launch-only handling) ──
 const FINISHING_OPTS = ["Fully Finished", "Semi-Finished", "Core & Shell", "Not Finished"]
-const MANDATORY_OFFERING: (keyof Offering)[] = ["offeringName", "propertyCategory", "propertyType", "bedrooms", "bathrooms", "finishingType", "grossAreaRange", "priceRange"]
+const MANDATORY_OFFERING: (keyof Offering)[] = ["propertyCategory", "propertyType", "bedrooms", "bathrooms", "finishingType", "grossAreaRange", "priceRange"]
 
 function offeringFieldErrors(o: Offering): Partial<Record<keyof Offering, string>> {
   const errs: Partial<Record<keyof Offering, string>> = {}
   const intOk = (v: string) => v.trim() === "" || (/^\d+$/.test(v.trim()) && +v >= 0 && +v <= 19)
-  if (o.offeringName.trim() === "") errs.offeringName = "Required"
   if (!intOk(o.bedrooms)) errs.bedrooms = "Whole number 0–19"
   if (!intOk(o.bathrooms)) errs.bathrooms = "Whole number 0–19"
   return errs
@@ -640,9 +672,9 @@ function seedOfferingForm(o: Offering): OfferingForm {
   }
 }
 // Same validation rules as the grouped main container (launch variation: only Type mandatory).
+// No title/description here — they are auto-generated at ingestion.
 function validateOfferingForm(f: OfferingForm): Record<string, string> {
   const e: Record<string, string> = {}
-  if (!f.name.trim()) e.name = "Required"
   if (!f.category || !f.type) e.type = "Required"
   const gMin = decimalErr(f.grossMin, 2000); if (gMin) e.grossMin = gMin
   const gMax = decimalErr(f.grossMax, 2000); if (gMax) e.grossMax = gMax
@@ -667,9 +699,9 @@ function OfferingCtxCell({ label, icon, value, sub }: { label: string; icon: Rea
 }
 
 function LaunchOfferingCard({
-  offering: o, launch, launchIngested, editing, expanded, images, floorPlans,
+  offering: o, launch, launchIngested, editing, expanded, images, floorPlans, linkedPlansCount,
   onUpdate, onToggleEdit, onToggleExpand, onDelete, onListClick,
-  onAddMedia, onRemoveMedia, onReorderImages, onReorderFloorPlans,
+  onAddMedia, onRemoveMedia, onReorderImages, onReorderFloorPlans, onViewPlans, onLinkPlans,
 }: {
   offering: Offering
   launch: Launch
@@ -678,6 +710,7 @@ function LaunchOfferingCard({
   expanded: boolean
   images: MediaItem[]
   floorPlans: MediaItem[]
+  linkedPlansCount: number
   onUpdate: (field: keyof Offering, value: string) => void
   onToggleEdit: () => void
   onToggleExpand: () => void
@@ -687,6 +720,8 @@ function LaunchOfferingCard({
   onRemoveMedia: (type: "image" | "floorplan", id: string) => void
   onReorderImages: (items: MediaItem[]) => void
   onReorderFloorPlans: (items: MediaItem[]) => void
+  onViewPlans: () => void
+  onLinkPlans: () => void
 }) {
   // Per-property ingestion: only real (listed) properties of an ingested launch are Ingested.
   const ingested = launchIngested && o.listed
@@ -699,7 +734,6 @@ function LaunchOfferingCard({
     const errs = validateOfferingForm(form)
     setFErrors(errs)
     if (Object.keys(errs).length > 0) return
-    onUpdate("offeringName", form.name); onUpdate("keywords", form.keywords)
     onUpdate("propertyCategory", form.category); onUpdate("propertyType", form.type); onUpdate("propertySubtype", form.subtype)
     onUpdate("finishingType", form.finishing); onUpdate("deliveryType", form.deliveryType); onUpdate("deliveryDate", form.deliveryDate)
     onUpdate("grossAreaRange", form.grossMin || form.grossMax ? `${form.grossMin} - ${form.grossMax} SQM` : "")
@@ -731,6 +765,11 @@ function LaunchOfferingCard({
             ? <Badge variant="outline" className="border-emerald-200 bg-emerald-100 text-xs text-emerald-700">Ingested</Badge>
             : <Badge variant="outline" className="border-amber-200 bg-amber-100 text-xs text-amber-700">Draft</Badge>}
           <Badge variant="outline" className="border-blue-200 bg-blue-100 text-xs text-blue-700">Launch</Badge>
+          {o.listed && (
+            (o.listingStatus ?? "Active") === "Active"
+              ? <Badge variant="outline" className="border-emerald-200 bg-emerald-100 text-xs text-emerald-700">Active</Badge>
+              : <Badge variant="outline" className="border-red-200 bg-red-100 text-xs text-red-600">Hidden</Badge>
+          )}
         </div>
 
         {/* Icon actions */}
@@ -757,26 +796,15 @@ function LaunchOfferingCard({
         </div>
       </div>
 
-      {/* ── Section 2: Status dot · Title · Description (drafts have none until ingested) ── */}
-      {(ingested || editing) && (
+      {/* ── Section 2: Status dot · Title · Description — VIEW ONLY, ingested properties only.
+             Drafts have no title/description fields at all: both are auto-generated at ingestion. ── */}
+      {ingested && (
         <div className="border-b border-border px-4 py-2">
-          {editing ? (
-            <div className="space-y-1.5">
-              <div>
-                <Input value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Offering name *" className={cn("h-8 text-sm font-semibold", fErrors.name && "border-red-400")} />
-                {fErrors.name && <p className="mt-0.5 text-[11px] text-red-500">{fErrors.name}</p>}
-              </div>
-              <Input value={form.keywords} onChange={(e) => set({ keywords: e.target.value })} placeholder="Description / keywords" className="h-8 text-xs" />
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
-                <h3 className="truncate text-sm font-semibold">{o.offeringName}</h3>
-              </div>
-              {o.keywords && <p className="mt-0.5 pl-4 text-xs text-muted-foreground line-clamp-1">{o.keywords}</p>}
-            </>
-          )}
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+            <h3 className="truncate text-sm font-semibold">{o.offeringName}</h3>
+          </div>
+          {o.keywords && <p className="mt-0.5 pl-4 text-xs text-muted-foreground line-clamp-1">{o.keywords}</p>}
         </div>
       )}
 
@@ -898,13 +926,24 @@ function LaunchOfferingCard({
 
       {/* ── Media · Amenities · Payment plans ── */}
       <div className="grid grid-cols-2 gap-4 px-4 py-2.5 md:grid-cols-4">
-        <DraggableMediaList label="Images" icon={ImageIcon} items={images} onReorder={onReorderImages} onRemove={(id) => onRemoveMedia("image", id)} onAdd={(files) => onAddMedia("image", files)} />
-        <DraggableMediaList label="Floor Plans" icon={FileText} items={floorPlans} onReorder={onReorderFloorPlans} onRemove={(id) => onRemoveMedia("floorplan", id)} onAdd={(files) => onAddMedia("floorplan", files)} />
+        {/* Listed properties: media is view-only (no add / remove / reorder / link) */}
+        <DraggableMediaList label="Images" icon={ImageIcon} items={images} readOnly={o.listed} onReorder={onReorderImages} onRemove={(id) => onRemoveMedia("image", id)} onAdd={(files) => onAddMedia("image", files)} />
+        <DraggableMediaList label="Floor Plans" icon={FileText} items={floorPlans} readOnly={o.listed} onReorder={onReorderFloorPlans} onRemove={(id) => onRemoveMedia("floorplan", id)} onAdd={(files) => onAddMedia("floorplan", files)} />
         <div><p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Amenities &amp; Services</p><p className="text-xs text-muted-foreground">—</p></div>
         <div>
-          <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Payment Plans</p>
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Payment Plans</p>
+            <div className="flex items-center gap-0.5">
+              <Button variant="outline" size="icon" className="h-5 w-5 bg-transparent" title="View linked plans & prices" onClick={onViewPlans}>
+                <Eye className="h-3 w-3" />
+              </Button>
+              <Button variant="outline" size="icon" className="h-5 w-5 bg-transparent" title="Link payment plans" onClick={onLinkPlans}>
+                <Link2 className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
           <div className="space-y-0.5 text-xs">
-            <div className="flex items-center gap-1.5"><LayoutGrid className="h-3 w-3 text-muted-foreground" /><span className="font-medium">{o.paymentPlansCount}</span> plans</div>
+            <div className="flex items-center gap-1.5"><LayoutGrid className="h-3 w-3 text-muted-foreground" /><span className="font-medium">{linkedPlansCount}</span> linked plan{linkedPlansCount === 1 ? "" : "s"}</div>
             <div className="flex items-center gap-1.5"><Tag className="h-3 w-3 text-muted-foreground" /><span className="font-medium">{o.offersCount}</span> offers</div>
           </div>
         </div>
@@ -981,6 +1020,15 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
   const [headerDialog, setHeaderDialog] = useState<"approve" | "reject" | "archive" | null>(null)
   const [headerReason, setHeaderReason] = useState("")
   const [detailsPlan, setDetailsPlan] = useState<PlanCardData | null>(null)
+  const [ingestDialog, setIngestDialog] = useState<"summary" | "incomplete" | null>(null)
+  // Tab edit states (view → edit → save/cancel)
+  const [launchEditing, setLaunchEditing] = useState(false)
+  const [incentivesEditing, setIncentivesEditing] = useState(false)
+  const [incentivesSaveConfirm, setIncentivesSaveConfirm] = useState(false)
+  // Per-offering linked payment plans + view/link drawers
+  const [offeringPlanIds, setOfferingPlanIds] = useState<Record<number, string[]>>({ 1: ["PP-STD-001"], 2: [], 3: [] })
+  const [viewPlansOffering, setViewPlansOffering] = useState<Offering | null>(null)
+  const [linkPlansOffering, setLinkPlansOffering] = useState<Offering | null>(null)
 
   // Incentives fields
   const [commissionType, setCommissionType] = useState<"percentage" | "amount">("percentage")
@@ -1029,6 +1077,36 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
     3: [],
   })
 
+  // ── Data completeness (drives the header progress bar + the Ingest gate) ──
+  const completenessChecks: { label: string; ok: boolean }[] = [
+    { label: "Developer", ok: !!launch.developer.name },
+    ...(launch.projectLevel === "Phase"
+      ? [
+          { label: "Phase Name (EN)", ok: !!(phaseNameEn || launch.phase) },
+          { label: "Phase Name (AR)", ok: !!phaseNameAr },
+          { label: "Parent Project", ok: !!(launch.parentProjectId || selectedProject) },
+        ]
+      : [
+          { label: "Project Name (EN)", ok: !!projectNameEn },
+          { label: "Project Name (AR)", ok: !!projectNameAr },
+        ]),
+    { label: "Area", ok: !!launch.area },
+    { label: "Launch Type", ok: !!launchFormType },
+    { label: "Launch Start Date", ok: !!launchStartDate },
+    ...(listingStatus === "Active" ? [{ label: "Project Cover Image", ok: !!launch.coverImage }] : []),
+    ...offerings.flatMap((o, i) => {
+      const name = o.offeringName || `Offering ${i + 1}`
+      const rows = [
+        { label: `${name}: images`, ok: (offeringImages[o.id]?.length ?? 0) > 0 },
+        { label: `${name}: property type`, ok: !!o.propertyType },
+      ]
+      if (o.priceRange) rows.push({ label: `${name}: payment plans`, ok: o.paymentPlansCount > 0 || (offeringPlanIds[o.id]?.length ?? 0) > 0 })
+      return rows
+    }),
+  ]
+  const missingFields = completenessChecks.filter((c) => !c.ok).map((c) => c.label)
+  const completeness = Math.round((completenessChecks.filter((c) => c.ok).length / completenessChecks.length) * 100)
+
   const toggleEditOffering = (id: number) => {
     setEditingOfferingIds((prev) => {
       const next = new Set(prev)
@@ -1046,15 +1124,15 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
     setDeletingOfferingId(null)
   }
 
-  // Add appends a NEW blank card already in edit state (no dialog / form).
+  // Add PREPENDS a new blank card already in edit state (no dialog / form, no scroll hunting).
   const addOffering = () => {
     const id = Date.now()
-    setOfferings((prev) => [...prev, {
+    setOfferings((prev) => [{
       id, offeringName: "", isNew: true, keywords: "", propertyCategory: "",
       propertyType: "", propertySubtype: "", developerType: "", bedrooms: "", bathrooms: "",
       finishingType: "", deliveryType: "Off-plan", deliveryDate: "", grossAreaRange: "",
       priceRange: "", paymentPlansCount: 0, offersCount: 0, listed: false,
-    }])
+    }, ...prev])
     setOfferingImages((prev) => ({ ...prev, [id]: [] }))
     setOfferingFloorPlans((prev) => ({ ...prev, [id]: [] }))
     setEditingOfferingIds((prev) => new Set(prev).add(id))
@@ -1065,7 +1143,13 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
     setExpandedOfferingIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   const setOfferingListed = (id: number, val: boolean) => {
-    setOfferings((prev) => prev.map((o) => (o.id === id ? { ...o, listed: val } : o)))
+    setOfferings((prev) => prev.map((o) => {
+      if (o.id !== id) return o
+      // Title/description are auto-generated at ingestion (drafts never author them).
+      const autoName = o.offeringName || [o.propertyType || o.propertyCategory || "Property", o.bedrooms && `${o.bedrooms}BR`].filter(Boolean).join(" · ")
+      const autoKeywords = o.keywords || [o.propertyCategory, o.finishingType, o.grossAreaRange].filter(Boolean).join(", ")
+      return { ...o, listed: val, listingStatus: o.listingStatus ?? "Active", offeringName: val ? autoName : o.offeringName, keywords: val ? autoKeywords : o.keywords }
+    }))
     if (val) setEditingOfferingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
   }
 
@@ -1150,15 +1234,13 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
   const getTypeBadge = (t: Launch["type"]) =>
     <Badge variant="outline">{t}</Badge>
 
+  // Canonical launches timestamp format: "10 Jan 2024, 07:00 AM"
   const formatDate = (dateString: string | null) => {
-    if (!dateString) return "-"
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
+    if (!dateString) return "—"
+    const d = new Date(dateString)
+    const date = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })
+    const time = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "UTC" })
+    return `${date}, ${time}`
   }
 
   return (
@@ -1181,11 +1263,19 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
             />
             <div className="min-w-0 space-y-1">
               <div className="flex items-center gap-2">
-                <h1 className="truncate text-xl font-semibold">{launch.projectNameEn}</h1>
+                {/* Phase launches are titled by the PHASE name, not the parent project */}
+                <h1 className="truncate text-xl font-bold">
+                  {launch.projectLevel === "Phase" && launch.phase ? launch.phase : launch.projectNameEn}
+                </h1>
                 <Badge variant={launch.projectLevel === "Phase" ? "secondary" : "outline"} className="text-xs">
                   {launch.projectLevel === "Phase" ? "Phase" : "Main Project"}
                 </Badge>
-                {launch.phase && <span className="text-sm text-muted-foreground">{launch.phase}</span>}
+                {launch.projectLevel !== "Phase" && launch.phase && <span className="text-sm text-muted-foreground">{launch.phase}</span>}
+                {hasNewAiUpdateDetails(launch) && (
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-purple-200 bg-purple-50 px-1.5 py-px text-[10px] font-medium text-purple-700">
+                    <Bot className="h-2.5 w-2.5" />New AI update
+                  </span>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
                 {/* Developer — clickable */}
@@ -1197,14 +1287,39 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                   <span className="uppercase tracking-wide text-muted-foreground/60">Launch ID:</span> <IdCopy value={launch.id} />
                 </span>
-                {/* Parent project — only if Phase + matched */}
-                {launch.projectLevel === "Phase" && launch.parentProjectId && (
+                {/* Parent project — matched (link + id) vs unmatched (red tag), phase launches only */}
+                {launch.projectLevel === "Phase" && (
                   <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                     <span className="uppercase tracking-wide text-muted-foreground/60">Parent:</span>
-                    <a href="#" target="_blank" rel="noreferrer" className="text-xs font-medium text-foreground hover:underline">{launch.parentProjectId}</a>
-                    <IdCopy value={`PRJ-${launch.parentProjectId.slice(0, 3).toUpperCase()}`} />
+                    {launch.projectId ? (
+                      <>
+                        <a href="#" target="_blank" rel="noreferrer" className="text-xs font-medium text-foreground hover:underline">{launch.parentProjectId || launch.projectNameEn}</a>
+                        <IdCopy value={launch.projectId} />
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-xs font-medium text-foreground">{launch.parentProjectId || launch.projectNameEn}</span>
+                        <span className="inline-flex items-center whitespace-nowrap rounded border border-red-200 bg-red-50 px-1.5 py-px text-[10px] font-medium text-red-500">Unmatched Project</span>
+                      </>
+                    )}
                   </span>
                 )}
+                {/* New project — no phase means it does not exist in the system yet */}
+                {launch.projectLevel !== "Phase" && !launch.phase && (
+                  <span className="inline-flex items-center whitespace-nowrap rounded border border-gray-200 bg-gray-50 px-1.5 py-px text-[10px] font-medium text-gray-500">New Project</span>
+                )}
+                {/* Existing project — same as the table column */}
+                <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <span className="uppercase tracking-wide text-muted-foreground/60">Existing Project:</span>
+                  {launch.existingProject ? (
+                    <>
+                      <a href="#" target="_blank" rel="noreferrer" className="text-xs font-medium text-foreground hover:underline">{launch.existingProject.name}</a>
+                      <IdCopy value={launch.existingProject.id} />
+                    </>
+                  ) : (
+                    <span className="inline-flex items-center whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-100 px-1.5 py-px text-[10px] font-medium text-emerald-700">New</span>
+                  )}
+                </span>
                 {/* Area name + id */}
                 <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                   <span className="uppercase tracking-wide text-muted-foreground/60">Area:</span>
@@ -1212,6 +1327,27 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                   <IdCopy value={launch.areaId ?? "AR-000"} />
                 </span>
               </div>
+              {/* Data completeness — hover to see missing fields */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex w-64 cursor-default items-center gap-2 pt-1">
+                    <Progress value={completeness} className="h-2 flex-1" />
+                    <span className={cn("text-xs font-semibold tabular-nums", completeness === 100 ? "text-emerald-600" : "text-muted-foreground")}>{completeness}%</span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="start" className="max-w-sm">
+                  {missingFields.length === 0 ? (
+                    <p className="text-xs">All mandatory fields complete — ready to ingest.</p>
+                  ) : (
+                    <div className="text-xs">
+                      <p className="mb-1 font-semibold">Missing fields:</p>
+                      <ul className="list-disc space-y-0.5 pl-4">
+                        {missingFields.map((f) => <li key={f}>{f}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
 
@@ -1222,7 +1358,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger disabled={ingestionStatus === "Ingested"} className={cn(ingestionStatus === "Ingested" && "opacity-40")}>
                   <ShieldCheck className="h-4 w-4 mr-2" />Approval
@@ -1236,8 +1372,27 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                   </DropdownMenuItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
+              <DropdownMenuItem
+                disabled={ingestionStatus === "Ingested"}
+                className={cn(ingestionStatus === "Ingested" && "opacity-40")}
+                onClick={() => setIngestDialog(approvalStatus === "Approved" && completeness === 100 ? "summary" : "incomplete")}
+              >
+                <Database className="h-4 w-4 mr-2" />Ingest
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                const next = listingStatus === "Active" ? "Hidden" : "Active"
+                setListingStatus(next)
+                toast.success(`Listing status set to ${next}`)
+              }}>
+                {listingStatus === "Active" ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
+                Toggle Listing Status
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setHeaderDialog("archive")}>
+              <DropdownMenuItem
+                disabled={ingestionStatus === "Ingested"}
+                className={cn("text-destructive focus:text-destructive", ingestionStatus === "Ingested" && "opacity-40")}
+                onClick={() => setHeaderDialog("archive")}
+              >
                 <Archive className="h-4 w-4 mr-2" />Archive
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -1261,7 +1416,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
         </div>
 
         {/* ── Section 3: Metadata ── */}
-        <div className="grid grid-cols-5 gap-6 border-t border-border px-6 py-3">
+        <div className="grid grid-cols-6 gap-6 border-t border-border px-6 py-3">
           <div>
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Source</p>
             <Badge variant="outline">{launch.source}</Badge>
@@ -1273,7 +1428,9 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
           {launch.source === "WhatsApp" && (
             <div>
               <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">AI Updates</p>
-              <p className="text-sm">3 updates · last {formatDate(launch.updatedAt)}</p>
+              <p className="text-sm">
+                {launch.aiUpdates ? `${launch.aiUpdates.count} update${launch.aiUpdates.count === 1 ? "" : "s"}, ${formatDate(launch.aiUpdates.lastAt)}` : "—"}
+              </p>
             </div>
           )}
           <div>
@@ -1283,6 +1440,10 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
           <div>
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Updated At</p>
             <p className="text-sm">{formatDate(launch.updatedAt)}</p>
+          </div>
+          <div>
+            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Ingested At</p>
+            <p className="text-sm">{formatDate(launch.ingestedAt ?? null)}</p>
           </div>
         </div>
       </Card>
@@ -1335,6 +1496,121 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Ingestion — incomplete data popup */}
+      <AlertDialog open={ingestDialog === "incomplete"} onOpenChange={(o) => !o && setIngestDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cannot ingest this launch</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p>
+                  {approvalStatus !== "Approved"
+                    ? "This launch must be approved before it can be ingested."
+                    : "The data is not 100% complete. Check the mandatory fields to ingest this launch."}
+                </p>
+                {missingFields.length > 0 && (
+                  <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs">
+                    {missingFields.map((f) => <li key={f}>{f}</li>)}
+                  </ul>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setIngestDialog(null)}>Got it</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Ingestion — launch ingestion summary */}
+      <Dialog open={ingestDialog === "summary"} onOpenChange={(o) => { if (!o) setIngestDialog(null) }}>
+        <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Launch Ingestion Summary</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {launch.existingProject && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <p>
+                  This launch was created before — it matches the existing project{" "}
+                  <span className="font-semibold">{launch.existingProject.name}</span> ({launch.existingProject.id}).
+                  Ingesting will update that project rather than create a new one.
+                </p>
+              </div>
+            )}
+
+            {/* Project details */}
+            <div className="rounded-lg border border-border">
+              <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project Details</p>
+              <div className="grid grid-cols-3 gap-x-6 gap-y-2 px-4 py-3 text-sm">
+                <div><p className="text-[10px] uppercase text-muted-foreground">Developer</p><p className="font-medium">{launch.developer.name}</p></div>
+                <div><p className="text-[10px] uppercase text-muted-foreground">{launch.projectLevel === "Phase" ? "Phase" : "Project"}</p><p className="font-medium">{launch.projectLevel === "Phase" && launch.phase ? launch.phase : launch.projectNameEn}</p></div>
+                <div><p className="text-[10px] uppercase text-muted-foreground">Area</p><p className="font-medium">{launch.area}</p></div>
+                <div><p className="text-[10px] uppercase text-muted-foreground">Level</p><p className="font-medium">{launch.projectLevel}</p></div>
+                <div><p className="text-[10px] uppercase text-muted-foreground">Listing Status</p>{getListingStatusBadge(listingStatus)}</div>
+                <div><p className="text-[10px] uppercase text-muted-foreground">Type</p><p className="font-medium">{launchFormType}</p></div>
+              </div>
+            </div>
+
+            {/* Launch details */}
+            <div className="rounded-lg border border-border">
+              <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Launch Details</p>
+              <div className="grid grid-cols-3 gap-x-6 gap-y-2 px-4 py-3 text-sm">
+                <div><p className="text-[10px] uppercase text-muted-foreground">General EOI</p><p className="font-medium">{eoiOverallAmount ? `${eoiOverallAmount} ${eoiCurrency}` : "—"}</p></div>
+                <div><p className="text-[10px] uppercase text-muted-foreground">Start Date</p><p className="font-medium">{launchStartDate || "—"}</p></div>
+                <div><p className="text-[10px] uppercase text-muted-foreground">End Date</p><p className="font-medium">{launchEndDate || "—"}</p></div>
+                {eoiByType.filter((e) => e.name && e.amount).length > 0 && (
+                  <div className="col-span-3">
+                    <p className="text-[10px] uppercase text-muted-foreground">EOI by Property Type</p>
+                    <p className="font-medium">{eoiByType.filter((e) => e.name && e.amount).map((e) => `${e.name}: ${e.amount} ${eoiCurrency}`).join(" · ")}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Payment plans */}
+            <div className="rounded-lg border border-border">
+              <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment Plans ({plans.length})</p>
+              <div className="px-4 py-3 text-sm">
+                {plans.length > 0
+                  ? <p className="font-medium">{plans.map((p) => p.name).join(" · ")}</p>
+                  : <p className="text-muted-foreground">No payment plans</p>}
+              </div>
+            </div>
+
+            {/* Property offerings */}
+            <div className="rounded-lg border border-border">
+              <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Property Offerings ({offerings.length})</p>
+              <div className="divide-y divide-border">
+                {offerings.map((o, i) => (
+                  <div key={o.id} className="flex items-center justify-between px-4 py-2 text-sm">
+                    <span className="font-medium">{o.offeringName || `Offering ${i + 1}`}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {[o.propertyType, o.grossAreaRange, o.priceRange && `${o.priceRange} EGP`].filter(Boolean).join(" · ") || "—"}
+                    </span>
+                  </div>
+                ))}
+                {offerings.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">No property offerings</p>}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="bg-transparent" onClick={() => setIngestDialog(null)}>Cancel</Button>
+            <Button
+              className="bg-emerald-600 text-white hover:bg-emerald-700"
+              onClick={() => {
+                setIngestionStatus("Ingested")
+                setIngestDialog(null)
+                toast.success("Launch ingested — now live across Nawy's system")
+              }}
+            >
+              <Database className="h-4 w-4 mr-1.5" />Ingest Launch
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Tabbed Container */}
       <Tabs defaultValue={launch.source === "WhatsApp" ? "whatsapp" : "project"} className="w-full">
@@ -1580,6 +1856,9 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 onRemoveMedia={(t, id) => removeMedia(offering.id, t, id)}
                 onReorderImages={(items) => setOfferingImages((prev) => ({ ...prev, [offering.id]: items }))}
                 onReorderFloorPlans={(items) => setOfferingFloorPlans((prev) => ({ ...prev, [offering.id]: items }))}
+                linkedPlansCount={offeringPlanIds[offering.id]?.length ?? 0}
+                onViewPlans={() => setViewPlansOffering(offering)}
+                onLinkPlans={() => setLinkPlansOffering(offering)}
               />
             ))}
           </div>
@@ -1671,7 +1950,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
               <AlertDialogHeader>
                 <AlertDialogTitle>List this property?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Listing publishes this offering and assigns it a Property ID, Metadata ID, and timestamps. You can unlist it later.
+                  Listing publishes this offering and assigns it a Property ID, Metadata ID, title, description and timestamps. You can unlist it later.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -1680,6 +1959,99 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+
+          {/* View linked payment plans — read-only drawer (prices + linked plan cards) */}
+          <Sheet open={!!viewPlansOffering} onOpenChange={(o) => { if (!o) setViewPlansOffering(null) }}>
+            <SheetContent side="right" className="flex w-[520px] max-w-[94vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[520px]">
+              <SheetHeader className="border-b border-border px-5 py-4">
+                <SheetTitle className="text-base">Payment Plans — {viewPlansOffering?.offeringName || "Draft offering"}</SheetTitle>
+                <p className="text-xs text-muted-foreground">Read-only view of the prices and payment plans linked to this property.</p>
+              </SheetHeader>
+              <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <span className="whitespace-nowrap text-[15px] font-bold tabular-nums text-foreground">
+                    {viewPlansOffering?.priceRange ? `${viewPlansOffering.priceRange} EGP` : "—"}
+                  </span>
+                  <span className="whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Range price</span>
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+                    {(viewPlansOffering ? (offeringPlanIds[viewPlansOffering.id] ?? []) : []).length} linked
+                  </span>
+                </div>
+                {viewPlansOffering && plans.filter((p) => (offeringPlanIds[viewPlansOffering.id] ?? []).includes(p.id)).map((plan) => (
+                  <LinkedPlanCard
+                    key={plan.id}
+                    plan={plan}
+                    readOnly
+                    hideFooter
+                    fullWidth
+                    isExpanded={false}
+                    onToggleExpand={() => {}}
+                    totalInGroup={(offeringPlanIds[viewPlansOffering.id] ?? []).length}
+                  />
+                ))}
+                {viewPlansOffering && (offeringPlanIds[viewPlansOffering.id] ?? []).length === 0 && (
+                  <p className="py-10 text-center text-sm text-muted-foreground">No payment plans linked to this property yet.</p>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {/* Link payment plans — linked at the top (unlink), unlinked below (link) */}
+          <Sheet open={!!linkPlansOffering} onOpenChange={(o) => { if (!o) setLinkPlansOffering(null) }}>
+            <SheetContent side="right" className="flex w-[520px] max-w-[94vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[520px]">
+              <SheetHeader className="border-b border-border px-5 py-4">
+                <SheetTitle className="text-base">Link Payment Plans — {linkPlansOffering?.offeringName || "Draft offering"}</SheetTitle>
+                <p className="text-xs text-muted-foreground">Link or unlink this launch's payment plans for this property.</p>
+              </SheetHeader>
+              {linkPlansOffering && (() => {
+                const linkedIds = offeringPlanIds[linkPlansOffering.id] ?? []
+                const linked = plans.filter((p) => linkedIds.includes(p.id))
+                const available = plans.filter((p) => !linkedIds.includes(p.id))
+                const planRow = (p: PlanCardData, isLinked: boolean) => (
+                  <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{p.name}</p>
+                      <p className="text-[11px] text-muted-foreground">{p.planType} · DP {p.dp} · {p.duration} · {p.frequency}</p>
+                    </div>
+                    {isLinked ? (
+                      <Button variant="outline" size="sm" className="h-7 flex-shrink-0 bg-transparent text-red-600 hover:text-red-600" onClick={() => {
+                        setOfferingPlanIds((prev) => ({ ...prev, [linkPlansOffering.id]: (prev[linkPlansOffering.id] ?? []).filter((id) => id !== p.id) }))
+                        toast.success(`${p.name} unlinked`)
+                      }}>
+                        Unlink
+                      </Button>
+                    ) : (
+                      <Button variant="outline" size="sm" className="h-7 flex-shrink-0 bg-transparent" onClick={() => {
+                        setOfferingPlanIds((prev) => ({ ...prev, [linkPlansOffering.id]: [...(prev[linkPlansOffering.id] ?? []), p.id] }))
+                        toast.success(`${p.name} linked`)
+                      }}>
+                        <Link2 className="h-3 w-3 mr-1" />Link
+                      </Button>
+                    )}
+                  </div>
+                )
+                return (
+                  <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+                    <div>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Linked ({linked.length})</p>
+                      <div className="space-y-2">
+                        {linked.map((p) => planRow(p, true))}
+                        {linked.length === 0 && <p className="text-sm text-muted-foreground">No plans linked yet.</p>}
+                      </div>
+                    </div>
+                    <div className="border-t border-border pt-4">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Available to link ({available.length})</p>
+                      <div className="space-y-2">
+                        {available.map((p) => planRow(p, false))}
+                        {available.length === 0 && <p className="text-sm text-muted-foreground">All launch payment plans are linked.</p>}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </SheetContent>
+          </Sheet>
         </TabsContent>
 
         {/* Payment Plans Tab */}
@@ -1761,22 +2133,35 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
         <TabsContent value="launch-info">
           <Card className="p-6 space-y-8">
 
-            {/* Header: title + save (confirm when launch already ingested and fields changed) */}
+            {/* Header: view state → Edit → Save/Cancel (confirm only when the launch is already ingested) */}
             <div className="-mb-2 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">Launch Details</h3>
-              <Button
-                size="sm"
-                className="h-8"
-                onClick={() => {
-                  if (ingestionStatus === "Ingested" && launchDirty) { setLaunchSaveConfirm(true); return }
-                  setLaunchDirty(false)
-                  toast.success("Launch details saved")
-                }}
-              >
-                <Save className="h-3.5 w-3.5 mr-1" />Save
-              </Button>
+              {launchEditing ? (
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => { setLaunchEditing(false); setLaunchDirty(false) }}>
+                    <X className="h-3.5 w-3.5 mr-1" />Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-8"
+                    onClick={() => {
+                      if (ingestionStatus === "Ingested" && launchDirty) { setLaunchSaveConfirm(true); return }
+                      setLaunchEditing(false)
+                      setLaunchDirty(false)
+                      toast.success("Launch details saved")
+                    }}
+                  >
+                    <Save className="h-3.5 w-3.5 mr-1" />Save
+                  </Button>
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => setLaunchEditing(true)}>
+                  <Edit className="h-3.5 w-3.5 mr-1" />Edit
+                </Button>
+              )}
             </div>
 
+            <fieldset disabled={!launchEditing} className="min-w-0 space-y-8">
             {/* Launch Type + Dates */}
             <div>
               <h3 className="text-sm font-semibold text-foreground mb-4">Launch Info</h3>
@@ -1982,6 +2367,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 ))}
               </div>
             </div>
+            </fieldset>
           </Card>
 
           {/* Save confirmation — only when fields changed on an already-ingested launch */}
@@ -1995,7 +2381,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => { setLaunchSaveConfirm(false); setLaunchDirty(false); toast.success("Launch details saved") }}>
+                <AlertDialogAction onClick={() => { setLaunchSaveConfirm(false); setLaunchEditing(false); setLaunchDirty(false); toast.success("Launch details saved") }}>
                   Save Changes
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -2007,6 +2393,34 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
         <TabsContent value="incentives">
           <Card className="p-6 space-y-8">
 
+            {/* Header: view state → Edit → Save/Cancel (confirm only when the launch is already ingested) */}
+            <div className="-mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">Launch Incentives</h3>
+              {incentivesEditing ? (
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => setIncentivesEditing(false)}>
+                    <X className="h-3.5 w-3.5 mr-1" />Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-8"
+                    onClick={() => {
+                      if (ingestionStatus === "Ingested") { setIncentivesSaveConfirm(true); return }
+                      setIncentivesEditing(false)
+                      toast.success("Launch incentives saved")
+                    }}
+                  >
+                    <Save className="h-3.5 w-3.5 mr-1" />Save
+                  </Button>
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => setIncentivesEditing(true)}>
+                  <Edit className="h-3.5 w-3.5 mr-1" />Edit
+                </Button>
+              )}
+            </div>
+
+            <fieldset disabled={!incentivesEditing} className="min-w-0 space-y-8">
             {/* Brokerage / Agent Incentives */}
             <div>
               <h3 className="text-sm font-semibold text-foreground mb-4">Brokerage / Agent Incentives</h3>
@@ -2095,7 +2509,26 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 )}
               </div>
             </div>
+            </fieldset>
           </Card>
+
+          {/* Save confirmation — only when the launch is already ingested */}
+          <AlertDialog open={incentivesSaveConfirm} onOpenChange={(o) => !o && setIncentivesSaveConfirm(false)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Change launch incentives?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This Launch already ingested and {launchStatus.toLowerCase()}. Are you sure you want to change these launch incentives?
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => { setIncentivesSaveConfirm(false); setIncentivesEditing(false); toast.success("Launch incentives saved") }}>
+                  Save Changes
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </TabsContent>
 
         {/* WhatsApp Message Tab — hidden entirely for manually-created launches */}
@@ -2166,70 +2599,34 @@ Contact us for more details!`}
 
         {/* Audit Logs Tab */}
         <TabsContent value="audit">
-          <Card className="p-6">
-            <h3 className="font-medium mb-4">Activity Timeline</h3>
-            <div className="space-y-4">
-              {mockAuditLogs.map((log, index) => (
-                <div key={log.id} className="flex gap-4">
-                  <div className="flex flex-col items-center">
-                    <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
-                      <User className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    {index < mockAuditLogs.length - 1 && <div className="w-px h-full bg-border mt-2" />}
-                  </div>
-                  <div className="flex-1 pb-4">
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium text-sm">{log.user}</p>
-                      <p className="text-xs text-muted-foreground">{log.timestamp}</p>
-                    </div>
-                    <p className="text-sm text-muted-foreground">{log.action}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{log.field}</p>
-                  </div>
-                </div>
-              ))}
+          <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-card py-16 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary">
+              <Clock className="h-6 w-6 text-muted-foreground" />
             </div>
-          </Card>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Audit Logs — coming soon</p>
+              <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+                A full activity timeline of every change on this launch (who, what and when) is on its way.
+              </p>
+            </div>
+            <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Coming soon</span>
+          </div>
         </TabsContent>
 
         {/* Attachments Tab */}
         <TabsContent value="attachments">
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-medium">Media & Documents</h3>
-              <Button size="sm">
-                <Upload className="h-4 w-4 mr-2" />
-                Upload
-              </Button>
+          <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-card py-16 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary">
+              <Upload className="h-6 w-6 text-muted-foreground" />
             </div>
-            <div className="grid grid-cols-4 gap-4">
-              {mockAttachments.map((attachment) => (
-                <Card key={attachment.id} className="p-3">
-                  <div className="h-24 bg-secondary rounded-lg flex items-center justify-center mb-3">
-                    {attachment.type === "Image" ? (
-                      <ImageIcon className="h-10 w-10 text-muted-foreground" />
-                    ) : (
-                      <FileText className="h-10 w-10 text-muted-foreground" />
-                    )}
-                  </div>
-                  <p className="text-sm font-medium truncate">{attachment.name}</p>
-                  <div className="flex items-center justify-between mt-2">
-                    <Badge variant="outline" className="text-xs">{attachment.type}</Badge>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6"
-                    >
-                      {attachment.status === "Active" ? (
-                        <Eye className="h-3 w-3" />
-                      ) : (
-                        <EyeOff className="h-3 w-3 text-muted-foreground" />
-                      )}
-                    </Button>
-                  </div>
-                </Card>
-              ))}
+            <div>
+              <p className="text-sm font-semibold text-foreground">Attachments — coming soon</p>
+              <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+                Uploading and managing launch media &amp; documents (brochures, masterplans, price lists) will live here.
+              </p>
             </div>
-          </Card>
+            <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Coming soon</span>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
