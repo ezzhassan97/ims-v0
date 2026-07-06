@@ -11,9 +11,15 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { LinkedPlanCard, type PlanCardData } from "@/components/all-properties-page"
 import { PaymentPlanDrawer } from "@/components/payment-plan-builder"
+import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
 import { toast } from "sonner"
-import { AdditionalInfoTab } from "@/components/additional-info-tab"
-import type { GroupedProperty } from "@/components/grouped-properties-page"
+import {
+  AdditionalInfoTab, FieldShell, SelectInput, NumberInput, RangeInput,
+  withCommas, decimalErr, intRangeErr, priceErr,
+  FINISHING_OPTIONS, DELIVERY_TYPE_OPTIONS, CURRENCY_OPTIONS,
+} from "@/components/additional-info-tab"
+import { TYPE_TREE, buildTypeGroups, type GroupedProperty } from "@/components/grouped-properties-page"
+import { FilterMultiSelect } from "@/components/table-kit"
 import {
   Table,
   TableBody,
@@ -28,12 +34,18 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SelectGroup,
+  SelectLabel,
 } from "@/components/ui/select"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu"
 import {
   AlertDialog,
@@ -82,8 +94,22 @@ import {
   Tag,
   X,
   GripVertical,
+  ExternalLink,
+  MoreHorizontal,
+  ShieldCheck,
+  CheckCircle,
+  XCircle,
+  Pencil,
+  Layers,
+  MapPin,
+  Home,
+  Wrench,
+  CalendarDays,
+  Banknote,
+  Globe,
 } from "lucide-react"
 import { useRef, useEffect, useCallback } from "react"
+import { cn } from "@/lib/utils"
 
 // --- Searchable Dropdown ---
 interface SearchableOption {
@@ -498,7 +524,7 @@ const mockPaymentPlans: PlanCardData[] = [
     expanded: { isCash: false },
   },
   {
-    id: "PP-PRM-002", name: "Premium Plan", status: "Active", hasOffer: true,
+    id: "PP-PRM-002", name: "Premium Plan", status: "Hidden", hasOffer: true,
     devName: "Palm Hills", devId: "DEV-001", projName: "Palm Hills October", projId: "PRJ-1001",
     units: 0, available: 0, priceCount: 1, historicalCount: 0,
     planType: "Backloaded", currency: "EGP", discount: "5%", validTill: "—",
@@ -521,6 +547,25 @@ const mockAttachments = [
   { id: 3, name: "Price List.xlsx", type: "Excel", status: "Hidden", uploadedAt: "2024-01-11" },
   { id: 4, name: "Floor Plans.pdf", type: "PDF", status: "Active", uploadedAt: "2024-01-10" },
 ]
+
+// Shared option lists + validators for the details tabs
+const PROPERTY_TYPE_OPTIONS = ["Apartments", "Villas", "Townhouses", "Duplexes", "Penthouses", "Chalets", "Studios"]
+const TASKEEN_TYPE_OPTIONS = ["Bulk", ...PROPERTY_TYPE_OPTIONS]
+const AREA_UNIT_OPTIONS = ["Feddans", "Acres", "KM2"]
+
+// EOI validation: positive integer, at least 5 digits, comma-grouped while typing
+function fmtInt(raw: string): string {
+  const d = raw.replace(/[^\d]/g, "")
+  return d ? Number(d).toLocaleString("en-US") : ""
+}
+function eoiErr(v: string): string | null {
+  const d = v.replace(/,/g, "")
+  if (!d) return null
+  if (!/^\d+$/.test(d)) return "Positive integers only"
+  if (Number(d) <= 0) return "Must be a positive amount"
+  if (d.length < 5) return "Minimum 5 digits (e.g. 10,000)"
+  return null
+}
 
 // Map a launch offering → GroupedProperty so the embedded AdditionalInfoTab shows the real
 // launch-property fields (developer/unit/area/amenity extras) with the same edit state.
@@ -572,13 +617,63 @@ function IdCopy({ value }: { value: string }) {
   )
 }
 
+// ── Offering edit form — mirrors the grouped-property main container (launch variation) ──
+interface OfferingForm {
+  name: string; keywords: string
+  category: string; type: string; subtype: string
+  finishing: string; deliveryType: string; deliveryDate: string
+  grossMin: string; grossMax: string
+  bedrooms: string; bathrooms: string
+  priceMin: string; priceMax: string; currency: string
+}
+function seedOfferingForm(o: Offering): OfferingForm {
+  const [gMin, gMax] = parseRange(o.grossAreaRange)
+  const [pMin, pMax] = parseRange(o.priceRange)
+  const dt = o.deliveryType?.toUpperCase().includes("READY") ? "READY TO MOVE" : "OFF PLAN"
+  return {
+    name: o.offeringName, keywords: o.keywords,
+    category: o.propertyCategory, type: o.propertyType, subtype: o.propertySubtype,
+    finishing: o.finishingType, deliveryType: dt, deliveryDate: toISODate(o.deliveryDate) || "",
+    grossMin: gMin ? String(gMin) : "", grossMax: gMax ? String(gMax) : "",
+    bedrooms: o.bedrooms, bathrooms: o.bathrooms,
+    priceMin: pMin ? String(pMin) : "", priceMax: pMax ? String(pMax) : "", currency: "EGP",
+  }
+}
+// Same validation rules as the grouped main container (launch variation: only Type mandatory).
+function validateOfferingForm(f: OfferingForm): Record<string, string> {
+  const e: Record<string, string> = {}
+  if (!f.name.trim()) e.name = "Required"
+  if (!f.category || !f.type) e.type = "Required"
+  const gMin = decimalErr(f.grossMin, 2000); if (gMin) e.grossMin = gMin
+  const gMax = decimalErr(f.grossMax, 2000); if (gMax) e.grossMax = gMax
+  if (!gMin && !gMax && f.grossMin && f.grossMax && parseFloat(f.grossMax) < parseFloat(f.grossMin)) e.grossMax = "Max must be ≥ min"
+  const bed = intRangeErr(f.bedrooms, 0, 19); if (bed) e.bedrooms = bed
+  const bath = intRangeErr(f.bathrooms, 0, 19); if (bath) e.bathrooms = bath
+  const pMin = priceErr(f.priceMin); if (pMin) e.priceMin = pMin
+  const pMax = priceErr(f.priceMax); if (pMax) e.priceMax = pMax
+  if (!pMin && !pMax && f.priceMin && f.priceMax && parseFloat(f.priceMax) <= parseFloat(f.priceMin)) e.priceMax = "Max must be greater than min"
+  return e
+}
+
+/** Read-only context cell — same look as the grouped card's EntityCell. */
+function OfferingCtxCell({ label, icon, value, sub }: { label: string; icon: React.ReactNode; value: string; sub?: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-0.5 flex items-center gap-1 text-xs text-muted-foreground">{icon}<span>{label}</span></div>
+      <div className="truncate text-xs font-medium text-foreground">{value || "—"}</div>
+      {sub && <div className="mt-0.5 text-[10px] text-muted-foreground">{sub}</div>}
+    </div>
+  )
+}
+
 function LaunchOfferingCard({
-  offering: o, launch, editing, expanded, images, floorPlans,
+  offering: o, launch, launchIngested, editing, expanded, images, floorPlans,
   onUpdate, onToggleEdit, onToggleExpand, onDelete, onListClick,
   onAddMedia, onRemoveMedia, onReorderImages, onReorderFloorPlans,
 }: {
   offering: Offering
   launch: Launch
+  launchIngested: boolean
   editing: boolean
   expanded: boolean
   images: MediaItem[]
@@ -593,105 +688,236 @@ function LaunchOfferingCard({
   onReorderImages: (items: MediaItem[]) => void
   onReorderFloorPlans: (items: MediaItem[]) => void
 }) {
-  const listed = o.listed
-  const errs = editing ? offeringFieldErrors(o) : {}
-  const fld = (Icon: React.ElementType, label: string, key: keyof Offering, opts?: { type?: "text" | "number" | "select"; options?: string[] }) =>
-    editing
-      ? <OfferingEditField icon={Icon} label={label} value={String(o[key] ?? "")} onChange={(v) => onUpdate(key, v)} type={opts?.type} options={opts?.options} error={errs[key]} />
-      : <OfferingField icon={Icon} label={label} value={String(o[key] ?? "")} />
+  // Per-property ingestion: only real (listed) properties of an ingested launch are Ingested.
+  const ingested = launchIngested && o.listed
+  const [form, setForm] = useState<OfferingForm>(() => seedOfferingForm(o))
+  const [fErrors, setFErrors] = useState<Record<string, string>>({})
+  const set = (patch: Partial<OfferingForm>) =>
+    setForm((prev) => { const next = { ...prev, ...patch }; setFErrors(validateOfferingForm(next)); return next })
+  const startEdit = () => { setForm(seedOfferingForm(o)); setFErrors({}); onToggleEdit() }
+  const saveEdit = () => {
+    const errs = validateOfferingForm(form)
+    setFErrors(errs)
+    if (Object.keys(errs).length > 0) return
+    onUpdate("offeringName", form.name); onUpdate("keywords", form.keywords)
+    onUpdate("propertyCategory", form.category); onUpdate("propertyType", form.type); onUpdate("propertySubtype", form.subtype)
+    onUpdate("finishingType", form.finishing); onUpdate("deliveryType", form.deliveryType); onUpdate("deliveryDate", form.deliveryDate)
+    onUpdate("grossAreaRange", form.grossMin || form.grossMax ? `${form.grossMin} - ${form.grossMax} SQM` : "")
+    onUpdate("priceRange", form.priceMin || form.priceMax ? `${Number(form.priceMin || 0).toLocaleString()} - ${Number(form.priceMax || 0).toLocaleString()}` : "")
+    onUpdate("bedrooms", form.bedrooms); onUpdate("bathrooms", form.bathrooms)
+    onToggleEdit()
+    toast.success("Offering saved")
+  }
 
   return (
-    <Card className={`overflow-hidden border ${editing ? "border-primary/50" : listed ? "border-border" : "border-amber-200"}`}>
-      {/* Top bar */}
-      <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-2.5">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-          {listed ? (
+    <Card className={cn("overflow-hidden gap-0 border p-0", editing ? "border-primary/50" : ingested ? "border-border" : "border-amber-200")}>
+      {/* ── Section 1: IDs · Tags (right, before actions) · Icon actions ── */}
+      <div className="flex items-center gap-3 border-b border-border px-4 py-2">
+        <div className="flex min-w-0 items-center gap-2.5 text-[10px] text-muted-foreground">
+          {ingested ? (
             <>
-              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">Property ID: <IdCopy value={`LOFF-${o.id}`} /></span>
-              <span className="text-muted-foreground">·</span>
-              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">Metadata ID: <IdCopy value={`PMD-${o.id}`} /></span>
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">{o.offersCount}/{o.offersCount + o.paymentPlansCount} Available</span>
-              <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">Launch</span>
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">Published</span>
+              <span className="flex items-center gap-1">Property ID: <IdCopy value={`LOFF-${o.id}`} /></span>
+              <span>·</span>
+              <span className="flex items-center gap-1">Metadata ID: <IdCopy value={`PMD-${o.id}`} /></span>
             </>
           ) : (
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">Unlisted draft</span>
+            <span className="italic">Draft offering</span>
           )}
         </div>
-        <div className="flex flex-shrink-0 items-center gap-1">
-          <Button variant={editing ? "default" : "ghost"} size="sm" className="h-8 gap-1.5" onClick={onToggleEdit}>{editing ? <><Check className="h-3.5 w-3.5" />Save</> : <><Edit className="h-3.5 w-3.5" />Edit</>}</Button>
-          {!listed && <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onListClick}><Check className="h-3.5 w-3.5" />List</Button>}
-          {!listed && <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={onDelete}><Trash2 className="h-4 w-4" /></Button>}
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleExpand}><ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} /></Button>
+
+        {/* Tags — right aligned, before the action buttons */}
+        <div className="flex flex-1 items-center justify-end gap-2">
+          {ingested
+            ? <Badge variant="outline" className="border-emerald-200 bg-emerald-100 text-xs text-emerald-700">Ingested</Badge>
+            : <Badge variant="outline" className="border-amber-200 bg-amber-100 text-xs text-amber-700">Draft</Badge>}
+          <Badge variant="outline" className="border-blue-200 bg-blue-100 text-xs text-blue-700">Launch</Badge>
+        </div>
+
+        {/* Icon actions */}
+        <div className="flex shrink-0 items-center gap-1 border-l border-border pl-2">
+          {ingested ? (
+            <Button variant="outline" size="icon" className="h-6 w-6 bg-transparent" title="View property" asChild>
+              <a href="#" target="_blank" rel="noreferrer"><ExternalLink className="h-3 w-3" /></a>
+            </Button>
+          ) : editing ? (
+            <>
+              <Button variant="outline" size="icon" className="h-6 w-6 bg-transparent" title="Cancel" onClick={onToggleEdit}><X className="h-3 w-3" /></Button>
+              <Button size="icon" className="h-6 w-6" title="Save" onClick={saveEdit} disabled={Object.keys(fErrors).length > 0}><Save className="h-3 w-3" /></Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" size="icon" className="h-6 w-6 bg-transparent" title="Edit" onClick={startEdit}><Pencil className="h-3 w-3" /></Button>
+              <Button variant="outline" size="sm" className="h-6 bg-transparent px-2 text-xs" onClick={onListClick}><Check className="h-3 w-3 mr-1" />List</Button>
+              <Button variant="outline" size="icon" className="h-6 w-6 bg-transparent text-muted-foreground hover:text-destructive" title="Delete" onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>
+            </>
+          )}
+          <Button variant="outline" size="icon" className="h-6 w-6 bg-transparent" title="Expand" onClick={onToggleExpand}>
+            <ChevronDown className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")} />
+          </Button>
         </div>
       </div>
 
-      <div className="px-5 py-4">
-        {/* Title + description */}
-        {editing ? (
-          <div className="mb-4 space-y-2">
-            <div>
-              <Input value={o.offeringName} onChange={(e) => onUpdate("offeringName", e.target.value)} placeholder="Offering name *" className={`h-9 text-base font-semibold ${errs.offeringName ? "border-red-400" : ""}`} />
-              {errs.offeringName && <p className="mt-0.5 text-[11px] text-red-500">{errs.offeringName}</p>}
+      {/* ── Section 2: Status dot · Title · Description (drafts have none until ingested) ── */}
+      {(ingested || editing) && (
+        <div className="border-b border-border px-4 py-2">
+          {editing ? (
+            <div className="space-y-1.5">
+              <div>
+                <Input value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Offering name *" className={cn("h-8 text-sm font-semibold", fErrors.name && "border-red-400")} />
+                {fErrors.name && <p className="mt-0.5 text-[11px] text-red-500">{fErrors.name}</p>}
+              </div>
+              <Input value={form.keywords} onChange={(e) => set({ keywords: e.target.value })} placeholder="Description / keywords" className="h-8 text-xs" />
             </div>
-            <Input value={o.keywords} onChange={(e) => onUpdate("keywords", e.target.value)} placeholder="Description / keywords" className="h-8 text-sm" />
-          </div>
-        ) : listed ? (
-          <div className="mb-4">
-            <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-500" /><h3 className="text-base font-semibold">{o.offeringName}</h3></div>
-            {o.keywords && <p className="mt-1 text-sm text-muted-foreground">{o.keywords}</p>}
-          </div>
-        ) : null}
-
-        {/* Locked context: developer / project / phase / location */}
-        <div className="mb-4 grid grid-cols-2 gap-x-6 gap-y-2 border-b border-border/60 pb-3 md:grid-cols-4">
-          <OfferingContextField label="Developer" value={launch.developer.name} />
-          <OfferingContextField label="Project" value={launch.projectNameEn} />
-          <OfferingContextField label="Phase" value={launch.phase} />
-          <OfferingContextField label="Location" value={launch.area} />
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+                <h3 className="truncate text-sm font-semibold">{o.offeringName}</h3>
+              </div>
+              {o.keywords && <p className="mt-0.5 pl-4 text-xs text-muted-foreground line-clamp-1">{o.keywords}</p>}
+            </>
+          )}
         </div>
+      )}
 
-        {/* Main fields */}
-        <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-4">
-          {fld(Building2, "Property Category", "propertyCategory")}
-          {fld(LayoutGrid, "Property Type", "propertyType")}
-          {fld(PaintBucket, "Finishing Type", "finishingType", { type: "select", options: FINISHING_OPTS })}
-          {fld(BedDouble, "Bedrooms", "bedrooms", { type: "number" })}
-          {fld(Bath, "Bathrooms", "bathrooms", { type: "number" })}
-          {fld(Ruler, "Gross Area Range", "grossAreaRange")}
-          {fld(Tag, "Price Range", "priceRange")}
+      {/* ── Section 3: Main info — same 4-col grid, order and validation as the grouped main container ── */}
+      <div className="border-b border-border px-4 py-2.5">
+        <div className="grid grid-cols-4 gap-x-6 gap-y-2.5">
+          {/* Row 1 — locked context */}
+          <OfferingCtxCell label="Developer" icon={<Building2 className="h-3 w-3" />} value={launch.developer.name} sub={<IdCopy value={launch.developer.id} />} />
+          <OfferingCtxCell label="Project" icon={<Home className="h-3 w-3" />} value={launch.projectNameEn} />
+          <OfferingCtxCell label="Phase" icon={<Layers className="h-3 w-3" />} value={launch.phase} />
+          <OfferingCtxCell label="Location" icon={<MapPin className="h-3 w-3" />} value={launch.area} sub={<span className="flex items-center gap-1">Area — <IdCopy value={launch.areaId ?? "AR-000"} /></span>} />
+
+          {/* Type — grouped Property Type + dependent Subtype */}
+          <FieldShell label="Type" icon={<Tag className="h-3 w-3" />} required={editing} error={editing ? fErrors.type : undefined}>
+            {editing ? (
+              <div className="flex items-center gap-1.5">
+                <div className="min-w-0 flex-1">
+                  <Select
+                    value={form.type ? `${form.category}|${form.type}` : undefined}
+                    onValueChange={(v) => { const [cat, t] = v.split("|"); set({ category: cat, type: t, subtype: "" }) }}
+                  >
+                    <SelectTrigger className={cn("h-8 w-full text-sm", fErrors.type && "border-red-500")}><SelectValue placeholder="Type" /></SelectTrigger>
+                    <SelectContent>
+                      {buildTypeGroups(form.category, form.type).map((g) => (
+                        <SelectGroup key={g.category}>
+                          <SelectLabel>{g.category}</SelectLabel>
+                          {g.types.map((t) => <SelectItem key={`${g.category}|${t}`} value={`${g.category}|${t}`}>{t}</SelectItem>)}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <SelectInput value={form.subtype} onChange={(v) => set({ subtype: v })} options={form.category && form.type ? (TYPE_TREE[form.category]?.[form.type] ?? []) : []} placeholder="Subtype" error={fErrors.type} />
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs font-medium text-foreground">{[o.propertyCategory, o.propertyType, o.propertySubtype].filter(Boolean).join(" · ") || "—"}</div>
+            )}
+          </FieldShell>
+
+          {/* Finishing */}
+          <FieldShell label="Finishing" icon={<Wrench className="h-3 w-3" />} error={editing ? fErrors.finishing : undefined}>
+            {editing ? (
+              <SelectInput value={form.finishing} onChange={(v) => set({ finishing: v })} options={FINISHING_OPTIONS.includes(form.finishing) || !form.finishing ? FINISHING_OPTIONS : [form.finishing, ...FINISHING_OPTIONS]} error={fErrors.finishing} />
+            ) : (
+              <div className="text-xs font-medium text-foreground">{o.finishingType || "—"}</div>
+            )}
+          </FieldShell>
+
+          {/* Delivery — type + date */}
+          <FieldShell label="Delivery" icon={<CalendarDays className="h-3 w-3" />} error={editing ? fErrors.delivery : undefined}>
+            {editing ? (
+              <div className="flex items-center gap-1.5">
+                <div className="min-w-0 flex-1">
+                  <SelectInput value={form.deliveryType} onChange={(v) => set({ deliveryType: v })} options={DELIVERY_TYPE_OPTIONS} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <Input type="date" value={form.deliveryDate} onChange={(e) => set({ deliveryDate: e.target.value })} className="h-8 w-full min-w-0 text-sm" />
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs font-medium text-foreground">{[o.deliveryType, o.deliveryDate].filter(Boolean).join(" · ") || "—"}</div>
+            )}
+          </FieldShell>
+
+          {/* Gross Area */}
+          <FieldShell label="Gross Area" icon={<Ruler className="h-3 w-3" />} error={editing ? (fErrors.grossMin || fErrors.grossMax) : undefined}>
+            {editing ? (
+              <RangeInput value={{ min: form.grossMin, max: form.grossMax }} onChange={(r) => set({ grossMin: r.min, grossMax: r.max })} error={fErrors.grossMin || fErrors.grossMax} />
+            ) : (
+              <div className="text-xs font-medium text-foreground">{o.grossAreaRange || "—"}</div>
+            )}
+          </FieldShell>
+
+          {/* Source (read-only) */}
+          <FieldShell label="Source" icon={<Globe className="h-3 w-3" />}>
+            <div className="text-xs font-medium text-foreground">{launch.source}</div>
+          </FieldShell>
+
+          {/* Bedrooms */}
+          <FieldShell label="Bedrooms" icon={<BedDouble className="h-3 w-3" />} error={editing ? fErrors.bedrooms : undefined}>
+            {editing ? (
+              <NumberInput value={form.bedrooms} onChange={(v) => set({ bedrooms: v })} error={fErrors.bedrooms} />
+            ) : (
+              <div className="text-xs font-medium text-foreground">{o.bedrooms || "—"}</div>
+            )}
+          </FieldShell>
+
+          {/* Bathrooms */}
+          <FieldShell label="Bathrooms" icon={<Bath className="h-3 w-3" />} error={editing ? fErrors.bathrooms : undefined}>
+            {editing ? (
+              <NumberInput value={form.bathrooms} onChange={(v) => set({ bathrooms: v })} error={fErrors.bathrooms} />
+            ) : (
+              <div className="text-xs font-medium text-foreground">{o.bathrooms || "—"}</div>
+            )}
+          </FieldShell>
+
+          {/* Price (+ currency) */}
+          <FieldShell label="Price" icon={<Banknote className="h-3 w-3" />} error={editing ? (fErrors.priceMin || fErrors.priceMax) : undefined}>
+            {editing ? (
+              <div className="flex items-start gap-1.5">
+                <RangeInput value={{ min: form.priceMin, max: form.priceMax }} onChange={(r) => set({ priceMin: r.min, priceMax: r.max })} error={fErrors.priceMin || fErrors.priceMax} format={withCommas} />
+                <div className="w-20 shrink-0"><SelectInput value={form.currency} onChange={(v) => set({ currency: v })} options={CURRENCY_OPTIONS} /></div>
+              </div>
+            ) : (
+              <div className="text-xs font-medium text-foreground">{o.priceRange ? `${o.priceRange} EGP` : "—"}</div>
+            )}
+          </FieldShell>
         </div>
-
-        {/* Expanded: the full Additional Info fields (same edit state, no nested card header) */}
-        {expanded && (
-          <div className="mt-4 border-t border-border pt-2">
-            <AdditionalInfoTab group={offeringToGroup(o, launch)} embedded editing={editing} />
-          </div>
-        )}
-
-        {/* Media + payment plans */}
-        <div className="mt-4 grid grid-cols-2 gap-6 border-t border-border pt-4 md:grid-cols-4">
-          <DraggableMediaList label="Images" icon={ImageIcon} items={images} onReorder={onReorderImages} onRemove={(id) => onRemoveMedia("image", id)} onAdd={(files) => onAddMedia("image", files)} />
-          <DraggableMediaList label="Floor Plans" icon={FileText} items={floorPlans} onReorder={onReorderFloorPlans} onRemove={(id) => onRemoveMedia("floorplan", id)} onAdd={(files) => onAddMedia("floorplan", files)} />
-          <div><p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Amenities &amp; Services</p><p className="text-sm text-muted-foreground">—</p></div>
-          <div>
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Payment Plans</p>
-            <div className="space-y-1 text-sm">
-              <div className="flex items-center gap-1.5"><LayoutGrid className="h-3.5 w-3.5 text-muted-foreground" /><span className="font-medium">{o.paymentPlansCount}</span> plans</div>
-              <div className="flex items-center gap-1.5"><Tag className="h-3.5 w-3.5 text-muted-foreground" /><span className="font-medium">{o.offersCount}</span> offers</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Dates (listed only) */}
-        {listed && (
-          <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-1 border-t border-border pt-3 text-[11px] text-muted-foreground">
-            <span>Created <span className="text-foreground">{fmtLaunchDate(launch.createdAt)}</span></span>
-            <span>Updated <span className="text-foreground">{fmtLaunchDate(launch.updatedAt)}</span></span>
-            <span>Avail. updated <span className="text-foreground">{fmtLaunchDate(launch.updatedAt)}</span></span>
-          </div>
-        )}
       </div>
+
+      {/* ── Expanded: the full Additional Info fields (same edit state, no nested card header) ── */}
+      {expanded && (
+        <div className="border-b border-border px-4 py-1">
+          <AdditionalInfoTab group={offeringToGroup(o, launch)} embedded editing={editing} />
+        </div>
+      )}
+
+      {/* ── Media · Amenities · Payment plans ── */}
+      <div className="grid grid-cols-2 gap-4 px-4 py-2.5 md:grid-cols-4">
+        <DraggableMediaList label="Images" icon={ImageIcon} items={images} onReorder={onReorderImages} onRemove={(id) => onRemoveMedia("image", id)} onAdd={(files) => onAddMedia("image", files)} />
+        <DraggableMediaList label="Floor Plans" icon={FileText} items={floorPlans} onReorder={onReorderFloorPlans} onRemove={(id) => onRemoveMedia("floorplan", id)} onAdd={(files) => onAddMedia("floorplan", files)} />
+        <div><p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Amenities &amp; Services</p><p className="text-xs text-muted-foreground">—</p></div>
+        <div>
+          <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Payment Plans</p>
+          <div className="space-y-0.5 text-xs">
+            <div className="flex items-center gap-1.5"><LayoutGrid className="h-3 w-3 text-muted-foreground" /><span className="font-medium">{o.paymentPlansCount}</span> plans</div>
+            <div className="flex items-center gap-1.5"><Tag className="h-3 w-3 text-muted-foreground" /><span className="font-medium">{o.offersCount}</span> offers</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Dates — bottom, right aligned (ingested only) ── */}
+      {ingested && (
+        <div className="flex flex-wrap items-center justify-end gap-x-5 gap-y-1 border-t border-border px-4 py-1.5 text-[10px] text-muted-foreground">
+          <span>Created <span className="text-foreground">{fmtLaunchDate(launch.createdAt)}</span></span>
+          <span>Updated <span className="text-foreground">{fmtLaunchDate(launch.updatedAt)}</span></span>
+          <span>Avail. updated <span className="text-foreground">{fmtLaunchDate(launch.updatedAt)}</span></span>
+        </div>
+      )}
     </Card>
   )
 }
@@ -719,18 +945,21 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
   const [projectNameAr, setProjectNameAr] = useState("بالم هيلز أكتوبر")
   const [phaseNameEn, setPhaseNameEn] = useState("")
   const [phaseNameAr, setPhaseNameAr] = useState("")
-  // Project Details extra fields
-  const [projectDescription, setProjectDescription] = useState("")
-  const [address, setAddress] = useState("")
-  const [totalAreaAcres, setTotalAreaAcres] = useState("")
-  const [totalAreaFeddans, setTotalAreaFeddans] = useState("")
-  const [totalAreaSqm, setTotalAreaSqm] = useState("")
+  // Project Details fields
+  const [projectEditing, setProjectEditing] = useState(false)
+  const [projectAreaValue, setProjectAreaValue] = useState("")
+  const [projectAreaUnit, setProjectAreaUnit] = useState("Feddans")
   const [totalUnitsReleased, setTotalUnitsReleased] = useState("")
   const [totalBuildingsReleased, setTotalBuildingsReleased] = useState("")
+  const [propertyReleased, setPropertyReleased] = useState<{ id: string; type: string; count: string }[]>([
+    { id: "pr1", type: "", count: "" },
+  ])
 
   // Launch Details fields
   const [launchFormType, setLaunchFormType] = useState<"Launch" | "Release">("Launch")
-  const [eoiMode, setEoiMode] = useState<"overall" | "byType">("overall")
+  const [launchDirty, setLaunchDirty] = useState(false)
+  const [launchSaveConfirm, setLaunchSaveConfirm] = useState(false)
+  const [eoiCurrency, setEoiCurrency] = useState("EGP")
   const [eoiOverallAmount, setEoiOverallAmount] = useState("")
   const [eoiByType, setEoiByType] = useState<{ id: string; name: string; amount: string }[]>([
     { id: "PT-001", name: "Apartments", amount: "" },
@@ -745,8 +974,13 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
   const [refundType, setRefundType] = useState<"full" | "partial">("full")
   const [partialRefundValue, setPartialRefundValue] = useState("")
   const [partialRefundType, setPartialRefundType] = useState<"amount" | "percentage">("percentage")
-  const [taskeenDate, setTaskeenDate] = useState("")
-  const [taskeenAddress, setTaskeenAddress] = useState("")
+  const [taskeenDays, setTaskeenDays] = useState<{ id: string; date: string; types: string[]; address: string }[]>([
+    { id: "td1", date: "", types: [], address: "" },
+  ])
+  // Header actions + payment plan view drawer
+  const [headerDialog, setHeaderDialog] = useState<"approve" | "reject" | "archive" | null>(null)
+  const [headerReason, setHeaderReason] = useState("")
+  const [detailsPlan, setDetailsPlan] = useState<PlanCardData | null>(null)
 
   // Incentives fields
   const [commissionType, setCommissionType] = useState<"percentage" | "amount">("percentage")
@@ -935,190 +1169,172 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
         Back to Launches
       </Button>
 
-      {/* Main Details Container */}
-      <Card className="p-6">
-        {/* Top row: identity + actions */}
-        <div className="flex items-start justify-between mb-5">
-          {/* Left: logo + names */}
-          <div className="flex items-center gap-4">
+      {/* Main Details Container — 3 sections split by thin dividers */}
+      <Card className="overflow-hidden p-0 gap-0">
+        {/* ── Section 1: Main info + actions ── */}
+        <div className="flex items-start justify-between gap-4 px-6 py-4">
+          <div className="flex min-w-0 items-center gap-4">
             <img
               src={launch.developer.logo || "/placeholder.svg"}
               alt={launch.developer.name}
-              className="h-16 w-16 rounded-lg object-cover bg-secondary flex-shrink-0"
+              className="h-14 w-14 rounded-lg object-cover bg-secondary flex-shrink-0"
             />
-            <div className="space-y-0.5">
-              {/* Project name */}
+            <div className="min-w-0 space-y-1">
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-semibold">{launch.projectNameEn}</h1>
-                {/* Level tag */}
+                <h1 className="truncate text-xl font-semibold">{launch.projectNameEn}</h1>
                 <Badge variant={launch.projectLevel === "Phase" ? "secondary" : "outline"} className="text-xs">
                   {launch.projectLevel === "Phase" ? "Phase" : "Main Project"}
                 </Badge>
+                {launch.phase && <span className="text-sm text-muted-foreground">{launch.phase}</span>}
               </div>
-              {/* Developer name + ID */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm text-muted-foreground font-medium">{launch.developer.name}</span>
-                <span className="text-xs text-muted-foreground/60">·</span>
-                <span className="text-xs text-muted-foreground font-mono">{launch.developer.id}</span>
-                <button onClick={() => copyToClipboard(launch.developer.id, "dev")} className="p-0.5 hover:bg-secondary rounded">
-                  {copiedId === "dev" ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
-                </button>
-              </div>
-              {/* Parent project — only if Phase */}
-              {launch.projectLevel === "Phase" && launch.parentProjectId && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">Parent:</span>
-                  <span className="text-xs text-muted-foreground">{launch.parentProjectId}</span>
-                  <button onClick={() => copyToClipboard(launch.parentProjectId!, "parent")} className="p-0.5 hover:bg-secondary rounded">
-                    {copiedId === "parent" ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
-                  </button>
-                </div>
-              )}
-              {/* Launch ID */}
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">Launch ID:</span>
-                <span className="text-xs text-muted-foreground font-mono">{launch.id}</span>
-                <button onClick={() => copyToClipboard(launch.id, "launch")} className="p-0.5 hover:bg-secondary rounded">
-                  {copiedId === "launch" ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
-                </button>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+                {/* Developer — clickable */}
+                <span className="flex items-center gap-1.5">
+                  <a href="#" target="_blank" rel="noreferrer" className="text-sm font-medium text-muted-foreground hover:underline">{launch.developer.name}</a>
+                  <span className="text-[10px] text-muted-foreground"><IdCopy value={launch.developer.id} /></span>
+                </span>
+                {/* Launch ID */}
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <span className="uppercase tracking-wide text-muted-foreground/60">Launch ID:</span> <IdCopy value={launch.id} />
+                </span>
+                {/* Parent project — only if Phase + matched */}
+                {launch.projectLevel === "Phase" && launch.parentProjectId && (
+                  <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                    <span className="uppercase tracking-wide text-muted-foreground/60">Parent:</span>
+                    <a href="#" target="_blank" rel="noreferrer" className="text-xs font-medium text-foreground hover:underline">{launch.parentProjectId}</a>
+                    <IdCopy value={`PRJ-${launch.parentProjectId.slice(0, 3).toUpperCase()}`} />
+                  </span>
+                )}
+                {/* Area name + id */}
+                <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <span className="uppercase tracking-wide text-muted-foreground/60">Area:</span>
+                  <span className="text-xs font-medium text-foreground">{launch.area}</span>
+                  <IdCopy value={launch.areaId ?? "AR-000"} />
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Right: all editable status dropdowns + type + delete */}
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            {/* Approval Status */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 bg-transparent h-8">
-                  {getApprovalStatusBadge(approvalStatus)}
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {(["Pending Review", "Approved", "Rejected"] as Launch["approvalStatus"][]).map((s) => (
-                  <DropdownMenuItem key={s} onClick={() => setApprovalStatus(s)}>{getApprovalStatusBadge(s)}</DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Ingestion Status */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 bg-transparent h-8">
-                  {getIngestionStatusBadge(ingestionStatus)}
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {(["Ingested", "Not Ingested"] as Launch["ingestionStatus"][]).map((s) => (
-                  <DropdownMenuItem key={s} onClick={() => setIngestionStatus(s)}>{getIngestionStatusBadge(s)}</DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Listing Status */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 bg-transparent h-8">
-                  {getListingStatusBadge(listingStatus)}
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {(["Active", "Hidden"] as Launch["listingStatus"][]).map((s) => (
-                  <DropdownMenuItem key={s} onClick={() => setListingStatus(s)}>{getListingStatusBadge(s)}</DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Launch Status */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 bg-transparent h-8">
-                  {getLaunchStatusBadge(launchStatus)}
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {(["Upcoming", "Active", "Closed"] as Launch["launchStatus"][]).map((s) => (
-                  <DropdownMenuItem key={s} onClick={() => setLaunchStatus(s)}>{getLaunchStatusBadge(s)}</DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Type */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 bg-transparent h-8">
-                  {getTypeBadge(launchType)}
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {(["Launch", "Release"] as Launch["type"][]).map((s) => (
-                  <DropdownMenuItem key={s} onClick={() => _setLaunchTypeField(s)}>{getTypeBadge(s)}</DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Delete — red icon button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={() => setDeleteConfirmOpen(true)}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
+          {/* Actions — same logic as the launches table row */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0 bg-transparent">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger disabled={ingestionStatus === "Ingested"} className={cn(ingestionStatus === "Ingested" && "opacity-40")}>
+                  <ShieldCheck className="h-4 w-4 mr-2" />Approval
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuItem className="text-emerald-600 focus:text-emerald-700" onClick={() => setHeaderDialog("approve")}>
+                    <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" />Approve
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setHeaderDialog("reject")}>
+                    <XCircle className="h-4 w-4 mr-2 text-red-600" />Reject
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setHeaderDialog("archive")}>
+                <Archive className="h-4 w-4 mr-2" />Archive
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
-        {/* Info row */}
-        <div className="grid grid-cols-5 gap-6 pt-4 border-t border-border">
+        {/* ── Section 2: Statuses (read-only tags — edited via the actions dropdown) ── */}
+        <div className="grid grid-cols-5 gap-6 border-t border-border px-6 py-3">
+          {([
+            ["Approval Status", getApprovalStatusBadge(approvalStatus)],
+            ["Ingestion Status", getIngestionStatusBadge(ingestionStatus)],
+            ["Listing Status", getListingStatusBadge(listingStatus)],
+            ["Launch Status", getLaunchStatusBadge(launchStatus)],
+            ["Type", getTypeBadge(launchType)],
+          ] as [string, React.ReactNode][]).map(([label, badge]) => (
+            <div key={label}>
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+              {badge}
+            </div>
+          ))}
+        </div>
+
+        {/* ── Section 3: Metadata ── */}
+        <div className="grid grid-cols-5 gap-6 border-t border-border px-6 py-3">
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Source</p>
+            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Source</p>
             <Badge variant="outline">{launch.source}</Badge>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Phase</p>
-            <p className="text-sm font-medium">{launch.phase || "—"}</p>
+            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Sent At</p>
+            <p className="text-sm">{formatDate(launch.sentAt ?? null)}</p>
           </div>
+          {launch.source === "WhatsApp" && (
+            <div>
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">AI Updates</p>
+              <p className="text-sm">3 updates · last {formatDate(launch.updatedAt)}</p>
+            </div>
+          )}
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Area</p>
-            <p className="text-sm">{launch.area}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">Created At</p>
+            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Created At</p>
             <p className="text-sm">{formatDate(launch.createdAt)}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Updated At</p>
+            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Updated At</p>
             <p className="text-sm">{formatDate(launch.updatedAt)}</p>
           </div>
         </div>
       </Card>
 
-      {/* Delete confirmation */}
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Launch</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to permanently delete <strong>{launch.id}</strong> — <strong>{launch.projectNameEn}</strong>? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => { setDeleteConfirmOpen(false); onBack() }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Header action dialogs — summary + confirm (same logic as the launches table row) */}
+      {headerDialog && (
+        <Dialog open onOpenChange={(v) => { if (!v) { setHeaderDialog(null); setHeaderReason("") } }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {headerDialog === "approve" ? "Approve Launch" : headerDialog === "reject" ? "Reject Launch" : "Archive Launch"}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 rounded-lg border border-border bg-muted/40 px-4 py-3">
+                {([["Developer", launch.developer.name], ["Area", launch.area], ["Project", launch.projectNameEn], ...(launch.phase ? [["Phase", launch.phase]] : [])] as [string, string][]).map(([label, value]) => (
+                  <div key={label}>
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+                    <p className="text-sm font-medium">{value}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {headerDialog === "approve" && "Approving this launch means this launch can be ingested in the database and appears across Nawy's system accordingly."}
+                {headerDialog === "reject" && "Rejecting this launch means this launch will not get ingested in the database and will not appear across Nawy's system accordingly."}
+                {headerDialog === "archive" && "Archiving removes this launch from all launch views."}
+              </p>
+              {(headerDialog === "reject" || headerDialog === "archive") && (
+                <div className="space-y-1.5">
+                  <Label>{headerDialog === "reject" ? "Reason for rejection" : "Reason for archiving"} <span className="text-red-500">*</span></Label>
+                  <Textarea value={headerReason} onChange={(e) => setHeaderReason(e.target.value)} rows={3} placeholder={headerDialog === "reject" ? "Why is this launch being rejected?" : "Why is this launch being archived?"} />
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" className="bg-transparent" onClick={() => { setHeaderDialog(null); setHeaderReason("") }}>Cancel</Button>
+              <Button
+                className={headerDialog === "approve" ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-red-600 text-white hover:bg-red-700"}
+                disabled={headerDialog !== "approve" && !headerReason.trim()}
+                onClick={() => {
+                  if (headerDialog === "approve") { setApprovalStatus("Approved"); toast.success("Launch approved") }
+                  if (headerDialog === "reject") { setApprovalStatus("Rejected"); toast.success("Launch rejected") }
+                  if (headerDialog === "archive") { toast.success("Launch archived"); onBack() }
+                  setHeaderDialog(null); setHeaderReason("")
+                }}
+              >
+                {headerDialog === "approve" ? "Approve" : headerDialog === "reject" ? "Reject" : "Archive"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Tabbed Container */}
       <Tabs defaultValue={launch.source === "WhatsApp" ? "whatsapp" : "project"} className="w-full">
@@ -1138,6 +1354,33 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
         {/* Project Details Tab */}
         <TabsContent value="project">
           <Card className="p-6">
+            {/* Header: title + view/edit controls (locked once approved + ingested) */}
+            <div className="mb-5 flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Project Details</h3>
+              {approvalStatus === "Approved" && ingestionStatus === "Ingested" ? (
+                <Button variant="outline" size="icon" className="h-8 w-8 bg-transparent" title="Edit Project details" asChild>
+                  <a href="#" target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" /></a>
+                </Button>
+              ) : projectEditing ? (
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => setProjectEditing(false)}>
+                    <X className="h-3.5 w-3.5 mr-1" />Cancel
+                  </Button>
+                  <Button size="sm" className="h-8" onClick={() => { setProjectEditing(false); toast.success("Project details saved") }}>
+                    <Save className="h-3.5 w-3.5 mr-1" />Save
+                  </Button>
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => setProjectEditing(true)}>
+                  <Edit className="h-3.5 w-3.5 mr-1" />Edit
+                </Button>
+              )}
+            </div>
+
+            <fieldset
+              disabled={!projectEditing || (approvalStatus === "Approved" && ingestionStatus === "Ingested")}
+              className={cn(approvalStatus === "Approved" && ingestionStatus === "Ingested" && "opacity-60")}
+            >
             <div className="grid grid-cols-2 gap-x-8 gap-y-5">
 
               {/* Developer — searchable dropdown */}
@@ -1212,42 +1455,28 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 </>
               )}
 
-              {/* Project Description */}
-              <div className="col-span-2">
-                <Label>Project Description</Label>
-                <Textarea
-                  value={projectDescription}
-                  onChange={(e) => setProjectDescription(e.target.value)}
-                  placeholder="Describe the project..."
-                  className="mt-1"
-                  rows={3}
-                />
-              </div>
-
-              {/* Address */}
-              <div className="col-span-2">
-                <Label>Address</Label>
-                <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Full project address" className="mt-1" />
-              </div>
-
-              {/* Total Project Area */}
-              <div className="col-span-2">
-                <Label className="mb-2 block">Total Project Area</Label>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Acres</p>
-                    <Input value={totalAreaAcres} onChange={(e) => setTotalAreaAcres(e.target.value)} placeholder="0" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Feddans</p>
-                    <Input value={totalAreaFeddans} onChange={(e) => setTotalAreaFeddans(e.target.value)} placeholder="0" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">SQM</p>
-                    <Input value={totalAreaSqm} onChange={(e) => setTotalAreaSqm(e.target.value)} placeholder="0" />
-                  </div>
+              {/* Project Area — numeric value + unit dropdown */}
+              <div>
+                <Label>Project Area</Label>
+                <div className="mt-1 flex items-center gap-2">
+                  <Input
+                    value={projectAreaValue}
+                    onChange={(e) => setProjectAreaValue(e.target.value.replace(/[^\d.]/g, ""))}
+                    placeholder="e.g. 500"
+                    inputMode="decimal"
+                    className="flex-1"
+                  />
+                  <Select value={projectAreaUnit} onValueChange={setProjectAreaUnit}>
+                    <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {AREA_UNIT_OPTIONS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
+
+              {/* Spacer */}
+              <div />
 
               {/* Total Units Released */}
               <div>
@@ -1260,7 +1489,64 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 <Label>Total Buildings Released</Label>
                 <Input value={totalBuildingsReleased} onChange={(e) => setTotalBuildingsReleased(e.target.value)} placeholder="e.g. 12" className="mt-1" type="number" />
               </div>
+
+              {/* Property Released — one row per property type, no duplicate types */}
+              <div className="col-span-2 border-t border-border pt-5">
+                <Label className="mb-2 block">Property Released</Label>
+                <div className="space-y-2">
+                  {propertyReleased.map((row) => (
+                    <div key={row.id} className="flex items-end gap-3">
+                      <div className="flex-1">
+                        <p className="mb-1 text-xs text-muted-foreground">Property Type</p>
+                        <Select value={row.type || undefined} onValueChange={(v) => setPropertyReleased((prev) => prev.map((r) => (r.id === row.id ? { ...r, type: v } : r)))}>
+                          <SelectTrigger className="h-9"><SelectValue placeholder="Select type…" /></SelectTrigger>
+                          <SelectContent>
+                            {PROPERTY_TYPE_OPTIONS.map((pt) => (
+                              <SelectItem
+                                key={pt}
+                                value={pt}
+                                disabled={propertyReleased.some((r) => r.id !== row.id && r.type === pt)}
+                              >
+                                {pt}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-36">
+                        <p className="mb-1 text-xs text-muted-foreground">Count</p>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={row.count}
+                          onChange={(e) => setPropertyReleased((prev) => prev.map((r) => (r.id === row.id ? { ...r, count: e.target.value } : r)))}
+                          placeholder="e.g. 40"
+                          className="h-9"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPropertyReleased((prev) => prev.filter((r) => r.id !== row.id))}
+                        className="mb-2 text-muted-foreground transition-colors hover:text-destructive"
+                        title="Remove"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setPropertyReleased((prev) => [...prev, { id: `pr${prev.length + 1}-${prev.map((r) => r.id).join("").length}`, type: "", count: "" }])}
+                    disabled={propertyReleased.length >= PROPERTY_TYPE_OPTIONS.length}
+                    className="mt-1 flex items-center gap-1 text-sm text-primary hover:opacity-80 disabled:opacity-40"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add Property Type
+                  </button>
+                </div>
+              </div>
             </div>
+            </fieldset>
           </Card>
         </TabsContent>
 
@@ -1280,6 +1566,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 key={offering.id}
                 offering={offering}
                 launch={launch}
+                launchIngested={ingestionStatus === "Ingested"}
                 editing={editingOfferingIds.has(offering.id)}
                 expanded={expandedOfferingIds.has(offering.id)}
                 images={offeringImages[offering.id] ?? []}
@@ -1403,35 +1690,45 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 <h3 className="font-medium">Payment Plans</h3>
                 <p className="text-xs text-muted-foreground">{plans.length} plan{plans.length !== 1 ? "s" : ""}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm">
-                  <Link2 className="h-4 w-4 mr-2" />
-                  Link Existing Plan
-                </Button>
-                <Button size="sm" onClick={() => { setEditingPlan(null); setPlanDrawerOpen(true) }}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create New Plan
-                </Button>
-              </div>
+              <Button size="sm" onClick={() => { setEditingPlan(null); setPlanDrawerOpen(true) }}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create New Plan
+              </Button>
             </div>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              {plans.map((plan) => (
-                <LinkedPlanCard
-                  key={plan.id}
-                  plan={plan}
-                  isExpanded={expandedPlanId === plan.id}
-                  onToggleExpand={() => setExpandedPlanId((id) => (id === plan.id ? null : plan.id))}
-                  totalInGroup={plans.length}
-                  fullWidth
-                  onView={() => { setEditingPlan(plan); setPlanDrawerOpen(true) }}
-                  onRemove={() => setDeletingPlanId(plan.id)}
-                />
-              ))}
+              {plans.map((plan) => {
+                // Launch-only status: Ingested (green) when the launch itself is ingested,
+                // Draft (yellow) otherwise — a not-ingested launch has ALL plans as drafts.
+                const planIngested = ingestionStatus === "Ingested" && plan.status === "Active"
+                return (
+                  <LinkedPlanCard
+                    key={plan.id}
+                    plan={plan}
+                    isExpanded={expandedPlanId === plan.id}
+                    onToggleExpand={() => setExpandedPlanId((id) => (id === plan.id ? null : plan.id))}
+                    totalInGroup={plans.length}
+                    fullWidth
+                    hideFooter
+                    statusTag={planIngested
+                      ? <span className="text-[9px] font-semibold text-emerald-600 bg-[#EDFAF4] border border-[#A7F3D0] px-1.5 py-px rounded-full">● Ingested</span>
+                      : <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-px rounded-full">● Draft</span>}
+                    onView={() => setDetailsPlan(plan)}
+                    onRemove={() => setDeletingPlanId(plan.id)}
+                  />
+                )
+              })}
               {plans.length === 0 && (
                 <p className="col-span-full py-10 text-center text-sm text-muted-foreground">No payment plans yet — click "Create New Plan".</p>
               )}
             </div>
           </Card>
+
+          {/* View drawer (read-only) with Edit at the bottom — same as grouped property details */}
+          <PaymentPlanDetailsDrawer
+            plan={detailsPlan}
+            onClose={() => setDetailsPlan(null)}
+            onEdit={() => { setEditingPlan(detailsPlan); setDetailsPlan(null); setPlanDrawerOpen(true) }}
+          />
 
           <PaymentPlanDrawer
             open={planDrawerOpen}
@@ -1464,13 +1761,29 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
         <TabsContent value="launch-info">
           <Card className="p-6 space-y-8">
 
+            {/* Header: title + save (confirm when launch already ingested and fields changed) */}
+            <div className="-mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">Launch Details</h3>
+              <Button
+                size="sm"
+                className="h-8"
+                onClick={() => {
+                  if (ingestionStatus === "Ingested" && launchDirty) { setLaunchSaveConfirm(true); return }
+                  setLaunchDirty(false)
+                  toast.success("Launch details saved")
+                }}
+              >
+                <Save className="h-3.5 w-3.5 mr-1" />Save
+              </Button>
+            </div>
+
             {/* Launch Type + Dates */}
             <div>
               <h3 className="text-sm font-semibold text-foreground mb-4">Launch Info</h3>
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label>Launch Type</Label>
-                  <Select value={launchType} onValueChange={(v) => setLaunchType(v as "Launch" | "Release")}>
+                  <Select value={launchFormType} onValueChange={(v) => { setLaunchDirty(true); setLaunchFormType(v as "Launch" | "Release") }}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Launch">Launch</SelectItem>
@@ -1480,68 +1793,78 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 </div>
                 <div>
                   <Label>Launch Start Date</Label>
-                  <Input type="date" value={launchStartDate} onChange={(e) => setLaunchStartDate(e.target.value)} className="mt-1" />
+                  <Input type="date" value={launchStartDate} onChange={(e) => { setLaunchDirty(true); setLaunchStartDate(e.target.value) }} className="mt-1" />
                 </div>
                 <div>
                   <Label>Launch End Date</Label>
-                  <Input type="date" value={launchEndDate} onChange={(e) => setLaunchEndDate(e.target.value)} className="mt-1" />
+                  <Input type="date" value={launchEndDate} onChange={(e) => { setLaunchDirty(true); setLaunchEndDate(e.target.value) }} className="mt-1" />
                 </div>
               </div>
             </div>
 
-            {/* EOI */}
+            {/* EOI — General + by property type visible together */}
             <div className="pt-6 border-t border-border">
-              <h3 className="text-sm font-semibold text-foreground mb-4">Expression of Interest (EOI)</h3>
-              <div className="space-y-4">
-                {/* Mode toggle */}
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setEoiMode("overall")}
-                    className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${eoiMode === "overall" ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-secondary/50"}`}
-                  >
-                    Overall EOI Amount
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEoiMode("byType")}
-                    className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${eoiMode === "byType" ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-secondary/50"}`}
-                  >
-                    EOI by Property Type
-                  </button>
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-foreground">Expression of Interest (EOI)</h3>
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">Currency</Label>
+                  <Select value={eoiCurrency} onValueChange={(v) => { setLaunchDirty(true); setEoiCurrency(v) }}>
+                    <SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {["EGP", "USD", "EUR"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-5">
+                {/* General EOI */}
+                <div className="max-w-xs">
+                  <Label>General EOI ({eoiCurrency})</Label>
+                  <Input
+                    value={eoiOverallAmount}
+                    onChange={(e) => { setLaunchDirty(true); setEoiOverallAmount(fmtInt(e.target.value)) }}
+                    placeholder="e.g. 50,000"
+                    inputMode="numeric"
+                    className={cn("mt-1", eoiErr(eoiOverallAmount) && "border-red-400 focus-visible:ring-red-300 focus-visible:border-red-400")}
+                  />
+                  {eoiErr(eoiOverallAmount) && <p className="mt-1 text-[11px] text-red-500">{eoiErr(eoiOverallAmount)}</p>}
                 </div>
 
-                {eoiMode === "overall" ? (
-                  <div className="max-w-xs">
-                    <Label>EOI Amount (EGP)</Label>
-                    <Input value={eoiOverallAmount} onChange={(e) => setEoiOverallAmount(e.target.value)} placeholder="e.g. 50,000" className="mt-1" />
-                  </div>
-                ) : (
+                {/* EOI by Property Type */}
+                <div>
+                  <Label className="mb-2 block">EOI by Property Type ({eoiCurrency})</Label>
                   <div className="space-y-2">
-                    {eoiByType.map((entry) => (
-                      <div key={entry.id} className="flex items-end gap-3">
-                        <div className="flex-1">
-                          <Label className="text-xs">Property Type Name</Label>
-                          <Input value={entry.name} onChange={(e) => updateEoiByType(entry.id, "name", e.target.value)} placeholder="e.g. Apartments" className="mt-1 h-9" />
-                        </div>
-                        <div className="w-36">
-                          <Label className="text-xs">EOI Amount (EGP)</Label>
-                          <div className="flex items-center gap-1 mt-1">
-                            <Input value={entry.amount} onChange={(e) => updateEoiByType(entry.id, "amount", e.target.value)} placeholder="50,000" className="h-9" />
+                    {eoiByType.map((entry) => {
+                      const err = eoiErr(entry.amount)
+                      return (
+                        <div key={entry.id} className="flex items-start gap-3">
+                          <div className="flex-1">
+                            <Input value={entry.name} onChange={(e) => { setLaunchDirty(true); updateEoiByType(entry.id, "name", e.target.value) }} placeholder="e.g. Apartments" className="h-9" />
                           </div>
+                          <div className="w-44">
+                            <Input
+                              value={entry.amount}
+                              onChange={(e) => { setLaunchDirty(true); updateEoiByType(entry.id, "amount", fmtInt(e.target.value)) }}
+                              placeholder="50,000"
+                              inputMode="numeric"
+                              className={cn("h-9", err && "border-red-400 focus-visible:ring-red-300 focus-visible:border-red-400")}
+                            />
+                            {err && <p className="mt-1 text-[11px] text-red-500">{err}</p>}
+                          </div>
+                          <button type="button" onClick={() => { setLaunchDirty(true); removeEoiByType(entry.id) }} className="mt-2.5 text-muted-foreground hover:text-destructive transition-colors">
+                            <X className="h-4 w-4" />
+                          </button>
                         </div>
-                        
-                        <button type="button" onClick={() => removeEoiByType(entry.id)} className="mb-0.5 text-muted-foreground hover:text-destructive transition-colors">
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
-                    <button type="button" onClick={addEoiByType} className="flex items-center gap-1 text-sm text-primary hover:opacity-80 mt-1">
+                      )
+                    })}
+                    <button type="button" onClick={() => { setLaunchDirty(true); addEoiByType() }} className="flex items-center gap-1 text-sm text-primary hover:opacity-80 mt-1">
                       <Plus className="h-3.5 w-3.5" />
                       Add Property Type
                     </button>
                   </div>
-                )}
+                </div>
+
+                <p className="text-[11px] text-muted-foreground">All EOI amounts must be positive integers of at least 5 digits — commas are added automatically (e.g. 250,000 · 10,000).</p>
               </div>
             </div>
 
@@ -1556,7 +1879,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                   { id: "bank", label: "Bank Transfer", value: paymentMethodBankTransfer, setter: setPaymentMethodBankTransfer },
                 ].map(({ id, label, value, setter }) => (
                   <div key={id} className="flex items-center gap-2">
-                    <Switch id={id} checked={value} onCheckedChange={setter} />
+                    <Switch id={id} checked={value} onCheckedChange={(v) => { setLaunchDirty(true); setter(v) }} />
                     <Label htmlFor={id}>{label}</Label>
                   </div>
                 ))}
@@ -1568,7 +1891,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
               <h3 className="text-sm font-semibold text-foreground mb-4">Refundability</h3>
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <Switch id="refundable" checked={isRefundable} onCheckedChange={setIsRefundable} />
+                  <Switch id="refundable" checked={isRefundable} onCheckedChange={(v) => { setLaunchDirty(true); setIsRefundable(v) }} />
                   <Label htmlFor="refundable">Refundable</Label>
                 </div>
                 {isRefundable && (
@@ -1576,14 +1899,14 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
-                        onClick={() => setRefundType("full")}
+                        onClick={() => { setLaunchDirty(true); setRefundType("full") }}
                         className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${refundType === "full" ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-secondary/50"}`}
                       >
                         Full Refund
                       </button>
                       <button
                         type="button"
-                        onClick={() => setRefundType("partial")}
+                        onClick={() => { setLaunchDirty(true); setRefundType("partial") }}
                         className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${refundType === "partial" ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-secondary/50"}`}
                       >
                         Partial Refund
@@ -1593,9 +1916,9 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                       <div className="flex items-end gap-3 max-w-sm">
                         <div className="flex-1">
                           <Label className="text-xs">Partial Refund Value</Label>
-                          <Input value={partialRefundValue} onChange={(e) => setPartialRefundValue(e.target.value)} placeholder="e.g. 50" className="mt-1 h-9" />
+                          <Input value={partialRefundValue} onChange={(e) => { setLaunchDirty(true); setPartialRefundValue(e.target.value) }} placeholder="e.g. 50" className="mt-1 h-9" />
                         </div>
-                        <Select value={partialRefundType} onValueChange={(v) => setPartialRefundType(v as "amount" | "percentage")}>
+                        <Select value={partialRefundType} onValueChange={(v) => { setLaunchDirty(true); setPartialRefundType(v as "amount" | "percentage") }}>
                           <SelectTrigger className="w-32 h-9"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="percentage">Percentage (%)</SelectItem>
@@ -1609,21 +1932,75 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
               </div>
             </div>
 
-            {/* Taskeen Info */}
+            {/* Taskeen Days — multiple days, each with date, types and address */}
             <div className="pt-6 border-t border-border">
-              <h3 className="text-sm font-semibold text-foreground mb-4">Taskeen Info</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Taskeen Date</Label>
-                  <Input type="date" value={taskeenDate} onChange={(e) => setTaskeenDate(e.target.value)} className="mt-1" />
-                </div>
-                <div>
-                  <Label>Taskeen Address</Label>
-                  <Input value={taskeenAddress} onChange={(e) => setTaskeenAddress(e.target.value)} placeholder="e.g. Sales Center, 6th October" className="mt-1" />
-                </div>
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-foreground">Taskeen Days</h3>
+                <button
+                  type="button"
+                  onClick={() => { setLaunchDirty(true); setTaskeenDays((prev) => [...prev, { id: `td${prev.length + 1}-${prev.map((d) => d.id).join("").length}`, date: "", types: [], address: "" }]) }}
+                  className="flex items-center gap-1 text-sm text-primary hover:opacity-80"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Day
+                </button>
+              </div>
+              <div className="space-y-3">
+                {taskeenDays.map((day, i) => (
+                  <div key={day.id} className="rounded-lg border border-border p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Day {i + 1}</p>
+                      {taskeenDays.length > 1 && (
+                        <button type="button" onClick={() => { setLaunchDirty(true); setTaskeenDays((prev) => prev.filter((d) => d.id !== day.id)) }} className="text-muted-foreground hover:text-destructive transition-colors">
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <Label className="text-xs">Date</Label>
+                        <Input type="date" value={day.date} onChange={(e) => { setLaunchDirty(true); setTaskeenDays((prev) => prev.map((d) => (d.id === day.id ? { ...d, date: e.target.value } : d))) }} className="mt-1 h-9" />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Types</Label>
+                        <div className="mt-1">
+                          <FilterMultiSelect
+                            label="Types"
+                            options={TASKEEN_TYPE_OPTIONS}
+                            value={day.types}
+                            onChange={(v) => { setLaunchDirty(true); setTaskeenDays((prev) => prev.map((d) => (d.id === day.id ? { ...d, types: v } : d))) }}
+                            className="w-full"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Address</Label>
+                        <Input value={day.address} onChange={(e) => { setLaunchDirty(true); setTaskeenDays((prev) => prev.map((d) => (d.id === day.id ? { ...d, address: e.target.value } : d))) }} placeholder="e.g. Sales Center, 6th October" className="mt-1 h-9" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </Card>
+
+          {/* Save confirmation — only when fields changed on an already-ingested launch */}
+          <AlertDialog open={launchSaveConfirm} onOpenChange={(o) => !o && setLaunchSaveConfirm(false)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Change launch details?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This Launch already ingested and {launchStatus.toLowerCase()}. Are you sure you want to change these launch details?
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => { setLaunchSaveConfirm(false); setLaunchDirty(false); toast.success("Launch details saved") }}>
+                  Save Changes
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </TabsContent>
 
         {/* Incentives Tab */}
@@ -1721,17 +2098,27 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
           </Card>
         </TabsContent>
 
-        {/* WhatsApp Message Tab */}
+        {/* WhatsApp Message Tab — hidden entirely for manually-created launches */}
+        {launch.source === "WhatsApp" && (
         <TabsContent value="whatsapp">
           <Card className="p-6">
-            {launch.source === "WhatsApp" ? (
               <div className="space-y-4">
+                {/* Group header: profile image + clickable name + group id caption */}
                 <div className="flex items-center gap-3 pb-4 border-b border-border">
-                  <MessageSquare className="h-5 w-5 text-green-500" />
-                  <div>
-                    <p className="font-medium">WhatsApp Message</p>
-                    <p className="text-sm text-muted-foreground">Received from group: Developer Updates</p>
+                  <img
+                    src="/placeholder.svg?height=40&width=40"
+                    alt="Group"
+                    className="h-10 w-10 flex-shrink-0 rounded-full bg-secondary object-cover"
+                  />
+                  <div className="min-w-0">
+                    <a href="#" target="_blank" rel="noreferrer" className="block w-fit truncate text-sm font-medium hover:underline">
+                      Palm Hills — Developer Updates
+                    </a>
+                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                      Group ID: <IdCopy value="WAG-0421" />
+                    </span>
                   </div>
+                  <MessageSquare className="ml-auto h-5 w-5 flex-shrink-0 text-green-500" />
                 </div>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground">
                   <div className="flex items-center gap-1">
@@ -1773,15 +2160,9 @@ Contact us for more details!`}
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p>This launch was created manually</p>
-                <p className="text-sm">No WhatsApp message associated</p>
-              </div>
-            )}
           </Card>
         </TabsContent>
+        )}
 
         {/* Audit Logs Tab */}
         <TabsContent value="audit">

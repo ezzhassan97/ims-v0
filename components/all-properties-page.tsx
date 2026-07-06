@@ -1513,7 +1513,7 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewO
   )
 }
 
-export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false, onRemove, onView, cascadeRemovesPrice = false, fullWidth = false, selected, onSelectToggle }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean; onRemove?: () => void; onView?: () => void; cascadeRemovesPrice?: boolean; fullWidth?: boolean; selected?: boolean; onSelectToggle?: () => void }) {
+export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false, onRemove, onView, cascadeRemovesPrice = false, fullWidth = false, selected, onSelectToggle, hideFooter = false, statusTag }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean; onRemove?: () => void; onView?: () => void; cascadeRemovesPrice?: boolean; fullWidth?: boolean; selected?: boolean; onSelectToggle?: () => void; hideFooter?: boolean; statusTag?: React.ReactNode }) {
   const selectable = selected !== undefined || onSelectToggle !== undefined
   const [copiedId, setCopiedId] = useState(false)
   const [confirmUnlink, setConfirmUnlink] = useState(false)
@@ -1572,9 +1572,9 @@ export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup,
               {copiedId ? <Check className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
             </button>
           </div>
-          {plan.status === "Active"
+          {statusTag ?? (plan.status === "Active"
             ? <span className="text-[9px] font-semibold text-emerald-600 bg-[#EDFAF4] border border-[#A7F3D0] px-1.5 py-px rounded-full">● Active</span>
-            : <span className="text-[9px] font-semibold text-[#8C9BB5] bg-[#F1F3F9] border border-[#E2E8F0] px-1.5 py-px rounded-full">● Hidden</span>}
+            : <span className="text-[9px] font-semibold text-[#8C9BB5] bg-[#F1F3F9] border border-[#E2E8F0] px-1.5 py-px rounded-full">● Hidden</span>)}
         </div>
         {/* Dev row */}
         <div className="flex items-center gap-1.5">
@@ -1643,12 +1643,14 @@ export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup,
       </div>
 
       {/* Footer */}
+      {!hideFooter && (
       <div className="px-3 py-1.5 flex items-center justify-between bg-[#F8FAFC] gap-1.5 border-t border-border">
         <div />
         <button onClick={onToggleExpand} className="flex items-center gap-0.5 text-[11px] font-medium text-blue-600 bg-transparent border-0 cursor-pointer px-[5px] py-[3px] rounded-[5px] hover:bg-blue-50 transition-colors">
           Details <ChevronDown className={cn("w-[11px] h-[11px] transition-transform duration-[180ms]", isExpanded && "rotate-180")} />
         </button>
       </div>
+      )}
 
       {/* Expanded */}
       {isExpanded && (
