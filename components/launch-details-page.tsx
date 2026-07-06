@@ -2008,42 +2008,58 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 const linkedIds = offeringPlanIds[linkPlansOffering.id] ?? []
                 const linked = plans.filter((p) => linkedIds.includes(p.id))
                 const available = plans.filter((p) => !linkedIds.includes(p.id))
-                const planRow = (p: PlanCardData, isLinked: boolean) => (
-                  <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{p.name}</p>
-                      <p className="text-[11px] text-muted-foreground">{p.planType} · DP {p.dp} · {p.duration} · {p.frequency}</p>
-                    </div>
-                    {isLinked ? (
-                      <Button variant="outline" size="sm" className="h-7 flex-shrink-0 bg-transparent text-red-600 hover:text-red-600" onClick={() => {
-                        setOfferingPlanIds((prev) => ({ ...prev, [linkPlansOffering.id]: (prev[linkPlansOffering.id] ?? []).filter((id) => id !== p.id) }))
-                        toast.success(`${p.name} unlinked`)
-                      }}>
-                        Unlink
-                      </Button>
-                    ) : (
-                      <Button variant="outline" size="sm" className="h-7 flex-shrink-0 bg-transparent" onClick={() => {
-                        setOfferingPlanIds((prev) => ({ ...prev, [linkPlansOffering.id]: [...(prev[linkPlansOffering.id] ?? []), p.id] }))
-                        toast.success(`${p.name} linked`)
-                      }}>
-                        <Link2 className="h-3 w-3 mr-1" />Link
-                      </Button>
-                    )}
-                  </div>
-                )
                 return (
                   <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+                    {/* Linked — real plan cards with the native unlink action */}
                     <div>
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Linked ({linked.length})</p>
-                      <div className="space-y-2">
-                        {linked.map((p) => planRow(p, true))}
+                      <div className="space-y-2.5">
+                        {linked.map((p) => (
+                          <LinkedPlanCard
+                            key={p.id}
+                            plan={p}
+                            hideFooter
+                            fullWidth
+                            isExpanded={false}
+                            onToggleExpand={() => {}}
+                            totalInGroup={linked.length}
+                            onRemove={() => {
+                              setOfferingPlanIds((prev) => ({ ...prev, [linkPlansOffering.id]: (prev[linkPlansOffering.id] ?? []).filter((id) => id !== p.id) }))
+                              toast.success(`${p.name} unlinked`)
+                            }}
+                          />
+                        ))}
                         {linked.length === 0 && <p className="text-sm text-muted-foreground">No plans linked yet.</p>}
                       </div>
                     </div>
+                    {/* Available — real plan cards with a Link CTA */}
                     <div className="border-t border-border pt-4">
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Available to link ({available.length})</p>
-                      <div className="space-y-2">
-                        {available.map((p) => planRow(p, false))}
+                      <div className="space-y-4">
+                        {available.map((p) => (
+                          <div key={p.id} className="space-y-1.5">
+                            <LinkedPlanCard
+                              plan={p}
+                              readOnly
+                              hideFooter
+                              fullWidth
+                              isExpanded={false}
+                              onToggleExpand={() => {}}
+                              totalInGroup={available.length}
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 w-full bg-transparent"
+                              onClick={() => {
+                                setOfferingPlanIds((prev) => ({ ...prev, [linkPlansOffering.id]: [...(prev[linkPlansOffering.id] ?? []), p.id] }))
+                                toast.success(`${p.name} linked`)
+                              }}
+                            >
+                              <Link2 className="h-3 w-3 mr-1.5" />Link to property
+                            </Button>
+                          </div>
+                        ))}
                         {available.length === 0 && <p className="text-sm text-muted-foreground">All launch payment plans are linked.</p>}
                       </div>
                     </div>

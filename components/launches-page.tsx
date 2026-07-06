@@ -1070,10 +1070,10 @@ export function LaunchesPage() {
         {/* Level */}
         <TableCell><Chip tone={l.projectLevel === "Main Project" ? "blue" : "white"}>{l.projectLevel}</Chip></TableCell>
 
-        {/* Area — tag + id caption */}
-        <TableCell>
-          <div className="flex flex-col items-start gap-0.5">
-            <Chip>{l.area}</Chip>
+        {/* Area — plain text + id caption */}
+        <TableCell className="min-w-[110px]">
+          <div className="flex flex-col">
+            <span className="whitespace-nowrap text-sm">{l.area}</span>
             <IdTag value={l.areaId} />
           </div>
         </TableCell>
