@@ -262,7 +262,7 @@ export function TableCardHeader({ title, count, cta }: { title: string; count?: 
       <div className="flex items-center gap-2">
         <h2 className="text-sm font-semibold text-foreground">{title}</h2>
         {count !== undefined && (
-          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">{count.toLocaleString()}</span>
+          <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{count.toLocaleString()}</span>
         )}
       </div>
       {cta}

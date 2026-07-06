@@ -50,3 +50,12 @@ When adding features, follow the existing convention: define the interface + moc
 - Page components needing interactivity must start with `"use client"` (the shell and all pages are client components).
 - Styling is Tailwind v4 (config-less, via `app/globals.css` + `@tailwindcss/postcss`). Use the `cn()` helper from `lib/utils.ts` for conditional classes. Icons come from `lucide-react`.
 - Toasts: `sonner` and the shadcn `use-toast` hook both exist (`hooks/use-toast.ts`).
+
+## Table & tag design system (MANDATORY)
+
+The two canonical references for table UI are the **detailed properties table** (`all-properties-page.tsx`) and the **data grid in `testing-playground.tsx`**. Match them for any table work:
+
+- **Tags/badges are rectangular, never pills**: shadcn `Badge` base — `rounded-md border px-2 py-0.5 text-xs font-medium` with tone classes like `bg-emerald-100 text-emerald-700 border-emerald-200`. Do **not** use `rounded-full` chips when the user asks for "tags".
+- **Table-header count chip**: `bg-blue-100 text-blue-700 border border-blue-200 font-medium text-xs px-2` (blue with a slight border), as rendered by `TableCardHeader` in `components/table-kit.tsx`.
+- **Row actions**: a single dropdown per row (the `⋯` menu) that includes **View** — never a separate standalone icon button next to the menu.
+- Shared table primitives (`TableCard`, `TableToolbar`, `TableFooter`, `FilterSelect`, `FilterMultiSelect`, `DateRangeFilter`, `FloatingBulkBar`, `IdTag`, `COL_SEP`) live in `components/table-kit.tsx` — use them for every table page.

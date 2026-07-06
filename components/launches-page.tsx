@@ -269,9 +269,10 @@ const CHIP_TONES = {
   purple: "border-purple-200 bg-purple-100 text-purple-700",
 } as const
 
+/** Rectangular tag — same UI as the detailed-properties / playground data-grid badges (rounded-md, never a pill). */
 function Chip({ tone = "white", children }: { tone?: keyof typeof CHIP_TONES; children: React.ReactNode }) {
   return (
-    <span className={cn("inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium", CHIP_TONES[tone])}>
+    <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", CHIP_TONES[tone])}>
       {children}
     </span>
   )
@@ -281,7 +282,7 @@ function Chip({ tone = "white", children }: { tone?: keyof typeof CHIP_TONES; ch
 function MiniTag({ tone, children }: { tone: "red" | "grey"; children: React.ReactNode }) {
   return (
     <span className={cn(
-      "inline-flex w-fit items-center whitespace-nowrap rounded-full border px-1.5 py-px text-[10px] font-medium",
+      "inline-flex w-fit items-center whitespace-nowrap rounded border px-1.5 py-px text-[10px] font-medium",
       tone === "red" ? "border-red-200 bg-red-50 text-red-500" : "border-gray-200 bg-gray-50 text-gray-500",
     )}>
       {children}
@@ -868,6 +869,12 @@ export function LaunchesPage() {
 
   // ── Renderers ───────────────────────────────────────────────────────────────
 
+  const viewItem = (l: Launch) => (
+    <DropdownMenuItem onClick={() => setViewingLaunch(l)}>
+      <Eye className="h-4 w-4 mr-2" />View
+    </DropdownMenuItem>
+  )
+
   const rowMenu = (l: Launch) => {
     if (tab === "all" || tab === "pending") {
       const dimApproval = l.ingestionStatus === "Ingested"
@@ -877,6 +884,8 @@ export function LaunchesPage() {
             <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {viewItem(l)}
+            <DropdownMenuSeparator />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={dimApproval} className={cn(dimApproval && "opacity-40")}>
                 <ShieldCheck className="h-4 w-4 mr-2" />Approval
@@ -905,6 +914,8 @@ export function LaunchesPage() {
             <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {viewItem(l)}
+            <DropdownMenuSeparator />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger><Activity className="h-4 w-4 mr-2" />Launch Status</DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
@@ -927,6 +938,8 @@ export function LaunchesPage() {
           <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {viewItem(l)}
+          <DropdownMenuSeparator />
           <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDialog({ kind: "close", launch: l })}>
             <XCircle className="h-4 w-4 mr-2" />Close Launch
           </DropdownMenuItem>
@@ -1080,12 +1093,7 @@ export function LaunchesPage() {
 
         {/* Actions — frozen right */}
         <TableCell className={cn("sticky right-0 z-10 border-l border-border", selected ? "bg-primary/5" : "bg-card")}>
-          <div className="flex items-center gap-0.5">
-            <Button variant="ghost" size="icon" className="h-8 w-8" title="View" onClick={() => setViewingLaunch(l)}>
-              <Eye className="h-4 w-4" />
-            </Button>
-            {rowMenu(l)}
-          </div>
+          {rowMenu(l)}
         </TableCell>
       </TableRow>
     )
@@ -1126,7 +1134,7 @@ export function LaunchesPage() {
               <TableHead>Sent At</TableHead>
               <TableHead>Created At</TableHead>
               <TableHead>Updated At</TableHead>
-              <TableHead className="sticky right-0 z-20 w-20 bg-secondary/30"></TableHead>
+              <TableHead className="sticky right-0 z-20 w-10 bg-secondary/30"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1187,22 +1195,31 @@ export function LaunchesPage() {
 
       <Tabs value={tab} onValueChange={(v) => { setTab(v as TabKey); setSelectedIds([]); setPage(1) }} className="w-full">
         <TabsList className="bg-secondary">
-          <TabsTrigger value="all" className="data-[state=active]:bg-card">All</TabsTrigger>
+          <TabsTrigger value="all" className="data-[state=active]:bg-card">
+            All
+            <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-gray-200 bg-gray-100 px-1 text-[10px] font-semibold text-gray-600">
+              {launches.length}
+            </span>
+          </TabsTrigger>
           <TabsTrigger value="pending" className="data-[state=active]:bg-card">
             Pending Review
-            {pendingCount > 0 && (
-              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-yellow-100 px-1 text-[10px] font-semibold text-yellow-700">
-                {pendingCount}
-              </span>
-            )}
+            <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-amber-200 bg-amber-100 px-1 text-[10px] font-semibold text-amber-700">
+              {pendingCount}
+            </span>
           </TabsTrigger>
           <TabsTrigger value="listed" className="data-[state=active]:bg-card">
             <ListChecks className="mr-1.5 h-3.5 w-3.5" />
             Listed Status
+            <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-blue-200 bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">
+              {launches.filter(isIngested).length}
+            </span>
           </TabsTrigger>
           <TabsTrigger value="active" className="data-[state=active]:bg-card">
             <Activity className="mr-1.5 h-3.5 w-3.5" />
             Currently Active
+            <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-emerald-200 bg-emerald-100 px-1 text-[10px] font-semibold text-emerald-700">
+              {launches.filter((l) => isIngested(l) && l.launchStatus === "Active").length}
+            </span>
           </TabsTrigger>
         </TabsList>
 
