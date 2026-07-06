@@ -209,13 +209,13 @@ interface Launch {
   }
   projectNameEn: string
   phase: string
-  projectLevel: "Main Compound" | "Phase"
+  projectLevel: "Main Project" | "Phase"
   parentProjectId?: string
   area: string
   approvalStatus: "Pending Review" | "Approved" | "Rejected"
   ingestionStatus: "Ingested" | "Not Ingested"
   listingStatus: "Active" | "Hidden"
-  launchStatus: "Upcoming" | "Active Launch" | "Finished"
+  launchStatus: "Upcoming" | "Active" | "Closed"
   type: "Launch" | "Release"
   source: "WhatsApp" | "Manual"
   listingCompletion: number
@@ -906,9 +906,9 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
 
   const getLaunchStatusBadge = (status: Launch["launchStatus"]) => {
     const map: Record<Launch["launchStatus"], string> = {
-      "Active Launch": "bg-emerald-100 text-emerald-700 hover:bg-emerald-100",
+      "Active": "bg-emerald-100 text-emerald-700 hover:bg-emerald-100",
       "Upcoming": "bg-blue-100 text-blue-700 hover:bg-blue-100",
-      "Finished": "bg-purple-100 text-purple-700 hover:bg-purple-100",
+      "Closed": "bg-purple-100 text-purple-700 hover:bg-purple-100",
     }
     return <Badge className={map[status]}>{status}</Badge>
   }
@@ -1041,7 +1041,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {(["Upcoming", "Active Launch", "Finished"] as Launch["launchStatus"][]).map((s) => (
+                {(["Upcoming", "Active", "Closed"] as Launch["launchStatus"][]).map((s) => (
                   <DropdownMenuItem key={s} onClick={() => setLaunchStatus(s)}>{getLaunchStatusBadge(s)}</DropdownMenuItem>
                 ))}
               </DropdownMenuContent>

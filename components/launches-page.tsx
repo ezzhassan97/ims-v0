@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, useCallback, useRef } from "react"
+import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Progress } from "@/components/ui/progress"
+import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Table,
@@ -17,18 +17,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu"
 import {
   Dialog,
@@ -36,40 +32,33 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-  DialogDescription,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import {
-  Search,
   Plus,
   MoreHorizontal,
   Eye,
   Archive,
-  Copy,
-  Check,
   Rocket,
   CheckCircle,
   ListChecks,
   Activity,
   XCircle,
-  CalendarIcon,
   GripVertical,
-  Pencil,
-  X,
-  ChevronDown,
-  LayoutGrid,
-  List,
+  ShieldCheck,
+  Download,
 } from "lucide-react"
+import { toast } from "sonner"
 import { LaunchDetailsPage } from "@/components/launch-details-page"
 import {
-  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, DateRangeFilter,
+  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, DateRangeFilter,
   FloatingBulkBar, BulkBarButton, IdTag, COL_SEP,
 } from "@/components/table-kit"
 import { cn } from "@/lib/utils"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface ListingProject {
+interface ProjectRef {
   id: string
   name: string
 }
@@ -78,238 +67,184 @@ interface Launch {
   id: string
   developer: { name: string; logo: string; id: string }
   projectNameEn: string
+  /** Matched system project id — undefined ⇒ free-text project name ("Unmatched Project"). */
+  projectId?: string
+  /** Empty phase ⇒ this is a brand-new project ("New Project"). */
   phase: string
-  projectLevel: "Main Compound" | "Phase"
+  projectLevel: "Main Project" | "Phase"
   parentProjectId?: string
   area: string
+  areaId: string
   approvalStatus: "Pending Review" | "Approved" | "Rejected"
   ingestionStatus: "Ingested" | "Not Ingested"
   listingStatus: "Active" | "Hidden"
-  listingProject?: ListingProject
-  launchStatus: "Upcoming" | "Active Launch" | "Finished"
+  /** Already-created project in the system — undefined ⇒ green "New" tag. */
+  existingProject?: ProjectRef
+  listingProject?: ProjectRef
+  launchStatus: "Upcoming" | "Active" | "Closed"
   type: "Launch" | "Release"
   source: "WhatsApp" | "Manual"
   listingCompletion: number
   eoiAmount?: number
   coverImage?: string
+  sentAt: string
   createdAt: string
   updatedAt: string
 }
 
+type TabKey = "all" | "pending" | "listed" | "active"
+
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 
-const AREAS = ["New Cairo", "6th of October", "North Coast", "New Capital", "Sheikh Zayed", "Maadi", "Zamalek", "Heliopolis"]
+const AREAS_DATA: ProjectRef[] = [
+  { name: "New Cairo", id: "AR-101" },
+  { name: "6th of October", id: "AR-102" },
+  { name: "North Coast", id: "AR-103" },
+  { name: "New Capital", id: "AR-104" },
+  { name: "Sheikh Zayed", id: "AR-105" },
+  { name: "Maadi", id: "AR-106" },
+  { name: "Zamalek", id: "AR-107" },
+  { name: "Heliopolis", id: "AR-108" },
+]
+const AREAS = AREAS_DATA.map((a) => a.name)
+const AREA_ID: Record<string, string> = Object.fromEntries(AREAS_DATA.map((a) => [a.name, a.id]))
+
+const LOGO = "/placeholder.svg?height=32&width=32"
+const COVER = "/placeholder.svg?height=200&width=300"
 
 const mockLaunches: Launch[] = [
   {
     id: "LCH-001",
-    developer: { name: "Palm Hills Development", logo: "/placeholder.svg?height=32&width=32", id: "DEV-001" },
-    projectNameEn: "Palm Hills October",
-    phase: "Phase 1",
-    projectLevel: "Main Compound",
-    area: "6th of October",
-    approvalStatus: "Approved",
-    ingestionStatus: "Ingested",
-    listingStatus: "Active",
+    developer: { name: "Palm Hills Development", logo: LOGO, id: "DEV-001" },
+    projectNameEn: "Palm Hills October", projectId: "PRJ-201",
+    phase: "Phase 1", projectLevel: "Main Project",
+    area: "6th of October", areaId: AREA_ID["6th of October"],
+    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
+    existingProject: { id: "PRJ-201", name: "Palm Hills October" },
     listingProject: { id: "LST-001", name: "Palm Hills October" },
-    launchStatus: "Active Launch",
-    type: "Launch",
-    source: "WhatsApp",
-    listingCompletion: 85,
-    eoiAmount: 50000,
-    coverImage: "/placeholder.svg?height=200&width=300",
-    createdAt: "2024-01-10T09:00:00",
-    updatedAt: "2024-01-15T14:30:00",
+    launchStatus: "Active", type: "Launch", source: "WhatsApp",
+    listingCompletion: 85, eoiAmount: 50000, coverImage: COVER,
+    sentAt: "2024-01-10T07:45:00", createdAt: "2024-01-10T09:00:00", updatedAt: "2024-01-15T14:30:00",
   },
   {
     id: "LCH-002",
-    developer: { name: "Emaar Misr", logo: "/placeholder.svg?height=32&width=32", id: "DEV-002" },
+    developer: { name: "Emaar Misr", logo: LOGO, id: "DEV-002" },
     projectNameEn: "Marassi North Coast",
-    phase: "Phase 2",
-    projectLevel: "Phase",
-    parentProjectId: "Marassi",
-    area: "North Coast",
-    approvalStatus: "Pending Review",
-    ingestionStatus: "Not Ingested",
-    listingStatus: "Hidden",
-    launchStatus: "Upcoming",
-    type: "Release",
-    source: "Manual",
-    listingCompletion: 45,
-    eoiAmount: 75000,
-    coverImage: "/placeholder.svg?height=200&width=300",
-    createdAt: "2024-01-12T11:00:00",
-    updatedAt: "2024-01-14T16:45:00",
+    phase: "Phase 2", projectLevel: "Phase", parentProjectId: "Marassi",
+    area: "North Coast", areaId: AREA_ID["North Coast"],
+    approvalStatus: "Pending Review", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
+    launchStatus: "Upcoming", type: "Release", source: "Manual",
+    listingCompletion: 45, eoiAmount: 75000, coverImage: COVER,
+    sentAt: "2024-01-12T10:20:00", createdAt: "2024-01-12T11:00:00", updatedAt: "2024-01-14T16:45:00",
   },
   {
     id: "LCH-003",
-    developer: { name: "Sodic", logo: "/placeholder.svg?height=32&width=32", id: "DEV-003" },
-    projectNameEn: "Sodic East",
-    phase: "Phase 3",
-    projectLevel: "Main Compound",
-    area: "New Cairo",
-    approvalStatus: "Approved",
-    ingestionStatus: "Ingested",
-    listingStatus: "Active",
+    developer: { name: "Sodic", logo: LOGO, id: "DEV-003" },
+    projectNameEn: "Sodic East", projectId: "PRJ-203",
+    phase: "Phase 3", projectLevel: "Main Project",
+    area: "New Cairo", areaId: AREA_ID["New Cairo"],
+    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
+    existingProject: { id: "PRJ-203", name: "Sodic East" },
     listingProject: { id: "LST-003", name: "Sodic East" },
-    launchStatus: "Active Launch",
-    type: "Launch",
-    source: "WhatsApp",
-    listingCompletion: 100,
-    eoiAmount: 60000,
-    coverImage: "/placeholder.svg?height=200&width=300",
-    createdAt: "2024-01-08T08:00:00",
-    updatedAt: "2024-01-16T10:00:00",
+    launchStatus: "Active", type: "Launch", source: "WhatsApp",
+    listingCompletion: 100, eoiAmount: 60000, coverImage: COVER,
+    sentAt: "2024-01-08T06:30:00", createdAt: "2024-01-08T08:00:00", updatedAt: "2024-01-16T10:00:00",
   },
   {
     id: "LCH-004",
-    developer: { name: "Mountain View", logo: "/placeholder.svg?height=32&width=32", id: "DEV-004" },
-    projectNameEn: "Mountain View iCity",
-    phase: "Phase 1",
-    projectLevel: "Phase",
-    parentProjectId: "Mountain View iCity Master",
-    area: "New Cairo",
-    approvalStatus: "Rejected",
-    ingestionStatus: "Not Ingested",
-    listingStatus: "Hidden",
-    launchStatus: "Upcoming",
-    type: "Release",
-    source: "Manual",
-    listingCompletion: 0,
-    eoiAmount: 40000,
-    coverImage: "/placeholder.svg?height=200&width=300",
-    createdAt: "2024-01-05T14:00:00",
-    updatedAt: "2024-01-05T14:00:00",
+    developer: { name: "Mountain View", logo: LOGO, id: "DEV-004" },
+    projectNameEn: "Mountain View iCity", projectId: "PRJ-204",
+    phase: "Phase 1", projectLevel: "Phase", parentProjectId: "Mountain View iCity Master",
+    area: "New Cairo", areaId: AREA_ID["New Cairo"],
+    approvalStatus: "Rejected", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
+    existingProject: { id: "PRJ-204", name: "Mountain View iCity" },
+    launchStatus: "Upcoming", type: "Release", source: "Manual",
+    listingCompletion: 0, eoiAmount: 40000, coverImage: COVER,
+    sentAt: "2024-01-05T13:10:00", createdAt: "2024-01-05T14:00:00", updatedAt: "2024-01-05T14:00:00",
   },
   {
     id: "LCH-005",
-    developer: { name: "Ora Developers", logo: "/placeholder.svg?height=32&width=32", id: "DEV-005" },
-    projectNameEn: "ZED East",
-    phase: "Phase A",
-    projectLevel: "Main Compound",
-    area: "New Cairo",
-    approvalStatus: "Approved",
-    ingestionStatus: "Ingested",
-    listingStatus: "Hidden",
+    developer: { name: "Ora Developers", logo: LOGO, id: "DEV-005" },
+    projectNameEn: "ZED East", projectId: "PRJ-205",
+    phase: "Phase A", projectLevel: "Main Project",
+    area: "New Cairo", areaId: AREA_ID["New Cairo"],
+    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Hidden",
+    existingProject: { id: "PRJ-205", name: "ZED East" },
     listingProject: { id: "LST-005", name: "ZED East" },
-    launchStatus: "Finished",
-    type: "Launch",
-    source: "WhatsApp",
-    listingCompletion: 100,
-    eoiAmount: 90000,
-    coverImage: "/placeholder.svg?height=200&width=300",
-    createdAt: "2023-12-20T07:30:00",
-    updatedAt: "2024-01-10T12:00:00",
+    launchStatus: "Closed", type: "Launch", source: "WhatsApp",
+    listingCompletion: 100, eoiAmount: 90000, coverImage: COVER,
+    sentAt: "2023-12-20T06:00:00", createdAt: "2023-12-20T07:30:00", updatedAt: "2024-01-10T12:00:00",
   },
   {
     id: "LCH-006",
-    developer: { name: "Hyde Park", logo: "/placeholder.svg?height=32&width=32", id: "DEV-006" },
+    developer: { name: "Hyde Park", logo: LOGO, id: "DEV-006" },
     projectNameEn: "Hyde Park New Cairo",
-    phase: "Phase 2",
-    projectLevel: "Main Compound",
-    area: "New Cairo",
-    approvalStatus: "Pending Review",
-    ingestionStatus: "Not Ingested",
-    listingStatus: "Hidden",
-    launchStatus: "Upcoming",
-    type: "Launch",
-    source: "WhatsApp",
-    listingCompletion: 60,
-    eoiAmount: 55000,
-    coverImage: "/placeholder.svg?height=200&width=300",
-    createdAt: "2024-01-14T10:00:00",
-    updatedAt: "2024-01-16T09:30:00",
+    phase: "", projectLevel: "Main Project",
+    area: "New Cairo", areaId: AREA_ID["New Cairo"],
+    approvalStatus: "Pending Review", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
+    launchStatus: "Upcoming", type: "Launch", source: "WhatsApp",
+    listingCompletion: 60, eoiAmount: 55000, coverImage: COVER,
+    sentAt: "2024-01-14T08:40:00", createdAt: "2024-01-14T10:00:00", updatedAt: "2024-01-16T09:30:00",
   },
   {
     id: "LCH-007",
-    developer: { name: "Tatweer Misr", logo: "/placeholder.svg?height=32&width=32", id: "DEV-007" },
-    projectNameEn: "Il Monte Galala",
-    phase: "Phase 1",
-    projectLevel: "Main Compound",
-    area: "North Coast",
-    approvalStatus: "Approved",
-    ingestionStatus: "Ingested",
-    listingStatus: "Active",
+    developer: { name: "Tatweer Misr", logo: LOGO, id: "DEV-007" },
+    projectNameEn: "Il Monte Galala", projectId: "PRJ-207",
+    phase: "Phase 1", projectLevel: "Main Project",
+    area: "North Coast", areaId: AREA_ID["North Coast"],
+    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
+    existingProject: { id: "PRJ-207", name: "Il Monte Galala" },
     listingProject: { id: "LST-007", name: "Il Monte Galala" },
-    launchStatus: "Active Launch",
-    type: "Launch",
-    source: "WhatsApp",
-    listingCompletion: 78,
-    eoiAmount: 120000,
-    coverImage: "/placeholder.svg?height=200&width=300",
-    createdAt: "2024-01-03T09:00:00",
-    updatedAt: "2024-01-17T11:00:00",
+    launchStatus: "Active", type: "Launch", source: "WhatsApp",
+    listingCompletion: 78, eoiAmount: 120000, coverImage: COVER,
+    sentAt: "2024-01-03T07:15:00", createdAt: "2024-01-03T09:00:00", updatedAt: "2024-01-17T11:00:00",
   },
   {
     id: "LCH-008",
-    developer: { name: "Palm Hills Development", logo: "/placeholder.svg?height=32&width=32", id: "DEV-001" },
-    projectNameEn: "Palm Hills New Cairo",
-    phase: "Phase 5",
-    projectLevel: "Phase",
-    parentProjectId: "Palm Hills New Cairo Master",
-    area: "New Cairo",
-    approvalStatus: "Approved",
-    ingestionStatus: "Ingested",
-    listingStatus: "Active",
+    developer: { name: "Palm Hills Development", logo: LOGO, id: "DEV-001" },
+    projectNameEn: "Palm Hills New Cairo", projectId: "PRJ-208",
+    phase: "Phase 5", projectLevel: "Phase", parentProjectId: "Palm Hills New Cairo Master",
+    area: "New Cairo", areaId: AREA_ID["New Cairo"],
+    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
+    existingProject: { id: "PRJ-208", name: "Palm Hills New Cairo" },
     listingProject: { id: "LST-008", name: "Palm Hills New Cairo" },
-    launchStatus: "Active Launch",
-    type: "Release",
-    source: "Manual",
-    listingCompletion: 92,
-    eoiAmount: 65000,
-    coverImage: "/placeholder.svg?height=200&width=300",
-    createdAt: "2024-01-09T08:30:00",
-    updatedAt: "2024-01-18T14:00:00",
+    launchStatus: "Active", type: "Release", source: "Manual",
+    listingCompletion: 92, eoiAmount: 65000, coverImage: COVER,
+    sentAt: "2024-01-09T08:00:00", createdAt: "2024-01-09T08:30:00", updatedAt: "2024-01-18T14:00:00",
   },
   {
     id: "LCH-009",
-    developer: { name: "Emaar Misr", logo: "/placeholder.svg?height=32&width=32", id: "DEV-002" },
+    developer: { name: "Emaar Misr", logo: LOGO, id: "DEV-002" },
     projectNameEn: "Mivida New Cairo",
-    phase: "Phase 3",
-    projectLevel: "Main Compound",
-    area: "New Cairo",
-    approvalStatus: "Rejected",
-    ingestionStatus: "Not Ingested",
-    listingStatus: "Hidden",
-    launchStatus: "Upcoming",
-    type: "Launch",
-    source: "Manual",
-    listingCompletion: 20,
-    eoiAmount: 45000,
-    coverImage: "/placeholder.svg?height=200&width=300",
-    createdAt: "2024-01-06T13:00:00",
-    updatedAt: "2024-01-11T10:00:00",
+    phase: "", projectLevel: "Main Project",
+    area: "New Cairo", areaId: AREA_ID["New Cairo"],
+    approvalStatus: "Rejected", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
+    launchStatus: "Upcoming", type: "Launch", source: "Manual",
+    listingCompletion: 20, eoiAmount: 45000, coverImage: COVER,
+    sentAt: "2024-01-06T12:00:00", createdAt: "2024-01-06T13:00:00", updatedAt: "2024-01-11T10:00:00",
   },
   {
     id: "LCH-010",
-    developer: { name: "Sodic", logo: "/placeholder.svg?height=32&width=32", id: "DEV-003" },
+    developer: { name: "Sodic", logo: LOGO, id: "DEV-003" },
     projectNameEn: "VYE Sheikh Zayed",
-    phase: "Phase 2",
-    projectLevel: "Phase",
-    parentProjectId: "VYE",
-    area: "Sheikh Zayed",
-    approvalStatus: "Pending Review",
-    ingestionStatus: "Not Ingested",
-    listingStatus: "Hidden",
-    launchStatus: "Upcoming",
-    type: "Launch",
-    source: "WhatsApp",
-    listingCompletion: 35,
-    eoiAmount: 80000,
-    coverImage: "/placeholder.svg?height=200&width=300",
-    createdAt: "2024-01-17T09:00:00",
-    updatedAt: "2024-01-19T15:00:00",
+    phase: "Phase 2", projectLevel: "Phase", parentProjectId: "VYE",
+    area: "Sheikh Zayed", areaId: AREA_ID["Sheikh Zayed"],
+    approvalStatus: "Pending Review", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
+    launchStatus: "Upcoming", type: "Launch", source: "WhatsApp",
+    listingCompletion: 35, eoiAmount: 80000, coverImage: COVER,
+    sentAt: "2024-01-17T08:20:00", createdAt: "2024-01-17T09:00:00", updatedAt: "2024-01-19T15:00:00",
   },
 ]
 
 const DEVELOPERS = [...new Set(mockLaunches.map((l) => l.developer.name))]
 
 const EMPTY_FORM: Omit<Launch, "id" | "createdAt" | "updatedAt"> = {
-  developer: { name: "", logo: "/placeholder.svg?height=32&width=32", id: "" },
+  developer: { name: "", logo: LOGO, id: "" },
   projectNameEn: "",
   phase: "",
-  projectLevel: "Main Compound",
+  projectLevel: "Main Project",
   area: "",
+  areaId: "",
   approvalStatus: "Pending Review",
   ingestionStatus: "Not Ingested",
   listingStatus: "Hidden",
@@ -318,152 +253,93 @@ const EMPTY_FORM: Omit<Launch, "id" | "createdAt" | "updatedAt"> = {
   source: "Manual",
   listingCompletion: 0,
   eoiAmount: 0,
-  coverImage: "/placeholder.svg?height=200&width=300",
+  coverImage: COVER,
+  sentAt: "",
 }
 
-// ─── Badge helpers ─────────────────────────────────────────────────────────────
+// ─── Tags (same chip UI as the detailed properties table) ─────────────────────
 
-function ApprovalBadge({ status }: { status: Launch["approvalStatus"] }) {
-  const map = {
-    "Approved": "bg-green-100 text-green-700",
-    "Pending Review": "bg-yellow-100 text-yellow-700",
-    "Rejected": "bg-red-100 text-red-700",
-  }
-  return <Badge className={cn("hover:opacity-90", map[status])}>{status}</Badge>
-}
+const CHIP_TONES = {
+  green: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  red: "border-red-200 bg-red-100 text-red-600",
+  amber: "border-amber-200 bg-amber-100 text-amber-700",
+  grey: "border-gray-200 bg-gray-100 text-gray-600",
+  white: "border-border bg-white text-gray-700",
+  blue: "border-blue-200 bg-blue-100 text-blue-700",
+  purple: "border-purple-200 bg-purple-100 text-purple-700",
+} as const
 
-function IngestionBadge({ status }: { status: Launch["ingestionStatus"] }) {
-  const map = {
-    "Ingested": "bg-green-100 text-green-700",
-    "Not Ingested": "bg-gray-100 text-gray-600",
-  }
-  return <Badge className={cn("hover:opacity-90", map[status])}>{status}</Badge>
-}
-
-function ListingStatusBadge({ status }: { status: Launch["listingStatus"] }) {
-  const map = {
-    "Active": "bg-emerald-100 text-emerald-700",
-    "Hidden": "bg-gray-100 text-gray-600",
-  }
-  return <Badge className={cn("hover:opacity-90", map[status])}>{status}</Badge>
-}
-
-function LaunchStatusBadge({ status }: { status: Launch["launchStatus"] }) {
-  const map = {
-    "Active Launch": "bg-emerald-100 text-emerald-700",
-    "Upcoming": "bg-blue-100 text-blue-700",
-    "Finished": "bg-purple-100 text-purple-700",
-  }
-  return <Badge className={cn("hover:opacity-90", map[status])}>{status}</Badge>
-}
-
-function SourceBadge({ source }: { source: Launch["source"] }) {
-  return source === "WhatsApp"
-    ? <Badge className="bg-green-100 text-green-700 hover:opacity-90">WhatsApp</Badge>
-    : <Badge className="bg-gray-100 text-gray-600 hover:opacity-90">Manual</Badge>
-}
-
-function formatDate(dateString: string | null) {
-  if (!dateString) return "-"
-  return new Date(dateString).toLocaleString("en-GB", {
-    day: "2-digit", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-  })
-}
-
-// ─── Inline editable cell ──────────────────────────────────────────────────────
-
-function EditableCell({
-  value,
-  onSave,
-  type = "text",
-  options,
-}: {
-  value: string
-  onSave: (v: string) => void
-  type?: "text" | "select"
-  options?: string[]
-}) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-
-  if (editing && type === "select" && options) {
-    return (
-      <select
-        autoFocus
-        value={draft}
-        onChange={(e) => { setDraft(e.target.value); onSave(e.target.value); setEditing(false) }}
-        onBlur={() => setEditing(false)}
-        className="border border-border rounded px-1 py-0.5 text-sm bg-background"
-      >
-        {options.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
-    )
-  }
-
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => { onSave(draft); setEditing(false) }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") { onSave(draft); setEditing(false) }
-          if (e.key === "Escape") setEditing(false)
-        }}
-        className="border border-border rounded px-1 py-0.5 text-sm bg-background w-full min-w-[80px]"
-      />
-    )
-  }
-
+function Chip({ tone = "white", children }: { tone?: keyof typeof CHIP_TONES; children: React.ReactNode }) {
   return (
-    <span
-      onClick={() => { setDraft(value); setEditing(true) }}
-      className="cursor-pointer hover:bg-secondary/60 px-1 py-0.5 rounded flex items-center gap-1 group"
-    >
-      {value || <span className="text-muted-foreground italic text-xs">—</span>}
-      <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100" />
+    <span className={cn("inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium", CHIP_TONES[tone])}>
+      {children}
     </span>
   )
 }
 
-// ─── Create / Edit dialog ──────────────────────────────────────────────────────
+/** Small caption tag under a cell value (Unmatched Project / New Project). */
+function MiniTag({ tone, children }: { tone: "red" | "grey"; children: React.ReactNode }) {
+  return (
+    <span className={cn(
+      "inline-flex w-fit items-center whitespace-nowrap rounded-full border px-1.5 py-px text-[10px] font-medium",
+      tone === "red" ? "border-red-200 bg-red-50 text-red-500" : "border-gray-200 bg-gray-50 text-gray-500",
+    )}>
+      {children}
+    </span>
+  )
+}
+
+const APPROVAL_TONE: Record<Launch["approvalStatus"], keyof typeof CHIP_TONES> = {
+  "Approved": "green", "Pending Review": "amber", "Rejected": "red",
+}
+const INGESTION_TONE: Record<Launch["ingestionStatus"], keyof typeof CHIP_TONES> = {
+  "Ingested": "green", "Not Ingested": "grey",
+}
+const LISTING_TONE: Record<Launch["listingStatus"], keyof typeof CHIP_TONES> = {
+  "Active": "green", "Hidden": "red",
+}
+const LAUNCH_STATUS_TONE: Record<Launch["launchStatus"], keyof typeof CHIP_TONES> = {
+  "Active": "green", "Upcoming": "blue", "Closed": "purple",
+}
+
+function formatDate(dateString: string | null | undefined) {
+  if (!dateString) return "-"
+  return new Date(dateString).toLocaleString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+    timeZone: "UTC",
+  })
+}
+
+// ─── Create dialog ─────────────────────────────────────────────────────────────
 
 function LaunchFormDialog({
   open,
   onOpenChange,
-  initial,
   onSave,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
-  initial: Partial<Launch> | null
   onSave: (data: Omit<Launch, "id" | "createdAt" | "updatedAt">) => void
 }) {
-  const [form, setForm] = useState<Omit<Launch, "id" | "createdAt" | "updatedAt">>(
-    initial ? { ...EMPTY_FORM, ...initial } : { ...EMPTY_FORM }
-  )
+  const [form, setForm] = useState<Omit<Launch, "id" | "createdAt" | "updatedAt">>({ ...EMPTY_FORM })
 
   const set = (key: keyof typeof form, value: unknown) =>
     setForm((prev) => ({ ...prev, [key]: value }))
-
-  const isEdit = !!initial?.id
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit Launch" : "Create Launch"}</DialogTitle>
+          <DialogTitle>Create Launch</DialogTitle>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-4 py-2">
-          {/* Developer */}
           <div className="space-y-1.5">
             <Label>Developer</Label>
             <select
               value={form.developer.name}
-              onChange={(e) => set("developer", { name: e.target.value, logo: "/placeholder.svg?height=32&width=32", id: `DEV-${e.target.value.slice(0, 3).toUpperCase()}` })}
+              onChange={(e) => set("developer", { name: e.target.value, logo: LOGO, id: `DEV-${e.target.value.slice(0, 3).toUpperCase()}` })}
               className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
             >
               <option value="">Select developer…</option>
@@ -471,7 +347,6 @@ function LaunchFormDialog({
             </select>
           </div>
 
-          {/* Project Level */}
           <div className="space-y-1.5">
             <Label>Project Level</Label>
             <select
@@ -479,12 +354,11 @@ function LaunchFormDialog({
               onChange={(e) => set("projectLevel", e.target.value)}
               className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
             >
-              <option value="Main Compound">Main Compound</option>
+              <option value="Main Project">Main Project</option>
               <option value="Phase">Phase</option>
             </select>
           </div>
 
-          {/* Project Name */}
           <div className="space-y-1.5">
             <Label>Project Name</Label>
             {form.projectLevel === "Phase" ? (
@@ -494,7 +368,7 @@ function LaunchFormDialog({
                 className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
               >
                 <option value="">Select project…</option>
-                {mockLaunches.filter((l) => l.projectLevel === "Main Compound").map((l) => (
+                {mockLaunches.filter((l) => l.projectLevel === "Main Project").map((l) => (
                   <option key={l.id} value={l.projectNameEn}>{l.projectNameEn}</option>
                 ))}
               </select>
@@ -503,13 +377,11 @@ function LaunchFormDialog({
             )}
           </div>
 
-          {/* Phase */}
           <div className="space-y-1.5">
             <Label>Phase</Label>
             <Input value={form.phase} onChange={(e) => set("phase", e.target.value)} placeholder="e.g. Phase 1" />
           </div>
 
-          {/* Area */}
           <div className="space-y-1.5">
             <Label>Area</Label>
             <select
@@ -522,7 +394,6 @@ function LaunchFormDialog({
             </select>
           </div>
 
-          {/* Type */}
           <div className="space-y-1.5">
             <Label>Type</Label>
             <select
@@ -534,228 +405,444 @@ function LaunchFormDialog({
               <option value="Release">Release</option>
             </select>
           </div>
-
         </div>
 
         <DialogFooter>
           <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={() => { onSave(form); onOpenChange(false) }}>
-            {isEdit ? "Save Changes" : "Create Launch"}
-          </Button>
+          <Button onClick={() => { onSave(form); onOpenChange(false) }}>Create Launch</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
 
-// ─── Archive confirmation dialog ───────────────────────────────────────────────
+// ─── Action dialogs ────────────────────────────────────────────────────────────
 
-function ArchiveDialog({ open, onOpenChange, onConfirm, launchId }: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  onConfirm: () => void
-  launchId: string
-}) {
+/** Summary block shown at the top of every row-level confirmation popup. */
+function LaunchSummary({ launch }: { launch: Launch }) {
+  const fields: [string, string][] = [
+    ["Developer", launch.developer.name],
+    ["Area", launch.area],
+    ["Project", launch.projectNameEn],
+  ]
+  if (launch.phase) fields.push(["Phase", launch.phase])
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Archive Launch</DialogTitle>
-          <DialogDescription>
-            Are you sure you want to archive <strong>{launchId}</strong>? This action cannot be undone.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button variant="destructive" onClick={() => { onConfirm(); onOpenChange(false) }}>
-            Archive
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ─── Launch card (grid view) ───────────────────────────────────────────────────
-
-function LaunchCard({
-  launch,
-  index,
-  onDragStart,
-  onDragOver,
-  onDrop,
-}: {
-  launch: Launch
-  index: number
-  onDragStart: (i: number) => void
-  onDragOver: (e: React.DragEvent) => void
-  onDrop: (i: number) => void
-}) {
-  return (
-    <div
-      draggable
-      onDragStart={() => onDragStart(index)}
-      onDragOver={(e) => { e.preventDefault(); onDragOver(e) }}
-      onDrop={() => onDrop(index)}
-      className="bg-card border border-border rounded-xl overflow-hidden cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
-    >
-      <div className="relative h-40 bg-secondary">
-        <img
-          src={launch.coverImage || "/placeholder.svg"}
-          alt={launch.projectNameEn}
-          className="w-full h-full object-cover"
-        />
-        <div className="absolute top-2 left-2 flex gap-1.5">
-          <LaunchStatusBadge status={launch.launchStatus} />
+    <div className="grid grid-cols-2 gap-x-6 gap-y-2 rounded-lg border border-border bg-muted/40 px-4 py-3">
+      {fields.map(([label, value]) => (
+        <div key={label}>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+          <p className="text-sm font-medium">{value || "—"}</p>
         </div>
-        <div className="absolute top-2 right-2">
-          <GripVertical className="h-4 w-4 text-white drop-shadow" />
-        </div>
-        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/60 to-transparent" />
-      </div>
-      <div className="p-3 space-y-1.5">
-        <div className="flex items-center gap-2">
-          <img src={launch.developer.logo} alt={launch.developer.name} className="h-6 w-6 rounded object-cover bg-secondary" />
-          <span className="text-xs text-muted-foreground">{launch.developer.name}</span>
-        </div>
-        <h3 className="font-semibold text-sm leading-tight">{launch.projectNameEn}</h3>
-        <div className="flex items-center justify-between">
-          <Badge variant="outline" className="text-[10px]">{launch.projectLevel === "Main Compound" ? "Main Project" : "Phase"}</Badge>
-          {launch.eoiAmount ? (
-            <span className="text-xs text-muted-foreground">EOI: {launch.eoiAmount.toLocaleString()} EGP</span>
-          ) : null}
-        </div>
-      </div>
+      ))}
     </div>
   )
 }
+
+function ActionDialog({
+  title, launch, message, children, confirmLabel, confirmClass, confirmDisabled, onClose, onConfirm,
+}: {
+  title: string
+  launch?: Launch
+  message?: string
+  children?: React.ReactNode
+  confirmLabel: string
+  confirmClass?: string
+  confirmDisabled?: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          {launch && <LaunchSummary launch={launch} />}
+          {message && <p className="text-sm text-muted-foreground">{message}</p>}
+          {children}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" className="bg-transparent" onClick={onClose}>Cancel</Button>
+          <Button className={confirmClass} disabled={confirmDisabled} onClick={onConfirm}>{confirmLabel}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ArchiveDialog({ launch, onClose, onConfirm }: { launch: Launch; onClose: () => void; onConfirm: (reason: string) => void }) {
+  const [reason, setReason] = useState("")
+  return (
+    <ActionDialog
+      title="Archive Launch"
+      launch={launch}
+      message="Archiving removes this launch from all launch views."
+      confirmLabel="Archive"
+      confirmClass="bg-red-600 text-white hover:bg-red-700"
+      confirmDisabled={!reason.trim()}
+      onClose={onClose}
+      onConfirm={() => onConfirm(reason.trim())}
+    >
+      <div className="space-y-1.5">
+        <Label>Reason for archiving <span className="text-red-500">*</span></Label>
+        <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is this launch being archived?" rows={3} />
+      </div>
+    </ActionDialog>
+  )
+}
+
+function ApproveDialog({ launch, onClose, onConfirm }: { launch: Launch; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <ActionDialog
+      title="Approve Launch"
+      launch={launch}
+      message="Approving this launch means this launch can be ingested in the database and appears across Nawy's system accordingly."
+      confirmLabel="Approve"
+      confirmClass="bg-emerald-600 text-white hover:bg-emerald-700"
+      onClose={onClose}
+      onConfirm={onConfirm}
+    />
+  )
+}
+
+function RejectDialog({ launch, onClose, onConfirm }: { launch: Launch; onClose: () => void; onConfirm: (reason: string) => void }) {
+  const [reason, setReason] = useState("")
+  return (
+    <ActionDialog
+      title="Reject Launch"
+      launch={launch}
+      message="Rejecting this launch means this launch will not get ingested in the database and will not appear across Nawy's system accordingly."
+      confirmLabel="Reject"
+      confirmClass="bg-red-600 text-white hover:bg-red-700"
+      confirmDisabled={!reason.trim()}
+      onClose={onClose}
+      onConfirm={() => onConfirm(reason.trim())}
+    >
+      <div className="space-y-1.5">
+        <Label>Reason for rejection <span className="text-red-500">*</span></Label>
+        <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is this launch being rejected?" rows={3} />
+      </div>
+    </ActionDialog>
+  )
+}
+
+const EOI_SPLIT = [
+  { type: "Apartments", share: 0.5 },
+  { type: "Villas", share: 0.3 },
+  { type: "Townhouses", share: 0.2 },
+]
+
+function ActivateDialog({ launch, onClose, onConfirm }: { launch: Launch; onClose: () => void; onConfirm: (startDate: string) => void }) {
+  const [startDate, setStartDate] = useState("")
+  const [eoiView, setEoiView] = useState<"general" | "byType">("general")
+  const total = launch.eoiAmount ?? 0
+  const count = Math.max(1, Math.round(total / 2500))
+
+  return (
+    <ActionDialog
+      title="Activate Launch"
+      launch={launch}
+      message="Setting this launch to Active makes it live across Nawy's system. Pick the launch start date and review the EOIs collected."
+      confirmLabel="Activate Launch"
+      confirmClass="bg-emerald-600 text-white hover:bg-emerald-700"
+      confirmDisabled={!startDate}
+      onClose={onClose}
+      onConfirm={() => onConfirm(startDate)}
+    >
+      <div className="space-y-1.5">
+        <Label>Launch Start Date <span className="text-red-500">*</span></Label>
+        <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+      </div>
+
+      {/* EOI view */}
+      <div className="rounded-lg border border-border">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">EOIs Collected</p>
+          <div className="flex rounded-md border border-border p-0.5">
+            {([["general", "General"], ["byType", "By Property Type"]] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setEoiView(key)}
+                className={cn("rounded px-2 py-0.5 text-[11px] font-medium transition-colors", eoiView === key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {eoiView === "general" ? (
+          <div className="grid grid-cols-2 gap-4 px-3 py-3">
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Total EOI Amount</p>
+              <p className="text-lg font-semibold">EGP {total.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">EOIs</p>
+              <p className="text-lg font-semibold">{count}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {EOI_SPLIT.map(({ type, share }) => (
+              <div key={type} className="flex items-center justify-between px-3 py-2 text-sm">
+                <span>{type}</span>
+                <span className="text-muted-foreground">{Math.max(1, Math.round(count * share))} EOIs · EGP {Math.round(total * share).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </ActionDialog>
+  )
+}
+
+function CloseLaunchDialog({ launch, onClose, onConfirm }: { launch: Launch; onClose: () => void; onConfirm: (endDate: string) => void }) {
+  const [endDate, setEndDate] = useState("")
+  return (
+    <ActionDialog
+      title="Close Launch"
+      launch={launch}
+      message="A notification will be sent to the sales portal to flag EOIs collected after this date on this launch."
+      confirmLabel="Close Launch"
+      confirmClass="bg-red-600 text-white hover:bg-red-700"
+      confirmDisabled={!endDate}
+      onClose={onClose}
+      onConfirm={() => onConfirm(endDate)}
+    >
+      <div className="space-y-1.5">
+        <Label>Launch End Date <span className="text-red-500">*</span></Label>
+        <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+      </div>
+    </ActionDialog>
+  )
+}
+
+type BulkKind = "bulk-approve" | "bulk-reject" | "bulk-list-active" | "bulk-list-hidden"
+
+function BulkDialog({ kind, count, onClose, onConfirm }: { kind: BulkKind; count: number; onClose: () => void; onConfirm: (reason?: string) => void }) {
+  const [reason, setReason] = useState("")
+  const cfg = {
+    "bulk-approve": {
+      title: `Approve ${count} launch${count === 1 ? "" : "es"}`,
+      message: `Approving these ${count} launch${count === 1 ? "" : "es"} means they can be ingested in the database and appear across Nawy's system accordingly.`,
+      label: "Approve", cls: "bg-emerald-600 text-white hover:bg-emerald-700", needsReason: false,
+    },
+    "bulk-reject": {
+      title: `Reject ${count} launch${count === 1 ? "" : "es"}`,
+      message: `Rejecting these ${count} launch${count === 1 ? "" : "es"} means they will not get ingested in the database and will not appear across Nawy's system accordingly.`,
+      label: "Reject", cls: "bg-red-600 text-white hover:bg-red-700", needsReason: true,
+    },
+    "bulk-list-active": {
+      title: `Set listing to Active for ${count} launch${count === 1 ? "" : "es"}`,
+      message: `${count} launch${count === 1 ? "" : "es"} will appear on Nawy Listing website and Mobile App.`,
+      label: "Set Active", cls: "bg-emerald-600 text-white hover:bg-emerald-700", needsReason: false,
+    },
+    "bulk-list-hidden": {
+      title: `Hide ${count} launch${count === 1 ? "" : "es"} from listing`,
+      message: `${count} launch${count === 1 ? "" : "es"} will disappear from Nawy Listing website and Mobile App.`,
+      label: "Set Hidden", cls: "bg-red-600 text-white hover:bg-red-700", needsReason: false,
+    },
+  }[kind]
+
+  return (
+    <ActionDialog
+      title={cfg.title}
+      message={cfg.message}
+      confirmLabel={cfg.label}
+      confirmClass={cfg.cls}
+      confirmDisabled={cfg.needsReason && !reason.trim()}
+      onClose={onClose}
+      onConfirm={() => onConfirm(reason.trim() || undefined)}
+    >
+      {cfg.needsReason && (
+        <div className="space-y-1.5">
+          <Label>Reason for rejection <span className="text-red-500">*</span></Label>
+          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why are these launches being rejected?" rows={3} />
+        </div>
+      )}
+    </ActionDialog>
+  )
+}
+
+type DialogState =
+  | { kind: "archive" | "approve" | "reject" | "activate" | "close"; launch: Launch }
+  | { kind: BulkKind }
+  | null
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function LaunchesPage() {
   const [launches, setLaunches] = useState<Launch[]>(mockLaunches)
-  const [searchId, setSearchId] = useState("")
-  const [searchProject, setSearchProject] = useState("")
-  const [developerFilter, setDeveloperFilter] = useState<string>("all")
-  const [launchStatusFilter, setLaunchStatusFilter] = useState<string>("all")
-  const [approvalStatusFilter, setApprovalStatusFilter] = useState<string>("all")
-  const [ingestionStatusFilter, setIngestionStatusFilter] = useState<string>("all")
-  const [listingStatusFilter, setListingStatusFilter] = useState<string>("all")
+  const [tab, setTab] = useState<TabKey>("all")
+
+  // Filters (shared across tabs; per-tab exclusions applied at render/filter time)
+  const [search, setSearch] = useState("")
+  const [developerF, setDeveloperF] = useState<string[]>([])
+  const [areaF, setAreaF] = useState<string[]>([])
+  const [sourceF, setSourceF] = useState("all")
+  const [alreadyCreatedF, setAlreadyCreatedF] = useState("all")
+  const [launchStatusF, setLaunchStatusF] = useState("all")
+  const [approvalF, setApprovalF] = useState("all")
+  const [ingestionF, setIngestionF] = useState("all")
+  const [listingF, setListingF] = useState("all")
   const [createdFrom, setCreatedFrom] = useState("")
   const [createdTo, setCreatedTo] = useState("")
+
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [viewingLaunch, setViewingLaunch] = useState<Launch | null>(null)
-  const [formOpen, setFormOpen] = useState(false)
-  const [editingLaunch, setEditingLaunch] = useState<Launch | null>(null)
-  const [archiveTarget, setArchiveTarget] = useState<Launch | null>(null)
-  const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [viewingLaunch, setViewingLaunch] = useState<Launch | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [dialog, setDialog] = useState<DialogState>(null)
   const lastSelectedIndex = useRef<number | null>(null)
 
-  // ── Filtering ──────────────────────────────────────────────────────────────
+  // Currently Active tab manual ordering (rank = position in this array)
+  const [activeOrder, setActiveOrder] = useState<string[]>(
+    () => mockLaunches.filter((l) => l.approvalStatus === "Approved" && l.ingestionStatus === "Ingested" && l.launchStatus === "Active").map((l) => l.id),
+  )
+  const dragId = useRef<string | null>(null)
 
-  const filtered = launches.filter((l) => {
-    if (searchId && !`${l.id} ${l.projectNameEn}`.toLowerCase().includes(searchId.toLowerCase())) return false
-    if (developerFilter !== "all" && l.developer.name !== developerFilter) return false
-    if (launchStatusFilter !== "all" && l.launchStatus !== launchStatusFilter) return false
-    if (approvalStatusFilter !== "all" && l.approvalStatus !== approvalStatusFilter) return false
-    if (ingestionStatusFilter !== "all" && l.ingestionStatus !== ingestionStatusFilter) return false
-    if (listingStatusFilter !== "all" && l.listingStatus !== listingStatusFilter) return false
-    if (createdFrom && new Date(l.createdAt) < new Date(createdFrom)) return false
-    if (createdTo && new Date(l.createdAt) > new Date(createdTo + "T23:59:59")) return false
-    return true
-  })
+  // ── Rows per tab ────────────────────────────────────────────────────────────
 
-  const listed = launches.filter((l) => l.listingStatus === "Active")
-  const active = launches.filter((l) => l.launchStatus === "Active Launch")
-  const pendingLaunches = launches.filter((l) => l.approvalStatus === "Pending Review")
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const isIngested = (l: Launch) => l.approvalStatus === "Approved" && l.ingestionStatus === "Ingested"
+
+  const baseRows = (t: TabKey): Launch[] => {
+    switch (t) {
+      case "pending": return launches.filter((l) => l.approvalStatus === "Pending Review")
+      case "listed": return launches.filter(isIngested)
+      case "active": return launches.filter((l) => isIngested(l) && l.launchStatus === "Active")
+      default: return launches
+    }
+  }
+
+  const orderRank = (id: string) => {
+    const i = activeOrder.indexOf(id)
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i
+  }
+
+  const tabRows = (t: TabKey): Launch[] => {
+    let rows = baseRows(t).filter((l) => {
+      if (search && !`${l.id} ${l.projectNameEn}`.toLowerCase().includes(search.toLowerCase())) return false
+      if (developerF.length && !developerF.includes(l.developer.name)) return false
+      if (areaF.length && !areaF.includes(l.area)) return false
+      if (sourceF !== "all" && l.source !== sourceF) return false
+      if (alreadyCreatedF === "Existing" && !l.existingProject) return false
+      if (alreadyCreatedF === "New" && l.existingProject) return false
+      if (t !== "active" && launchStatusF !== "all" && l.launchStatus !== launchStatusF) return false
+      if (t !== "pending" && approvalF !== "all" && l.approvalStatus !== approvalF) return false
+      if (t !== "listed" && ingestionF !== "all" && l.ingestionStatus !== ingestionF) return false
+      if (listingF !== "all" && l.listingStatus !== listingF) return false
+      if (createdFrom && new Date(l.createdAt) < new Date(createdFrom)) return false
+      if (createdTo && new Date(l.createdAt) > new Date(createdTo + "T23:59:59")) return false
+      return true
+    })
+    if (t === "active") rows = [...rows].sort((a, b) => orderRank(a.id) - orderRank(b.id))
+    return rows
+  }
+
+  const rows = tabRows(tab)
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
   const safePage = Math.min(page, totalPages)
-  const pageData = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const activeFilterCount = [developerFilter, launchStatusFilter, approvalStatusFilter, ingestionStatusFilter, listingStatusFilter].filter((f) => f !== "all").length + ((createdFrom || createdTo) ? 1 : 0)
+  const pageRows = rows.slice((safePage - 1) * pageSize, safePage * pageSize)
 
+  const activeFilterCount =
+    (developerF.length ? 1 : 0) + (areaF.length ? 1 : 0) +
+    [sourceF, alreadyCreatedF, listingF].filter((f) => f !== "all").length +
+    (tab !== "active" && launchStatusF !== "all" ? 1 : 0) +
+    (tab !== "pending" && approvalF !== "all" ? 1 : 0) +
+    (tab !== "listed" && ingestionF !== "all" ? 1 : 0) +
+    ((createdFrom || createdTo) ? 1 : 0)
+
+  const allTabRows = tabRows("all")
   const stats = {
-    total: filtered.length,
-    approved: filtered.filter((l) => l.approvalStatus === "Approved").length,
-    listed: filtered.filter((l) => l.listingStatus === "Active").length,
-    active: filtered.filter((l) => l.launchStatus === "Active Launch").length,
-    upcoming: filtered.filter((l) => l.launchStatus === "Upcoming").length,
+    total: allTabRows.length,
+    approved: allTabRows.filter((l) => l.approvalStatus === "Approved").length,
+    listed: allTabRows.filter((l) => l.listingStatus === "Active").length,
+    active: allTabRows.filter((l) => l.launchStatus === "Active").length,
+    upcoming: allTabRows.filter((l) => l.launchStatus === "Upcoming").length,
   }
+  const pendingCount = launches.filter((l) => l.approvalStatus === "Pending Review").length
 
-  // ── Clipboard ──────────────────────────────────────────────────────────────
-
-  const copy = (text: string, key: string) => {
-    navigator.clipboard.writeText(text)
-    setCopiedId(key)
-    setTimeout(() => setCopiedId(null), 2000)
-  }
-
-  // ── Selection ──────────────────────────────────────────────────────────────
+  // ── Selection ───────────────────────────────────────────────────────────────
 
   const toggleSelect = (id: string, idx: number, shift: boolean) => {
     if (shift && lastSelectedIndex.current !== null) {
       const lo = Math.min(lastSelectedIndex.current, idx)
       const hi = Math.max(lastSelectedIndex.current, idx)
-      const range = filtered.slice(lo, hi + 1).map((l) => l.id)
+      const range = rows.slice(lo, hi + 1).map((l) => l.id)
       setSelectedIds((prev) => Array.from(new Set([...prev, ...range])))
     } else {
-      setSelectedIds((prev) =>
-        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-      )
+      setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
       lastSelectedIndex.current = idx
     }
   }
 
-  const selectAll = (checked: boolean) =>
-    setSelectedIds(checked ? filtered.map((l) => l.id) : [])
+  // ── Mutations ───────────────────────────────────────────────────────────────
 
-  // ── CRUD ───────────────────────────────────────────────────────────────────
-
-  const updateField = (id: string, patch: Partial<Launch>) =>
-    setLaunches((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch, updatedAt: new Date().toISOString() } : l)))
+  const patch = (ids: string[], p: Partial<Launch>) =>
+    setLaunches((prev) => prev.map((l) => (ids.includes(l.id) ? { ...l, ...p, updatedAt: new Date().toISOString() } : l)))
 
   const handleCreate = (data: Omit<Launch, "id" | "createdAt" | "updatedAt">) => {
     const now = new Date().toISOString()
     setLaunches((prev) => [
-      { ...data, id: `LCH-${String(prev.length + 1).padStart(3, "0")}`, createdAt: now, updatedAt: now },
+      { ...data, areaId: AREA_ID[data.area] ?? "AR-000", sentAt: now, id: `LCH-${String(prev.length + 1).padStart(3, "0")}`, createdAt: now, updatedAt: now },
       ...prev,
     ])
+    toast.success("Launch created")
   }
 
-  const handleEdit = (data: Omit<Launch, "id" | "createdAt" | "updatedAt">) => {
-    if (!editingLaunch) return
-    updateField(editingLaunch.id, data)
-    setEditingLaunch(null)
+  const doArchive = (launch: Launch) => {
+    setLaunches((prev) => prev.filter((l) => l.id !== launch.id))
+    setSelectedIds((prev) => prev.filter((id) => id !== launch.id))
+    setDialog(null)
+    toast.success(`${launch.projectNameEn} archived`)
   }
 
-  const handleArchive = () => {
-    if (!archiveTarget) return
-    setLaunches((prev) => prev.filter((l) => l.id !== archiveTarget.id))
-    setSelectedIds((prev) => prev.filter((id) => id !== archiveTarget.id))
-    setArchiveTarget(null)
+  const doApprove = (launch: Launch) => {
+    patch([launch.id], { approvalStatus: "Approved" })
+    setDialog(null)
+    toast.success(`${launch.projectNameEn} approved`)
   }
 
-  // ── Bulk ───────────────────────────────────────────────────────────────────
-
-  const bulkSetApproval = (status: Launch["approvalStatus"]) => {
-    setLaunches((prev) =>
-      prev.map((l) => selectedIds.includes(l.id) ? { ...l, approvalStatus: status, updatedAt: new Date().toISOString() } : l)
-    )
+  const doReject = (launch: Launch) => {
+    patch([launch.id], { approvalStatus: "Rejected" })
+    setDialog(null)
+    toast.success(`${launch.projectNameEn} rejected`)
   }
 
-  const bulkSetListing = (status: Launch["listingStatus"]) => {
-    setLaunches((prev) =>
-      prev.map((l) => selectedIds.includes(l.id) ? { ...l, listingStatus: status, updatedAt: new Date().toISOString() } : l)
-    )
+  const doActivate = (launch: Launch) => {
+    patch([launch.id], { launchStatus: "Active" })
+    setActiveOrder((prev) => (prev.includes(launch.id) ? prev : [...prev, launch.id]))
+    setDialog(null)
+    toast.success(`${launch.projectNameEn} is now an active launch`)
+  }
+
+  const doCloseLaunch = (launch: Launch) => {
+    patch([launch.id], { launchStatus: "Closed" })
+    setDialog(null)
+    toast.success(`${launch.projectNameEn} closed — sales portal notified`)
+  }
+
+  const doBulk = (kind: BulkKind) => {
+    if (kind === "bulk-approve") patch(selectedIds, { approvalStatus: "Approved" })
+    if (kind === "bulk-reject") patch(selectedIds, { approvalStatus: "Rejected" })
+    if (kind === "bulk-list-active") patch(selectedIds, { listingStatus: "Active" })
+    if (kind === "bulk-list-hidden") patch(selectedIds, { listingStatus: "Hidden" })
+    const msg = {
+      "bulk-approve": "approved", "bulk-reject": "rejected",
+      "bulk-list-active": "set to Active listing", "bulk-list-hidden": "hidden from listing",
+    }[kind]
+    toast.success(`${selectedIds.length} launch${selectedIds.length === 1 ? "" : "es"} ${msg}`)
+    setSelectedIds([])
+    setDialog(null)
   }
 
   const bulkExport = () => {
-    const rows = launches.filter((l) => selectedIds.includes(l.id))
+    const sel = launches.filter((l) => selectedIds.includes(l.id))
     const csv = [
-      ["ID", "Developer", "Project", "Area", "Approval", "Listing", "Status"].join(","),
-      ...rows.map((l) => [l.id, l.developer.name, l.projectNameEn, l.area, l.approvalStatus, l.listingStatus, l.launchStatus].join(",")),
+      ["ID", "Developer", "Project", "Phase", "Level", "Area", "Approval", "Ingestion", "Listing", "Launch Status", "Type", "Source", "Sent At", "Created At"].join(","),
+      ...sel.map((l) => [l.id, l.developer.name, l.projectNameEn, l.phase, l.projectLevel, l.area, l.approvalStatus, l.ingestionStatus, l.listingStatus, l.launchStatus, l.type, l.source, l.sentAt, l.createdAt].map((v) => `"${v}"`).join(",")),
     ].join("\n")
     const blob = new Blob([csv], { type: "text/csv" })
     const url = URL.createObjectURL(blob)
@@ -763,25 +850,333 @@ export function LaunchesPage() {
     URL.revokeObjectURL(url)
   }
 
-  // ── Drag & drop for card views ─────────────────────────────────────────────
+  // ── Drag reorder (Currently Active tab) ─────────────────────────────────────
 
-  const handleDrop = useCallback((arr: Launch[], setArr: (a: Launch[]) => void, from: number, to: number) => {
-    const copy = [...arr]
-    const [item] = copy.splice(from, 1)
-    copy.splice(to, 0, item)
-    setArr(copy)
-    setDragFrom(null)
-  }, [])
+  const onRowDrop = (targetId: string) => {
+    const src = dragId.current
+    dragId.current = null
+    if (!src || src === targetId) return
+    setActiveOrder((prev) => {
+      const arr = [...prev]
+      const from = arr.indexOf(src)
+      const to = arr.indexOf(targetId)
+      if (from === -1 || to === -1) return prev
+      arr.splice(to, 0, ...arr.splice(from, 1))
+      return arr
+    })
+  }
 
-  const [listedOrder, setListedOrder] = useState<Launch[]>(listed)
-  const [activeOrder, setActiveOrder] = useState<Launch[]>(active)
+  // ── Renderers ───────────────────────────────────────────────────────────────
+
+  const rowMenu = (l: Launch) => {
+    if (tab === "all" || tab === "pending") {
+      const dimApproval = l.ingestionStatus === "Ingested"
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger disabled={dimApproval} className={cn(dimApproval && "opacity-40")}>
+                <ShieldCheck className="h-4 w-4 mr-2" />Approval
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem className="text-emerald-600 focus:text-emerald-700" onClick={() => setDialog({ kind: "approve", launch: l })}>
+                  <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" />Approve
+                </DropdownMenuItem>
+                <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDialog({ kind: "reject", launch: l })}>
+                  <XCircle className="h-4 w-4 mr-2 text-red-600" />Reject
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDialog({ kind: "archive", launch: l })}>
+              <Archive className="h-4 w-4 mr-2" />Archive
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )
+    }
+    if (tab === "listed") {
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger><Activity className="h-4 w-4 mr-2" />Launch Status</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem disabled={l.launchStatus === "Active"} onClick={() => setDialog({ kind: "activate", launch: l })}>
+                  <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" />Set Active
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={l.launchStatus === "Closed"} onClick={() => setDialog({ kind: "close", launch: l })}>
+                  <XCircle className="h-4 w-4 mr-2 text-red-600" />Set Closed
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )
+    }
+    // Currently Active: Close Launch only
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDialog({ kind: "close", launch: l })}>
+            <XCircle className="h-4 w-4 mr-2" />Close Launch
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
+
+  const renderRow = (l: Launch, idx: number) => {
+    const selected = selectedIds.includes(l.id)
+    const isActiveTab = tab === "active"
+    return (
+      <TableRow
+        key={l.id}
+        draggable={isActiveTab}
+        onDragStart={isActiveTab ? () => { dragId.current = l.id } : undefined}
+        onDragOver={isActiveTab ? (e) => e.preventDefault() : undefined}
+        onDrop={isActiveTab ? () => onRowDrop(l.id) : undefined}
+        className={cn("hover:bg-muted/40", selected && "bg-primary/5")}
+      >
+        {/* Sticky checkbox */}
+        <TableCell className={cn("sticky left-0 z-10 w-10", selected ? "bg-primary/5" : "bg-card")}>
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(checked, event) => {
+              const shiftKey = (event as unknown as React.MouseEvent)?.shiftKey ?? false
+              toggleSelect(l.id, (safePage - 1) * pageSize + idx, shiftKey)
+            }}
+            className="cursor-pointer"
+          />
+        </TableCell>
+
+        {/* Order (Currently Active only) — frozen after the checkbox */}
+        {isActiveTab && (
+          <TableCell className={cn("sticky left-10 z-10 w-14", selected ? "bg-primary/5" : "bg-card")}>
+            <div className="flex cursor-grab items-center gap-1 active:cursor-grabbing">
+              <GripVertical className="h-3.5 w-3.5 text-muted-foreground/60" />
+              <span className="text-sm font-semibold tabular-nums">{orderRank(l.id) + 1}</span>
+            </div>
+          </TableCell>
+        )}
+
+        {/* ID */}
+        <TableCell><IdTag value={l.id} /></TableCell>
+
+        {/* Developer — clickable, opens new tab */}
+        <TableCell>
+          <div className="flex items-center gap-2">
+            <img src={l.developer.logo} alt={l.developer.name} className="h-7 w-7 flex-shrink-0 rounded bg-secondary object-cover" />
+            <div className="flex flex-col">
+              <a href="#" target="_blank" rel="noreferrer" className="w-fit text-sm font-medium leading-tight hover:underline">{l.developer.name}</a>
+              <IdTag value={l.developer.id} />
+            </div>
+          </div>
+        </TableCell>
+
+        {/* Project Name — matched link / unmatched / new project */}
+        <TableCell className="min-w-[170px]">
+          {l.phase ? (
+            l.projectId ? (
+              <div className="flex flex-col">
+                <a href="#" target="_blank" rel="noreferrer" className="w-fit text-sm font-medium hover:underline">{l.projectNameEn}</a>
+                <IdTag value={l.projectId} />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm">{l.projectNameEn}</span>
+                <MiniTag tone="red">Unmatched Project</MiniTag>
+              </div>
+            )
+          ) : (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm">{l.projectNameEn}</span>
+              <MiniTag tone="grey">New Project</MiniTag>
+            </div>
+          )}
+        </TableCell>
+
+        {/* Phase */}
+        <TableCell className="min-w-[90px] text-sm">{l.phase || <span className="text-xs text-muted-foreground">—</span>}</TableCell>
+
+        {/* Level */}
+        <TableCell><Chip tone={l.projectLevel === "Main Project" ? "blue" : "white"}>{l.projectLevel}</Chip></TableCell>
+
+        {/* Area — tag + id caption */}
+        <TableCell>
+          <div className="flex flex-col items-start gap-0.5">
+            <Chip>{l.area}</Chip>
+            <IdTag value={l.areaId} />
+          </div>
+        </TableCell>
+
+        {/* Approval */}
+        <TableCell><Chip tone={APPROVAL_TONE[l.approvalStatus]}>{l.approvalStatus}</Chip></TableCell>
+
+        {/* Ingestion */}
+        <TableCell><Chip tone={INGESTION_TONE[l.ingestionStatus]}>{l.ingestionStatus}</Chip></TableCell>
+
+        {/* Listing status */}
+        <TableCell><Chip tone={LISTING_TONE[l.listingStatus]}>{l.listingStatus}</Chip></TableCell>
+
+        {/* Launch status */}
+        <TableCell><Chip tone={LAUNCH_STATUS_TONE[l.launchStatus]}>{l.launchStatus}</Chip></TableCell>
+
+        {/* Existing Project */}
+        <TableCell className="min-w-[150px]">
+          {l.existingProject ? (
+            <div className="flex flex-col">
+              <a href="#" target="_blank" rel="noreferrer" className="w-fit text-sm hover:underline">{l.existingProject.name}</a>
+              <IdTag value={l.existingProject.id} />
+            </div>
+          ) : (
+            <Chip tone="green">New</Chip>
+          )}
+        </TableCell>
+
+        {/* Listing Project */}
+        <TableCell className="min-w-[150px]">
+          {l.listingProject ? (
+            <div className="flex flex-col">
+              <span className="text-sm">{l.listingProject.name}</span>
+              <IdTag value={l.listingProject.id} />
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          )}
+        </TableCell>
+
+        {/* Type */}
+        <TableCell><Chip tone={l.type === "Launch" ? "green" : "white"}>{l.type}</Chip></TableCell>
+
+        {/* Source */}
+        <TableCell><Chip tone={l.source === "WhatsApp" ? "green" : "white"}>{l.source}</Chip></TableCell>
+
+        {/* Completion */}
+        <TableCell>
+          <div className="flex items-center gap-2">
+            <Progress value={l.listingCompletion} className="h-2 w-16" />
+            <span className="text-xs text-muted-foreground">{l.listingCompletion}%</span>
+          </div>
+        </TableCell>
+
+        {/* Sent At */}
+        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.sentAt)}</TableCell>
+
+        {/* Created At */}
+        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.createdAt)}</TableCell>
+
+        {/* Updated At */}
+        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.updatedAt)}</TableCell>
+
+        {/* Actions — frozen right */}
+        <TableCell className={cn("sticky right-0 z-10 border-l border-border", selected ? "bg-primary/5" : "bg-card")}>
+          <div className="flex items-center gap-0.5">
+            <Button variant="ghost" size="icon" className="h-8 w-8" title="View" onClick={() => setViewingLaunch(l)}>
+              <Eye className="h-4 w-4" />
+            </Button>
+            {rowMenu(l)}
+          </div>
+        </TableCell>
+      </TableRow>
+    )
+  }
+
+  const colCount = tab === "active" ? 21 : 20
+
+  const renderTable = (title: string, cta?: React.ReactNode) => (
+    <TableCard>
+      <TableCardHeader title={title} count={rows.length} cta={cta} />
+      <div className="overflow-x-auto">
+        <Table className={cn("w-max text-sm [&_thead_th]:h-auto [&_thead_th]:py-3 [&_thead_th]:text-[11px] [&_thead_th]:font-semibold [&_thead_th]:uppercase [&_thead_th]:tracking-wide [&_thead_th]:text-muted-foreground", COL_SEP)}>
+          <TableHeader>
+            <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60">
+              <TableHead className="sticky left-0 z-20 w-10 bg-muted/60">
+                <Checkbox
+                  checked={rows.length > 0 && rows.every((l) => selectedIds.includes(l.id))}
+                  onCheckedChange={(c) => setSelectedIds(c ? rows.map((l) => l.id) : [])}
+                  className="cursor-pointer"
+                />
+              </TableHead>
+              {tab === "active" && <TableHead className="sticky left-10 z-20 w-14 bg-muted/60">Order</TableHead>}
+              <TableHead className="whitespace-nowrap">ID</TableHead>
+              <TableHead>Developer</TableHead>
+              <TableHead>Project Name</TableHead>
+              <TableHead>Phase</TableHead>
+              <TableHead>Level</TableHead>
+              <TableHead>Area</TableHead>
+              <TableHead>Approval</TableHead>
+              <TableHead>Ingestion Status</TableHead>
+              <TableHead>Listing Status</TableHead>
+              <TableHead>Launch Status</TableHead>
+              <TableHead>Existing Project</TableHead>
+              <TableHead>Listing Project</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Source</TableHead>
+              <TableHead>Completion</TableHead>
+              <TableHead>Sent At</TableHead>
+              <TableHead>Created At</TableHead>
+              <TableHead>Updated At</TableHead>
+              <TableHead className="sticky right-0 z-20 w-20 bg-secondary/30"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={colCount} className="py-12 text-center text-muted-foreground">No launches found</TableCell>
+              </TableRow>
+            )}
+            {pageRows.map((l, idx) => renderRow(l, idx))}
+          </TableBody>
+        </Table>
+      </div>
+      <TableFooter page={safePage} pageSize={pageSize} total={rows.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="launches" />
+    </TableCard>
+  )
+
+  const toolbar = (
+    <TableToolbar
+      search={search}
+      onSearch={(v) => { setSearch(v); setPage(1) }}
+      searchPlaceholder="Launch ID or project name"
+      activeFilters={activeFilterCount}
+      filters={
+        <>
+          <FilterMultiSelect label="Developer" options={DEVELOPERS} value={developerF} onChange={(v) => { setDeveloperF(v); setPage(1) }} tone="danger" className="w-40" />
+          <FilterMultiSelect label="Area" options={AREAS} value={areaF} onChange={(v) => { setAreaF(v); setPage(1) }} tone="danger" className="w-36" />
+          <FilterSelect label="Source" value={sourceF === "all" ? "" : sourceF} options={["WhatsApp", "Manual"]} onChange={(v) => { setSourceF(v || "all"); setPage(1) }} className="w-32" />
+          <FilterSelect label="Already Created" value={alreadyCreatedF === "all" ? "" : alreadyCreatedF} options={["Existing", "New"]} onChange={(v) => { setAlreadyCreatedF(v || "all"); setPage(1) }} className="w-40" />
+          {tab !== "active" && (
+            <FilterSelect label="Launch Status" value={launchStatusF === "all" ? "" : launchStatusF} options={["Upcoming", "Active", "Closed"]} onChange={(v) => { setLaunchStatusF(v || "all"); setPage(1) }} className="w-38" />
+          )}
+          {tab !== "pending" && (
+            <FilterSelect label="Approval" value={approvalF === "all" ? "" : approvalF} options={["Pending Review", "Approved", "Rejected"]} onChange={(v) => { setApprovalF(v || "all"); setPage(1) }} className="w-36" />
+          )}
+          {tab !== "listed" && (
+            <FilterSelect label="Ingestion" value={ingestionF === "all" ? "" : ingestionF} options={["Ingested", "Not Ingested"]} onChange={(v) => { setIngestionF(v || "all"); setPage(1) }} className="w-36" />
+          )}
+          <FilterSelect label="Listing" value={listingF === "all" ? "" : listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v || "all"); setPage(1) }} className="w-32" />
+          <DateRangeFilter label="Created Date Range" dateFrom={createdFrom} dateTo={createdTo} onChangeFrom={(v) => { setCreatedFrom(v); setPage(1) }} onChangeTo={(v) => { setCreatedTo(v); setPage(1) }} />
+        </>
+      }
+    />
+  )
 
   if (viewingLaunch) {
     return <LaunchDetailsPage launch={viewingLaunch} onBack={() => setViewingLaunch(null)} />
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -790,30 +1185,29 @@ export function LaunchesPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="all" className="w-full">
+      <Tabs value={tab} onValueChange={(v) => { setTab(v as TabKey); setSelectedIds([]); setPage(1) }} className="w-full">
         <TabsList className="bg-secondary">
           <TabsTrigger value="all" className="data-[state=active]:bg-card">All</TabsTrigger>
           <TabsTrigger value="pending" className="data-[state=active]:bg-card">
             Pending Review
-            {launches.filter((l) => l.approvalStatus === "Pending Review").length > 0 && (
-              <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-yellow-100 text-yellow-700 text-[10px] font-semibold">
-                {launches.filter((l) => l.approvalStatus === "Pending Review").length}
+            {pendingCount > 0 && (
+              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-yellow-100 px-1 text-[10px] font-semibold text-yellow-700">
+                {pendingCount}
               </span>
             )}
           </TabsTrigger>
           <TabsTrigger value="listed" className="data-[state=active]:bg-card">
-            <LayoutGrid className="h-3.5 w-3.5 mr-1.5" />
-            Listed
+            <ListChecks className="mr-1.5 h-3.5 w-3.5" />
+            Listed Status
           </TabsTrigger>
           <TabsTrigger value="active" className="data-[state=active]:bg-card">
-            <Activity className="h-3.5 w-3.5 mr-1.5" />
+            <Activity className="mr-1.5 h-3.5 w-3.5" />
             Currently Active
           </TabsTrigger>
         </TabsList>
 
-        {/* ── ALL TAB ─────────────────────────────────────────────────────── */}
+        {/* ── ALL ────────────────────────────────────────────────────────────── */}
         <TabsContent value="all" className="mt-4 space-y-4">
-          {/* Stats cards */}
           <div className="grid grid-cols-5 gap-4">
             {[
               { label: "Total", value: stats.total, icon: Rocket, color: "blue" },
@@ -824,7 +1218,7 @@ export function LaunchesPage() {
             ].map(({ label, value, icon: Icon, color }) => (
               <Card key={label} className="p-4">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg bg-${color}-100`}>
+                  <div className={`rounded-lg bg-${color}-100 p-2`}>
                     <Icon className={`h-5 w-5 text-${color}-600`} />
                   </div>
                   <div>
@@ -835,613 +1229,67 @@ export function LaunchesPage() {
               </Card>
             ))}
           </div>
-
-          {/* Filters + controls */}
-          <TableToolbar
-            search={searchId}
-            onSearch={(v) => { setSearchId(v); setPage(1) }}
-            searchPlaceholder="Launch ID or project name"
-            activeFilters={activeFilterCount}
-            filters={
-              <>
-                <FilterSelect label="All Developers" value={developerFilter === "all" ? "" : developerFilter} options={DEVELOPERS} onChange={(v) => { setDeveloperFilter(v || "all"); setPage(1) }} className="w-44" />
-                <FilterSelect label="Launch Status" value={launchStatusFilter === "all" ? "" : launchStatusFilter} options={["Upcoming", "Active Launch", "Finished"]} onChange={(v) => { setLaunchStatusFilter(v || "all"); setPage(1) }} className="w-40" />
-                <FilterSelect label="Approval" value={approvalStatusFilter === "all" ? "" : approvalStatusFilter} options={["Pending Review", "Approved", "Rejected"]} onChange={(v) => { setApprovalStatusFilter(v || "all"); setPage(1) }} className="w-40" />
-                <FilterSelect label="Ingestion" value={ingestionStatusFilter === "all" ? "" : ingestionStatusFilter} options={["Ingested", "Not Ingested"]} onChange={(v) => { setIngestionStatusFilter(v || "all"); setPage(1) }} className="w-40" />
-                <FilterSelect label="Listing" value={listingStatusFilter === "all" ? "" : listingStatusFilter} options={["Active", "Hidden"]} onChange={(v) => { setListingStatusFilter(v || "all"); setPage(1) }} className="w-36" />
-                <DateRangeFilter label="Created Date Range" dateFrom={createdFrom} dateTo={createdTo} onChangeFrom={(v) => { setCreatedFrom(v); setPage(1) }} onChangeTo={(v) => { setCreatedTo(v); setPage(1) }} />
-              </>
-            }
-          />
-
-          {/* Table */}
-          <TableCard>
-            <TableCardHeader
-              title="Launches"
-              count={filtered.length}
-              cta={<Button size="sm" className="gap-1.5" onClick={() => { setEditingLaunch(null); setFormOpen(true) }}><Plus className="h-4 w-4" />Create Launch</Button>}
-            />
-            <div className="overflow-x-auto">
-              <Table className={cn("w-max text-sm [&_thead_th]:h-auto [&_thead_th]:py-3 [&_thead_th]:text-[11px] [&_thead_th]:font-semibold [&_thead_th]:uppercase [&_thead_th]:tracking-wide [&_thead_th]:text-muted-foreground", COL_SEP)}>
-                <TableHeader>
-                  <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60">
-                    <TableHead className="sticky left-0 z-20 bg-muted/60 w-10">
-                      <Checkbox
-                        checked={selectedIds.length === filtered.length && filtered.length > 0}
-                        onCheckedChange={(c) => selectAll(!!c)}
-                        className="cursor-pointer"
-                      />
-                    </TableHead>
-                    <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">ID</TableHead>
-                    <TableHead>Developer</TableHead>
-                    <TableHead>Project Name</TableHead>
-                    <TableHead>Phase</TableHead>
-                    <TableHead>Level</TableHead>
-                    <TableHead>Area</TableHead>
-                    <TableHead>Approval</TableHead>
-                    <TableHead>Ingestion Status</TableHead>
-                    <TableHead>Listing Status</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Listing Project</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Completion</TableHead>
-                    <TableHead>Created At</TableHead>
-                    <TableHead>Updated At</TableHead>
-                    <TableHead className="sticky right-0 z-20 bg-secondary/30 w-10"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={19} className="text-center py-12 text-muted-foreground">No launches found</TableCell>
-                    </TableRow>
-                  )}
-                  {pageData.map((launch, idx) => (
-                    <TableRow
-                      key={launch.id}
-                      className={cn("hover:bg-muted/40", selectedIds.includes(launch.id) && "bg-primary/5")}
-                    >
-                      {/* Sticky checkbox */}
-                      <TableCell className={cn("sticky left-0 z-10", selectedIds.includes(launch.id) ? "bg-primary/5" : "bg-card")}>
-                        <Checkbox
-                          checked={selectedIds.includes(launch.id)}
-                          onCheckedChange={(checked, event) => {
-                            const shiftKey = (event as unknown as React.MouseEvent)?.shiftKey ?? false
-                            toggleSelect(launch.id, (safePage - 1) * pageSize + idx, shiftKey)
-                          }}
-                          className="cursor-pointer"
-                        />
-                      </TableCell>
-
-                      {/* ID */}
-                      <TableCell><IdTag value={launch.id} /></TableCell>
-
-                      {/* Developer */}
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <img src={launch.developer.logo} alt={launch.developer.name} className="h-7 w-7 rounded object-cover bg-secondary flex-shrink-0" />
-                          <div>
-                            <p className="text-sm font-medium leading-tight">{launch.developer.name}</p>
-                            <IdTag value={launch.developer.id} />
-                          </div>
-                        </div>
-                      </TableCell>
-
-                      {/* Project Name */}
-                      <TableCell className="min-w-[160px]">
-                        <EditableCell
-                          value={launch.projectNameEn}
-                          onSave={(v) => updateField(launch.id, { projectNameEn: v })}
-                        />
-                      </TableCell>
-
-                      {/* Phase */}
-                      <TableCell className="min-w-[100px]">
-                        <EditableCell
-                          value={launch.phase}
-                          onSave={(v) => updateField(launch.id, { phase: v })}
-                        />
-                      </TableCell>
-
-                      {/* Level */}
-                      <TableCell>
-                        <EditableCell
-                          value={launch.projectLevel}
-                          onSave={(v) => updateField(launch.id, { projectLevel: v as Launch["projectLevel"] })}
-                          type="select"
-                          options={["Main Compound", "Phase"]}
-                        />
-                      </TableCell>
-
-                      {/* Area */}
-                      <TableCell className="min-w-[130px]">
-                        <EditableCell
-                          value={launch.area}
-                          onSave={(v) => updateField(launch.id, { area: v })}
-                          type="select"
-                          options={AREAS}
-                        />
-                      </TableCell>
-
-                      {/* Approval — colored badge, click to cycle */}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="cursor-pointer">
-                              <ApprovalBadge status={launch.approvalStatus} />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {(["Pending Review", "Approved", "Rejected"] as Launch["approvalStatus"][]).map((s) => (
-                              <DropdownMenuItem key={s} onClick={() => updateField(launch.id, { approvalStatus: s })}>
-                                <ApprovalBadge status={s} />
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-
-                      {/* Ingestion Status — editable */}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="cursor-pointer">
-                              <IngestionBadge status={launch.ingestionStatus} />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {(["Ingested", "Not Ingested"] as Launch["ingestionStatus"][]).map((s) => (
-                              <DropdownMenuItem key={s} onClick={() => updateField(launch.id, { ingestionStatus: s })}>
-                                <IngestionBadge status={s} />
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-
-                      {/* Listing Status — editable */}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="cursor-pointer">
-                              <ListingStatusBadge status={launch.listingStatus} />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {(["Active", "Hidden"] as Launch["listingStatus"][]).map((s) => (
-                              <DropdownMenuItem key={s} onClick={() => updateField(launch.id, { listingStatus: s })}>
-                                <ListingStatusBadge status={s} />
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-
-                      {/* Launch Status — editable */}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="cursor-pointer">
-                              <LaunchStatusBadge status={launch.launchStatus} />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {(["Upcoming", "Active Launch", "Finished"] as Launch["launchStatus"][]).map((s) => (
-                              <DropdownMenuItem key={s} onClick={() => updateField(launch.id, { launchStatus: s })}>
-                                <LaunchStatusBadge status={s} />
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-
-                      {/* Listing Project */}
-                      <TableCell className="min-w-[150px]">
-                        {launch.listingStatus === "Listed" && launch.listingProject ? (
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-sm">{launch.listingProject.name}</span>
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10px] text-muted-foreground font-mono">{launch.listingProject.id}</span>
-                              <button onClick={() => copy(launch.listingProject!.id, `lst-${launch.id}`)} className="p-0.5 hover:bg-secondary rounded">
-                                {copiedId === `lst-${launch.id}` ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
-                              </button>
-                            </div>
-                          </div>
-                        ) : <span className="text-muted-foreground text-xs">—</span>}
-                      </TableCell>
-
-                      {/* Type — editable */}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="cursor-pointer">
-                              <Badge variant="outline" className="cursor-pointer hover:bg-secondary">{launch.type}</Badge>
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {(["Launch", "Release"] as Launch["type"][]).map((s) => (
-                              <DropdownMenuItem key={s} onClick={() => updateField(launch.id, { type: s })}>
-                                <Badge variant="outline">{s}</Badge>
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-
-                      {/* Source */}
-                      <TableCell><SourceBadge source={launch.source} /></TableCell>
-
-                      {/* Completion */}
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Progress value={launch.listingCompletion} className="w-16 h-2" />
-                          <span className="text-xs text-muted-foreground">{launch.listingCompletion}%</span>
-                        </div>
-                      </TableCell>
-
-                      {/* Created At */}
-                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(launch.createdAt)}</TableCell>
-
-                      {/* Updated At */}
-                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(launch.updatedAt)}</TableCell>
-
-                      {/* Actions - sticky right */}
-                      <TableCell className={cn("sticky right-0 z-10 border-l border-border", selectedIds.includes(launch.id) ? "bg-primary/5" : "bg-card")}>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => setViewingLaunch(launch)}>
-                              <Eye className="h-4 w-4 mr-2" />View
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => { setEditingLaunch(launch); setFormOpen(true) }}>
-                              <Pencil className="h-4 w-4 mr-2" />Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              disabled={launch.approvalStatus !== "Approved"}
-                              onClick={() => launch.approvalStatus === "Approved" && updateField(launch.id, { listingStatus: "Active" })}
-                              className={cn(launch.approvalStatus !== "Approved" && "opacity-40 cursor-not-allowed")}
-                            >
-                              <List className="h-4 w-4 mr-2" />List
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => setArchiveTarget(launch)}
-                            >
-                              <Archive className="h-4 w-4 mr-2" />Archive
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <TableFooter page={safePage} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="launches" />
-          </TableCard>
+          {toolbar}
+          {renderTable("Launches", (
+            <Button size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}><Plus className="h-4 w-4" />Create Launch</Button>
+          ))}
         </TabsContent>
 
-        {/* ── PENDING REVIEW TAB ──────────────────────────────────────────── */}
+        {/* ── PENDING REVIEW ─────────────────────────────────────────────────── */}
         <TabsContent value="pending" className="mt-4 space-y-4">
-          <TableCard>
-            <TableCardHeader title="Pending Review" count={pendingLaunches.length} />
-            <div className="overflow-x-auto">
-              <Table className={cn("w-max text-sm [&_thead_th]:h-auto [&_thead_th]:py-3 [&_thead_th]:text-[11px] [&_thead_th]:font-semibold [&_thead_th]:uppercase [&_thead_th]:tracking-wide [&_thead_th]:text-muted-foreground", COL_SEP)}>
-                <TableHeader>
-                  <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60">
-                    <TableHead className="sticky left-0 z-20 bg-muted/60 w-10">
-                      <Checkbox
-                        checked={selectedIds.length === pendingLaunches.length && pendingLaunches.length > 0}
-                        onCheckedChange={(c) => setSelectedIds(!!c ? pendingLaunches.map((l) => l.id) : [])}
-                        className="cursor-pointer"
-                      />
-                    </TableHead>
-                    <TableHead className="whitespace-nowrap">ID</TableHead>
-                    <TableHead>Developer</TableHead>
-                    <TableHead>Project Name</TableHead>
-                    <TableHead>Phase</TableHead>
-                    <TableHead>Level</TableHead>
-                    <TableHead>Area</TableHead>
-                    <TableHead>Approval</TableHead>
-                    <TableHead>Ingestion Status</TableHead>
-                    <TableHead>Listing Status</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Listing Project</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Completion</TableHead>
-                    <TableHead>Created At</TableHead>
-                    <TableHead>Updated At</TableHead>
-                    <TableHead className="sticky right-0 z-20 bg-secondary/30 w-10"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pendingLaunches.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={19} className="text-center py-12 text-muted-foreground">No launches pending review</TableCell>
-                    </TableRow>
-                  )}
-                  {pendingLaunches.map((launch, idx) => (
-                    <TableRow
-                      key={launch.id}
-                      className={cn("hover:bg-muted/40", selectedIds.includes(launch.id) && "bg-primary/5")}
-                    >
-                      {/* Sticky checkbox */}
-                      <TableCell className={cn("sticky left-0 z-10", selectedIds.includes(launch.id) ? "bg-primary/5" : "bg-card")}>
-                        <Checkbox
-                          checked={selectedIds.includes(launch.id)}
-                          onCheckedChange={() => toggleSelect(launch.id, idx, false)}
-                          className="cursor-pointer"
-                        />
-                      </TableCell>
-
-                      {/* ID */}
-                      <TableCell><IdTag value={launch.id} /></TableCell>
-
-                      {/* Developer */}
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <img src={launch.developer.logo} alt={launch.developer.name} className="h-7 w-7 rounded object-cover bg-secondary flex-shrink-0" />
-                          <div>
-                            <p className="text-sm font-medium leading-tight">{launch.developer.name}</p>
-                            <IdTag value={launch.developer.id} />
-                          </div>
-                        </div>
-                      </TableCell>
-
-                      {/* Project Name */}
-                      <TableCell className="min-w-[160px]">
-                        <EditableCell value={launch.projectNameEn} onSave={(v) => updateField(launch.id, { projectNameEn: v })} />
-                      </TableCell>
-
-                      {/* Phase */}
-                      <TableCell className="min-w-[100px]">
-                        <EditableCell value={launch.phase} onSave={(v) => updateField(launch.id, { phase: v })} />
-                      </TableCell>
-
-                      {/* Level */}
-                      <TableCell>
-                        <EditableCell
-                          value={launch.projectLevel}
-                          onSave={(v) => updateField(launch.id, { projectLevel: v as Launch["projectLevel"] })}
-                          type="select"
-                          options={["Main Compound", "Phase"]}
-                        />
-                      </TableCell>
-
-                      {/* Area */}
-                      <TableCell className="min-w-[130px]">
-                        <EditableCell
-                          value={launch.area}
-                          onSave={(v) => updateField(launch.id, { area: v })}
-                          type="select"
-                          options={AREAS}
-                        />
-                      </TableCell>
-
-                      {/* Approval */}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="cursor-pointer"><ApprovalBadge status={launch.approvalStatus} /></button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {(["Pending Review", "Approved", "Rejected"] as Launch["approvalStatus"][]).map((s) => (
-                              <DropdownMenuItem key={s} onClick={() => updateField(launch.id, { approvalStatus: s })}>
-                                <ApprovalBadge status={s} />
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-
-                      {/* Ingestion Status */}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="cursor-pointer"><IngestionBadge status={launch.ingestionStatus} /></button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {(["Ingested", "Not Ingested"] as Launch["ingestionStatus"][]).map((s) => (
-                              <DropdownMenuItem key={s} onClick={() => updateField(launch.id, { ingestionStatus: s })}>
-                                <IngestionBadge status={s} />
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-
-                      {/* Listing Status */}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="cursor-pointer"><ListingStatusBadge status={launch.listingStatus} /></button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {(["Active", "Hidden"] as Launch["listingStatus"][]).map((s) => (
-                              <DropdownMenuItem key={s} onClick={() => updateField(launch.id, { listingStatus: s })}>
-                                <ListingStatusBadge status={s} />
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-
-                      {/* Launch Status */}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="cursor-pointer"><LaunchStatusBadge status={launch.launchStatus} /></button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {(["Upcoming", "Active Launch", "Finished"] as Launch["launchStatus"][]).map((s) => (
-                              <DropdownMenuItem key={s} onClick={() => updateField(launch.id, { launchStatus: s })}>
-                                <LaunchStatusBadge status={s} />
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-
-                      {/* Listing Project */}
-                      <TableCell className="min-w-[150px]">
-                        {launch.listingProject ? (
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-sm">{launch.listingProject.name}</span>
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10px] text-muted-foreground font-mono">{launch.listingProject.id}</span>
-                              <button onClick={() => copy(launch.listingProject!.id, `plst-${launch.id}`)} className="p-0.5 hover:bg-secondary rounded">
-                                {copiedId === `plst-${launch.id}` ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
-                              </button>
-                            </div>
-                          </div>
-                        ) : <span className="text-muted-foreground text-xs">—</span>}
-                      </TableCell>
-
-                      {/* Type */}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="cursor-pointer">
-                              <Badge variant="outline" className="cursor-pointer hover:bg-secondary">{launch.type}</Badge>
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {(["Launch", "Release"] as Launch["type"][]).map((s) => (
-                              <DropdownMenuItem key={s} onClick={() => updateField(launch.id, { type: s })}>
-                                <Badge variant="outline">{s}</Badge>
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-
-                      {/* Source */}
-                      <TableCell><SourceBadge source={launch.source} /></TableCell>
-
-                      {/* Completion */}
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Progress value={launch.listingCompletion} className="w-16 h-2" />
-                          <span className="text-xs text-muted-foreground">{launch.listingCompletion}%</span>
-                        </div>
-                      </TableCell>
-
-                      {/* Created At */}
-                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(launch.createdAt)}</TableCell>
-
-                      {/* Updated At */}
-                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(launch.updatedAt)}</TableCell>
-
-                      {/* Actions - sticky right */}
-                      <TableCell className={cn("sticky right-0 z-10 border-l border-border", selectedIds.includes(launch.id) ? "bg-primary/5" : "bg-card")}>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => setViewingLaunch(launch)}>
-                              <Eye className="h-4 w-4 mr-2" />View
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => { setEditingLaunch(launch); setFormOpen(true) }}>
-                              <Pencil className="h-4 w-4 mr-2" />Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              disabled={launch.approvalStatus !== "Approved"}
-                              onClick={() => launch.approvalStatus === "Approved" && updateField(launch.id, { listingStatus: "Active" })}
-                              className={cn(launch.approvalStatus !== "Approved" && "opacity-40 cursor-not-allowed")}
-                            >
-                              <List className="h-4 w-4 mr-2" />List
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => setArchiveTarget(launch)}
-                            >
-                              <Archive className="h-4 w-4 mr-2" />Archive
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </TableCard>
+          {toolbar}
+          {renderTable("Pending Review")}
         </TabsContent>
 
-        {/* ── LISTED TAB ──────────────────────────────────────────────────── */}
-        <TabsContent value="listed" className="mt-4">
-          <p className="text-xs text-muted-foreground mb-4">Drag cards to reorder. Order reflects on other platforms.</p>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {listedOrder.map((launch, i) => (
-              <LaunchCard
-                key={launch.id}
-                launch={launch}
-                index={i}
-                onDragStart={(idx) => setDragFrom(idx)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(to) => dragFrom !== null && handleDrop(listedOrder, setListedOrder, dragFrom, to)}
-              />
-            ))}
-          </div>
+        {/* ── LISTED STATUS ──────────────────────────────────────────────────── */}
+        <TabsContent value="listed" className="mt-4 space-y-4">
+          {toolbar}
+          {renderTable("Listed Launches")}
         </TabsContent>
 
-        {/* ── ACTIVE TAB ──────────────────────────────────────────────────── */}
-        <TabsContent value="active" className="mt-4">
-          <p className="text-xs text-muted-foreground mb-4">Drag cards to reorder. Order reflects on other platforms.</p>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {activeOrder.map((launch, i) => (
-              <LaunchCard
-                key={launch.id}
-                launch={launch}
-                index={i}
-                onDragStart={(idx) => setDragFrom(idx)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(to) => dragFrom !== null && handleDrop(activeOrder, setActiveOrder, dragFrom, to)}
-              />
-            ))}
-          </div>
+        {/* ── CURRENTLY ACTIVE ───────────────────────────────────────────────── */}
+        <TabsContent value="active" className="mt-4 space-y-4">
+          {toolbar}
+          <p className="text-xs text-muted-foreground">Drag rows to reorder. Order reflects on Nawy Listing website and Mobile App.</p>
+          {renderTable("Currently Active")}
         </TabsContent>
       </Tabs>
 
-      {/* ── Bulk actions floating bar (shared) ─────────────────────────────── */}
+      {/* ── Bulk actions ──────────────────────────────────────────────────────── */}
       <FloatingBulkBar
         count={selectedIds.length}
-        total={filtered.length}
-        onSelectAll={() => setSelectedIds(filtered.map((l) => l.id))}
+        total={rows.length}
+        onSelectAll={() => setSelectedIds(rows.map((l) => l.id))}
         onClear={() => setSelectedIds([])}
       >
-        <BulkBarButton icon={<CheckCircle className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => bulkSetApproval("Approved")}>Approve</BulkBarButton>
-        <BulkBarButton icon={<XCircle className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => bulkSetApproval("Rejected")}>Reject</BulkBarButton>
-        <BulkBarButton icon={<List className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => bulkSetListing("Active")}>List</BulkBarButton>
-        <BulkBarButton icon={<Archive className="h-3.5 w-3.5 text-zinc-400" />} onClick={bulkExport}>Export</BulkBarButton>
+        {tab === "pending" && (
+          <>
+            <BulkBarButton icon={<CheckCircle className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => setDialog({ kind: "bulk-approve" })}>Approve</BulkBarButton>
+            <BulkBarButton icon={<XCircle className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => setDialog({ kind: "bulk-reject" })}>Reject</BulkBarButton>
+          </>
+        )}
+        {tab === "active" && (
+          <>
+            <BulkBarButton icon={<Eye className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => setDialog({ kind: "bulk-list-active" })}>Listing: Active</BulkBarButton>
+            <BulkBarButton icon={<XCircle className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => setDialog({ kind: "bulk-list-hidden" })}>Listing: Hidden</BulkBarButton>
+          </>
+        )}
+        {tab !== "active" && (
+          <BulkBarButton icon={<Download className="h-3.5 w-3.5 text-zinc-400" />} onClick={bulkExport}>Export</BulkBarButton>
+        )}
       </FloatingBulkBar>
 
-      {/* Dialogs */}
-      <LaunchFormDialog
-        open={formOpen}
-        onOpenChange={(v) => { setFormOpen(v); if (!v) setEditingLaunch(null) }}
-        initial={editingLaunch}
-        onSave={editingLaunch ? handleEdit : handleCreate}
-      />
-      <ArchiveDialog
-        open={!!archiveTarget}
-        onOpenChange={(v) => { if (!v) setArchiveTarget(null) }}
-        onConfirm={handleArchive}
-        launchId={archiveTarget?.id ?? ""}
-      />
+      {/* ── Dialogs ──────────────────────────────────────────────────────────── */}
+      <LaunchFormDialog open={formOpen} onOpenChange={setFormOpen} onSave={handleCreate} />
+
+      {dialog?.kind === "archive" && <ArchiveDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doArchive(dialog.launch)} />}
+      {dialog?.kind === "approve" && <ApproveDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doApprove(dialog.launch)} />}
+      {dialog?.kind === "reject" && <RejectDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doReject(dialog.launch)} />}
+      {dialog?.kind === "activate" && <ActivateDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doActivate(dialog.launch)} />}
+      {dialog?.kind === "close" && <CloseLaunchDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doCloseLaunch(dialog.launch)} />}
+      {(dialog?.kind === "bulk-approve" || dialog?.kind === "bulk-reject" || dialog?.kind === "bulk-list-active" || dialog?.kind === "bulk-list-hidden") && (
+        <BulkDialog kind={dialog.kind} count={selectedIds.length} onClose={() => setDialog(null)} onConfirm={() => doBulk(dialog.kind as BulkKind)} />
+      )}
     </div>
   )
 }
