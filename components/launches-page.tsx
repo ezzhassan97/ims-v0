@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { Fragment, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
@@ -33,6 +33,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Label } from "@/components/ui/label"
 import {
   Plus,
@@ -49,6 +50,13 @@ import {
   Download,
   Bot,
   EyeOff,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  Group as GroupIcon,
+  Columns3,
+  X,
+  ChevronDown,
 } from "lucide-react"
 import { toast } from "sonner"
 import { LaunchDetailsPage } from "@/components/launch-details-page"
@@ -100,6 +108,52 @@ interface Launch {
 /** New AI update = the last AI update landed after the launch was last updated. */
 function hasNewAiUpdate(l: Launch): boolean {
   return !!l.aiUpdates && new Date(l.aiUpdates.lastAt) > new Date(l.updatedAt)
+}
+
+// ── Column control (ID + actions + order stay fixed) ─────────────────────────
+const LAUNCH_COLS: { id: string; label: string }[] = [
+  { id: "developer", label: "Developer" },
+  { id: "projectName", label: "Project Name" },
+  { id: "phase", label: "Phase" },
+  { id: "level", label: "Level" },
+  { id: "area", label: "Area" },
+  { id: "approval", label: "Approval" },
+  { id: "ingestion", label: "Ingestion Status" },
+  { id: "listing", label: "Listing Status" },
+  { id: "launchStatus", label: "Launch Status" },
+  { id: "existingProject", label: "Existing Project" },
+  { id: "listingProject", label: "Listing Project" },
+  { id: "type", label: "Type" },
+  { id: "source", label: "Source" },
+  { id: "completion", label: "Completion" },
+  { id: "aiUpdates", label: "AI Updates" },
+  { id: "sentAt", label: "Sent At" },
+  { id: "createdAt", label: "Created At" },
+  { id: "updatedAt", label: "Updated At" },
+  { id: "ingestedAt", label: "Ingested At" },
+]
+
+// ── Group by ──────────────────────────────────────────────────────────────────
+type GroupByKey = "none" | "developer" | "level" | "area" | "type" | "launchStatus"
+const GROUP_BY_LABEL: Record<GroupByKey, string> = {
+  none: "Group", developer: "Developer", level: "Level", area: "Area", type: "Type", launchStatus: "Launch Status",
+}
+function groupValue(l: Launch, key: GroupByKey): string {
+  switch (key) {
+    case "developer": return l.developer.name
+    case "level": return l.projectLevel
+    case "area": return l.area
+    case "type": return l.type
+    case "launchStatus": return l.launchStatus
+    default: return ""
+  }
+}
+
+// ── Header sort (timestamp columns) ───────────────────────────────────────────
+type TsSortKey = "aiUpdates" | "sentAt" | "createdAt" | "updatedAt" | "ingestedAt"
+function tsValue(l: Launch, key: TsSortKey): string {
+  if (key === "aiUpdates") return l.aiUpdates?.lastAt ?? ""
+  return l[key] ?? ""
 }
 
 type TabKey = "all" | "pending" | "listed" | "active"
@@ -716,6 +770,21 @@ export function LaunchesPage() {
   const [dialog, setDialog] = useState<DialogState>(null)
   const lastSelectedIndex = useRef<number | null>(null)
 
+  // All Filters drawer · Columns sheet · Group by · header timestamp sort
+  const [showAllFilters, setShowAllFilters] = useState(false)
+  const [showColumnSheet, setShowColumnSheet] = useState(false)
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set())
+  const [groupBy, setGroupBy] = useState<GroupByKey>("none")
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [tsSort, setTsSort] = useState<{ key: TsSortKey; dir: "asc" | "desc" } | null>(null)
+  const colVisible = (id: string) => !hiddenCols.has(id)
+
+  const clearAllFilters = () => {
+    setSearch(""); setDeveloperF([]); setAreaF([]); setSourceF("all"); setAlreadyCreatedF("all")
+    setAiUpdatesF("all"); setLaunchStatusF("all"); setApprovalF("all"); setIngestionF("all")
+    setListingF("all"); setCreatedFrom(""); setCreatedTo(""); setPage(1)
+  }
+
   // Currently Active tab manual ordering (rank = position in this array)
   const [activeOrder, setActiveOrder] = useState<string[]>(
     () => mockLaunches.filter((l) => l.approvalStatus === "Approved" && l.ingestionStatus === "Ingested" && l.launchStatus === "Active").map((l) => l.id),
@@ -758,6 +827,14 @@ export function LaunchesPage() {
       return true
     })
     if (t === "active") rows = [...rows].sort((a, b) => orderRank(a.id) - orderRank(b.id))
+    // Header timestamp sort overrides the default/manual order when set
+    if (tsSort) {
+      const mul = tsSort.dir === "asc" ? 1 : -1
+      rows = [...rows].sort((a, b) => {
+        const va = tsValue(a, tsSort.key), vb = tsValue(b, tsSort.key)
+        return va < vb ? -mul : va > vb ? mul : 0
+      })
+    }
     return rows
   }
 
@@ -1032,6 +1109,7 @@ export function LaunchesPage() {
         </TableCell>
 
         {/* Developer — clickable, opens new tab */}
+        {colVisible("developer") && (
         <TableCell>
           <div className="flex items-center gap-2">
             <img src={l.developer.logo} alt={l.developer.name} className="h-7 w-7 flex-shrink-0 rounded bg-secondary object-cover" />
@@ -1041,8 +1119,10 @@ export function LaunchesPage() {
             </div>
           </div>
         </TableCell>
+        )}
 
         {/* Project Name — matched link / unmatched / new project */}
+        {colVisible("projectName") && (
         <TableCell className="min-w-[170px]">
           {l.phase ? (
             l.projectId ? (
@@ -1063,34 +1143,50 @@ export function LaunchesPage() {
             </div>
           )}
         </TableCell>
+        )}
 
         {/* Phase */}
+        {colVisible("phase") && (
         <TableCell className="min-w-[90px] text-sm">{l.phase || <span className="text-xs text-muted-foreground">—</span>}</TableCell>
+        )}
 
         {/* Level */}
+        {colVisible("level") && (
         <TableCell><Chip tone={l.projectLevel === "Main Project" ? "blue" : "white"}>{l.projectLevel}</Chip></TableCell>
+        )}
 
         {/* Area — plain text + id caption */}
+        {colVisible("area") && (
         <TableCell className="min-w-[110px]">
           <div className="flex flex-col">
             <span className="whitespace-nowrap text-sm">{l.area}</span>
             <IdTag value={l.areaId} />
           </div>
         </TableCell>
+        )}
 
         {/* Approval */}
+        {colVisible("approval") && (
         <TableCell><Chip tone={APPROVAL_TONE[l.approvalStatus]}>{l.approvalStatus}</Chip></TableCell>
+        )}
 
         {/* Ingestion */}
+        {colVisible("ingestion") && (
         <TableCell><Chip tone={INGESTION_TONE[l.ingestionStatus]}>{l.ingestionStatus}</Chip></TableCell>
+        )}
 
         {/* Listing status */}
+        {colVisible("listing") && (
         <TableCell><Chip tone={LISTING_TONE[l.listingStatus]}>{l.listingStatus}</Chip></TableCell>
+        )}
 
         {/* Launch status */}
+        {colVisible("launchStatus") && (
         <TableCell><Chip tone={LAUNCH_STATUS_TONE[l.launchStatus]}>{l.launchStatus}</Chip></TableCell>
+        )}
 
         {/* Existing Project */}
+        {colVisible("existingProject") && (
         <TableCell className="min-w-[150px]">
           {l.existingProject ? (
             <div className="flex flex-col">
@@ -1101,34 +1197,44 @@ export function LaunchesPage() {
             <Chip tone="green">New</Chip>
           )}
         </TableCell>
+        )}
 
-        {/* Listing Project */}
+        {/* Listing Project — clickable, opens the project details in a new tab */}
+        {colVisible("listingProject") && (
         <TableCell className="min-w-[150px]">
           {l.listingProject ? (
             <div className="flex flex-col">
-              <span className="text-sm">{l.listingProject.name}</span>
+              <a href="#" target="_blank" rel="noreferrer" className="w-fit text-sm hover:underline">{l.listingProject.name}</a>
               <IdTag value={l.listingProject.id} />
             </div>
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
           )}
         </TableCell>
+        )}
 
         {/* Type */}
+        {colVisible("type") && (
         <TableCell><Chip tone={l.type === "Launch" ? "green" : "white"}>{l.type}</Chip></TableCell>
+        )}
 
         {/* Source */}
+        {colVisible("source") && (
         <TableCell><Chip tone={l.source === "WhatsApp" ? "green" : "white"}>{l.source}</Chip></TableCell>
+        )}
 
         {/* Completion */}
+        {colVisible("completion") && (
         <TableCell>
           <div className="flex items-center gap-2">
             <Progress value={l.listingCompletion} className="h-2 w-16" />
             <span className="text-xs text-muted-foreground">{l.listingCompletion}%</span>
           </div>
         </TableCell>
+        )}
 
         {/* AI Updates */}
+        {colVisible("aiUpdates") && (
         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
           {l.aiUpdates ? (
             <span className={cn(hasNewAiUpdate(l) && "font-medium text-purple-700")}>
@@ -1136,18 +1242,27 @@ export function LaunchesPage() {
             </span>
           ) : "—"}
         </TableCell>
+        )}
 
         {/* Sent At */}
+        {colVisible("sentAt") && (
         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.sentAt)}</TableCell>
+        )}
 
         {/* Created At */}
+        {colVisible("createdAt") && (
         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.createdAt)}</TableCell>
+        )}
 
         {/* Updated At */}
+        {colVisible("updatedAt") && (
         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.updatedAt)}</TableCell>
+        )}
 
         {/* Ingested At */}
+        {colVisible("ingestedAt") && (
         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.ingestedAt)}</TableCell>
+        )}
 
         {/* Actions — frozen right */}
         <TableCell className={cn("sticky right-0 z-10 border-l border-border", selected ? "bg-primary/5" : "bg-card")}>
@@ -1157,7 +1272,41 @@ export function LaunchesPage() {
     )
   }
 
-  const colCount = tab === "active" ? 23 : 22
+  const colCount = 3 + LAUNCH_COLS.filter((c) => colVisible(c.id)).length + (tab === "active" ? 1 : 0)
+
+  // Grouped rows (over the full filtered set, like the developers table)
+  const groups = groupBy === "none" ? null : (() => {
+    const map = new Map<string, Launch[]>()
+    for (const l of rows) {
+      const k = groupValue(l, groupBy)
+      if (!map.has(k)) map.set(k, [])
+      map.get(k)!.push(l)
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, groupRows]) => ({ label, rows: groupRows }))
+  })()
+
+  const groupChipTone = (label: string): keyof typeof CHIP_TONES => {
+    if (groupBy === "launchStatus") return LAUNCH_STATUS_TONE[label as Launch["launchStatus"]] ?? "white"
+    if (groupBy === "type") return label === "Launch" ? "green" : "white"
+    if (groupBy === "level") return label === "Main Project" ? "blue" : "white"
+    return "white"
+  }
+
+  // Sortable timestamp header — click toggles asc/desc (single primary sort)
+  const SortTh = ({ label, k }: { label: string; k: TsSortKey }) => {
+    const active = tsSort?.key === k
+    return (
+      <TableHead className="whitespace-nowrap">
+        <button
+          onClick={() => setTsSort((prev) => (prev?.key === k ? { key: k, dir: prev.dir === "asc" ? "desc" : "asc" } : { key: k, dir: "asc" }))}
+          className="inline-flex items-center gap-1 uppercase hover:text-foreground"
+        >
+          {label}
+          {active ? (tsSort!.dir === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+        </button>
+      </TableHead>
+    )
+  }
 
   const renderTable = (title: string, cta?: React.ReactNode) => (
     <TableCard>
@@ -1175,25 +1324,25 @@ export function LaunchesPage() {
               </TableHead>
               {tab === "active" && <TableHead className="sticky left-10 z-20 w-14 bg-muted/60">Order</TableHead>}
               <TableHead className="whitespace-nowrap">ID</TableHead>
-              <TableHead>Developer</TableHead>
-              <TableHead>Project Name</TableHead>
-              <TableHead>Phase</TableHead>
-              <TableHead>Level</TableHead>
-              <TableHead>Area</TableHead>
-              <TableHead>Approval</TableHead>
-              <TableHead>Ingestion Status</TableHead>
-              <TableHead>Listing Status</TableHead>
-              <TableHead>Launch Status</TableHead>
-              <TableHead>Existing Project</TableHead>
-              <TableHead>Listing Project</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Completion</TableHead>
-              <TableHead>AI Updates</TableHead>
-              <TableHead>Sent At</TableHead>
-              <TableHead>Created At</TableHead>
-              <TableHead>Updated At</TableHead>
-              <TableHead>Ingested At</TableHead>
+              {colVisible("developer") && <TableHead>Developer</TableHead>}
+              {colVisible("projectName") && <TableHead>Project Name</TableHead>}
+              {colVisible("phase") && <TableHead>Phase</TableHead>}
+              {colVisible("level") && <TableHead>Level</TableHead>}
+              {colVisible("area") && <TableHead>Area</TableHead>}
+              {colVisible("approval") && <TableHead>Approval</TableHead>}
+              {colVisible("ingestion") && <TableHead>Ingestion Status</TableHead>}
+              {colVisible("listing") && <TableHead>Listing Status</TableHead>}
+              {colVisible("launchStatus") && <TableHead>Launch Status</TableHead>}
+              {colVisible("existingProject") && <TableHead>Existing Project</TableHead>}
+              {colVisible("listingProject") && <TableHead>Listing Project</TableHead>}
+              {colVisible("type") && <TableHead>Type</TableHead>}
+              {colVisible("source") && <TableHead>Source</TableHead>}
+              {colVisible("completion") && <TableHead>Completion</TableHead>}
+              {colVisible("aiUpdates") && <SortTh label="AI Updates" k="aiUpdates" />}
+              {colVisible("sentAt") && <SortTh label="Sent At" k="sentAt" />}
+              {colVisible("createdAt") && <SortTh label="Created At" k="createdAt" />}
+              {colVisible("updatedAt") && <SortTh label="Updated At" k="updatedAt" />}
+              {colVisible("ingestedAt") && <SortTh label="Ingested At" k="ingestedAt" />}
               <TableHead className="sticky right-0 z-20 w-10 bg-secondary/30"></TableHead>
             </TableRow>
           </TableHeader>
@@ -1203,7 +1352,27 @@ export function LaunchesPage() {
                 <TableCell colSpan={colCount} className="py-12 text-center text-muted-foreground">No launches found</TableCell>
               </TableRow>
             )}
-            {pageRows.map((l, idx) => renderRow(l, idx))}
+            {groups ? (
+              groups.map((g) => (
+                <Fragment key={g.label}>
+                  <TableRow
+                    className="cursor-pointer bg-muted/40 hover:bg-muted/60"
+                    onClick={() => setCollapsedGroups((prev) => { const n = new Set(prev); if (n.has(g.label)) n.delete(g.label); else n.add(g.label); return n })}
+                  >
+                    <TableCell colSpan={colCount} className="p-0">
+                      <div className="sticky left-0 flex w-max items-center gap-2 px-4 py-2">
+                        <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", collapsedGroups.has(g.label) && "-rotate-90")} />
+                        <Chip tone={groupChipTone(g.label)}>{g.label}</Chip>
+                        <span className="text-xs text-muted-foreground">{g.rows.length} launch{g.rows.length !== 1 ? "es" : ""}</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {!collapsedGroups.has(g.label) && g.rows.map((l, idx) => renderRow(l, idx))}
+                </Fragment>
+              ))
+            ) : (
+              pageRows.map((l, idx) => renderRow(l, idx))
+            )}
           </TableBody>
         </Table>
       </div>
@@ -1217,6 +1386,24 @@ export function LaunchesPage() {
       onSearch={(v) => { setSearch(v); setPage(1) }}
       searchPlaceholder="Launch ID or project name"
       activeFilters={activeFilterCount}
+      onAllFilters={() => setShowAllFilters(true)}
+      onColumns={() => setShowColumnSheet(true)}
+      groupControl={
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant={groupBy === "none" ? "outline" : "default"} size="sm" className="h-8 gap-1.5">
+              <GroupIcon className="h-3.5 w-3.5" />{GROUP_BY_LABEL[groupBy]}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setGroupBy("none")}>No grouping</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {(["developer", "level", "area", "type", "launchStatus"] as GroupByKey[]).map((k) => (
+              <DropdownMenuItem key={k} onClick={() => setGroupBy(k)}>{GROUP_BY_LABEL[k]}</DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }
       filters={
         <>
           <FilterMultiSelect label="Developer" options={DEVELOPERS} value={developerF} onChange={(v) => { setDeveloperF(v); setPage(1) }} tone="danger" className="w-40" />
@@ -1356,6 +1543,105 @@ export function LaunchesPage() {
           <BulkBarButton icon={<Download className="h-3.5 w-3.5 text-zinc-400" />} onClick={bulkExport}>Export</BulkBarButton>
         )}
       </FloatingBulkBar>
+
+      {/* ── All Filters drawer — same filters, order and logic as the toolbar ── */}
+      <Sheet open={showAllFilters} onOpenChange={setShowAllFilters}>
+        <SheetContent className="flex w-[420px] flex-col gap-0 p-0">
+          <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
+            <div className="flex items-center justify-between">
+              <SheetTitle>All Filters</SheetTitle>
+              {activeFilterCount > 0 && (
+                <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700">{activeFilterCount} active</span>
+              )}
+            </div>
+          </SheetHeader>
+
+          <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-foreground">Developer</p>
+              <FilterMultiSelect label="Developer" options={DEVELOPERS} value={developerF} onChange={(v) => { setDeveloperF(v); setPage(1) }} tone="danger" className="w-full" />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-foreground">Area</p>
+              <FilterMultiSelect label="Area" options={AREAS} value={areaF} onChange={(v) => { setAreaF(v); setPage(1) }} tone="danger" className="w-full" />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-foreground">Source</p>
+              <FilterSelect label="Source" value={sourceF === "all" ? "" : sourceF} options={["WhatsApp", "Manual"]} onChange={(v) => { setSourceF(v || "all"); setPage(1) }} className="w-full" />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-foreground">Already Created</p>
+              <FilterSelect label="Already Created" value={alreadyCreatedF === "all" ? "" : alreadyCreatedF} options={["Existing", "New"]} onChange={(v) => { setAlreadyCreatedF(v || "all"); setPage(1) }} className="w-full" />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-foreground">AI Updates</p>
+              <FilterSelect label="AI Updates" value={aiUpdatesF === "all" ? "" : aiUpdatesF} options={["New update"]} onChange={(v) => { setAiUpdatesF(v || "all"); setPage(1) }} className="w-full" />
+            </div>
+            {tab !== "active" && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-foreground">Launch Status</p>
+                <FilterSelect label="Launch Status" value={launchStatusF === "all" ? "" : launchStatusF} options={["Upcoming", "Active", "Closed"]} onChange={(v) => { setLaunchStatusF(v || "all"); setPage(1) }} className="w-full" />
+              </div>
+            )}
+            {tab !== "pending" && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-foreground">Approval</p>
+                <FilterSelect label="Approval" value={approvalF === "all" ? "" : approvalF} options={["Pending Review", "Approved", "Rejected"]} onChange={(v) => { setApprovalF(v || "all"); setPage(1) }} className="w-full" />
+              </div>
+            )}
+            {tab !== "listed" && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-foreground">Ingestion</p>
+                <FilterSelect label="Ingestion" value={ingestionF === "all" ? "" : ingestionF} options={["Ingested", "Not Ingested"]} onChange={(v) => { setIngestionF(v || "all"); setPage(1) }} className="w-full" />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-foreground">Listing</p>
+              <FilterSelect label="Listing" value={listingF === "all" ? "" : listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v || "all"); setPage(1) }} className="w-full" />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-foreground">Created Date Range</p>
+              <DateRangeFilter label="Created Date Range" dateFrom={createdFrom} dateTo={createdTo} onChangeFrom={(v) => { setCreatedFrom(v); setPage(1) }} onChangeTo={(v) => { setCreatedTo(v); setPage(1) }} className="w-full" />
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-5 py-3">
+            <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground" onClick={clearAllFilters} disabled={activeFilterCount === 0 && !search}>
+              <X className="h-3.5 w-3.5 mr-1" />Clear All
+            </Button>
+            <Button size="sm" className="h-8" onClick={() => setShowAllFilters(false)}>Done</Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Columns sheet — toggle column visibility ── */}
+      <Sheet open={showColumnSheet} onOpenChange={setShowColumnSheet}>
+        <SheetContent className="flex w-[380px] flex-col gap-0 p-0">
+          <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
+            <SheetTitle>Customize Columns</SheetTitle>
+            <p className="mt-0.5 text-sm text-muted-foreground">Toggle column visibility. ID and actions stay fixed.</p>
+          </SheetHeader>
+          <div className="flex-1 space-y-0.5 overflow-y-auto px-3 py-3">
+            {LAUNCH_COLS.map((col) => (
+              <label key={col.id} className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-2 text-sm hover:bg-secondary">
+                <Checkbox
+                  checked={colVisible(col.id)}
+                  onCheckedChange={() => setHiddenCols((prev) => { const n = new Set(prev); if (n.has(col.id)) n.delete(col.id); else n.add(col.id); return n })}
+                  className="h-4 w-4"
+                />
+                <Columns3 className="h-3.5 w-3.5 text-muted-foreground" />
+                {col.label}
+              </label>
+            ))}
+          </div>
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-5 py-3">
+            <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground" onClick={() => setHiddenCols(new Set())} disabled={hiddenCols.size === 0}>
+              Reset
+            </Button>
+            <Button size="sm" className="h-8" onClick={() => setShowColumnSheet(false)}>Done</Button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* ── Dialogs ──────────────────────────────────────────────────────────── */}
       <LaunchFormDialog open={formOpen} onOpenChange={setFormOpen} onSave={handleCreate} />
