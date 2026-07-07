@@ -181,7 +181,7 @@ const mockLaunches: Launch[] = [
     id: "LCH-001",
     developer: { name: "Palm Hills Development", logo: LOGO, id: "DEV-001" },
     projectNameEn: "Palm Hills October", projectId: "PRJ-201",
-    phase: "Phase 1", projectLevel: "Main Project",
+    phase: "", projectLevel: "Main Project",
     area: "6th of October", areaId: AREA_ID["6th of October"],
     approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
     existingProject: { id: "PRJ-201", name: "Palm Hills October" },
@@ -206,7 +206,7 @@ const mockLaunches: Launch[] = [
     id: "LCH-003",
     developer: { name: "Sodic", logo: LOGO, id: "DEV-003" },
     projectNameEn: "Sodic East", projectId: "PRJ-203",
-    phase: "Phase 3", projectLevel: "Main Project",
+    phase: "", projectLevel: "Main Project",
     area: "New Cairo", areaId: AREA_ID["New Cairo"],
     approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
     existingProject: { id: "PRJ-203", name: "Sodic East" },
@@ -232,7 +232,7 @@ const mockLaunches: Launch[] = [
     id: "LCH-005",
     developer: { name: "Ora Developers", logo: LOGO, id: "DEV-005" },
     projectNameEn: "ZED East", projectId: "PRJ-205",
-    phase: "Phase A", projectLevel: "Main Project",
+    phase: "", projectLevel: "Main Project",
     area: "New Cairo", areaId: AREA_ID["New Cairo"],
     approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Hidden",
     existingProject: { id: "PRJ-205", name: "ZED East" },
@@ -258,7 +258,7 @@ const mockLaunches: Launch[] = [
     id: "LCH-007",
     developer: { name: "Tatweer Misr", logo: LOGO, id: "DEV-007" },
     projectNameEn: "Il Monte Galala", projectId: "PRJ-207",
-    phase: "Phase 1", projectLevel: "Main Project",
+    phase: "", projectLevel: "Main Project",
     area: "North Coast", areaId: AREA_ID["North Coast"],
     approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
     existingProject: { id: "PRJ-207", name: "Il Monte Galala" },
@@ -423,7 +423,11 @@ function LaunchFormDialog({
             <Label>Project Level</Label>
             <select
               value={form.projectLevel}
-              onChange={(e) => set("projectLevel", e.target.value)}
+              onChange={(e) => {
+                const level = e.target.value as Launch["projectLevel"]
+                // Main Project launches have no phase by definition
+                setForm((prev) => ({ ...prev, projectLevel: level, phase: level === "Main Project" ? "" : prev.phase }))
+              }}
               className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
             >
               <option value="Main Project">Main Project</option>
@@ -449,10 +453,14 @@ function LaunchFormDialog({
             )}
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Phase</Label>
-            <Input value={form.phase} onChange={(e) => set("phase", e.target.value)} placeholder="e.g. Phase 1" />
-          </div>
+          {form.projectLevel === "Phase" ? (
+            <div className="space-y-1.5">
+              <Label>Phase</Label>
+              <Input value={form.phase} onChange={(e) => set("phase", e.target.value)} placeholder="e.g. Phase 1" />
+            </div>
+          ) : (
+            <div />
+          )}
 
           <div className="space-y-1.5">
             <Label>Area</Label>
@@ -1121,21 +1129,19 @@ export function LaunchesPage() {
         </TableCell>
         )}
 
-        {/* Project Name — matched link / unmatched / new project */}
+        {/* Project Name — matched link / unmatched phase parent / new main project */}
         {colVisible("projectName") && (
         <TableCell className="min-w-[170px]">
-          {l.phase ? (
-            l.projectId ? (
-              <div className="flex flex-col">
-                <a href="#" target="_blank" rel="noreferrer" className="w-fit text-sm font-medium hover:underline">{l.projectNameEn}</a>
-                <IdTag value={l.projectId} />
-              </div>
-            ) : (
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm">{l.projectNameEn}</span>
-                <MiniTag tone="red">Unmatched Project</MiniTag>
-              </div>
-            )
+          {l.projectId ? (
+            <div className="flex flex-col">
+              <a href="#" target="_blank" rel="noreferrer" className="w-fit text-sm font-medium hover:underline">{l.projectNameEn}</a>
+              <IdTag value={l.projectId} />
+            </div>
+          ) : l.projectLevel === "Phase" ? (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm">{l.projectNameEn}</span>
+              <MiniTag tone="red">Unmatched Project</MiniTag>
+            </div>
           ) : (
             <div className="flex flex-col gap-0.5">
               <span className="text-sm">{l.projectNameEn}</span>

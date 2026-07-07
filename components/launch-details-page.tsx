@@ -1270,7 +1270,6 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 <Badge variant={launch.projectLevel === "Phase" ? "secondary" : "outline"} className="text-xs">
                   {launch.projectLevel === "Phase" ? "Phase" : "Main Project"}
                 </Badge>
-                {launch.projectLevel !== "Phase" && launch.phase && <span className="text-sm text-muted-foreground">{launch.phase}</span>}
                 {hasNewAiUpdateDetails(launch) && (
                   <span className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-purple-200 bg-purple-50 px-1.5 py-px text-[10px] font-medium text-purple-700">
                     <Bot className="h-2.5 w-2.5" />New AI update
@@ -1304,8 +1303,8 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                     )}
                   </span>
                 )}
-                {/* New project — no phase means it does not exist in the system yet */}
-                {launch.projectLevel !== "Phase" && !launch.phase && (
+                {/* New project — a main-project launch with no matched system project */}
+                {launch.projectLevel !== "Phase" && !launch.projectId && (
                   <span className="inline-flex items-center whitespace-nowrap rounded border border-gray-200 bg-gray-50 px-1.5 py-px text-[10px] font-medium text-gray-500">New Project</span>
                 )}
                 {/* Existing project — same as the table column */}
