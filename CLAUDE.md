@@ -58,4 +58,7 @@ The two canonical references for table UI are the **detailed properties table** 
 - **Tags/badges are rectangular, never pills**: shadcn `Badge` base — `rounded-md border px-2 py-0.5 text-xs font-medium` with tone classes like `bg-emerald-100 text-emerald-700 border-emerald-200`. Do **not** use `rounded-full` chips when the user asks for "tags".
 - **Table-header count chip**: `bg-blue-100 text-blue-700 border border-blue-200 font-medium text-xs px-2` (blue with a slight border), as rendered by `TableCardHeader` in `components/table-kit.tsx`.
 - **Row actions**: a single dropdown per row (the `⋯` menu) that includes **View** — never a separate standalone icon button next to the menu.
-- Shared table primitives (`TableCard`, `TableToolbar`, `TableFooter`, `FilterSelect`, `FilterMultiSelect`, `DateRangeFilter`, `FloatingBulkBar`, `IdTag`, `COL_SEP`) live in `components/table-kit.tsx` — use them for every table page.
+- **All Filters button** on every table opens the shared `FiltersDrawer` (table-kit): the same filter controls in the same order as the toolbar, with **Apply Filters + Clear Filters fixed at the bottom**.
+- **Columns button** on every table opens the shared `ColumnsSheet` (table-kit): drag to reorder, eye to show/hide, lock to **freeze** columns (sticky-left with per-column width offsets).
+- IDs are always captioned `ID: 123` (never `ID# 123`).
+- Shared table primitives (`TableCard`, `TableToolbar`, `TableFooter`, `FilterSelect`, `FilterMultiSelect`, `DateRangeFilter` — supports `withTime` for datetime ranges, `FiltersDrawer`, `FilterDrawerField`, `ColumnsSheet`, `FloatingBulkBar`, `IdTag`, `COL_SEP`) live in `components/table-kit.tsx` — use them for every table page.

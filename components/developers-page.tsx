@@ -15,7 +15,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { StoryBadge } from "@/components/all-properties-page"
-import { TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FloatingBulkBar, BulkBarButton, IdTag, COL_SEP } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, FiltersDrawer, FilterDrawerField, ColumnsSheet, type ManagedColumn } from "@/components/table-kit"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { RichTextEditor } from "@/components/rich-text-editor"
@@ -94,6 +94,22 @@ function EntityCell({ image, name, id, label, rounded = "rounded-lg" }: {
 type GroupByKey = "none" | "priority" | "listingStatus"
 const GROUP_BY_LABEL: Record<GroupByKey, string> = { none: "Group by", priority: "Priority", listingStatus: "Listing Status" }
 
+// ── Column control config (checkbox + actions stay fixed) ──
+const DEV_COLS: (ManagedColumn & { width: number })[] = [
+  { id: "name", label: "Developer Name", width: 260 },
+  { id: "priority", label: "Priority", width: 130 },
+  { id: "listingStatus", label: "Listing Status", width: 130 },
+  { id: "organization", label: "Organization", width: 160 },
+  { id: "whatsappGroup", label: "WhatsApp Group", width: 240 },
+  { id: "projects", label: "Projects", width: 170 },
+  { id: "phases", label: "Phases", width: 170 },
+  { id: "createdAt", label: "Created At", width: 170 },
+  { id: "updatedAt", label: "Last Updated", width: 170 },
+]
+const DEV_COL_SORT: Partial<Record<string, SortKey>> = {
+  priority: "priority", projects: "projects", phases: "phases", createdAt: "createdAt", updatedAt: "updatedAt",
+}
+
 export function DevelopersPage() {
   const [rows, setRows] = useState<Developer[]>(DEVELOPERS)
   const [selected, setSelected] = useState<Developer | null>(null)
@@ -109,6 +125,24 @@ export function DevelopersPage() {
   const lastClickedRef = useRef<number | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+
+  // All Filters drawer + Customize Columns (order / hide / freeze)
+  const [showAllFilters, setShowAllFilters] = useState(false)
+  const [showColumnsSheet, setShowColumnsSheet] = useState(false)
+  const [colOrder, setColOrder] = useState<string[]>(DEV_COLS.map((c) => c.id))
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set())
+  const [frozenCols, setFrozenCols] = useState<Set<string>>(new Set())
+  const visibleCols = colOrder.filter((id) => !hiddenCols.has(id)).map((id) => DEV_COLS.find((c) => c.id === id)!).filter(Boolean)
+  // Sticky-left offset for a frozen column = checkbox width + widths of preceding frozen columns
+  const frozenLeft = (colId: string) => {
+    let left = 40
+    for (const c of visibleCols) {
+      if (c.id === colId) break
+      if (frozenCols.has(c.id)) left += c.width
+    }
+    return left
+  }
+  const clearAllFilters = () => { setQ(""); setStatusF([]); setPriorityF([]); setOrgF([]); setPage(1) }
 
   const toggleGroup = (label: string) =>
     setCollapsedGroups((prev) => { const n = new Set(prev); n.has(label) ? n.delete(label) : n.add(label); return n })
@@ -197,36 +231,39 @@ export function DevelopersPage() {
     return <DeveloperDetails developer={live} onBack={() => setSelected(null)} onUpdate={(patch) => update(live.id, patch)} />
   }
 
+  // ── Config-driven cells (order / visibility / freeze from the Columns sheet) ──
+  const cellContent = (colId: string, d: Developer): React.ReactNode => {
+    switch (colId) {
+      case "name": return <EntityCell image={d.logo} name={d.name} id={String(d.id)} />
+      case "priority": return <StoryBadge value={d.priority} options={PRIORITIES} onChange={(v) => update(d.id, { priority: v as DevPriority })} />
+      case "listingStatus": return <StoryBadge value={d.listingStatus} options={["Active", "Hidden"]} onChange={(v) => update(d.id, { listingStatus: v as DevListingStatus })} />
+      case "organization": return <div className="flex flex-nowrap items-center gap-1">{d.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
+      case "whatsappGroup": return d.whatsappGroup
+        ? <EntityCell image={d.whatsappGroup.image} name={d.whatsappGroup.name} id={d.whatsappGroup.id} rounded="rounded-full" />
+        : <Badge variant="outline" className="border border-red-200 bg-red-50 text-xs font-medium text-red-600">No WhatsApp linked</Badge>
+      case "projects": return <span className="whitespace-nowrap text-xs text-muted-foreground"><span className="font-medium text-foreground">{d.projectsListed}</span> Listed / <span className="font-medium text-foreground">{d.projectsTotal}</span> Total</span>
+      case "phases": return <span className="whitespace-nowrap text-xs text-muted-foreground"><span className="font-medium text-foreground">{d.phasesListed}</span> Listed / <span className="font-medium text-foreground">{d.phasesTotal}</span> Total</span>
+      case "createdAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{fmt(d.createdAt)}</span>
+      case "updatedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{fmt(d.updatedAt)}</span>
+      default: return null
+    }
+  }
+
   const renderRow = (d: Developer, index: number) => (
     <tr key={d.id} onClick={() => setSelected(d)} className={cn("group cursor-pointer transition-colors hover:bg-muted/40", selectedIds.has(d.id) && "bg-primary/5")}>
       <td className={cn("sticky left-0 z-10 w-10 px-4 py-3", selectedIds.has(d.id) ? "bg-primary/5" : "bg-card")} onClick={(e) => e.stopPropagation()}>
         <Checkbox checked={selectedIds.has(d.id)} onCheckedChange={(checked, event) => toggleRow(d.id, index, (event as unknown as React.MouseEvent)?.shiftKey ?? false)} className="h-4 w-4" />
       </td>
-      <td className="py-3 pl-5 pr-4">
-        <EntityCell image={d.logo} name={d.name} id={String(d.id)} />
-      </td>
-      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-        <StoryBadge value={d.priority} options={PRIORITIES} onChange={(v) => update(d.id, { priority: v as DevPriority })} />
-      </td>
-      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-        <StoryBadge value={d.listingStatus} options={["Active", "Hidden"]} onChange={(v) => update(d.id, { listingStatus: v as DevListingStatus })} />
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex flex-nowrap items-center gap-1">
-          {d.organizations.map((o) => <OrgChip key={o} org={o} />)}
-        </div>
-      </td>
-      <td className="px-4 py-3">
-        {d.whatsappGroup ? (
-          <EntityCell image={d.whatsappGroup.image} name={d.whatsappGroup.name} id={d.whatsappGroup.id} rounded="rounded-full" />
-        ) : (
-          <Badge variant="outline" className="border border-red-200 bg-red-50 text-xs font-medium text-red-600">No WhatsApp linked</Badge>
-        )}
-      </td>
-      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground"><span className="font-medium text-foreground">{d.projectsListed}</span> Listed / <span className="font-medium text-foreground">{d.projectsTotal}</span> Total</td>
-      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground"><span className="font-medium text-foreground">{d.phasesListed}</span> Listed / <span className="font-medium text-foreground">{d.phasesTotal}</span> Total</td>
-      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{fmt(d.createdAt)}</td>
-      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{fmt(d.updatedAt)}</td>
+      {visibleCols.map((c) => (
+        <td
+          key={c.id}
+          className={cn("px-4 py-3", frozenCols.has(c.id) && "sticky z-10 bg-card")}
+          style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
+          onClick={c.id === "priority" || c.id === "listingStatus" ? (e) => e.stopPropagation() : undefined}
+        >
+          {cellContent(c.id, d)}
+        </td>
+      ))}
       <td className="sticky right-0 z-10 w-12 border-l border-border bg-card p-0 transition-colors group-hover:bg-muted/40">
         <button onClick={(e) => { e.stopPropagation(); setSelected(d) }} title="View developer" className="flex h-full w-12 items-center justify-center text-muted-foreground hover:text-primary">
           <ArrowRight className="h-4 w-4" />
@@ -235,17 +272,25 @@ export function DevelopersPage() {
     </tr>
   )
 
-  const SortTh = ({ label, k, className }: { label: string; k: SortKey; className?: string }) => {
-    const s = headerSort(k)
+  const renderTh = (c: (typeof DEV_COLS)[number]) => {
+    const k = DEV_COL_SORT[c.id]
+    const s = k ? headerSort(k) : undefined
     return (
-      <th className={cn("whitespace-nowrap px-4 py-3 text-left", className)}>
-        <button onClick={() => toggleHeaderSort(k)} className="inline-flex items-center gap-1 uppercase hover:text-foreground">
-          {label}
-          {s ? (s.dir === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
-        </button>
+      <th
+        key={c.id}
+        className={cn("whitespace-nowrap px-4 py-3 text-left", frozenCols.has(c.id) && "sticky z-20 bg-muted/60")}
+        style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
+      >
+        {k ? (
+          <button onClick={() => toggleHeaderSort(k)} className="inline-flex items-center gap-1 uppercase hover:text-foreground">
+            {c.label}
+            {s ? (s.dir === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+          </button>
+        ) : c.label}
       </th>
     )
   }
+  const colCount = visibleCols.length + 2
 
   return (
     <div className="min-h-screen bg-secondary/40">
@@ -262,6 +307,9 @@ export function DevelopersPage() {
           onSearch={(v) => { setQ(v); setPage(1) }}
           searchPlaceholder="Developer Name or ID"
           activeFilters={statusF.length + priorityF.length + orgF.length}
+          hideAdvanced
+          onAllFilters={() => setShowAllFilters(true)}
+          onColumns={() => setShowColumnsSheet(true)}
           filters={
             <>
               <FilterMultiSelect label="Status" tone="danger" value={statusF} options={["Active", "Hidden"]} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-36" />
@@ -295,15 +343,7 @@ export function DevelopersPage() {
                   <th className="sticky left-0 z-20 w-10 bg-muted/60 px-4 py-3">
                     <Checkbox checked={pageAllSelected} onCheckedChange={togglePage} className="h-4 w-4" />
                   </th>
-                  <Th className="pl-5">Developer Name</Th>
-                  <SortTh label="Priority" k="priority" />
-                  <Th>Listing Status</Th>
-                  <Th>Organization</Th>
-                  <Th>WhatsApp Group</Th>
-                  <SortTh label="Projects" k="projects" />
-                  <SortTh label="Phases" k="phases" />
-                  <SortTh label="Created At" k="createdAt" />
-                  <SortTh label="Last Updated" k="updatedAt" />
+                  {visibleCols.map(renderTh)}
                   <th className="sticky right-0 z-10 w-12 border-l border-border bg-muted/60" />
                 </tr>
               </thead>
@@ -312,7 +352,7 @@ export function DevelopersPage() {
                   groups.map((g) => (
                     <Fragment key={g.label}>
                       <tr className="cursor-pointer bg-muted/40 hover:bg-muted/60" onClick={() => toggleGroup(g.label)}>
-                        <td colSpan={11} className="p-0">
+                        <td colSpan={colCount} className="p-0">
                           <div className="sticky left-0 flex w-max items-center gap-2 px-5 py-2">
                             <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", collapsedGroups.has(g.label) && "-rotate-90")} />
                             <StoryBadge value={g.label} />
@@ -327,7 +367,7 @@ export function DevelopersPage() {
                   pageRows.map(renderRow)
                 )}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={11} className="px-5 py-16 text-center text-sm text-muted-foreground">No developers match your filters.</td></tr>
+                  <tr><td colSpan={colCount} className="px-5 py-16 text-center text-sm text-muted-foreground">No developers match your filters.</td></tr>
                 )}
               </tbody>
             </table>
@@ -349,6 +389,37 @@ export function DevelopersPage() {
         >
           <BulkBarButton icon={<Download className="h-3.5 w-3.5 text-zinc-400" />} onClick={exportSelected}>Export</BulkBarButton>
         </FloatingBulkBar>
+
+        {/* All Filters drawer — same filters, order and state as the toolbar */}
+        <FiltersDrawer
+          open={showAllFilters}
+          onClose={() => setShowAllFilters(false)}
+          activeCount={statusF.length + priorityF.length + orgF.length}
+          onClear={clearAllFilters}
+        >
+          <FilterDrawerField label="Status">
+            <FilterMultiSelect label="Status" tone="danger" value={statusF} options={["Active", "Hidden"]} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Priority">
+            <FilterMultiSelect label="Priority" tone="danger" value={priorityF} options={PRIORITIES} onChange={(v) => { setPriorityF(v); setPage(1) }} className="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Organizations">
+            <FilterMultiSelect label="Organizations" tone="danger" value={orgF} options={["Nawy", "Partners"]} onChange={(v) => { setOrgF(v); setPage(1) }} className="w-full" />
+          </FilterDrawerField>
+        </FiltersDrawer>
+
+        {/* Customize Columns — order / visibility / freeze */}
+        <ColumnsSheet
+          open={showColumnsSheet}
+          onClose={() => setShowColumnsSheet(false)}
+          columns={DEV_COLS}
+          order={colOrder}
+          onOrderChange={setColOrder}
+          hidden={hiddenCols}
+          onHiddenChange={setHiddenCols}
+          frozen={frozenCols}
+          onFrozenChange={setFrozenCols}
+        />
       </div>
     </div>
   )
@@ -439,7 +510,31 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
         <div className="rounded-xl border border-border bg-card">
           <div className="flex items-start justify-between gap-3 px-6 py-5">
             <div className="flex items-center gap-4">
-              <img src={developer.logo} alt="" className="h-14 w-14 rounded-full border border-border object-cover" />
+              {/* Profile image — hover to change or remove */}
+              <div className="group/avatar relative h-14 w-14 flex-shrink-0">
+                <img src={developer.logo} alt="" className="h-14 w-14 rounded-full border border-border object-cover" />
+                <div className="absolute inset-0 flex items-center justify-center gap-1 rounded-full bg-black/50 opacity-0 transition-opacity group-hover/avatar:opacity-100">
+                  <label title="Change image" className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-white hover:bg-white/20">
+                    <UploadCloud className="h-3.5 w-3.5" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        if (f) onUpdate({ logo: URL.createObjectURL(f) })
+                      }}
+                    />
+                  </label>
+                  <button
+                    title="Remove image"
+                    onClick={() => onUpdate({ logo: "/placeholder.svg?height=64&width=64" })}
+                    className="flex h-6 w-6 items-center justify-center rounded-full text-white hover:bg-white/20"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-lg font-bold text-foreground">{developer.name}</h1>
@@ -475,7 +570,7 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
                   {editing ? (
                     <Select value={draft.priority} onValueChange={(v) => setDraft((d) => ({ ...d, priority: v as DevPriority }))}>
                       <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>{PRIORITY_OPTS.map((p) => <SelectItem key={p} value={p} className="text-sm">{p}</SelectItem>)}</SelectContent>
+                      <SelectContent>{PRIORITY_OPTS.map((p) => <SelectItem key={p} value={p} className="text-sm"><StoryBadge value={p} /></SelectItem>)}</SelectContent>
                     </Select>
                   ) : <div className="mt-1"><StoryBadge value={developer.priority} /></div>}
                 </div>
@@ -483,10 +578,20 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
                   <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Organization</p>
                   <div className="mt-1 flex flex-wrap gap-1">
                     {editing
-                      ? (["Nawy", "Partners"] as DevOrg[]).map((o) => (
-                        <button key={o} onClick={() => toggleOrg(o)} className={cn("rounded-md border px-2 py-0.5 text-xs font-medium transition-colors", draft.organizations.includes(o) ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted")}>{o}</button>
-                      ))
-                      : developer.organizations.map((o) => <Badge key={o} variant="outline" className="border text-xs font-medium">{o}</Badge>)}
+                      ? (["Nawy", "Partners"] as DevOrg[]).map((o) => {
+                        const active = draft.organizations.includes(o)
+                        return (
+                          <button
+                            key={o}
+                            onClick={() => toggleOrg(o)}
+                            className={cn("rounded-md border px-2 py-0.5 text-xs font-semibold transition-colors", !active && "border-border text-muted-foreground hover:bg-muted")}
+                            style={active ? { backgroundColor: o === "Nawy" ? "#7DCBC1" : "#015C9A", color: o === "Nawy" ? "#0D1B2E" : "#ffffff", borderColor: "transparent" } : undefined}
+                          >
+                            {o}
+                          </button>
+                        )
+                      })
+                      : developer.organizations.map((o) => <OrgChip key={o} org={o} />)}
                   </div>
                 </div>
               </div>
@@ -496,7 +601,10 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
                   {editing ? (
                     <Select value={draft.listingStatus} onValueChange={(v) => setDraft((d) => ({ ...d, listingStatus: v as DevListingStatus }))}>
                       <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent><SelectItem value="Active" className="text-sm">Active</SelectItem><SelectItem value="Hidden" className="text-sm">Hidden</SelectItem></SelectContent>
+                      <SelectContent>
+                        <SelectItem value="Active" className="text-sm"><StoryBadge value="Active" /></SelectItem>
+                        <SelectItem value="Hidden" className="text-sm"><StoryBadge value="Hidden" /></SelectItem>
+                      </SelectContent>
                     </Select>
                   ) : <div className="mt-1"><StoryBadge value={developer.listingStatus} /></div>}
                 </div>

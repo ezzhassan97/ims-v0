@@ -4,13 +4,15 @@ import type React from "react"
 import { useEffect, useRef, useState } from "react"
 import {
   Search, X, Filter, SlidersHorizontal, ArrowUpDown, Group as GroupIcon, Columns3, ChevronDown, Check, Copy,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, GripVertical, Lock, Unlock, Eye, EyeOff,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
 // ── Shared filter option shape ────────────────────────────────────────────────
@@ -207,7 +209,7 @@ export function FilterMultiSelect({
  * Use this for EVERY date-range filter across the project (never two loose date inputs).
  */
 export function DateRangeFilter({
-  dateFrom, dateTo, onChangeFrom, onChangeTo, label = "Date Range", className,
+  dateFrom, dateTo, onChangeFrom, onChangeTo, label = "Date Range", className, withTime = false,
 }: {
   dateFrom: string
   dateTo: string
@@ -215,9 +217,12 @@ export function DateRangeFilter({
   onChangeTo: (v: string) => void
   label?: string
   className?: string
+  /** Use datetime-local pickers (date + time) instead of date-only. */
+  withTime?: boolean
 }) {
   const isActive = !!dateFrom || !!dateTo
-  const display = dateFrom && dateTo ? `${dateFrom} – ${dateTo}` : dateFrom ? `From ${dateFrom}` : dateTo ? `To ${dateTo}` : label
+  const short = (v: string) => (withTime ? v.replace("T", " ") : v)
+  const display = dateFrom && dateTo ? `${short(dateFrom)} – ${short(dateTo)}` : dateFrom ? `From ${short(dateFrom)}` : dateTo ? `To ${short(dateTo)}` : label
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -234,8 +239,8 @@ export function DateRangeFilter({
       <PopoverContent className="w-60 p-3" align="start">
         <p className="mb-2 text-xs font-semibold text-muted-foreground">{label}</p>
         <div className="space-y-2">
-          <div><label className="mb-1 block text-[11px] text-muted-foreground">From</label><Input className="h-8 text-sm" type="date" value={dateFrom} onChange={(e) => onChangeFrom(e.target.value)} /></div>
-          <div><label className="mb-1 block text-[11px] text-muted-foreground">To</label><Input className="h-8 text-sm" type="date" value={dateTo} onChange={(e) => onChangeTo(e.target.value)} /></div>
+          <div><label className="mb-1 block text-[11px] text-muted-foreground">From</label><Input className="h-8 text-sm" type={withTime ? "datetime-local" : "date"} value={dateFrom} onChange={(e) => onChangeFrom(e.target.value)} /></div>
+          <div><label className="mb-1 block text-[11px] text-muted-foreground">To</label><Input className="h-8 text-sm" type={withTime ? "datetime-local" : "date"} value={dateTo} onChange={(e) => onChangeTo(e.target.value)} /></div>
         </div>
         {isActive && <button onClick={() => { onChangeFrom(""); onChangeTo("") }} className="mt-2 w-full rounded-md border-t border-border pt-2 text-center text-xs text-muted-foreground hover:text-foreground">Clear</button>}
       </PopoverContent>
@@ -274,6 +279,7 @@ export function TableCardHeader({ title, count, cta }: { title: string; count?: 
 export function TableToolbar({
   search, onSearch, searchPlaceholder = "Search…", filters,
   activeFilters = 0, onAllFilters, onAdvancedFilters, onSort, onColumns, groupControl, sortControl,
+  hideAdvanced = false, hideGroup = false,
 }: {
   search: string
   onSearch: (v: string) => void
@@ -288,6 +294,10 @@ export function TableToolbar({
   groupControl?: React.ReactNode
   /** Optional custom Sort control (e.g. a multi-level sort dropdown). Falls back to a plain "Sort" button. */
   sortControl?: React.ReactNode
+  /** Hide the Advanced Filters button (tables without an advanced builder). */
+  hideAdvanced?: boolean
+  /** Hide the Group control entirely (tables without grouping). */
+  hideGroup?: boolean
 }) {
   return (
     <div className="space-y-2.5 rounded-xl border border-border bg-card p-3">
@@ -310,11 +320,11 @@ export function TableToolbar({
             <Filter className="h-3.5 w-3.5" />All Filters
             {activeFilters > 0 && <span className="ml-0.5 rounded-full bg-primary-foreground/20 px-1.5 text-[10px] font-semibold">{activeFilters}</span>}
           </Button>
-          <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onAdvancedFilters}><SlidersHorizontal className="h-3.5 w-3.5" />Advanced Filters</Button>
+          {!hideAdvanced && <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onAdvancedFilters}><SlidersHorizontal className="h-3.5 w-3.5" />Advanced Filters</Button>}
         </div>
         <div className="flex items-center gap-2">
           {sortControl ?? <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onSort}><ArrowUpDown className="h-3.5 w-3.5" />Sort</Button>}
-          {groupControl ?? <Button variant="outline" size="sm" className="h-8 gap-1.5"><GroupIcon className="h-3.5 w-3.5" />Group</Button>}
+          {hideGroup ? null : (groupControl ?? <Button variant="outline" size="sm" className="h-8 gap-1.5"><GroupIcon className="h-3.5 w-3.5" />Group</Button>)}
           <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onColumns}><Columns3 className="h-3.5 w-3.5" />Columns</Button>
         </div>
       </div>
@@ -396,5 +406,161 @@ export function BulkBarButton({ icon, children, danger, onClick }: { icon?: Reac
         {icon}{children}
       </button>
     </>
+  )
+}
+
+/**
+ * Canonical "All Filters" side drawer — EVERY table's All Filters button opens this,
+ * containing the same filter controls (same order/state) as the toolbar, with
+ * Apply Filters + Clear Filters fixed at the bottom.
+ */
+export function FiltersDrawer({
+  open, onClose, activeCount, onClear, children, title = "All Filters",
+}: {
+  open: boolean
+  onClose: () => void
+  activeCount: number
+  onClear: () => void
+  children: React.ReactNode
+  title?: string
+}) {
+  return (
+    <Sheet open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <SheetContent className="flex w-[420px] flex-col gap-0 p-0">
+        <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
+          <div className="flex items-center justify-between">
+            <SheetTitle>{title}</SheetTitle>
+            {activeCount > 0 && (
+              <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700">{activeCount} active</span>
+            )}
+          </div>
+        </SheetHeader>
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">{children}</div>
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-5 py-3">
+          <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground" onClick={onClear} disabled={activeCount === 0}>
+            <X className="h-3.5 w-3.5 mr-1" />Clear Filters
+          </Button>
+          <Button size="sm" className="h-8" onClick={onClose}>Apply Filters</Button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+/** Labelled field wrapper for FiltersDrawer contents. */
+export function FilterDrawerField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-medium text-foreground">{label}</p>
+      {children}
+    </div>
+  )
+}
+
+// ── Customize Columns sheet (drag to reorder · toggle visibility · freeze) ────
+export type ManagedColumn = { id: string; label: string }
+
+/**
+ * Canonical Customize Columns drawer (reference: detailed properties table).
+ * Drag rows to reorder, eye to show/hide, lock to freeze (sticky-left) a column.
+ */
+export function ColumnsSheet({
+  open, onClose, columns, order, onOrderChange, hidden, onHiddenChange, frozen, onFrozenChange,
+}: {
+  open: boolean
+  onClose: () => void
+  columns: ManagedColumn[]
+  order: string[]
+  onOrderChange: (o: string[]) => void
+  hidden: Set<string>
+  onHiddenChange: (h: Set<string>) => void
+  frozen: Set<string>
+  onFrozenChange: (f: Set<string>) => void
+}) {
+  const [q, setQ] = useState("")
+  const dragIdx = useRef<number | null>(null)
+  const byId = new Map(columns.map((c) => [c.id, c]))
+  const rows = order.filter((id) => byId.has(id) && byId.get(id)!.label.toLowerCase().includes(q.toLowerCase()))
+  const isDefault = hidden.size === 0 && frozen.size === 0 && order.join("|") === columns.map((c) => c.id).join("|")
+
+  const toggleIn = (set: Set<string>, apply: (s: Set<string>) => void, id: string) => {
+    const n = new Set(set)
+    if (n.has(id)) n.delete(id); else n.add(id)
+    apply(n)
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <SheetContent className="flex w-[420px] flex-col gap-0 p-0">
+        <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
+          <SheetTitle>Customize Columns</SheetTitle>
+          <p className="mt-0.5 text-sm text-muted-foreground">Drag to reorder · toggle visibility · lock to freeze</p>
+        </SheetHeader>
+
+        <div className="shrink-0 border-b border-border px-5 py-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search columns…" className="h-8 pl-8 text-sm" />
+            {q && <button onClick={() => setQ("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>}
+          </div>
+        </div>
+
+        <div className="flex-1 space-y-1.5 overflow-y-auto px-4 py-3">
+          {rows.map((id) => {
+            const col = byId.get(id)!
+            const orderIdx = order.indexOf(id)
+            const isFrozen = frozen.has(id)
+            const isVisible = !hidden.has(id)
+            return (
+              <div
+                key={id}
+                draggable={!q}
+                onDragStart={() => { dragIdx.current = orderIdx }}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  if (q || dragIdx.current === null || dragIdx.current === orderIdx) return
+                  const arr = [...order]
+                  arr.splice(orderIdx, 0, ...arr.splice(dragIdx.current, 1))
+                  dragIdx.current = orderIdx
+                  onOrderChange(arr)
+                }}
+                onDragEnd={() => { dragIdx.current = null }}
+                className={cn(
+                  "flex items-center justify-between rounded-lg border bg-card px-3 py-2.5 text-sm transition-colors",
+                  !q && "cursor-grab",
+                  isFrozen ? "border-primary/30 bg-primary/5" : "border-border",
+                )}
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <GripVertical className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                  <span className={cn("truncate", !isVisible && "text-muted-foreground line-through")}>{col.label}</span>
+                  {isFrozen && <Badge variant="outline" className="flex-shrink-0 border-primary/40 bg-primary/10 text-[10px] text-primary">Frozen</Badge>}
+                </div>
+                <div className="flex flex-shrink-0 items-center gap-1">
+                  <Button variant="ghost" size="icon" className={cn("h-7 w-7", isFrozen && "text-primary")} title={isFrozen ? "Unfreeze column" : "Freeze column"} onClick={() => toggleIn(frozen, onFrozenChange, id)}>
+                    {isFrozen ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5 text-muted-foreground" />}
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" title={isVisible ? "Hide column" : "Show column"} onClick={() => toggleIn(hidden, onHiddenChange, id)}>
+                    {isVisible ? <Eye className="h-3.5 w-3.5 text-muted-foreground" /> : <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />}
+                  </Button>
+                </div>
+              </div>
+            )
+          })}
+          {rows.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No columns match.</p>}
+        </div>
+
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-5 py-3">
+          <Button
+            variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground"
+            disabled={isDefault}
+            onClick={() => { onOrderChange(columns.map((c) => c.id)); onHiddenChange(new Set()); onFrozenChange(new Set()) }}
+          >
+            Reset
+          </Button>
+          <Button size="sm" className="h-8" onClick={onClose}>Done</Button>
+        </div>
+      </SheetContent>
+    </Sheet>
   )
 }
