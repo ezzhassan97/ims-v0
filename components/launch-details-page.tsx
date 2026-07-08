@@ -1326,27 +1326,6 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                   <IdCopy value={launch.areaId ?? "AR-000"} />
                 </span>
               </div>
-              {/* Data completeness — hover to see missing fields */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex w-64 cursor-default items-center gap-2 pt-1">
-                    <Progress value={completeness} className="h-2 flex-1" />
-                    <span className={cn("text-xs font-semibold tabular-nums", completeness === 100 ? "text-emerald-600" : "text-muted-foreground")}>{completeness}%</span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" align="start" className="max-w-sm">
-                  {missingFields.length === 0 ? (
-                    <p className="text-xs">All mandatory fields complete — ready to ingest.</p>
-                  ) : (
-                    <div className="text-xs">
-                      <p className="mb-1 font-semibold">Missing fields:</p>
-                      <ul className="list-disc space-y-0.5 pl-4">
-                        {missingFields.map((f) => <li key={f}>{f}</li>)}
-                      </ul>
-                    </div>
-                  )}
-                </TooltipContent>
-              </Tooltip>
             </div>
           </div>
 
@@ -1398,20 +1377,47 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
           </DropdownMenu>
         </div>
 
-        {/* ── Section 2: Statuses (read-only tags — edited via the actions dropdown) ── */}
-        <div className="grid grid-cols-5 gap-6 border-t border-border px-6 py-3">
-          {([
-            ["Approval Status", getApprovalStatusBadge(approvalStatus)],
-            ["Ingestion Status", getIngestionStatusBadge(ingestionStatus)],
-            ["Listing Status", getListingStatusBadge(listingStatus)],
-            ["Launch Status", getLaunchStatusBadge(launchStatus)],
-            ["Type", getTypeBadge(launchType)],
-          ] as [string, React.ReactNode][]).map(([label, badge]) => (
-            <div key={label}>
-              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-              {badge}
-            </div>
-          ))}
+        {/* ── Section 2: Statuses (read-only tags — edited via the actions dropdown) + data completeness ── */}
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-border px-6 py-3">
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+            {([
+              ["Type", getTypeBadge(launchType)],
+              ["Approval Status", getApprovalStatusBadge(approvalStatus)],
+              ["Ingestion Status", getIngestionStatusBadge(ingestionStatus)],
+              ["Listing Status", getListingStatusBadge(listingStatus)],
+              ["Launch Status", getLaunchStatusBadge(launchStatus)],
+            ] as [string, React.ReactNode][]).map(([label, badge]) => (
+              <div key={label}>
+                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+                {badge}
+              </div>
+            ))}
+          </div>
+
+          {/* Data completeness — hover to see missing fields */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="cursor-default">
+                <p className="mb-1 text-right text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Data Completeness</p>
+                <div className="flex w-56 items-center gap-2">
+                  <Progress value={completeness} className="h-2 flex-1" />
+                  <span className={cn("text-xs font-semibold tabular-nums", completeness === 100 ? "text-emerald-600" : "text-muted-foreground")}>{completeness}%</span>
+                </div>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="end" className="max-w-sm">
+              {missingFields.length === 0 ? (
+                <p className="text-xs">All mandatory fields complete — ready to ingest.</p>
+              ) : (
+                <div className="text-xs">
+                  <p className="mb-1 font-semibold">Missing fields:</p>
+                  <ul className="list-disc space-y-0.5 pl-4">
+                    {missingFields.map((f) => <li key={f}>{f}</li>)}
+                  </ul>
+                </div>
+              )}
+            </TooltipContent>
+          </Tooltip>
         </div>
 
         {/* ── Section 3: Metadata ── */}
@@ -1422,27 +1428,27 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
           </div>
           <div>
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Sent At</p>
-            <p className="text-sm">{formatDate(launch.sentAt ?? null)}</p>
+            <p className="text-xs text-foreground">{formatDate(launch.sentAt ?? null)}</p>
           </div>
           {launch.source === "WhatsApp" && (
             <div>
               <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">AI Updates</p>
-              <p className="text-sm">
+              <p className="text-xs text-foreground">
                 {launch.aiUpdates ? `${launch.aiUpdates.count} update${launch.aiUpdates.count === 1 ? "" : "s"}, ${formatDate(launch.aiUpdates.lastAt)}` : "—"}
               </p>
             </div>
           )}
           <div>
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Created At</p>
-            <p className="text-sm">{formatDate(launch.createdAt)}</p>
+            <p className="text-xs text-foreground">{formatDate(launch.createdAt)}</p>
           </div>
           <div>
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Updated At</p>
-            <p className="text-sm">{formatDate(launch.updatedAt)}</p>
+            <p className="text-xs text-foreground">{formatDate(launch.updatedAt)}</p>
           </div>
           <div>
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Ingested At</p>
-            <p className="text-sm">{formatDate(launch.ingestedAt ?? null)}</p>
+            <p className="text-xs text-foreground">{formatDate(launch.ingestedAt ?? null)}</p>
           </div>
         </div>
       </Card>
@@ -1529,6 +1535,13 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
             <DialogTitle>Launch Ingestion Summary</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Cover image */}
+            <img
+              src={launch.coverImage || "/placeholder.svg"}
+              alt={launch.projectNameEn}
+              className="h-36 w-full rounded-lg border border-border bg-secondary object-cover"
+            />
+
             {launch.existingProject && (
               <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                 <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -1560,22 +1573,28 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 <div><p className="text-[10px] uppercase text-muted-foreground">General EOI</p><p className="font-medium">{eoiOverallAmount ? `${eoiOverallAmount} ${eoiCurrency}` : "—"}</p></div>
                 <div><p className="text-[10px] uppercase text-muted-foreground">Start Date</p><p className="font-medium">{launchStartDate || "—"}</p></div>
                 <div><p className="text-[10px] uppercase text-muted-foreground">End Date</p><p className="font-medium">{launchEndDate || "—"}</p></div>
-                {eoiByType.filter((e) => e.name && e.amount).length > 0 && (
-                  <div className="col-span-3">
-                    <p className="text-[10px] uppercase text-muted-foreground">EOI by Property Type</p>
-                    <p className="font-medium">{eoiByType.filter((e) => e.name && e.amount).map((e) => `${e.name}: ${e.amount} ${eoiCurrency}`).join(" · ")}</p>
-                  </div>
-                )}
+                <div className="col-span-3">
+                  <p className="text-[10px] uppercase text-muted-foreground">EOI by Property Type</p>
+                  <p className="font-medium">
+                    {eoiByType.filter((e) => e.name && e.amount).length > 0
+                      ? eoiByType.filter((e) => e.name && e.amount).map((e) => `${e.name}: ${e.amount} ${eoiCurrency}`).join(" · ")
+                      : "—"}
+                  </p>
+                </div>
               </div>
             </div>
 
-            {/* Payment plans */}
+            {/* Payment plans — type, downpayment and duration per plan */}
             <div className="rounded-lg border border-border">
               <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment Plans ({plans.length})</p>
-              <div className="px-4 py-3 text-sm">
-                {plans.length > 0
-                  ? <p className="font-medium">{plans.map((p) => p.name).join(" · ")}</p>
-                  : <p className="text-muted-foreground">No payment plans</p>}
+              <div className="divide-y divide-border">
+                {plans.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+                    <span className="font-medium">{p.name}</span>
+                    <span className="text-xs text-muted-foreground">{p.planType} · DP {p.dp} · {p.duration}</span>
+                  </div>
+                ))}
+                {plans.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">No payment plans</p>}
               </div>
             </div>
 
