@@ -1513,7 +1513,7 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewO
   )
 }
 
-export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false, onRemove, onView, cascadeRemovesPrice = false, fullWidth = false, selected, onSelectToggle, hideFooter = false, statusTag }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean; onRemove?: () => void; onView?: () => void; cascadeRemovesPrice?: boolean; fullWidth?: boolean; selected?: boolean; onSelectToggle?: () => void; hideFooter?: boolean; statusTag?: React.ReactNode }) {
+export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false, onRemove, onView, cascadeRemovesPrice = false, fullWidth = false, selected, onSelectToggle, hideFooter = false, statusTag, hideIds = false }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean; onRemove?: () => void; onView?: () => void; cascadeRemovesPrice?: boolean; fullWidth?: boolean; selected?: boolean; onSelectToggle?: () => void; hideFooter?: boolean; statusTag?: React.ReactNode; /** Draft plans have no system ids yet — hides the plan id and project id. */ hideIds?: boolean }) {
   const selectable = selected !== undefined || onSelectToggle !== undefined
   const [copiedId, setCopiedId] = useState(false)
   const [confirmUnlink, setConfirmUnlink] = useState(false)
@@ -1564,14 +1564,18 @@ export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup,
             <button onClick={() => { onRemove?.(); setConfirmUnlink(false) }} className="text-[11px] text-white bg-red-500 hover:bg-red-600 px-2 py-0.5 rounded transition-colors font-medium">{cascadeRemovesPrice ? "Remove" : "Unlink"}</button>
           </div>
         )}
-        {/* ID row */}
+        {/* ID row — draft plans have no id yet */}
         <div className="flex items-center gap-1 justify-between">
+          {hideIds ? (
+            <div />
+          ) : (
           <div className="flex items-center gap-1">
             <span className="text-[10px] text-[#8C9BB5] font-mono">{plan.id}</span>
             <button onClick={copyId} className="w-3.5 h-3.5 border-0 bg-transparent cursor-pointer text-[#8C9BB5] hover:text-blue-600 flex items-center justify-center p-0 transition-colors" title="Copy ID">
               {copiedId ? <Check className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
             </button>
           </div>
+          )}
           {statusTag ?? (plan.status === "Active"
             ? <span className="text-[9px] font-semibold text-emerald-600 bg-[#EDFAF4] border border-[#A7F3D0] px-1.5 py-px rounded-full">● Active</span>
             : <span className="text-[9px] font-semibold text-[#8C9BB5] bg-[#F1F3F9] border border-[#E2E8F0] px-1.5 py-px rounded-full">● Hidden</span>)}
@@ -1582,11 +1586,11 @@ export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup,
           <span className="text-[10px] text-[#8C9BB5] font-mono">{plan.devId}</span>
           {plan.hasOffer && <span className="ml-auto text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-px rounded-full flex-shrink-0">Offer</span>}
         </div>
-        {/* Project row */}
+        {/* Project row — draft plans show the project name only (no id) */}
         <div className="flex items-center gap-1.5">
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
             <span className="text-[11px] font-medium text-[#5A6A85] truncate">{plan.projName}</span>
-            <span className="text-[10px] text-[#8C9BB5] font-mono flex-shrink-0">{plan.projId}</span>
+            {!hideIds && <span className="text-[10px] text-[#8C9BB5] font-mono flex-shrink-0">{plan.projId}</span>}
           </div>
           <div className="relative group/units flex items-center gap-0.5 text-[10px] font-semibold text-[#5A6A85] whitespace-nowrap ml-auto flex-shrink-0">
             {plan.units} units

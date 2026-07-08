@@ -88,7 +88,7 @@ export function PaymentPlanDrawer({
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="flex h-full w-[760px] max-w-[96vw] flex-col overflow-hidden p-0">
+      <SheetContent side="right" className="flex h-full w-[980px] max-w-[96vw] flex-col overflow-hidden p-0 sm:max-w-[980px]">
         {/* header */}
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
           <SheetTitle className="text-lg font-semibold">{title}</SheetTitle>
@@ -126,7 +126,7 @@ export function PaymentPlanDrawer({
                 <p className="text-xs text-muted-foreground">Plan will appear in ingestion flows</p>
               </div>
               <div className="flex items-center gap-2">
-                <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", f.active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-gray-200 bg-gray-50 text-gray-500")}>● {f.active ? "Active" : "Hidden"}</span>
+                <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", f.active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-gray-200 bg-gray-50 text-gray-600")}>● {f.active ? "Active" : "Hidden"}</span>
                 <Switch checked={f.active} onCheckedChange={(v) => set({ active: v })} />
               </div>
             </div>

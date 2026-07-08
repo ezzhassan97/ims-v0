@@ -2101,7 +2101,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 Create New Plan
               </Button>
             </div>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {plans.map((plan) => {
                 // Launch-only status: Ingested (green) when the launch itself is ingested,
                 // Draft (yellow) otherwise — a not-ingested launch has ALL plans as drafts.
@@ -2115,6 +2115,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                     totalInGroup={plans.length}
                     fullWidth
                     hideFooter
+                    hideIds={!planIngested}
                     statusTag={planIngested
                       ? <span className="text-[9px] font-semibold text-emerald-600 bg-[#EDFAF4] border border-[#A7F3D0] px-1.5 py-px rounded-full">● Ingested</span>
                       : <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-px rounded-full">● Draft</span>}
