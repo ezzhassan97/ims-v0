@@ -252,7 +252,8 @@ export function DevelopersPage() {
   const renderRow = (d: Developer, index: number) => (
     <tr key={d.id} onClick={() => setSelected(d)} className={cn("group cursor-pointer transition-colors hover:bg-muted/40", selectedIds.has(d.id) && "bg-primary/5")}>
       <td className={cn("sticky left-0 z-10 w-10 px-4 py-3", selectedIds.has(d.id) ? "bg-primary/5" : "bg-card")} onClick={(e) => e.stopPropagation()}>
-        <Checkbox checked={selectedIds.has(d.id)} onCheckedChange={(checked, event) => toggleRow(d.id, index, (event as unknown as React.MouseEvent)?.shiftKey ?? false)} className="h-4 w-4" />
+        {/* onClick (not onCheckedChange) — Radix doesn't pass the event, and we need shiftKey */}
+        <Checkbox checked={selectedIds.has(d.id)} onClick={(e) => toggleRow(d.id, index, e.shiftKey)} className="h-4 w-4" />
       </td>
       {visibleCols.map((c) => (
         <td

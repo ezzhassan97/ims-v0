@@ -1084,12 +1084,10 @@ export function LaunchesPage() {
       >
         {/* Sticky checkbox */}
         <TableCell className={cn("sticky left-0 z-10 w-10", selected ? "bg-primary/5" : "bg-card")}>
+          {/* onClick (not onCheckedChange) — Radix doesn't pass the event, and we need shiftKey */}
           <Checkbox
             checked={selected}
-            onCheckedChange={(checked, event) => {
-              const shiftKey = (event as unknown as React.MouseEvent)?.shiftKey ?? false
-              toggleSelect(l.id, (safePage - 1) * pageSize + idx, shiftKey)
-            }}
+            onClick={(e) => toggleSelect(l.id, (safePage - 1) * pageSize + idx, e.shiftKey)}
             className="cursor-pointer"
           />
         </TableCell>

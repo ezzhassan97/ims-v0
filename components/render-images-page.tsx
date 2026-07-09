@@ -1,7 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
+  ArrowDown,
+  ArrowUp,
   ArrowUpDown,
   Building2,
   Calendar,
@@ -15,12 +17,9 @@ import {
   Download,
   ExternalLink,
   Eye,
-  FileDown,
-  FileSpreadsheet,
   FileText,
   FolderKanban,
   Group,
-  GripVertical,
   ImageIcon,
   Link2,
   Link2Off,
@@ -46,7 +45,7 @@ import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
@@ -168,15 +167,7 @@ const RENDER_IMAGES: RenderImage[] = Array.from({ length: 28 }, (_, i) => {
   }
 })
 
-// Sort & group column definitions
-const SORT_COLS = [
-  { id: "id", label: "Image ID" },
-  { id: "createdAt", label: "Created At" },
-  { id: "developerName", label: "Developer" },
-  { id: "mainProjectName", label: "Project" },
-  { id: "linkedCount", label: "Linked Units" },
-  { id: "source", label: "Source" },
-]
+// Group column definitions (sorting is Created-date only)
 const GROUP_COLS = [
   { id: "developerName", label: "Developer" },
   { id: "mainProjectName", label: "Project" },
@@ -184,19 +175,6 @@ const GROUP_COLS = [
   { id: "source", label: "Source" },
 ]
 
-interface SortConfig { column: string; direction: "asc" | "desc" }
-
-function sortValue(img: RenderImage, col: string): string | number {
-  switch (col) {
-    case "id": return img.id
-    case "createdAt": return img.createdAt
-    case "developerName": return img.developerName
-    case "mainProjectName": return img.mainProjectName
-    case "linkedCount": return totalLinkedUnits(img)
-    case "source": return img.source
-    default: return ""
-  }
-}
 function groupValue(img: RenderImage, col: string): string {
   switch (col) {
     case "developerName": return img.developerName
@@ -377,22 +355,31 @@ function CopyId({ id, className }: { id: string; className?: string }) {
 }
 
 // ── Fullscreen image viewer ─────────────────────────────────────────────────────
-function FullscreenViewer({ images, startIndex, onClose }: { images: string[]; startIndex: number; onClose: () => void }) {
+function FullscreenViewer({ images, startIndex, onClose, label }: { images: string[]; startIndex: number; onClose: () => void; label?: string }) {
   const [current, setCurrent] = useState(startIndex)
   const go = (dir: number) => setCurrent((c) => (c + dir + images.length) % images.length)
   useEffect(() => {
+    // Window CAPTURE so Escape is consumed here BEFORE any dialog/sheet underneath
+    // (Radix listens on document) — closing the viewer must never dismiss the drawer.
     const handler = (e: KeyboardEvent) => {
       if (e.key === "ArrowLeft") go(-1)
       else if (e.key === "ArrowRight") go(1)
-      else if (e.key === "Escape") onClose()
+      else if (e.key === "Escape") {
+        e.stopPropagation()
+        e.preventDefault()
+        onClose()
+      }
     }
-    window.addEventListener("keydown", handler)
-    return () => window.removeEventListener("keydown", handler)
+    window.addEventListener("keydown", handler, { capture: true })
+    return () => window.removeEventListener("keydown", handler, { capture: true })
   }, [images.length])
 
   return (
     <div className="fixed inset-0 z-[200] flex flex-col bg-black/90" onClick={onClose}>
-      <div className="flex items-center justify-end p-3">
+      <div className="flex items-center justify-between p-3">
+        {label ? (
+          <span className="rounded-md bg-white/10 px-2.5 py-1 font-mono text-sm text-white/90" onClick={(e) => e.stopPropagation()}>{label}</span>
+        ) : <span />}
         <button className="rounded-full p-1.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white" onClick={onClose}>
           <X className="h-5 w-5" />
         </button>
@@ -430,7 +417,8 @@ function RenderCard({
 }: {
   img: RenderImage
   selected: boolean
-  onSelect: () => void
+  /** Called with true when Shift was held — selects the range since the last click. */
+  onSelect: (shift: boolean) => void
   onView: () => void
   onDelete: () => void
 }) {
@@ -451,7 +439,8 @@ function RenderCard({
             selected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
           )}
         >
-          <Checkbox checked={selected} onCheckedChange={onSelect} />
+          {/* onClick (not onCheckedChange) — Radix doesn't pass the event, and we need shiftKey */}
+          <Checkbox checked={selected} onClick={(e) => onSelect(e.shiftKey)} />
         </div>
         {/* linked badge overlay */}
         <div className="absolute right-2 top-2">
@@ -521,15 +510,29 @@ function RenderDrawer({
   onClose: () => void
   onDelete: (img: RenderImage) => void
 }) {
-  const [fullscreen, setFullscreen] = useState(false)
+  const [fullscreen, setFullscreenState] = useState(false)
+  // Ref mirrors the state so the Sheet's dismiss guards can never read a stale value.
+  const fullscreenRef = useRef(false)
+  const setFullscreen = (v: boolean) => { fullscreenRef.current = v; setFullscreenState(v) }
+  // The drawer component stays mounted between opens — reset the fullscreen state
+  // whenever the viewed image changes so a stale `true` never survives a close.
+  useEffect(() => { setFullscreen(false) }, [img?.id])
   if (!img) return null
   const total = totalLinkedUnits(img)
 
   return (
     <>
-    <Sheet open={!!img} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-[620px] sm:max-w-[620px] flex flex-col p-0">
+    <Sheet open={!!img} onOpenChange={(o) => { if (!o) { setFullscreen(false); onClose() } }}>
+      <SheetContent
+        className="w-[620px] sm:max-w-[620px] flex flex-col p-0"
+        // While the fullscreen viewer is open ABOVE the drawer, Escape / clicks on the
+        // viewer must close only the viewer — never dismiss the drawer underneath.
+        onEscapeKeyDown={(e) => { if (fullscreenRef.current) { e.preventDefault(); setFullscreen(false) } }}
+        onPointerDownOutside={(e) => { if (fullscreenRef.current) e.preventDefault() }}
+        onInteractOutside={(e) => { if (fullscreenRef.current) e.preventDefault() }}
+      >
         {/* Header */}
+        <SheetTitle className="sr-only">Render image {img.id}</SheetTitle>
         <div className="flex items-center justify-between border-b border-border px-6 py-4 shrink-0">
           <div className="flex items-center gap-2">
             <CopyId id={img.id} className="rounded-md bg-muted px-2 py-1 hover:bg-muted/70" />
@@ -655,7 +658,7 @@ function RenderDrawer({
         </div>
       </SheetContent>
     </Sheet>
-    {fullscreen && <FullscreenViewer images={[img.url || "/placeholder.jpg"]} startIndex={0} onClose={() => setFullscreen(false)} />}
+    {fullscreen && <FullscreenViewer images={[img.url || "/placeholder.jpg"]} startIndex={0} label={img.id} onClose={() => setFullscreen(false)} />}
     </>
   )
 }
@@ -772,30 +775,14 @@ export function RenderImagesPage() {
   const [deleteTargets, setDeleteTargets] = useState<RenderImage[] | null>(null)
   const [showAdd, setShowAdd] = useState(false)
 
-  // Sort & group
-  const [sortConfigs, setSortConfigs] = useState<SortConfig[]>([])
+  // Sort (Created date only) & group
+  const [createdSort, setCreatedSort] = useState<"asc" | "desc" | null>(null)
   const [groupByColumn, setGroupByColumn] = useState<string | null>(null)
-  const [showSortPopover, setShowSortPopover] = useState(false)
-  const [draggedSortIndex, setDraggedSortIndex] = useState<number | null>(null)
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
-
-  const handleSortDragStart = (i: number) => setDraggedSortIndex(i)
-  const handleSortDragOver = (e: React.DragEvent, target: number) => {
-    e.preventDefault()
-    if (draggedSortIndex === null || draggedSortIndex === target) return
-    setSortConfigs((prev) => {
-      const next = [...prev]
-      const [removed] = next.splice(draggedSortIndex, 1)
-      next.splice(target, 0, removed)
-      setDraggedSortIndex(target)
-      return next
-    })
-  }
-  const handleSortDragEnd = () => setDraggedSortIndex(null)
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -811,17 +798,10 @@ export function RenderImagesPage() {
       if (sourceFilter.size > 0 && !sourceFilter.has(img.source)) return false
       return true
     })
-    if (sortConfigs.length === 0) return result
-    return [...result].sort((a, b) => {
-      for (const cfg of sortConfigs) {
-        const av = sortValue(a, cfg.column)
-        const bv = sortValue(b, cfg.column)
-        const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv))
-        if (cmp !== 0) return cfg.direction === "asc" ? cmp : -cmp
-      }
-      return 0
-    })
-  }, [images, search, developerFilter, projectFilter, linkedFilter, sourceFilter, sortConfigs])
+    if (!createdSort) return result
+    const mul = createdSort === "asc" ? 1 : -1
+    return [...result].sort((a, b) => (a.createdAt < b.createdAt ? -mul : a.createdAt > b.createdAt ? mul : 0))
+  }, [images, search, developerFilter, projectFilter, linkedFilter, sourceFilter, createdSort])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const paginated = useMemo(
@@ -836,18 +816,27 @@ export function RenderImagesPage() {
   // Reset to first page when filters/sort/group change
   useEffect(() => {
     setCurrentPage(1)
-  }, [search, developerFilter, projectFilter, linkedFilter, sourceFilter, sortConfigs, groupByColumn, pageSize])
+  }, [search, developerFilter, projectFilter, linkedFilter, sourceFilter, createdSort, groupByColumn, pageSize])
 
-  // Group the current page into sections when groupByColumn is set
+  // Group ALL filtered results (across every page) into sections when groupByColumn is set
   const sections = useMemo(() => {
     if (!groupByColumn) return null
     const map: Record<string, RenderImage[]> = {}
-    for (const img of paginated) {
+    for (const img of filtered) {
       const key = groupValue(img, groupByColumn) || "Other"
       ;(map[key] ??= []).push(img)
     }
     return Object.entries(map)
-  }, [paginated, groupByColumn])
+  }, [filtered, groupByColumn])
+
+  // What is actually on screen, in VISIBLE order: section-flattened when grouped, else the current page.
+  // Shift-range selection must follow this order, not the underlying sorted order.
+  const displayed = useMemo(
+    () => (sections ? sections.flatMap(([, imgs]) => imgs) : paginated),
+    [sections, paginated],
+  )
+  const displayedIndex = useMemo(() => new Map(displayed.map((im, i) => [im.id, i])), [displayed])
+  const lastClickedIdx = useRef<number | null>(null)
 
   const hasFilters =
     !!search || developerFilter.size > 0 || projectFilter.size > 0 || linkedFilter.size > 0 || sourceFilter.size > 0
@@ -860,10 +849,22 @@ export function RenderImagesPage() {
     setSourceFilter(new Set())
   }
 
-  const toggleSelect = (id: string) => {
+  // Shift-click selects the whole range between the last clicked card and this one
+  const toggleSelect = (id: string, shift: boolean) => {
+    const index = displayedIndex.get(id) ?? 0
     setSelected((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (shift && lastClickedIdx.current !== null) {
+        const lo = Math.min(lastClickedIdx.current, index)
+        const hi = Math.max(lastClickedIdx.current, index)
+        for (let i = lo; i <= hi; i++) {
+          const im = displayed[i]
+          if (im) next.add(im.id)
+        }
+      } else {
+        next.has(id) ? next.delete(id) : next.add(id)
+        lastClickedIdx.current = index
+      }
       return next
     })
   }
@@ -954,70 +955,30 @@ export function RenderImagesPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {/* Sort popover */}
-              <Popover open={showSortPopover} onOpenChange={setShowSortPopover}>
-                <PopoverTrigger asChild>
-                  <Button variant={sortConfigs.length > 0 ? "default" : "outline"} size="sm" className="h-8">
+              {/* Sort — Created date only */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant={createdSort ? "default" : "outline"} size="sm" className="h-8">
                     <ArrowUpDown className="mr-1.5 h-3.5 w-3.5" />
                     Sort
-                    {sortConfigs.length > 0 && (
-                      <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">{sortConfigs.length}</Badge>
+                    {createdSort && (
+                      <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
+                        Created · {createdSort === "asc" ? "Asc" : "Desc"}
+                      </Badge>
                     )}
                   </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[420px] p-4" align="end">
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-semibold">Sort by multiple columns</h4>
-                      {sortConfigs.length > 0 && (
-                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSortConfigs([])}>Clear all</Button>
-                      )}
-                    </div>
-                    {sortConfigs.length > 0 && <p className="-mt-2 text-xs text-muted-foreground">Drag to reorder priority.</p>}
-                    <div className="max-h-[280px] space-y-2 overflow-y-auto pr-1">
-                      {sortConfigs.map((cfg, i) => (
-                        <div
-                          key={i}
-                          draggable
-                          onDragStart={() => handleSortDragStart(i)}
-                          onDragOver={(e) => handleSortDragOver(e, i)}
-                          onDragEnd={handleSortDragEnd}
-                          className={cn("flex items-center gap-2 rounded-lg bg-secondary/40 p-2.5", draggedSortIndex === i && "opacity-40")}
-                        >
-                          <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-muted-foreground" />
-                          <span className="w-14 shrink-0 text-xs text-muted-foreground">{i === 0 ? "Sort by" : "Then by"}</span>
-                          <Select value={cfg.column} onValueChange={(v) => setSortConfigs((prev) => prev.map((c, idx) => (idx === i ? { ...c, column: v } : c)))}>
-                            <SelectTrigger className="h-7 flex-1 text-xs"><SelectValue placeholder="Column" /></SelectTrigger>
-                            <SelectContent>
-                              {SORT_COLS.map((c) => <SelectItem key={c.id} value={c.id} className="text-xs">{c.label}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                          <Select value={cfg.direction} onValueChange={(v) => setSortConfigs((prev) => prev.map((c, idx) => (idx === i ? { ...c, direction: v as "asc" | "desc" } : c)))}>
-                            <SelectTrigger className="h-7 w-[100px] text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="asc" className="text-xs">Ascending</SelectItem>
-                              <SelectItem value="desc" className="text-xs">Descending</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setSortConfigs((prev) => prev.filter((_, idx) => idx !== i))}>
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      ))}
-                      {sortConfigs.length === 0 && (
-                        <p className="py-3 text-center text-xs text-muted-foreground">No sort applied. Add a level below.</p>
-                      )}
-                    </div>
-                    <Button
-                      variant="outline" size="sm" className="h-8 w-full"
-                      disabled={sortConfigs.length >= SORT_COLS.length}
-                      onClick={() => setSortConfigs((prev) => [...prev, { column: SORT_COLS.find((c) => !prev.some((p) => p.column === c.id))?.id ?? SORT_COLS[0].id, direction: "asc" }])}
-                    >
-                      <Plus className="mr-1.5 h-3.5 w-3.5" />Add sort level
-                    </Button>
-                  </div>
-                </PopoverContent>
-              </Popover>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setCreatedSort(null)}>No sorting</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setCreatedSort("asc")}>
+                    <ArrowUp className="mr-2 h-3.5 w-3.5" />Created date — Ascending
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCreatedSort("desc")}>
+                    <ArrowDown className="mr-2 h-3.5 w-3.5" />Created date — Descending
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               {/* Group dropdown */}
               <DropdownMenu>
@@ -1052,12 +1013,12 @@ export function RenderImagesPage() {
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="flex items-center gap-2.5">
               <Checkbox
-                checked={paginated.length > 0 && paginated.every((im) => selected.has(im.id))}
+                checked={displayed.length > 0 && displayed.every((im) => selected.has(im.id))}
                 onCheckedChange={(c) => {
                   setSelected((prev) => {
                     const next = new Set(prev)
-                    if (c) paginated.forEach((im) => next.add(im.id))
-                    else paginated.forEach((im) => next.delete(im.id))
+                    if (c) displayed.forEach((im) => next.add(im.id))
+                    else displayed.forEach((im) => next.delete(im.id))
                     return next
                   })
                 }}
@@ -1086,9 +1047,9 @@ export function RenderImagesPage() {
 
           {/* Select-all-results banner */}
           {(() => {
-            const pageFullySelected = paginated.length > 0 && paginated.every((im) => selected.has(im.id))
+            const pageFullySelected = displayed.length > 0 && displayed.every((im) => selected.has(im.id))
             const allResultsSelected = filtered.length > 0 && filtered.every((im) => selected.has(im.id))
-            const hasMoreThanPage = filtered.length > paginated.length
+            const hasMoreThanPage = filtered.length > displayed.length
             if (!pageFullySelected || !hasMoreThanPage) return null
             return (
               <div className="flex items-center justify-center gap-2 border-b border-border bg-blue-50 px-4 py-2 text-xs dark:bg-blue-950/30">
@@ -1107,7 +1068,7 @@ export function RenderImagesPage() {
                 ) : (
                   <>
                     <span className="text-blue-800 dark:text-blue-200">
-                      All <strong>{paginated.length}</strong> on this page are selected.
+                      All <strong>{displayed.length}</strong> on this page are selected.
                     </span>
                     <button
                       onClick={() => setSelected(new Set(filtered.map((im) => im.id)))}
@@ -1158,7 +1119,7 @@ export function RenderImagesPage() {
                             key={img.id}
                             img={img}
                             selected={selected.has(img.id)}
-                            onSelect={() => toggleSelect(img.id)}
+                            onSelect={(shift) => toggleSelect(img.id, shift)}
                             onView={() => setViewImage(img)}
                             onDelete={() => setDeleteTargets([img])}
                           />
@@ -1176,7 +1137,7 @@ export function RenderImagesPage() {
                   key={img.id}
                   img={img}
                   selected={selected.has(img.id)}
-                  onSelect={() => toggleSelect(img.id)}
+                  onSelect={(shift) => toggleSelect(img.id, shift)}
                   onView={() => setViewImage(img)}
                   onDelete={() => setDeleteTargets([img])}
                 />
@@ -1184,30 +1145,18 @@ export function RenderImagesPage() {
             </div>
           )}
 
-          {/* Pagination footer */}
-          {filtered.length > 0 && (
+          {/* Pagination footer (grouped mode shows all results, so no pager) */}
+          {filtered.length > 0 && sections && (
+            <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
+              {filtered.length.toLocaleString()} images in {sections.length} group{sections.length !== 1 ? "s" : ""}
+            </div>
+          )}
+          {filtered.length > 0 && !sections && (
             <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-muted-foreground">
-              <div className="flex items-center gap-4">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-8">
-                      <FileDown className="mr-1.5 h-4 w-4" />
-                      Export
-                      <ChevronDown className="ml-1 h-3 w-3" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuItem><FileText className="mr-2 h-4 w-4" />CSV</DropdownMenuItem>
-                    <DropdownMenuItem><FileSpreadsheet className="mr-2 h-4 w-4" />Excel</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem><FileDown className="mr-2 h-4 w-4" />PDF</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <span>
-                  {`${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filtered.length)}`}{" "}
-                  of {filtered.length.toLocaleString()} images
-                </span>
-              </div>
+              <span>
+                {`${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filtered.length)}`}{" "}
+                of {filtered.length.toLocaleString()} images
+              </span>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5">
                   <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
