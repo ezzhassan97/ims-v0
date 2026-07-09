@@ -1513,7 +1513,7 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewO
   )
 }
 
-export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false, onRemove, onView, cascadeRemovesPrice = false, fullWidth = false, selected, onSelectToggle, hideFooter = false, statusTag, hideIds = false }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean; onRemove?: () => void; onView?: () => void; cascadeRemovesPrice?: boolean; fullWidth?: boolean; selected?: boolean; onSelectToggle?: () => void; hideFooter?: boolean; statusTag?: React.ReactNode; /** Draft plans have no system ids yet — hides the plan id and project id. */ hideIds?: boolean }) {
+export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false, onRemove, onView, cascadeRemovesPrice = false, fullWidth = false, selected, onSelectToggle, hideFooter = false, statusTag, hideIds = false, removeConfirm = true }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean; onRemove?: () => void; onView?: () => void; cascadeRemovesPrice?: boolean; fullWidth?: boolean; selected?: boolean; onSelectToggle?: () => void; hideFooter?: boolean; statusTag?: React.ReactNode; /** Draft plans have no system ids yet — hides the plan id and project id. */ hideIds?: boolean; /** false = X calls onRemove directly (caller owns confirmation, e.g. a delete dialog). */ removeConfirm?: boolean }) {
   const selectable = selected !== undefined || onSelectToggle !== undefined
   const [copiedId, setCopiedId] = useState(false)
   const [confirmUnlink, setConfirmUnlink] = useState(false)
@@ -1547,8 +1547,8 @@ export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup,
             <button onClick={onView} className="w-[22px] h-[22px] rounded-[4px] border-0 bg-transparent cursor-pointer flex items-center justify-center p-0 text-[#8C9BB5] hover:bg-slate-100 hover:text-[#5A6A85] transition-all" title="View details"><Eye className="w-[13px] h-[13px]" /></button>
             {!readOnly && (
               <button
-                onClick={() => canUnlink && setConfirmUnlink(true)}
-                title={canUnlink ? "Unlink" : "Cannot unlink — only one plan linked"}
+                onClick={() => canUnlink && (removeConfirm ? setConfirmUnlink(true) : onRemove?.())}
+                title={canUnlink ? (removeConfirm ? "Unlink" : "Remove") : "Cannot unlink — only one plan linked"}
                 className={cn("w-[22px] h-[22px] rounded-[4px] border-0 bg-transparent flex items-center justify-center p-0 transition-all",
                   canUnlink ? "cursor-pointer text-red-300 hover:bg-red-50 hover:text-red-500" : "cursor-not-allowed text-[#C8D0DC] opacity-40"
                 )}

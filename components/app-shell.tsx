@@ -20,6 +20,7 @@ import { QualitySystemPage } from "@/components/quality-system-page"
 import { NawySpacePage } from "@/components/nawy-space-page"
 import { ProjectsNewPage } from "@/components/projects-new-page"
 import { RenderImagesPage } from "@/components/render-images-page"
+import { PaymentPlansPage } from "@/components/payment-plans-page"
 import { PropertiesConfigurationsPage } from "@/components/properties-configurations-page"
 import { GroupedPropertyDetails, type GroupDetailPayload } from "@/components/grouped-properties-page"
 import { CreatePropertyPage } from "@/components/create-property-page"
@@ -58,6 +59,8 @@ export function AppShell() {
         return <NawySpacePage />
       case "Render Images":
         return <RenderImagesPage />
+      case "Payment Plans":
+        return <PaymentPlansPage />
       case "Properties Configurations":
         return <PropertiesConfigurationsPage />
       case "Validation Rules":
