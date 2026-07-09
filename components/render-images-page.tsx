@@ -38,9 +38,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -762,35 +764,70 @@ function AddImageDialog({ open, onClose }: { open: boolean; onClose: () => void 
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
-export function RenderImagesPage() {
+export function RenderImagesPage({
+  embedded = false,
+  scopeProject,
+}: {
+  /** Rendered inside a details tab: no page title, no outer padding, no Developer filter. */
+  embedded?: boolean
+  /** Scope the images to one project. Main projects get a Phase filter + phase grouping; phases get neither. */
+  scopeProject?: { name: string; isPhase: boolean }
+} = {}) {
   const [images, setImages] = useState<RenderImage[]>(RENDER_IMAGES)
   const [search, setSearch] = useState("")
   const [developerFilter, setDeveloperFilter] = useState<Set<string>>(new Set())
   const [projectFilter, setProjectFilter] = useState<Set<string>>(new Set())
+  const [phaseFilter, setPhaseFilter] = useState<Set<string>>(new Set())
   const [linkedFilter, setLinkedFilter] = useState<Set<string>>(new Set())
   const [sourceFilter, setSourceFilter] = useState<Set<string>>(new Set())
+
+  // Resolve the scoped project against the render-images mock (name match, demo fallback)
+  const scope = useMemo(() => {
+    if (!scopeProject) return null
+    const byName = PROJECTS.find((p) => p.name.toLowerCase() === scopeProject.name.toLowerCase())
+    const proj = byName ?? (scopeProject.isPhase ? PROJECTS.find((p) => p.parentId !== null)! : MAIN_PROJECTS[0])
+    const mainId = proj.parentId ?? proj.id
+    return { proj, mainId, isPhase: scopeProject.isPhase, main: PROJECTS.find((p) => p.id === mainId)!, phases: PROJECTS.filter((p) => p.parentId === mainId) }
+  }, [scopeProject])
+
+  // Base pool: the whole inventory, or the scoped project's images
+  const baseImages = useMemo(() => {
+    if (!scope) return images
+    return scope.isPhase ? images.filter((im) => im.projectId === scope.proj.id) : images.filter((im) => im.mainProjectId === scope.mainId)
+  }, [images, scope])
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [viewImage, setViewImage] = useState<RenderImage | null>(null)
   const [deleteTargets, setDeleteTargets] = useState<RenderImage[] | null>(null)
   const [showAdd, setShowAdd] = useState(false)
 
-  // Sort (Created date only) & group
-  const [createdSort, setCreatedSort] = useState<"asc" | "desc" | null>(null)
-  const [groupByColumn, setGroupByColumn] = useState<string | null>(null)
+  // Sort (Created date / Linked units, single primary) & group
+  const [sort, setSort] = useState<{ key: "createdAt" | "linked"; dir: "asc" | "desc" } | null>(null)
+  // Main-project scope defaults to grouping by phase (main images first, then each phase)
+  const [groupByColumn, setGroupByColumn] = useState<string | null>(scopeProject && !scopeProject.isPhase ? "phase" : null)
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
+
+  const groupCols = scope
+    ? (scope.isPhase
+        ? GROUP_COLS.filter((c) => c.id === "linkedState" || c.id === "source")
+        : [{ id: "phase", label: "Phase" }, ...GROUP_COLS.filter((c) => c.id === "linkedState" || c.id === "source")])
+    : GROUP_COLS
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(20)
+
+  const phaseLabelOf = (img: RenderImage) => (scope && img.projectId === scope.mainId ? "Main Project" : img.projectName)
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const result = images.filter((img) => {
+    const result = baseImages.filter((img) => {
       if (q && !img.id.toLowerCase().includes(q) && !img.caption.toLowerCase().includes(q)) return false
-      if (developerFilter.size > 0 && !developerFilter.has(img.developerName)) return false
+      if (!scope && developerFilter.size > 0 && !developerFilter.has(img.developerName)) return false
       // Project filter matches main project name OR the image's own project name
-      if (projectFilter.size > 0 && !projectFilter.has(img.mainProjectName)) return false
+      if (!scope && projectFilter.size > 0 && !projectFilter.has(img.mainProjectName)) return false
+      // Scoped to a main project: filter by phase (Main Project = the main project's own images)
+      if (scope && !scope.isPhase && phaseFilter.size > 0 && !phaseFilter.has(phaseLabelOf(img))) return false
       if (linkedFilter.size > 0) {
         const state = img.isLinked && totalLinkedUnits(img) > 0 ? "Linked" : "Unlinked"
         if (!linkedFilter.has(state)) return false
@@ -798,10 +835,13 @@ export function RenderImagesPage() {
       if (sourceFilter.size > 0 && !sourceFilter.has(img.source)) return false
       return true
     })
-    if (!createdSort) return result
-    const mul = createdSort === "asc" ? 1 : -1
-    return [...result].sort((a, b) => (a.createdAt < b.createdAt ? -mul : a.createdAt > b.createdAt ? mul : 0))
-  }, [images, search, developerFilter, projectFilter, linkedFilter, sourceFilter, createdSort])
+    if (!sort) return result
+    const mul = sort.dir === "asc" ? 1 : -1
+    return [...result].sort((a, b) => {
+      if (sort.key === "linked") return (totalLinkedUnits(a) - totalLinkedUnits(b)) * mul
+      return (a.createdAt < b.createdAt ? -mul : a.createdAt > b.createdAt ? mul : 0)
+    })
+  }, [baseImages, scope, search, developerFilter, projectFilter, phaseFilter, linkedFilter, sourceFilter, sort])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const paginated = useMemo(
@@ -816,18 +856,29 @@ export function RenderImagesPage() {
   // Reset to first page when filters/sort/group change
   useEffect(() => {
     setCurrentPage(1)
-  }, [search, developerFilter, projectFilter, linkedFilter, sourceFilter, createdSort, groupByColumn, pageSize])
+  }, [search, developerFilter, projectFilter, phaseFilter, linkedFilter, sourceFilter, sort, groupByColumn, pageSize])
 
   // Group ALL filtered results (across every page) into sections when groupByColumn is set
   const sections = useMemo(() => {
     if (!groupByColumn) return null
     const map: Record<string, RenderImage[]> = {}
     for (const img of filtered) {
-      const key = groupValue(img, groupByColumn) || "Other"
+      const key = groupByColumn === "phase"
+        ? (scope && img.projectId === scope.mainId ? `${scope.main.name} — Main Project` : img.projectName)
+        : groupValue(img, groupByColumn) || "Other"
       ;(map[key] ??= []).push(img)
     }
-    return Object.entries(map)
-  }, [filtered, groupByColumn])
+    const entries = Object.entries(map)
+    // Phase grouping: the main project's images first, then each phase alphabetically
+    if (groupByColumn === "phase") {
+      entries.sort(([a], [b]) => {
+        const aMain = a.includes("— Main Project"), bMain = b.includes("— Main Project")
+        if (aMain !== bMain) return aMain ? -1 : 1
+        return a.localeCompare(b)
+      })
+    }
+    return entries
+  }, [filtered, groupByColumn, scope])
 
   // What is actually on screen, in VISIBLE order: section-flattened when grouped, else the current page.
   // Shift-range selection must follow this order, not the underlying sorted order.
@@ -839,12 +890,13 @@ export function RenderImagesPage() {
   const lastClickedIdx = useRef<number | null>(null)
 
   const hasFilters =
-    !!search || developerFilter.size > 0 || projectFilter.size > 0 || linkedFilter.size > 0 || sourceFilter.size > 0
+    !!search || developerFilter.size > 0 || projectFilter.size > 0 || phaseFilter.size > 0 || linkedFilter.size > 0 || sourceFilter.size > 0
 
   const clearAll = () => {
     setSearch("")
     setDeveloperFilter(new Set())
     setProjectFilter(new Set())
+    setPhaseFilter(new Set())
     setLinkedFilter(new Set())
     setSourceFilter(new Set())
   }
@@ -880,17 +932,17 @@ export function RenderImagesPage() {
     setViewImage(null)
   }
 
-  const selectedImages = images.filter((im) => selected.has(im.id))
-
   return (
-    <div className="min-h-screen bg-secondary/40">
-      <div className="space-y-4 p-4">
+    <div className={embedded ? "" : "min-h-screen bg-secondary/40"}>
+      <div className={cn("space-y-4", !embedded && "p-4")}>
         {/* Title block */}
-        <div className="px-1 pt-1">
-          <p className="mb-1 text-xs text-muted-foreground">Projects Attachments</p>
-          <h1 className="text-2xl font-semibold text-foreground">Render Images</h1>
-          <p className="mt-1 text-sm text-muted-foreground">View and manage all render images in inventory</p>
-        </div>
+        {!embedded && (
+          <div className="px-1 pt-1">
+            <p className="mb-1 text-xs text-muted-foreground">Projects Attachments</p>
+            <h1 className="text-2xl font-semibold text-foreground">Render Images</h1>
+            <p className="mt-1 text-sm text-muted-foreground">View and manage all render images in inventory</p>
+          </div>
+        )}
 
         {/* Filter card */}
         <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
@@ -913,20 +965,34 @@ export function RenderImagesPage() {
               )}
             </div>
             <div className="flex flex-1 flex-wrap gap-2">
-              <SearchableMultiSelect
-                label="Developer"
-                options={DEVELOPERS.map((d) => d.name)}
-                selected={developerFilter}
-                onChange={setDeveloperFilter}
-                width="flex-1"
-              />
-              <SearchableMultiSelect
-                label="Project"
-                options={MAIN_PROJECTS.map((p) => p.name)}
-                selected={projectFilter}
-                onChange={setProjectFilter}
-                width="flex-1"
-              />
+              {/* Unscoped page: Developer + Project filters. Scoped main project: Phase filter. Scoped phase: neither. */}
+              {!scope && (
+                <SearchableMultiSelect
+                  label="Developer"
+                  options={DEVELOPERS.map((d) => d.name)}
+                  selected={developerFilter}
+                  onChange={setDeveloperFilter}
+                  width="flex-1"
+                />
+              )}
+              {!scope && (
+                <SearchableMultiSelect
+                  label="Project"
+                  options={MAIN_PROJECTS.map((p) => p.name)}
+                  selected={projectFilter}
+                  onChange={setProjectFilter}
+                  width="flex-1"
+                />
+              )}
+              {scope && !scope.isPhase && (
+                <SearchableMultiSelect
+                  label="Phase"
+                  options={["Main Project", ...scope.phases.map((p) => p.name)]}
+                  selected={phaseFilter}
+                  onChange={setPhaseFilter}
+                  width="flex-1"
+                />
+              )}
               <SearchableMultiSelect
                 label="Linked"
                 options={["Linked", "Unlinked"]}
@@ -955,28 +1021,49 @@ export function RenderImagesPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {/* Sort — Created date only */}
+              {/* Sort — one row per field with asc/desc arrow toggles */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant={createdSort ? "default" : "outline"} size="sm" className="h-8">
+                  <Button variant={sort ? "default" : "outline"} size="sm" className="h-8">
                     <ArrowUpDown className="mr-1.5 h-3.5 w-3.5" />
                     Sort
-                    {createdSort && (
+                    {sort && (
                       <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
-                        Created · {createdSort === "asc" ? "Asc" : "Desc"}
+                        {sort.key === "createdAt" ? "Created" : "Linked"} · {sort.dir === "asc" ? "Asc" : "Desc"}
                       </Badge>
                     )}
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setCreatedSort(null)}>No sorting</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setCreatedSort("asc")}>
-                    <ArrowUp className="mr-2 h-3.5 w-3.5" />Created date — Ascending
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCreatedSort("desc")}>
-                    <ArrowDown className="mr-2 h-3.5 w-3.5" />Created date — Descending
-                  </DropdownMenuItem>
+                <DropdownMenuContent align="end" className="w-60">
+                  <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">Sort by</DropdownMenuLabel>
+                  {([
+                    { key: "createdAt", label: "Created date" },
+                    { key: "linked", label: "Linked units count" },
+                  ] as const).map((f) => (
+                    <div key={f.key} className="flex items-center gap-2 px-2 py-1.5">
+                      <span className="flex-1 text-sm">{f.label}</span>
+                      <button
+                        onClick={() => setSort({ key: f.key, dir: "asc" })}
+                        className={cn("rounded p-1", sort?.key === f.key && sort.dir === "asc" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}
+                        title="Ascending"
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setSort({ key: f.key, dir: "desc" })}
+                        className={cn("rounded p-1", sort?.key === f.key && sort.dir === "desc" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}
+                        title="Descending"
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {sort && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => setSort(null)} className="text-sm text-red-600">Clear sort</DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -988,7 +1075,7 @@ export function RenderImagesPage() {
                     Group
                     {groupByColumn && (
                       <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
-                        {GROUP_COLS.find((c) => c.id === groupByColumn)?.label ?? groupByColumn}
+                        {groupCols.find((c) => c.id === groupByColumn)?.label ?? groupByColumn}
                       </Badge>
                     )}
                   </Button>
@@ -996,7 +1083,7 @@ export function RenderImagesPage() {
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={() => setGroupByColumn(null)}>No Grouping</DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  {GROUP_COLS.map((opt) => (
+                  {groupCols.map((opt) => (
                     <DropdownMenuItem key={opt.id} onClick={() => { setGroupByColumn(opt.id); setCollapsedSections(new Set()) }}>
                       {opt.label}
                     </DropdownMenuItem>
@@ -1044,43 +1131,6 @@ export function RenderImagesPage() {
               <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Image
             </Button>
           </div>
-
-          {/* Select-all-results banner */}
-          {(() => {
-            const pageFullySelected = displayed.length > 0 && displayed.every((im) => selected.has(im.id))
-            const allResultsSelected = filtered.length > 0 && filtered.every((im) => selected.has(im.id))
-            const hasMoreThanPage = filtered.length > displayed.length
-            if (!pageFullySelected || !hasMoreThanPage) return null
-            return (
-              <div className="flex items-center justify-center gap-2 border-b border-border bg-blue-50 px-4 py-2 text-xs dark:bg-blue-950/30">
-                {allResultsSelected ? (
-                  <>
-                    <span className="text-blue-800 dark:text-blue-200">
-                      All <strong>{filtered.length.toLocaleString()}</strong> render images across all pages are selected.
-                    </span>
-                    <button
-                      onClick={() => setSelected(new Set())}
-                      className="font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900 dark:text-blue-300"
-                    >
-                      Clear selection
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-blue-800 dark:text-blue-200">
-                      All <strong>{displayed.length}</strong> on this page are selected.
-                    </span>
-                    <button
-                      onClick={() => setSelected(new Set(filtered.map((im) => im.id)))}
-                      className="font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900 dark:text-blue-300"
-                    >
-                      Select all {filtered.length.toLocaleString()} render images
-                    </button>
-                  </>
-                )}
-              </div>
-            )
-          })()}
 
           {/* Grid */}
           {filtered.length === 0 ? (
@@ -1203,37 +1253,30 @@ export function RenderImagesPage() {
         </div>
       </div>
 
-      {/* Bulk action bar */}
+      {/* Bulk action bar — download only (max 40 at a time), no bulk delete, no select-all */}
       {selected.size > 0 && (
         <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 select-none items-center gap-0 overflow-hidden rounded-xl bg-zinc-900 text-sm text-white shadow-2xl">
           <div className="flex items-center gap-3 px-4 py-2.5">
             <span className="font-semibold tabular-nums">{selected.size} selected</span>
-            {filtered.length > selected.size ? (
-              <button
-                onClick={() => setSelected(new Set(filtered.map((im) => im.id)))}
-                className="text-xs font-medium text-zinc-400 transition-colors hover:text-white"
-              >
-                Select all {filtered.length.toLocaleString()}
-              </button>
-            ) : (
-              <button
-                onClick={() => setSelected(new Set())}
-                className="text-xs font-medium text-zinc-400 transition-colors hover:text-white"
-              >
-                Clear
-              </button>
-            )}
+            <button
+              onClick={() => setSelected(new Set())}
+              className="text-xs font-medium text-zinc-400 transition-colors hover:text-white"
+            >
+              Clear
+            </button>
           </div>
           <div className="h-8 w-px bg-zinc-700" />
-          <button className="flex items-center gap-1.5 px-4 py-2.5 transition-colors hover:bg-zinc-800">
-            <Download className="h-3.5 w-3.5 text-zinc-400" /> Download
-          </button>
-          <div className="h-8 w-px bg-zinc-700" />
           <button
-            onClick={() => setDeleteTargets(selectedImages)}
-            className="flex items-center gap-1.5 px-4 py-2.5 text-red-400 transition-colors hover:bg-zinc-800 hover:text-red-300"
+            onClick={() => {
+              if (selected.size > 40) {
+                toast.error("You can download at most 40 images at a time.")
+                return
+              }
+              toast.success(`Downloading ${selected.size} image${selected.size === 1 ? "" : "s"}…`)
+            }}
+            className="flex items-center gap-1.5 px-4 py-2.5 transition-colors hover:bg-zinc-800"
           >
-            <Trash2 className="h-3.5 w-3.5" /> Delete
+            <Download className="h-3.5 w-3.5 text-zinc-400" /> Download
           </button>
           <div className="h-8 w-px bg-zinc-700" />
           <button

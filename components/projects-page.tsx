@@ -14,6 +14,7 @@ import { AmenitiesMap } from "@/components/amenities-map"
 import { FAQsTab } from "@/components/faqs-tab"
 import { MasterplansTab } from "@/components/masterplans-tab"
 import { ConstructionUpdatesTab } from "@/components/construction-updates-tab"
+import { RenderImagesPage } from "@/components/render-images-page"
 import {
   type Building,
   type Unit,
@@ -293,7 +294,14 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
             <TabsTrigger value="construction-updates" className="data-[state=active]:bg-card">
               Construction Updates
             </TabsTrigger>
+            <TabsTrigger value="render-images" className="data-[state=active]:bg-card">
+              Render Images
+            </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="render-images" className="mt-4">
+            <RenderImagesPage embedded scopeProject={{ name: project?.name ?? "", isPhase: project?.isPhase ?? false }} />
+          </TabsContent>
 
           <TabsContent value="masterplans" className="mt-4">
             <MasterplansTab masterplans={masterplans} />
