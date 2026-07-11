@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useRef, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
@@ -64,7 +64,8 @@ import { toast } from "sonner"
 import { LaunchDetailsPage } from "@/components/launch-details-page"
 import {
   TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, DateRangeFilter,
-  FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, ColumnsSheet, type ManagedColumn,
+  FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, ColumnsSheet, ProjectTreeSelect,
+  type ManagedColumn, type ProjectTreeNode, type ProjectTreeSelection,
 } from "@/components/table-kit"
 import { cn } from "@/lib/utils"
 
@@ -416,15 +417,36 @@ function LaunchFormDialog({
   open,
   onOpenChange,
   onSave,
+  scope,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   onSave: (data: Omit<Launch, "id" | "createdAt" | "updatedAt">) => void
+  /** Project-details embed: developer + area are locked; project options come from the scope. */
+  scope?: { name: string; isPhase: boolean; mainProject?: string; developer?: string; area?: string; phases?: string[] }
 }) {
   const [form, setForm] = useState<Omit<Launch, "id" | "createdAt" | "updatedAt">>({ ...EMPTY_FORM })
 
   const set = (key: keyof typeof form, value: unknown) =>
     setForm((prev) => ({ ...prev, [key]: value }))
+
+  // Prefill + lock from the scope every time the dialog opens
+  useEffect(() => {
+    if (!open) return
+    if (scope) {
+      setForm({
+        ...EMPTY_FORM,
+        developer: { name: scope.developer ?? "", logo: LOGO, id: `DEV-${(scope.developer ?? "XXX").slice(0, 3).toUpperCase()}` },
+        area: scope.area ?? "",
+        areaId: AREA_ID[scope.area ?? ""] ?? "",
+        ...(scope.isPhase
+          ? { projectLevel: "Phase" as const, projectNameEn: scope.mainProject ?? scope.name, phase: scope.name }
+          : { projectLevel: "Main Project" as const, projectNameEn: scope.name, phase: "" }),
+      })
+    } else {
+      setForm({ ...EMPTY_FORM })
+    }
+  }, [open])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -438,14 +460,22 @@ function LaunchFormDialog({
             <Label>Developer</Label>
             <select
               value={form.developer.name}
+              disabled={!!scope}
               onChange={(e) => set("developer", { name: e.target.value, logo: LOGO, id: `DEV-${e.target.value.slice(0, 3).toUpperCase()}` })}
-              className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+              className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
             >
-              <option value="">Select developer…</option>
-              {DEVELOPERS.map((d) => <option key={d} value={d}>{d}</option>)}
+              {scope ? (
+                <option value={scope.developer ?? ""}>{scope.developer ?? "—"}</option>
+              ) : (
+                <>
+                  <option value="">Select developer…</option>
+                  {DEVELOPERS.map((d) => <option key={d} value={d}>{d}</option>)}
+                </>
+              )}
             </select>
           </div>
 
+          {!scope && (
           <div className="space-y-1.5">
             <Label>Project Level</Label>
             <select
@@ -461,10 +491,32 @@ function LaunchFormDialog({
               <option value="Phase">Phase</option>
             </select>
           </div>
+          )}
 
           <div className="space-y-1.5">
-            <Label>Project Name</Label>
-            {form.projectLevel === "Phase" ? (
+            <Label>{scope ? "Project / Phase" : "Project Name"}</Label>
+            {scope ? (
+              scope.isPhase ? (
+                // Phase scope: preselected to this phase, locked
+                <select value={scope.name} disabled className="w-full border border-border rounded-md px-3 py-2 text-sm bg-muted text-muted-foreground cursor-not-allowed">
+                  <option value={scope.name}>{scope.name} — phase of {scope.mainProject ?? "project"}</option>
+                </select>
+              ) : (
+                // Main-project scope: main project + its phases
+                <select
+                  value={form.projectLevel === "Main Project" ? "__main__" : form.phase}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    if (v === "__main__") setForm((prev) => ({ ...prev, projectLevel: "Main Project", projectNameEn: scope.name, phase: "" }))
+                    else setForm((prev) => ({ ...prev, projectLevel: "Phase", projectNameEn: scope.name, phase: v }))
+                  }}
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+                >
+                  <option value="__main__">{scope.name} (Main Project)</option>
+                  {(scope.phases ?? []).map((ph) => <option key={ph} value={ph}>{ph}</option>)}
+                </select>
+              )
+            ) : form.projectLevel === "Phase" ? (
               <select
                 value={form.projectNameEn}
                 onChange={(e) => set("projectNameEn", e.target.value)}
@@ -480,24 +532,31 @@ function LaunchFormDialog({
             )}
           </div>
 
-          {form.projectLevel === "Phase" ? (
+          {!scope && form.projectLevel === "Phase" ? (
             <div className="space-y-1.5">
               <Label>Phase</Label>
               <Input value={form.phase} onChange={(e) => set("phase", e.target.value)} placeholder="e.g. Phase 1" />
             </div>
           ) : (
-            <div />
+            !scope && <div />
           )}
 
           <div className="space-y-1.5">
-            <Label>Area</Label>
+            <Label>Area {scope && <span className="text-[10px] font-normal text-muted-foreground">(from the selected project)</span>}</Label>
             <select
               value={form.area}
+              disabled={!!scope}
               onChange={(e) => set("area", e.target.value)}
-              className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+              className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
             >
-              <option value="">Select area…</option>
-              {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
+              {scope ? (
+                <option value={form.area}>{form.area || "—"}</option>
+              ) : (
+                <>
+                  <option value="">Select area…</option>
+                  {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
+                </>
+              )}
             </select>
           </div>
 
@@ -779,7 +838,7 @@ type DialogState =
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: boolean; scopeProject?: { name: string; isPhase: boolean; mainProject?: string } } = {}) {
+export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: boolean; scopeProject?: { name: string; isPhase: boolean; mainProject?: string; developer?: string; area?: string; phases?: string[] } } = {}) {
   const scoped = !!scopeProject
   const [launches, setLaunches] = useState<Launch[]>(mockLaunches)
   const [tab, setTab] = useState<TabKey>(scoped ? "listed" : "all")
@@ -788,6 +847,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
   const [search, setSearch] = useState("")
   const [developerF, setDeveloperF] = useState<string[]>([])
   const [areaF, setAreaF] = useState<string[]>([])
+  const [projectSels, setProjectSels] = useState<NonNullable<ProjectTreeSelection>[]>([])
   const [sourceF, setSourceF] = useState("all")
   const [alreadyCreatedF, setAlreadyCreatedF] = useState("all")
   const [aiUpdatesF, setAiUpdatesF] = useState("all")
@@ -832,7 +892,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
   }
 
   const clearAllFilters = () => {
-    setSearch(""); setDeveloperF([]); setAreaF([]); setSourceF("all"); setAlreadyCreatedF("all")
+    setSearch(""); setDeveloperF([]); setAreaF([]); setProjectSels([]); setSourceF("all"); setAlreadyCreatedF("all")
     setAiUpdatesF("all"); setLaunchStatusF("all"); setApprovalF("all"); setIngestionF("all")
     setListingF("all"); setCreatedFrom(""); setCreatedTo(""); setSentFrom(""); setSentTo("")
     setIngestedFrom(""); setIngestedTo(""); setPage(1)
@@ -861,6 +921,24 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
     return matched.length ? matched : ingested
   })()
 
+  // Project dropdown tree built from the launches themselves: main-project launches are
+  // parents; phase launches nest under their parent (a synthetic group when unmatched).
+  const launchProjectTree: ProjectTreeNode[] = useMemo(() => {
+    const mains = launches
+      .filter((l) => l.projectLevel === "Main Project")
+      .map((l) => ({ id: l.id, name: l.projectNameEn, status: l.listingStatus, phases: [] as { id: string; name: string; status?: "Active" | "Hidden" }[] }))
+    const byName = new Map(mains.map((m) => [m.name, m]))
+    const groups = new Map<string, ProjectTreeNode>()
+    for (const l of launches.filter((x) => x.projectLevel === "Phase")) {
+      const parentName = l.parentProjectId || l.projectNameEn
+      const phase = { id: l.id, name: l.phase || l.projectNameEn, status: l.listingStatus }
+      const parent = byName.get(parentName) ?? groups.get(parentName)
+      if (parent) parent.phases.push(phase)
+      else groups.set(parentName, { id: `GRP-${parentName}`, name: parentName, phases: [phase] })
+    }
+    return [...mains, ...groups.values()]
+  }, [launches])
+
   const baseRows = (t: TabKey): Launch[] => {
     switch (t) {
       case "pending": return scopedLaunches.filter((l) => l.approvalStatus === "Pending Review")
@@ -880,6 +958,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
       if (search && !`${l.id} ${l.projectNameEn}`.toLowerCase().includes(search.toLowerCase())) return false
       if (developerF.length && !developerF.includes(l.developer.name)) return false
       if (areaF.length && !areaF.includes(l.area)) return false
+      if (projectSels.length && !projectSels.some((s) => s.projectIds.includes(l.id))) return false
       if (sourceF !== "all" && l.source !== sourceF) return false
       if (alreadyCreatedF === "Existing" && !l.existingProject) return false
       if (alreadyCreatedF === "New" && l.existingProject) return false
@@ -916,7 +995,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
   const pageRows = rows.slice((safePage - 1) * pageSize, safePage * pageSize)
 
   const activeFilterCount =
-    (developerF.length ? 1 : 0) + (areaF.length ? 1 : 0) +
+    (developerF.length ? 1 : 0) + (areaF.length ? 1 : 0) + (projectSels.length ? 1 : 0) +
     [sourceF, alreadyCreatedF, aiUpdatesF, listingF].filter((f) => f !== "all").length +
     (tab !== "active" && launchStatusF !== "all" ? 1 : 0) +
     (!scoped && tab !== "pending" && approvalF !== "all" ? 1 : 0) +
@@ -1409,6 +1488,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
         <>
           {!scoped && <FilterMultiSelect label="Developer" options={DEVELOPERS} value={developerF} onChange={(v) => { setDeveloperF(v); setPage(1) }} tone="danger" className="w-40" />}
           {!scoped && <FilterMultiSelect label="Area" options={AREAS} value={areaF} onChange={(v) => { setAreaF(v); setPage(1) }} tone="danger" className="w-36" />}
+          {!scoped && <ProjectTreeSelect multi projects={launchProjectTree} values={projectSels} onValuesChange={(v) => { setProjectSels(v); setPage(1) }} className="w-44" />}
           <FilterSelect label="Source" value={sourceF === "all" ? "" : sourceF} options={["WhatsApp", "Manual"]} onChange={(v) => { setSourceF(v || "all"); setPage(1) }} className="w-32" />
           <FilterSelect label="Already Created" value={alreadyCreatedF === "all" ? "" : alreadyCreatedF} options={["Existing", "New"]} onChange={(v) => { setAlreadyCreatedF(v || "all"); setPage(1) }} className="w-40" />
           <FilterSelect label="AI Updates" value={aiUpdatesF === "all" ? "" : aiUpdatesF} options={["New update"]} onChange={(v) => { setAiUpdatesF(v || "all"); setPage(1) }} className="w-36" />
@@ -1533,14 +1613,18 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
         <TabsContent value="listed" className="mt-4 space-y-4">
           {toolbar}
           {dragTab && <p className="text-xs text-muted-foreground">Drag rows to reorder. Order reflects on Nawy Listing website and Mobile App.</p>}
-          {renderTable("Listed Launches")}
+          {renderTable("Listed Launches", scoped ? (
+            <Button size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}><Plus className="h-4 w-4" />Create Launch</Button>
+          ) : undefined)}
         </TabsContent>
 
         {/* ── CURRENTLY ACTIVE ───────────────────────────────────────────────── */}
         <TabsContent value="active" className="mt-4 space-y-4">
           {toolbar}
           {dragTab && <p className="text-xs text-muted-foreground">Drag rows to reorder. Order reflects on Nawy Listing website and Mobile App.</p>}
-          {renderTable("Currently Active")}
+          {renderTable("Currently Active", scoped ? (
+            <Button size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}><Plus className="h-4 w-4" />Create Launch</Button>
+          ) : undefined)}
         </TabsContent>
       </Tabs>
 
@@ -1591,6 +1675,12 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
               <div className="space-y-1.5">
                 <p className="text-xs font-medium text-foreground">Area</p>
                 <FilterMultiSelect label="Area" options={AREAS} value={areaF} onChange={(v) => { setAreaF(v); setPage(1) }} tone="danger" className="w-full" />
+              </div>
+            )}
+            {!scoped && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-foreground">Project</p>
+                <ProjectTreeSelect multi projects={launchProjectTree} values={projectSels} onValuesChange={(v) => { setProjectSels(v); setPage(1) }} className="w-full" />
               </div>
             )}
             <div className="space-y-1.5">
@@ -1664,7 +1754,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
       />
 
       {/* ── Dialogs ──────────────────────────────────────────────────────────── */}
-      <LaunchFormDialog open={formOpen} onOpenChange={setFormOpen} onSave={handleCreate} />
+      <LaunchFormDialog open={formOpen} onOpenChange={setFormOpen} onSave={handleCreate} scope={scopeProject} />
 
       {dialog?.kind === "archive" && <ArchiveDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doArchive(dialog.launch)} />}
       {dialog?.kind === "approve" && <ApproveDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doApprove(dialog.launch)} />}

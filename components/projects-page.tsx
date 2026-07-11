@@ -8,7 +8,7 @@ import {
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ProjectHeader } from "@/components/project-header"
-import type { ProjectRow } from "@/lib/projects-mock"
+import { PROJECTS, type ProjectRow } from "@/lib/projects-mock"
 import { MasterplanMap } from "@/components/masterplan-map"
 import { BuildingsList } from "@/components/buildings-list"
 import { PropertiesTable } from "@/components/properties-table"
@@ -320,7 +320,17 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
           ))}
 
           <TabsContent value="launches" className="mt-4">
-            <LaunchesPage embedded scopeProject={{ name: project?.name ?? "", isPhase: project?.isPhase ?? false, mainProject: project?.mainProject?.name }} />
+            <LaunchesPage
+              embedded
+              scopeProject={{
+                name: project?.name ?? "",
+                isPhase: project?.isPhase ?? false,
+                mainProject: project?.mainProject?.name,
+                developer: project?.developer?.name,
+                area: project?.area,
+                phases: project && !project.isPhase ? PROJECTS.filter((p) => p.isPhase && p.mainProject?.id === project.id).map((p) => p.name) : [],
+              }}
+            />
           </TabsContent>
 
           <TabsContent value="payment-plans" className="mt-4">

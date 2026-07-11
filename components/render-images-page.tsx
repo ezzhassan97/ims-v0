@@ -112,7 +112,8 @@ function projectTree(devId?: string): ProjectTreeNode[] {
     .filter((p) => !devId || p.devId === devId)
     .map((p) => ({
       id: p.id, name: p.name, status: p.status,
-      phases: PROJECTS.filter((ph) => ph.parentId === p.id).map((ph) => ({ id: ph.id, name: ph.name, status: ph.status })),
+      // Display just the phase name — the parent shows in the row caption
+      phases: PROJECTS.filter((ph) => ph.parentId === p.id).map((ph) => ({ id: ph.id, name: ph.name.startsWith(`${p.name} — `) ? ph.name.slice(p.name.length + 3) : ph.name, status: ph.status })),
     }))
 }
 
@@ -786,7 +787,7 @@ export function RenderImagesPage({
   const [images, setImages] = useState<RenderImage[]>(RENDER_IMAGES)
   const [search, setSearch] = useState("")
   const [developerFilter, setDeveloperFilter] = useState<string[]>([])
-  const [projectSel, setProjectSel] = useState<ProjectTreeSelection>(null)
+  const [projectSels, setProjectSels] = useState<NonNullable<ProjectTreeSelection>[]>([])
   const [phaseFilter, setPhaseFilter] = useState<string[]>([])
   const [linkedFilter, setLinkedFilter] = useState<string[]>([])
   const [sourceFilter, setSourceFilter] = useState<string[]>([])
@@ -835,8 +836,8 @@ export function RenderImagesPage({
     const result = baseImages.filter((img) => {
       if (q && !img.id.toLowerCase().includes(q) && !img.caption.toLowerCase().includes(q)) return false
       if (!scope && developerFilter.length > 0 && !developerFilter.includes(img.developerName)) return false
-      // Project tree selection resolves to a set of project ids (main + phases / main only / one phase)
-      if (!scope && projectSel && !projectSel.projectIds.includes(img.projectId)) return false
+      // Project tree selections resolve to a union of project ids (main + phases / main only / phases)
+      if (!scope && projectSels.length > 0 && !projectSels.some((s) => s.projectIds.includes(img.projectId))) return false
       // Scoped to a main project: filter by phase (Main Project = the main project's own images)
       if (scope && !scope.isPhase && phaseFilter.length > 0 && !phaseFilter.includes(phaseLabelOf(img))) return false
       if (linkedFilter.length > 0) {
@@ -855,7 +856,7 @@ export function RenderImagesPage({
       }
       return 0
     })
-  }, [baseImages, scope, search, developerFilter, projectSel, phaseFilter, linkedFilter, sourceFilter, sorts])
+  }, [baseImages, scope, search, developerFilter, projectSels, phaseFilter, linkedFilter, sourceFilter, sorts])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const paginated = useMemo(
@@ -875,7 +876,7 @@ export function RenderImagesPage({
   useEffect(() => {
     setCurrentPage(1)
     setGroupPages({})
-  }, [search, developerFilter, projectSel, phaseFilter, linkedFilter, sourceFilter, sorts, groupByColumn, pageSize])
+  }, [search, developerFilter, projectSels, phaseFilter, linkedFilter, sourceFilter, sorts, groupByColumn, pageSize])
 
   // Group ALL filtered results (across every page) into sections when groupByColumn is set
   const sections = useMemo(() => {
@@ -915,14 +916,14 @@ export function RenderImagesPage({
   const lastClickedIdx = useRef<number | null>(null)
 
   const activeFilterCount =
-    (developerFilter.length ? 1 : 0) + (projectSel ? 1 : 0) + (phaseFilter.length ? 1 : 0) +
+    (developerFilter.length ? 1 : 0) + (projectSels.length ? 1 : 0) + (phaseFilter.length ? 1 : 0) +
     (linkedFilter.length ? 1 : 0) + (sourceFilter.length ? 1 : 0)
   const hasFilters = !!search || activeFilterCount > 0
 
   const clearAll = () => {
     setSearch("")
     setDeveloperFilter([])
-    setProjectSel(null)
+    setProjectSels([])
     setPhaseFilter([])
     setLinkedFilter([])
     setSourceFilter([])
@@ -997,7 +998,7 @@ export function RenderImagesPage({
                 <FilterMultiSelect label="Developer" options={DEVELOPERS.map((d) => d.name)} value={developerFilter} onChange={setDeveloperFilter} className="flex-1" />
               )}
               {!scope && (
-                <ProjectTreeSelect projects={projectTree()} value={projectSel} onChange={setProjectSel} className="flex-1" />
+                <ProjectTreeSelect multi projects={projectTree()} values={projectSels} onValuesChange={setProjectSels} className="flex-1" />
               )}
               {scope && !scope.isPhase && (
                 <FilterMultiSelect label="Phase" options={["Main Project", ...scope.phases.map((p) => p.name)]} value={phaseFilter} onChange={setPhaseFilter} className="flex-1" />
@@ -1309,7 +1310,7 @@ export function RenderImagesPage({
         )}
         {!scope && (
           <FilterDrawerField label="Project">
-            <ProjectTreeSelect projects={projectTree()} value={projectSel} onChange={setProjectSel} className="w-full" />
+            <ProjectTreeSelect multi projects={projectTree()} values={projectSels} onValuesChange={setProjectSels} className="w-full" />
           </FilterDrawerField>
         )}
         {scope && !scope.isPhase && (

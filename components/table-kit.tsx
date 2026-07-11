@@ -708,15 +708,23 @@ function ProjStatusTag({ status }: { status?: "Active" | "Hidden" }) {
 }
 
 /**
- * Canonical searchable Project select, grouped by main project: pick the main project
- * WITH all its phases, the main project only, or a single phase. Every row shows the
- * id + Active/Hidden tag; phases show their parent project.
+ * Canonical searchable Project dropdown, grouped by main project: pick the main project
+ * WITH all its phases, the main project only, or a single phase. Rows show the id and a
+ * right-aligned Active/Hidden tag; main rows show their phase count; phases show just the
+ * phase name (parent in the caption). One component, two modes:
+ *  - single (default): no checkboxes — the selected row is highlighted.
+ *  - multi: same rows with checkboxes; the trigger shows the selection count.
  */
-export function ProjectTreeSelect({ label = "Project", projects, value, onChange, className }: {
+export function ProjectTreeSelect({ label = "Project", projects, value, onChange, values = [], onValuesChange, multi = false, className }: {
   label?: string
   projects: ProjectTreeNode[]
-  value: ProjectTreeSelection
-  onChange: (v: ProjectTreeSelection) => void
+  /** Single mode */
+  value?: ProjectTreeSelection
+  onChange?: (v: ProjectTreeSelection) => void
+  /** Multi mode */
+  values?: NonNullable<ProjectTreeSelection>[]
+  onValuesChange?: (v: NonNullable<ProjectTreeSelection>[]) => void
+  multi?: boolean
   className?: string
 }) {
   const [open, setOpen] = useState(false)
@@ -741,8 +749,37 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
     })
     .filter(Boolean) as ProjectTreeNode[]
 
-  const pick = (v: ProjectTreeSelection) => { onChange(v); setOpen(false); setQ("") }
-  const active = !!value
+  const isSelected = (kind: string, id: string) =>
+    multi ? values.some((v) => v.kind === kind && v.id === id) : value?.kind === kind && value.id === id
+
+  const pick = (sel: NonNullable<ProjectTreeSelection>) => {
+    if (multi) {
+      const exists = values.some((v) => v.kind === sel.kind && v.id === sel.id)
+      onValuesChange?.(exists ? values.filter((v) => !(v.kind === sel.kind && v.id === sel.id)) : [...values, sel])
+    } else {
+      onChange?.(sel)
+      setOpen(false)
+      setQ("")
+    }
+  }
+  const clear = () => {
+    if (multi) onValuesChange?.([])
+    else { onChange?.(null); setOpen(false); setQ("") }
+  }
+
+  const active = multi ? values.length > 0 : !!value
+  const triggerLabel = multi
+    ? (values.length === 0 ? label : values.length === 1 ? values[0].label : `${label} · ${values.length}`)
+    : (value ? value.label : label)
+
+  const CheckBox = ({ checked }: { checked: boolean }) => (
+    <span className={cn(
+      "flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-sm border transition-colors",
+      checked ? "border-primary bg-primary" : "border-border bg-white",
+    )}>
+      {checked && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+    </span>
+  )
 
   return (
     <div ref={ref} className={cn("relative", className)}>
@@ -754,7 +791,7 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
           active ? "border-primary text-primary" : "border-input text-foreground",
         )}
       >
-        <span className="truncate text-left">{value ? value.label : label}</span>
+        <span className="truncate text-left">{triggerLabel}</span>
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
 
@@ -767,47 +804,45 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
             </div>
           </div>
           <div className="max-h-72 overflow-y-auto py-1">
-            <button onClick={() => pick(null)} className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-secondary", !active && "text-primary")}>
-              <span className="flex h-3.5 w-3.5 items-center justify-center">{!active && <Check className="h-3.5 w-3.5" />}</span>
-              All {label}s
+            <button onClick={clear} className={cn("flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-secondary", !active && "font-medium text-primary")}>
+              {multi && values.length > 0 ? "Clear selection" : `All ${label}s`}
             </button>
             {visible.map((p) => {
               const allIds = [p.id, ...p.phases.map((ph) => ph.id)]
-              const isProj = value?.kind === "project" && value.id === p.id
-              const isMainOnly = value?.kind === "main-only" && value.id === p.id
+              const isProj = isSelected("project", p.id)
+              const isMainOnly = isSelected("main-only", p.id)
               return (
                 <div key={p.id} className="mt-0.5">
                   {/* Main project + all phases */}
                   <button onClick={() => pick({ kind: "project", id: p.id, label: p.phases.length ? `${p.name} + phases` : p.name, projectIds: allIds })} className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-secondary", isProj && "bg-primary/5")}>
-                    <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center">{isProj && <Check className="h-3.5 w-3.5 text-primary" />}</span>
+                    {multi && <CheckBox checked={isProj} />}
                     <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate text-sm font-medium">{p.name}</span>
-                        <ProjStatusTag status={p.status} />
-                      </span>
-                      <span className="font-mono text-[10px] text-muted-foreground">ID: {p.id}{p.phases.length > 0 && ` · incl. ${p.phases.length} phase${p.phases.length === 1 ? "" : "s"}`}</span>
+                      <span className="block truncate text-sm font-medium">{p.name}</span>
+                      <span className="font-mono text-[10px] text-muted-foreground">ID: {p.id}</span>
+                    </span>
+                    <span className="flex flex-shrink-0 items-center gap-1.5">
+                      {p.phases.length > 0 && <span className="whitespace-nowrap text-[11px] text-muted-foreground">{p.phases.length} phase{p.phases.length === 1 ? "" : "s"}</span>}
+                      <ProjStatusTag status={p.status} />
                     </span>
                   </button>
                   {/* Main project only */}
                   {p.phases.length > 0 && (
                     <button onClick={() => pick({ kind: "main-only", id: p.id, label: `${p.name} (main only)`, projectIds: [p.id] })} className={cn("flex w-full items-center gap-2 py-1.5 pl-9 pr-3 text-left hover:bg-secondary", isMainOnly && "bg-primary/5")}>
-                      <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center">{isMainOnly && <Check className="h-3.5 w-3.5 text-primary" />}</span>
-                      <span className="text-sm text-muted-foreground">Main project only</span>
+                      {multi && <CheckBox checked={isMainOnly} />}
+                      <span className="flex-1 text-sm text-muted-foreground">Main project only</span>
                     </button>
                   )}
-                  {/* Phases */}
+                  {/* Phases — just the phase name; parent shown in the caption */}
                   {p.phases.map((ph) => {
-                    const isPh = value?.kind === "phase" && value.id === ph.id
+                    const isPh = isSelected("phase", ph.id)
                     return (
                       <button key={ph.id} onClick={() => pick({ kind: "phase", id: ph.id, label: ph.name, projectIds: [ph.id] })} className={cn("flex w-full items-center gap-2 py-1.5 pl-9 pr-3 text-left hover:bg-secondary", isPh && "bg-primary/5")}>
-                        <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center">{isPh && <Check className="h-3.5 w-3.5 text-primary" />}</span>
+                        {multi && <CheckBox checked={isPh} />}
                         <span className="min-w-0 flex-1">
-                          <span className="flex items-center gap-1.5">
-                            <span className="truncate text-sm">{ph.name}</span>
-                            <ProjStatusTag status={ph.status} />
-                          </span>
+                          <span className="block truncate text-sm">{ph.name}</span>
                           <span className="font-mono text-[10px] text-muted-foreground">ID: {ph.id} · in {p.name}</span>
                         </span>
+                        <ProjStatusTag status={ph.status} />
                       </button>
                     )
                   })}

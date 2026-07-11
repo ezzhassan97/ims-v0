@@ -64,7 +64,8 @@ const MAIN_PROJECTS = PROJECTS.filter((p) => p.parentId === null)
 function projectTree(): ProjectTreeNode[] {
   return MAIN_PROJECTS.map((p) => ({
     id: p.id, name: p.name, status: p.status,
-    phases: PROJECTS.filter((ph) => ph.parentId === p.id).map((ph) => ({ id: ph.id, name: ph.name, status: ph.status })),
+    // Display just the phase name — the parent shows in the row caption
+    phases: PROJECTS.filter((ph) => ph.parentId === p.id).map((ph) => ({ id: ph.id, name: ph.name.startsWith(`${p.name} — `) ? ph.name.slice(p.name.length + 3) : ph.name, status: ph.status })),
   }))
 }
 
@@ -263,7 +264,7 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
   const [items, setItems] = useState<Masterplan[]>(MASTERPLANS)
   const [search, setSearch] = useState("")
   const [developerFilter, setDeveloperFilter] = useState<string[]>([])
-  const [projectSel, setProjectSel] = useState<ProjectTreeSelection>(null)
+  const [projectSels, setProjectSels] = useState<NonNullable<ProjectTreeSelection>[]>([])
   const [typeFilter, setTypeFilter] = useState<string[]>([])
   const [resolutionFilter, setResolutionFilter] = useState<string[]>([])
   const [showAllFilters, setShowAllFilters] = useState(false)
@@ -298,7 +299,7 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
     const result = baseItems.filter((m) => {
       if (q && !m.id.toLowerCase().includes(q) && !m.name.toLowerCase().includes(q)) return false
       if (!scope && developerFilter.length > 0 && !developerFilter.includes(m.developerName)) return false
-      if (!scope && projectSel && !projectSel.projectIds.includes(m.projectId)) return false
+      if (!scope && projectSels.length > 0 && !projectSels.some((s) => s.projectIds.includes(m.projectId))) return false
       if (typeFilter.length > 0 && !typeFilter.includes(m.type)) return false
       if (resolutionFilter.length > 0 && !resolutionFilter.includes(m.resolution)) return false
       return true
@@ -312,12 +313,12 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
       }
       return 0
     })
-  }, [baseItems, scope, search, developerFilter, projectSel, typeFilter, resolutionFilter, sorts])
+  }, [baseItems, scope, search, developerFilter, projectSels, typeFilter, resolutionFilter, sorts])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
   useEffect(() => { setPage((p) => Math.min(p, totalPages)) }, [totalPages])
-  useEffect(() => { setPage(1); setGroupPages({}) }, [search, developerFilter, projectSel, typeFilter, resolutionFilter, sorts, groupBy, pageSize])
+  useEffect(() => { setPage(1); setGroupPages({}) }, [search, developerFilter, projectSels, typeFilter, resolutionFilter, sorts, groupBy, pageSize])
 
   const sections = useMemo(() => {
     if (!groupBy) return null
@@ -330,9 +331,9 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
   }, [filtered, groupBy])
 
   const activeFilterCount =
-    (developerFilter.length ? 1 : 0) + (projectSel ? 1 : 0) + (typeFilter.length ? 1 : 0) + (resolutionFilter.length ? 1 : 0)
+    (developerFilter.length ? 1 : 0) + (projectSels.length ? 1 : 0) + (typeFilter.length ? 1 : 0) + (resolutionFilter.length ? 1 : 0)
   const hasFilters = !!search || activeFilterCount > 0
-  const clearAll = () => { setSearch(""); setDeveloperFilter([]); setProjectSel(null); setTypeFilter([]); setResolutionFilter([]) }
+  const clearAll = () => { setSearch(""); setDeveloperFilter([]); setProjectSels([]); setTypeFilter([]); setResolutionFilter([]) }
 
   const cardGrid = (rows: Masterplan[]) => (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -375,7 +376,7 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
             </div>
             <div className="flex flex-1 flex-wrap gap-2">
               {!scope && <FilterMultiSelect label="Developer" options={DEVELOPERS.map((d) => d.name)} value={developerFilter} onChange={setDeveloperFilter} className="flex-1" />}
-              {!scope && <ProjectTreeSelect projects={projectTree()} value={projectSel} onChange={setProjectSel} className="flex-1" />}
+              {!scope && <ProjectTreeSelect multi projects={projectTree()} values={projectSels} onValuesChange={setProjectSels} className="flex-1" />}
               <FilterMultiSelect label="Type" options={[...MP_TYPES]} value={typeFilter} onChange={setTypeFilter} className="flex-1" />
               <FilterMultiSelect label="Resolution" options={[...RESOLUTIONS]} value={resolutionFilter} onChange={setResolutionFilter} className="flex-1" />
             </div>
@@ -536,7 +537,7 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
         )}
         {!scope && (
           <FilterDrawerField label="Project">
-            <ProjectTreeSelect projects={projectTree()} value={projectSel} onChange={setProjectSel} className="w-full" />
+            <ProjectTreeSelect multi projects={projectTree()} values={projectSels} onValuesChange={setProjectSels} className="w-full" />
           </FilterDrawerField>
         )}
         <FilterDrawerField label="Type">

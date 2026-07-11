@@ -1532,15 +1532,15 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
             <AlertDialogDescription asChild>
               <div>
                 <p>
-                  {approvalStatus !== "Approved"
-                    ? "This launch must be approved before it can be ingested."
-                    : "The data is not 100% complete. Check the mandatory fields to ingest this launch."}
+                  To ingest, a launch must be <span className="font-medium text-foreground">Approved</span> and its data{" "}
+                  <span className="font-medium text-foreground">100% complete</span>. Currently missing:
                 </p>
-                {missingFields.length > 0 && (
-                  <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs">
-                    {missingFields.map((f) => <li key={f}>{f}</li>)}
-                  </ul>
-                )}
+                <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs">
+                  {approvalStatus !== "Approved" && (
+                    <li className="font-medium text-red-600">Launch approval — current status: {approvalStatus}</li>
+                  )}
+                  {missingFields.map((f) => <li key={f}>{f}</li>)}
+                </ul>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1550,13 +1550,13 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Ingestion — launch ingestion summary */}
+      {/* Ingestion — launch ingestion summary (fixed header/footer, scrollable body) */}
       <Dialog open={ingestDialog === "summary"} onOpenChange={(o) => { if (!o) setIngestDialog(null) }}>
-        <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[88vh] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+          <DialogHeader className="shrink-0 border-b border-border px-6 py-4">
             <DialogTitle>Launch Ingestion Summary</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
             {/* Cover image */}
             <img
               src={launch.coverImage || "/placeholder.svg"}
@@ -1706,7 +1706,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
             <Button variant="outline" className="bg-transparent" onClick={() => setIngestDialog(null)}>Cancel</Button>
             <Button
               className="bg-emerald-600 text-white hover:bg-emerald-700"
