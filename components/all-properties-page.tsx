@@ -3262,7 +3262,7 @@ export function EmbeddedPropertyTable({
 }
 
 // ── Main view ──────────────────────────────────────────────────────────────────
-export function DetailedPropertiesView({ filters, onCreateProperty }: { filters: FilterProps; onCreateProperty?: (v: Variation) => void }) {
+export function DetailedPropertiesView({ filters, onCreateProperty, scopeProjectName }: { filters: FilterProps; onCreateProperty?: (v: Variation) => void; /** Project-details embed: keep only this project's rows (falls back to all when mock names don't match). */ scopeProjectName?: string }) {
   const {
     searchQuery,
     developerFilter,
@@ -3292,7 +3292,12 @@ export function DetailedPropertiesView({ filters, onCreateProperty }: { filters:
     groupByColumn,
     setGroupByColumn,
   } = filters
-  const [rows, setRows] = useState<PropertyRow[]>(() => createRows())
+  const [allTableRows, setRows] = useState<PropertyRow[]>(() => createRows())
+  const rows = useMemo(() => {
+    if (!scopeProjectName) return allTableRows
+    const matched = allTableRows.filter((r) => r.project.name === scopeProjectName)
+    return matched.length ? matched : allTableRows
+  }, [allTableRows, scopeProjectName])
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
@@ -5030,8 +5035,16 @@ function DateRangeDropdown({
   )
 }
 
-export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty }: { onOpenGroupDetail?: (d: GroupDetailPayload) => void; onCreateProperty?: (v: Variation) => void } = {}) {
-  const allRows = useMemo(() => createRows(), [])
+export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedded = false, scopeProject }: { onOpenGroupDetail?: (d: GroupDetailPayload) => void; onCreateProperty?: (v: Variation) => void; embedded?: boolean; scopeProject?: { name: string; isPhase: boolean; mainProject?: string } } = {}) {
+  // Scoped (project details embed): properties of that project — for a phase, of its main
+  // project. Mock rows only name-match a subset of projects, so fall back when nothing matches.
+  const scopeTarget = scopeProject ? (scopeProject.isPhase ? scopeProject.mainProject ?? scopeProject.name : scopeProject.name) : undefined
+  const allRows = useMemo(() => {
+    const rows = createRows()
+    if (!scopeTarget) return rows
+    const matched = rows.filter((r) => r.project.name === scopeTarget)
+    return matched.length ? matched : rows
+  }, [scopeTarget])
 
   // ── Shared filter state ────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("")
@@ -5203,6 +5216,8 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty }: { onO
   const activeSortCols = activeTab === "grouped" ? GROUPED_SORT_COLS : DETAILED_SORT_COLS
 
   const GROUP_COLS = [
+    // Scoped main project: group properties by the phase they belong to
+    ...(scopeProject && !scopeProject.isPhase ? [{ id: "phase", label: "Phase" }] : []),
     { id: "developer",         label: "Developer" },
     { id: "project",           label: "Project" },
     { id: "district",          label: "District" },
@@ -5235,16 +5250,18 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty }: { onO
   }
 
   return (
-    <div className="min-h-screen bg-secondary/40">
-      <div className="space-y-4 p-4">
-        <div className="px-1 pt-1">
-          <p className="text-xs text-muted-foreground mb-1">Properties</p>
-          <h1 className="text-2xl font-semibold text-foreground">All Properties</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            All Properties View in the inventory, switch between grouped properties on listing and
-            detailed properties on E-realty.
-          </p>
-        </div>
+    <div className={cn(!embedded && "min-h-screen bg-secondary/40")}>
+      <div className={cn("space-y-4", !embedded && "p-4")}>
+        {!embedded && (
+          <div className="px-1 pt-1">
+            <p className="text-xs text-muted-foreground mb-1">Properties</p>
+            <h1 className="text-2xl font-semibold text-foreground">All Properties</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              All Properties View in the inventory, switch between grouped properties on listing and
+              detailed properties on E-realty.
+            </p>
+          </div>
+        )}
 
         <Tabs defaultValue="grouped" className="space-y-4" onValueChange={setActiveTab}>
           <TabsList className="bg-card">
@@ -5280,9 +5297,9 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty }: { onO
                   )}
                 </div>
                 <div className="flex flex-1 gap-2">
-                  <FilterDropdown label="District"       options={filterOptions.districts}       selected={districtFilter}      onChange={setDistrictFilter}      className="flex-1" />
-                  <FilterDropdown label="Area"           options={filterOptions.areas}           selected={areaFilter}          onChange={setAreaFilter}          className="flex-1" />
-                  <FilterDropdown label="Developer"      options={filterOptions.developers}      selected={developerFilter}     onChange={setDeveloperFilter}     className="flex-1" />
+                  {!embedded && <FilterDropdown label="District"       options={filterOptions.districts}       selected={districtFilter}      onChange={setDistrictFilter}      className="flex-1" />}
+                  {!embedded && <FilterDropdown label="Area"           options={filterOptions.areas}           selected={areaFilter}          onChange={setAreaFilter}          className="flex-1" />}
+                  {!embedded && <FilterDropdown label="Developer"      options={filterOptions.developers}      selected={developerFilter}     onChange={setDeveloperFilter}     className="flex-1" />}
                   <FilterDropdown label="Project"        options={filterOptions.projects}        selected={projectFilter}       onChange={setProjectFilter}       className="flex-1" />
                   <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter}      className="flex-1" />
                   <FilterDropdown label="Status"         options={filterOptions.availability}    selected={availabilityFilter}  onChange={setAvailabilityFilter}  className="flex-1" />
@@ -5469,9 +5486,11 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty }: { onO
                 <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
                   {(
                     [
-                      { label: "District",           filter: districtFilter,           setFilter: setDistrictFilter,           options: filterOptions.districts },
-                      { label: "Area",               filter: areaFilter,               setFilter: setAreaFilter,               options: filterOptions.areas },
-                      { label: "Developer",          filter: developerFilter,          setFilter: setDeveloperFilter,          options: filterOptions.developers },
+                      ...(embedded ? [] : [
+                        { label: "District",           filter: districtFilter,           setFilter: setDistrictFilter,           options: filterOptions.districts },
+                        { label: "Area",               filter: areaFilter,               setFilter: setAreaFilter,               options: filterOptions.areas },
+                        { label: "Developer",          filter: developerFilter,          setFilter: setDeveloperFilter,          options: filterOptions.developers },
+                      ]),
                       { label: "Project",            filter: projectFilter,            setFilter: setProjectFilter,            options: filterOptions.projects },
                       { label: "Sale Type",          filter: saleTypeFilter,           setFilter: setSaleTypeFilter,           options: filterOptions.saleTypes },
                       { label: "Status",             filter: availabilityFilter,       setFilter: setAvailabilityFilter,       options: filterOptions.availability },
@@ -5596,12 +5615,13 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty }: { onO
               filterGroups={filterGroups}
               groupConnector={groupConnector}
               groupByColumn={groupByColumn}
+              scopeProjectName={scopeTarget}
               onOpenGroupDetail={onOpenGroupDetail}
               onCreateProperty={onCreateProperty}
             />
           </TabsContent>
           <TabsContent value="detailed" className="mt-0">
-            <DetailedPropertiesView filters={filterPropsWithClear} onCreateProperty={onCreateProperty} />
+            <DetailedPropertiesView filters={filterPropsWithClear} onCreateProperty={onCreateProperty} scopeProjectName={scopeTarget} />
           </TabsContent>
         </Tabs>
       </div>

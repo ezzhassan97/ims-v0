@@ -1294,6 +1294,8 @@ interface FilterGroup {
 function getGroupFieldValue(group: GroupedProperty, col: string): string {
   switch (col) {
     case "developer":    return group.developer.name
+    case "project":      return group.project.name
+    case "phase":        return group.phase?.name ?? "Main Project"
     case "district":     return group.district
     case "locationArea": return group.locationArea
     case "saleType":     return group.saleType
@@ -2101,6 +2103,7 @@ export function GroupedPropertiesView({
   filterGroups = [],
   groupConnector = "AND",
   groupByColumn = null,
+  scopeProjectName,
   onOpenGroupDetail,
   onCreateProperty,
 }: {
@@ -2109,10 +2112,17 @@ export function GroupedPropertiesView({
   filterGroups?: FilterGroup[]
   groupConnector?: "AND" | "OR"
   groupByColumn?: string | null
+  /** Project-details embed: keep only this project's cards (falls back to all when mock names don't match). */
+  scopeProjectName?: string
   onOpenGroupDetail?: (d: GroupDetailPayload) => void
   onCreateProperty?: (v: Variation) => void
 }) {
-  const [groups, setGroups] = useState<GroupedProperty[]>(() => makeGroups())
+  const [allGroups, setGroups] = useState<GroupedProperty[]>(() => makeGroups())
+  const groups = useMemo(() => {
+    if (!scopeProjectName) return allGroups
+    const matched = allGroups.filter((g) => g.project.name === scopeProjectName)
+    return matched.length ? matched : allGroups
+  }, [allGroups, scopeProjectName])
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([groups[0]?.id].filter(Boolean)))
   const allRows = useMemo(() => createRows(), [])
   const [currentPage, setCurrentPage] = useState(1)
@@ -2130,6 +2140,7 @@ export function GroupedPropertiesView({
     const filtered = groups.filter((group) => {
       if (filters.saleTypeFilter.size > 0 && !filters.saleTypeFilter.has(group.saleType)) return false
       if (filters.developerFilter.size > 0 && !filters.developerFilter.has(group.developer.name)) return false
+      if (filters.projectFilter.size > 0 && !filters.projectFilter.has(group.project.name)) return false
       if (filters.entryTypeFilter.size > 0 && !filters.entryTypeFilter.has(group.entryType)) return false
       if (filters.listingFilter.size > 0 && !filters.listingFilter.has(group.listingStatus)) return false
       if (filters.propertyTypeFilter.size > 0 && !filters.propertyTypeFilter.has(group.propertyType)) return false

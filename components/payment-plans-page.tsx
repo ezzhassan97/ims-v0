@@ -99,7 +99,7 @@ const PLANS: PlanRow[] = Array.from({ length: 24 }, (_, i) => {
 const SORT_OPTIONS = ["Last updated ↓", "Last updated ↑", "Created ↓", "Created ↑", "Name A–Z"]
 
 // ── Page ───────────────────────────────────────────────────────────────────────
-export function PaymentPlansPage() {
+export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [plans, setPlans] = useState<PlanRow[]>(PLANS)
   const [search, setSearch] = useState("")
   const [developerF, setDeveloperF] = useState("")
@@ -157,20 +157,24 @@ export function PaymentPlansPage() {
   }
 
   return (
-    <div className="min-h-screen bg-secondary/40">
-      <div className="space-y-4 p-6">
+    <div className={cn(!embedded && "min-h-screen bg-secondary/40")}>
+      <div className={cn("space-y-4", !embedded && "p-6")}>
         {/* Breadcrumb + title */}
-        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Home className="h-3.5 w-3.5" />
-          <ChevronRight className="h-3 w-3" />
-          <span>Projects Attachments</span>
-          <ChevronRight className="h-3 w-3" />
-          <span className="font-medium text-foreground">Payment Plans</span>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Payment Plans</h1>
-          <p className="text-sm text-muted-foreground">View and manage all primary payment plans in the system</p>
-        </div>
+        {!embedded && (
+          <>
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Home className="h-3.5 w-3.5" />
+              <ChevronRight className="h-3 w-3" />
+              <span>Projects Attachments</span>
+              <ChevronRight className="h-3 w-3" />
+              <span className="font-medium text-foreground">Payment Plans</span>
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">Payment Plans</h1>
+              <p className="text-sm text-muted-foreground">View and manage all primary payment plans in the system</p>
+            </div>
+          </>
+        )}
 
         {/* Search + filters */}
         <div className="space-y-2.5 rounded-xl border border-border bg-card p-3">

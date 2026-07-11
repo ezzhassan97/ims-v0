@@ -15,6 +15,10 @@ import { FAQsTab } from "@/components/faqs-tab"
 import { MasterplansTab } from "@/components/masterplans-tab"
 import { ConstructionUpdatesTab } from "@/components/construction-updates-tab"
 import { RenderImagesPage } from "@/components/render-images-page"
+import { LaunchesPage } from "@/components/launches-page"
+import { AllPropertiesPage } from "@/components/all-properties-page"
+import { PaymentPlansPage } from "@/components/payment-plans-page"
+import { ComingSoon } from "@/components/coming-soon"
 import {
   type Building,
   type Unit,
@@ -277,27 +281,50 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
         )}
         <ProjectHeader />
 
-        <Tabs defaultValue="buildings" className="w-full">
-          <TabsList className="bg-secondary">
-            <TabsTrigger value="masterplans" className="data-[state=active]:bg-card">
-              Masterplans
-            </TabsTrigger>
-            <TabsTrigger value="amenities" className="data-[state=active]:bg-card">
-              Masterplan Amenities
-            </TabsTrigger>
-            <TabsTrigger value="buildings" className="data-[state=active]:bg-card">
-              Masterplan Buildings
-            </TabsTrigger>
-            <TabsTrigger value="faqs" className="data-[state=active]:bg-card">
-              FAQs
-            </TabsTrigger>
-            <TabsTrigger value="construction-updates" className="data-[state=active]:bg-card">
-              Construction Updates
-            </TabsTrigger>
-            <TabsTrigger value="render-images" className="data-[state=active]:bg-card">
-              Render Images
-            </TabsTrigger>
+        <Tabs defaultValue="features" className="w-full">
+          <TabsList className="h-auto flex-wrap justify-start bg-secondary">
+            {[
+              ["features", "Features"],
+              ["seo", "SEO"],
+              ["faqs", "FAQs"],
+              ["launches", "Launches"],
+              ["phases", "Phases"],
+              ["payment-plans", "Payment Plans"],
+              ["render-images", "Render Images"],
+              ["floor-plans", "Floor Plans"],
+              ["properties", "Properties"],
+              ["masterplans", "Masterplans"],
+              ["amenities", "Masterplan Amenities"],
+              ["buildings", "Masterplan Buildings"],
+              ["construction-updates", "Construction Updates"],
+              ["ingestion-entries", "Ingestion Entries"],
+              ["attachments", "Attachments"],
+              ["audit-logs", "Audit Logs"],
+            ].map(([value, label]) => (
+              <TabsTrigger key={value} value={value} className="data-[state=active]:bg-card">
+                {label}
+              </TabsTrigger>
+            ))}
           </TabsList>
+
+          {/* Not built yet → coming soon */}
+          {["features", "seo", "phases", "floor-plans", "ingestion-entries", "attachments", "audit-logs"].map((value) => (
+            <TabsContent key={value} value={value} className="mt-4">
+              <ComingSoon pageName={value === "seo" ? "SEO" : value.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ")} />
+            </TabsContent>
+          ))}
+
+          <TabsContent value="launches" className="mt-4">
+            <LaunchesPage embedded scopeProject={{ name: project?.name ?? "", isPhase: project?.isPhase ?? false, mainProject: project?.mainProject?.name }} />
+          </TabsContent>
+
+          <TabsContent value="payment-plans" className="mt-4">
+            <PaymentPlansPage embedded />
+          </TabsContent>
+
+          <TabsContent value="properties" className="mt-4">
+            <AllPropertiesPage embedded scopeProject={{ name: project?.name ?? "", isPhase: project?.isPhase ?? false, mainProject: project?.mainProject?.name }} />
+          </TabsContent>
 
           <TabsContent value="render-images" className="mt-4">
             <RenderImagesPage embedded scopeProject={{ name: project?.name ?? "", isPhase: project?.isPhase ?? false }} />

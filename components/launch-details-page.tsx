@@ -995,7 +995,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
   ])
 
   // Launch Details fields
-  const [launchFormType, setLaunchFormType] = useState<"Launch" | "Release">("Launch")
+  const [launchFormType, setLaunchFormType] = useState<"Launch" | "Release">(launch.type)
   const [launchDirty, setLaunchDirty] = useState(false)
   const [launchSaveConfirm, setLaunchSaveConfirm] = useState(false)
   const [eoiCurrency, setEoiCurrency] = useState("EGP")
@@ -1277,14 +1277,14 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+                {/* Launch ID — leftmost */}
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <span className="uppercase tracking-wide text-muted-foreground/60">Launch ID:</span> <IdCopy value={launch.id} />
+                </span>
                 {/* Developer — clickable */}
                 <span className="flex items-center gap-1.5">
                   <a href="#" target="_blank" rel="noreferrer" className="text-sm font-medium text-muted-foreground hover:underline">{launch.developer.name}</a>
                   <span className="text-[10px] text-muted-foreground"><IdCopy value={launch.developer.id} /></span>
-                </span>
-                {/* Launch ID */}
-                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                  <span className="uppercase tracking-wide text-muted-foreground/60">Launch ID:</span> <IdCopy value={launch.id} />
                 </span>
                 {/* Parent project — matched (link + id) vs unmatched (red tag), phase launches only */}
                 {launch.projectLevel === "Phase" && (
@@ -2222,7 +2222,9 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
               </div>
             </div>
 
-            {/* EOI — General + by property type visible together */}
+            {/* EOI — hidden entirely for Releases (EOIs only apply to Launches) */}
+            {launchFormType !== "Release" && (
+            <>
             <div className="pt-6 border-t border-border">
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-foreground">Expression of Interest (EOI)</h3>
@@ -2305,6 +2307,8 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 ))}
               </div>
             </div>
+            </>
+            )}
 
             {/* Refundability */}
             <div className="pt-6 border-t border-border">
@@ -2412,6 +2416,11 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                 <AlertDialogTitle>Change launch details?</AlertDialogTitle>
                 <AlertDialogDescription>
                   This Launch already ingested and {launchStatus.toLowerCase()}. Are you sure you want to change these launch details?
+                  {launchFormType === "Release" && launch.type === "Launch" && (
+                    <span className="mt-2 block font-medium text-red-600">
+                      This launch has been changed to a Release — all EOI amounts will be removed.
+                    </span>
+                  )}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
