@@ -258,15 +258,13 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
                 </button>
               )}
             </div>
-            <FilterSelect label="Developer" value={developerF} options={developers} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-48" />
-            <FilterSelect label="Project" value={projectF} options={projects} onChange={(v) => { setProjectF(v); setPage(1) }} className="w-44" />
-            <FilterSelect label="Phase" value={phaseF} options={phases} onChange={(v) => { setPhaseF(v); setPage(1) }} className="w-36" />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <FilterSelect label="Plan type" value={typeF} options={PLAN_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-40" />
-            <FilterSelect label="Frequency" value={frequencyF} options={FREQUENCIES} onChange={(v) => { setFrequencyF(v); setPage(1) }} className="w-40" />
-            <FilterSelect label="Currency" value={currencyF} options={["EGP", "USD"]} onChange={(v) => { setCurrencyF(v); setPage(1) }} className="w-36" />
-            <FilterSelect label="Offer" value={offerF} options={["Offer", "No Offer"]} onChange={(v) => { setOfferF(v); setPage(1) }} className="w-32" />
+            <FilterSelect label="Developer" value={developerF} options={developers} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="min-w-0 flex-1" />
+            <FilterSelect label="Project" value={projectF} options={projects} onChange={(v) => { setProjectF(v); setPage(1) }} className="min-w-0 flex-1" />
+            <FilterSelect label="Phase" value={phaseF} options={phases} onChange={(v) => { setPhaseF(v); setPage(1) }} className="min-w-0 flex-1" />
+            <FilterSelect label="Plan type" value={typeF} options={PLAN_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="min-w-0 flex-1" />
+            <FilterSelect label="Frequency" value={frequencyF} options={FREQUENCIES} onChange={(v) => { setFrequencyF(v); setPage(1) }} className="min-w-0 flex-1" />
+            <FilterSelect label="Currency" value={currencyF} options={["EGP", "USD"]} onChange={(v) => { setCurrencyF(v); setPage(1) }} className="min-w-0 flex-1" />
+            <FilterSelect label="Offer" value={offerF} options={["Offer", "No Offer"]} onChange={(v) => { setOfferF(v); setPage(1) }} className="min-w-0 flex-1" />
           </div>
           {/* Divider row: All Filters + Clear on the left, Sort + Group on the right */}
           <div className="flex items-center justify-between border-t border-border pt-2.5">
