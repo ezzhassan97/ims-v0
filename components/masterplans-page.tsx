@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils"
 // ── Types & mock ───────────────────────────────────────────────────────────────
 type MpType = "Listing Masterplan" | "Numbered Masterplan" | "GIS Masterplan"
 type MpResolution = "High" | "Med" | "Low"
+type MpExt = "PNG" | "JPG" | "GeoTIFF" | "MBTiles"
 
 interface Masterplan {
   id: string
@@ -31,6 +32,8 @@ interface Masterplan {
   type: MpType
   resolution: MpResolution
   dimensions: { width: number; height: number }
+  /** Image masterplans are PNG/JPG; GIS masterplans are GeoTIFF/MBTiles. */
+  ext: MpExt
   fileSizeKb: number
   version: number
   developerId: string
@@ -42,22 +45,22 @@ interface Masterplan {
 }
 
 const DEVELOPERS = [
-  { id: "DEV-002", name: "Palm Hills" },
-  { id: "DEV-003", name: "SODIC" },
-  { id: "DEV-004", name: "Mountain View" },
-  { id: "DEV-005", name: "Emaar Misr" },
+  { id: "16", name: "Palm Hills" },
+  { id: "254", name: "SODIC" },
+  { id: "88", name: "Mountain View" },
+  { id: "930", name: "Emaar Misr" },
 ]
 
 interface ProjectRef { id: string; name: string; devId: string; parentId: string | null; status: "Active" | "Hidden" }
 const PROJECTS: ProjectRef[] = [
-  { id: "P-MAR", name: "Marassi", devId: "DEV-005", parentId: null, status: "Active" },
-  { id: "P-MAR-1", name: "Marassi — Phase 1", devId: "DEV-005", parentId: "P-MAR", status: "Active" },
-  { id: "P-MAR-2", name: "Marassi — Phase 2", devId: "DEV-005", parentId: "P-MAR", status: "Hidden" },
-  { id: "P-PHO", name: "Palm Hills October", devId: "DEV-002", parentId: null, status: "Active" },
-  { id: "P-PHO-1", name: "Palm Hills October — Phase 1", devId: "DEV-002", parentId: "P-PHO", status: "Active" },
-  { id: "P-SW", name: "SODIC West", devId: "DEV-003", parentId: null, status: "Active" },
-  { id: "P-SW-A", name: "SODIC West — Villette", devId: "DEV-003", parentId: "P-SW", status: "Hidden" },
-  { id: "P-NB", name: "North Bay", devId: "DEV-004", parentId: null, status: "Hidden" },
+  { id: "1201", name: "Marassi", devId: "930", parentId: null, status: "Active" },
+  { id: "1202", name: "Marassi — Phase 1", devId: "930", parentId: "1201", status: "Active" },
+  { id: "1203", name: "Marassi — Phase 2", devId: "930", parentId: "1201", status: "Hidden" },
+  { id: "1204", name: "Palm Hills October", devId: "16", parentId: null, status: "Active" },
+  { id: "1205", name: "Palm Hills October — Phase 1", devId: "16", parentId: "1204", status: "Active" },
+  { id: "1207", name: "SODIC West", devId: "254", parentId: null, status: "Active" },
+  { id: "1208", name: "SODIC West — Villette", devId: "254", parentId: "1207", status: "Hidden" },
+  { id: "1209", name: "North Bay", devId: "88", parentId: null, status: "Hidden" },
 ]
 const MAIN_PROJECTS = PROJECTS.filter((p) => p.parentId === null)
 
@@ -85,6 +88,7 @@ const MASTERPLANS: Masterplan[] = Array.from({ length: 18 }, (_, i) => {
     type,
     resolution: RESOLUTIONS[i % RESOLUTIONS.length],
     dimensions: { width: [4096, 2048, 1920][i % 3], height: [2160, 1080, 1080][i % 3] },
+    ext: (type === "GIS Masterplan" ? (["GeoTIFF", "MBTiles"] as const)[i % 2] : (["PNG", "JPG"] as const)[i % 2]) as MpExt,
     fileSizeKb: [3840, 1920, 980][i % 3] + i * 13,
     version: (i % 4) + 1,
     developerId: dev.id,
@@ -148,7 +152,7 @@ function MasterplanCard({ mp, onDelete }: { mp: Masterplan; onDelete: () => void
           <p className="flex items-center gap-1.5"><FolderKanban className="h-3 w-3" />{mp.projectName}</p>
         </div>
         <div className="mt-auto flex items-center justify-between pt-1 text-[11px] text-muted-foreground">
-          <span>{mp.resolution} · {mp.dimensions.width}×{mp.dimensions.height} · {(mp.fileSizeKb / 1024).toFixed(1)} MB</span>
+          <span className="font-medium text-foreground/70">{mp.ext} <span className="font-normal text-muted-foreground">· {(mp.fileSizeKb / 1024).toFixed(1)} MB</span></span>
           <span>{fmtDate(mp.createdAt)}</span>
         </div>
       </div>
@@ -264,7 +268,7 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
   const [items, setItems] = useState<Masterplan[]>(MASTERPLANS)
   const [search, setSearch] = useState("")
   const [developerFilter, setDeveloperFilter] = useState<string[]>([])
-  const [projectSels, setProjectSels] = useState<NonNullable<ProjectTreeSelection>[]>([])
+  const [projectSels, setProjectSels] = useState<string[]>([])
   const [typeFilter, setTypeFilter] = useState<string[]>([])
   const [resolutionFilter, setResolutionFilter] = useState<string[]>([])
   const [showAllFilters, setShowAllFilters] = useState(false)
@@ -299,7 +303,7 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
     const result = baseItems.filter((m) => {
       if (q && !m.id.toLowerCase().includes(q) && !m.name.toLowerCase().includes(q)) return false
       if (!scope && developerFilter.length > 0 && !developerFilter.includes(m.developerName)) return false
-      if (!scope && projectSels.length > 0 && !projectSels.some((s) => s.projectIds.includes(m.projectId))) return false
+      if (!scope && projectSels.length > 0 && !projectSels.includes(m.projectId)) return false
       if (typeFilter.length > 0 && !typeFilter.includes(m.type)) return false
       if (resolutionFilter.length > 0 && !resolutionFilter.includes(m.resolution)) return false
       return true
@@ -494,6 +498,7 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
               type,
               resolution: "High" as MpResolution,
               dimensions: { width: 4096, height: 2160 },
+              ext: (type === "GIS Masterplan" ? "GeoTIFF" : /\.png$/i.test(f.name) ? "PNG" : "JPG") as MpExt,
               fileSizeKb: 2048,
               version: 1,
               developerId: dev.id,

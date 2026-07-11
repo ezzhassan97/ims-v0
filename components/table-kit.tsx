@@ -4,7 +4,7 @@ import type React from "react"
 import { useEffect, useRef, useState } from "react"
 import {
   Search, X, Filter, SlidersHorizontal, ArrowUp, ArrowDown, ArrowUpDown, Group as GroupIcon, Columns3, ChevronDown, Check, Copy,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, GripVertical, Lock, Unlock, Eye, EyeOff,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, GripVertical, Lock, Unlock, Eye, EyeOff, Minus,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -692,8 +692,8 @@ export type ProjectTreeNode = {
   status?: "Active" | "Hidden"
   phases: { id: string; name: string; status?: "Active" | "Hidden" }[]
 }
-/** A selection resolves to the set of project ids it covers (main + phases / main only / one phase). */
-export type ProjectTreeSelection = { kind: "project" | "main-only" | "phase"; id: string; label: string; projectIds: string[] } | null
+/** Single-mode selection: the main project itself or one phase. */
+export type ProjectTreeSelection = { kind: "project" | "phase"; id: string; label: string; projectIds: string[] } | null
 
 function ProjStatusTag({ status }: { status?: "Active" | "Hidden" }) {
   if (!status) return null
@@ -708,12 +708,12 @@ function ProjStatusTag({ status }: { status?: "Active" | "Hidden" }) {
 }
 
 /**
- * Canonical searchable Project dropdown, grouped by main project: pick the main project
- * WITH all its phases, the main project only, or a single phase. Rows show the id and a
- * right-aligned Active/Hidden tag; main rows show their phase count; phases show just the
- * phase name (parent in the caption). One component, two modes:
- *  - single (default): no checkboxes — the selected row is highlighted.
- *  - multi: same rows with checkboxes; the trigger shows the selection count.
+ * Canonical searchable Project dropdown, grouped by main project.
+ *  - multi: checkbox per row over a plain id set. Checking the MAIN row cascades to all
+ *    its phases (tri-state when partially selected); "Main project only" selects just the
+ *    main id; phases toggle individually.
+ *  - single (default): same rows, no checkboxes — clicking the main row picks the main
+ *    project, clicking a phase picks that phase; the picked row is highlighted.
  */
 export function ProjectTreeSelect({ label = "Project", projects, value, onChange, values = [], onValuesChange, multi = false, className }: {
   label?: string
@@ -721,9 +721,9 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
   /** Single mode */
   value?: ProjectTreeSelection
   onChange?: (v: ProjectTreeSelection) => void
-  /** Multi mode */
-  values?: NonNullable<ProjectTreeSelection>[]
-  onValuesChange?: (v: NonNullable<ProjectTreeSelection>[]) => void
+  /** Multi mode — the selected project/phase ids */
+  values?: string[]
+  onValuesChange?: (ids: string[]) => void
   multi?: boolean
   className?: string
 }) {
@@ -749,37 +749,41 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
     })
     .filter(Boolean) as ProjectTreeNode[]
 
-  const isSelected = (kind: string, id: string) =>
-    multi ? values.some((v) => v.kind === kind && v.id === id) : value?.kind === kind && value.id === id
-
-  const pick = (sel: NonNullable<ProjectTreeSelection>) => {
-    if (multi) {
-      const exists = values.some((v) => v.kind === sel.kind && v.id === sel.id)
-      onValuesChange?.(exists ? values.filter((v) => !(v.kind === sel.kind && v.id === sel.id)) : [...values, sel])
-    } else {
-      onChange?.(sel)
-      setOpen(false)
-      setQ("")
-    }
-  }
-  const clear = () => {
-    if (multi) onValuesChange?.([])
-    else { onChange?.(null); setOpen(false); setQ("") }
+  const set = new Set(values)
+  const toggleIds = (ids: string[], on: boolean) => {
+    const next = new Set(set)
+    ids.forEach((id) => (on ? next.add(id) : next.delete(id)))
+    onValuesChange?.([...next])
   }
 
   const active = multi ? values.length > 0 : !!value
+  const nameOf = (id: string) => {
+    for (const p of projects) {
+      if (p.id === id) return p.name
+      const ph = p.phases.find((x) => x.id === id)
+      if (ph) return ph.name
+    }
+    return id
+  }
   const triggerLabel = multi
-    ? (values.length === 0 ? label : values.length === 1 ? values[0].label : `${label} · ${values.length}`)
+    ? (values.length === 0 ? label : values.length === 1 ? nameOf(values[0]) : `${label} · ${values.length}`)
     : (value ? value.label : label)
 
-  const CheckBox = ({ checked }: { checked: boolean }) => (
+  const CheckBox = ({ state }: { state: "on" | "off" | "some" }) => (
     <span className={cn(
       "flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-sm border transition-colors",
-      checked ? "border-primary bg-primary" : "border-border bg-white",
+      state === "off" ? "border-border bg-white" : "border-primary bg-primary",
     )}>
-      {checked && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+      {state === "on" && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+      {state === "some" && <Minus className="h-2.5 w-2.5 text-primary-foreground" />}
     </span>
   )
+
+  /** Numeric-only ids in the caption — "ID: 1204", never internal prefixes. */
+  const showId = (id: string) => {
+    const digits = id.replace(/\D/g, "")
+    return digits ? `ID: ${digits}` : null
+  }
 
   return (
     <div ref={ref} className={cn("relative", className)}>
@@ -804,43 +808,66 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
             </div>
           </div>
           <div className="max-h-72 overflow-y-auto py-1">
-            <button onClick={clear} className={cn("flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-secondary", !active && "font-medium text-primary")}>
+            <button
+              onClick={() => { if (multi) onValuesChange?.([]); else { onChange?.(null); setOpen(false); setQ("") } }}
+              className={cn("flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-secondary", !active && "font-medium text-primary")}
+            >
               {multi && values.length > 0 ? "Clear selection" : `All ${label}s`}
             </button>
             {visible.map((p) => {
-              const allIds = [p.id, ...p.phases.map((ph) => ph.id)]
-              const isProj = isSelected("project", p.id)
-              const isMainOnly = isSelected("main-only", p.id)
+              const familyIds = [p.id, ...p.phases.map((ph) => ph.id)]
+              const selectedInFamily = familyIds.filter((id) => set.has(id)).length
+              const mainState: "on" | "off" | "some" =
+                selectedInFamily === familyIds.length ? "on" : selectedInFamily > 0 ? "some" : "off"
+              const isMainSingle = value?.kind === "project" && value.id === p.id
               return (
                 <div key={p.id} className="mt-0.5">
-                  {/* Main project + all phases */}
-                  <button onClick={() => pick({ kind: "project", id: p.id, label: p.phases.length ? `${p.name} + phases` : p.name, projectIds: allIds })} className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-secondary", isProj && "bg-primary/5")}>
-                    {multi && <CheckBox checked={isProj} />}
+                  {/* Main project — multi: cascades to all phases · single: picks the main project */}
+                  <button
+                    onClick={() => {
+                      if (multi) toggleIds(familyIds, mainState !== "on")
+                      else { onChange?.({ kind: "project", id: p.id, label: p.name, projectIds: [p.id] }); setOpen(false); setQ("") }
+                    }}
+                    className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-secondary", (multi ? mainState !== "off" : isMainSingle) && "bg-primary/5")}
+                  >
+                    {multi && <CheckBox state={mainState} />}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{p.name}</span>
-                      <span className="font-mono text-[10px] text-muted-foreground">ID: {p.id}</span>
+                      {showId(p.id) && <span className="font-mono text-[10px] text-muted-foreground">{showId(p.id)}</span>}
                     </span>
                     <span className="flex flex-shrink-0 items-center gap-1.5">
-                      {p.phases.length > 0 && <span className="whitespace-nowrap text-[11px] text-muted-foreground">{p.phases.length} phase{p.phases.length === 1 ? "" : "s"}</span>}
+                      {p.phases.length > 0 && (
+                        <span className="rounded bg-secondary px-1 py-px text-[10px] font-medium tabular-nums text-muted-foreground">{p.phases.length}P</span>
+                      )}
                       <ProjStatusTag status={p.status} />
                     </span>
                   </button>
-                  {/* Main project only */}
-                  {p.phases.length > 0 && (
-                    <button onClick={() => pick({ kind: "main-only", id: p.id, label: `${p.name} (main only)`, projectIds: [p.id] })} className={cn("flex w-full items-center gap-2 py-1.5 pl-9 pr-3 text-left hover:bg-secondary", isMainOnly && "bg-primary/5")}>
-                      {multi && <CheckBox checked={isMainOnly} />}
+                  {/* Main project only — multi mode: just the main id, no phases */}
+                  {multi && p.phases.length > 0 && (
+                    <button
+                      onClick={() => toggleIds([p.id], !set.has(p.id))}
+                      className={cn("flex w-full items-center gap-2 py-1.5 pl-9 pr-3 text-left hover:bg-secondary", set.has(p.id) && "bg-primary/5")}
+                    >
+                      <CheckBox state={set.has(p.id) ? "on" : "off"} />
                       <span className="flex-1 text-sm text-muted-foreground">Main project only</span>
                     </button>
                   )}
-                  {/* Phases — just the phase name; parent shown in the caption */}
+                  {/* Phases — toggle individually */}
                   {p.phases.map((ph) => {
-                    const isPh = isSelected("phase", ph.id)
+                    const phOn = multi ? set.has(ph.id) : value?.kind === "phase" && value.id === ph.id
                     return (
-                      <button key={ph.id} onClick={() => pick({ kind: "phase", id: ph.id, label: ph.name, projectIds: [ph.id] })} className={cn("flex w-full items-center gap-2 py-1.5 pl-9 pr-3 text-left hover:bg-secondary", isPh && "bg-primary/5")}>
-                        {multi && <CheckBox checked={isPh} />}
+                      <button
+                        key={ph.id}
+                        onClick={() => {
+                          if (multi) toggleIds([ph.id], !set.has(ph.id))
+                          else { onChange?.({ kind: "phase", id: ph.id, label: ph.name, projectIds: [ph.id] }); setOpen(false); setQ("") }
+                        }}
+                        className={cn("flex w-full items-center gap-2 py-1.5 pl-9 pr-3 text-left hover:bg-secondary", phOn && "bg-primary/5")}
+                      >
+                        {multi && <CheckBox state={phOn ? "on" : "off"} />}
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm">{ph.name}</span>
-                          <span className="font-mono text-[10px] text-muted-foreground">ID: {ph.id} · in {p.name}</span>
+                          <span className="font-mono text-[10px] text-muted-foreground">{[showId(ph.id), `in ${p.name}`].filter(Boolean).join(" · ")}</span>
                         </span>
                         <ProjStatusTag status={ph.status} />
                       </button>

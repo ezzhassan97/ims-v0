@@ -22,6 +22,7 @@ import {
   FolderKanban,
   Group,
   ImageIcon,
+  Layers,
   Link2,
   Link2Off,
   Maximize2,
@@ -51,7 +52,7 @@ import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
-  FilterMultiSelect, FilterSelect, FiltersDrawer, FilterDrawerField, MultiSortControl, ProjectTreeSelect, GroupPager,
+  FilterMultiSelect, FilterSelect, FiltersDrawer, FilterDrawerField, MultiSortControl, ProjectTreeSelect, GroupPager, IdTag,
   type SortLevel, type ProjectTreeNode, type ProjectTreeSelection,
 } from "@/components/table-kit"
 import { cn } from "@/lib/utils"
@@ -80,28 +81,29 @@ interface RenderImage {
   availableListed: number
   /** Present when the image was extracted from a brochure */
   brochure?: { id: string; name: string; url: string }
+  fileSizeKb: number
 }
 
 // ── Static reference data ──────────────────────────────────────────────────────
 const DEVELOPERS = [
-  { id: "DEV-002", name: "Palm Hills" },
-  { id: "DEV-003", name: "SODIC" },
-  { id: "DEV-004", name: "Mountain View" },
-  { id: "DEV-005", name: "Emaar Misr" },
+  { id: "16", name: "Palm Hills" },
+  { id: "254", name: "SODIC" },
+  { id: "88", name: "Mountain View" },
+  { id: "930", name: "Emaar Misr" },
 ]
 
 interface ProjectRef { id: string; name: string; devId: string; parentId: string | null; status: "Active" | "Hidden" }
 const PROJECTS: ProjectRef[] = [
-  { id: "P-MAR", name: "Marassi", devId: "DEV-005", parentId: null, status: "Active" },
-  { id: "P-MAR-1", name: "Marassi — Phase 1", devId: "DEV-005", parentId: "P-MAR", status: "Active" },
-  { id: "P-MAR-2", name: "Marassi — Phase 2", devId: "DEV-005", parentId: "P-MAR", status: "Hidden" },
-  { id: "P-PHO", name: "Palm Hills October", devId: "DEV-002", parentId: null, status: "Active" },
-  { id: "P-PHO-1", name: "Palm Hills October — Phase 1", devId: "DEV-002", parentId: "P-PHO", status: "Active" },
-  { id: "P-PHO-2", name: "Palm Hills October — Phase 2", devId: "DEV-002", parentId: "P-PHO", status: "Active" },
-  { id: "P-SW", name: "SODIC West", devId: "DEV-003", parentId: null, status: "Active" },
-  { id: "P-SW-A", name: "SODIC West — Villette", devId: "DEV-003", parentId: "P-SW", status: "Hidden" },
-  { id: "P-NB", name: "North Bay", devId: "DEV-004", parentId: null, status: "Hidden" },
-  { id: "P-NB-A", name: "North Bay — Phase A", devId: "DEV-004", parentId: "P-NB", status: "Active" },
+  { id: "1201", name: "Marassi", devId: "930", parentId: null, status: "Active" },
+  { id: "1202", name: "Marassi — Phase 1", devId: "930", parentId: "1201", status: "Active" },
+  { id: "1203", name: "Marassi — Phase 2", devId: "930", parentId: "1201", status: "Hidden" },
+  { id: "1204", name: "Palm Hills October", devId: "16", parentId: null, status: "Active" },
+  { id: "1205", name: "Palm Hills October — Phase 1", devId: "16", parentId: "1204", status: "Active" },
+  { id: "1206", name: "Palm Hills October — Phase 2", devId: "16", parentId: "1204", status: "Active" },
+  { id: "1207", name: "SODIC West", devId: "254", parentId: null, status: "Active" },
+  { id: "1208", name: "SODIC West — Villette", devId: "254", parentId: "1207", status: "Hidden" },
+  { id: "1209", name: "North Bay", devId: "88", parentId: null, status: "Hidden" },
+  { id: "1210", name: "North Bay — Phase A", devId: "88", parentId: "1209", status: "Active" },
 ]
 
 const MAIN_PROJECTS = PROJECTS.filter((p) => p.parentId === null)
@@ -182,6 +184,7 @@ const RENDER_IMAGES: RenderImage[] = Array.from({ length: 28 }, (_, i) => {
     linkedUnits,
     availableListed,
     brochure,
+    fileSizeKb: 640 + ((i * 397) % 3200),
   }
 })
 
@@ -207,6 +210,13 @@ function groupValue(img: RenderImage, col: string): string {
 function formatDate(iso: string): string {
   const d = new Date(iso)
   return d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })
+}
+/** Canonical timestamp: "10 Jan 2026, 07:00 AM". */
+function formatDateTime(iso: string): string {
+  const d = new Date(iso)
+  const date = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+  const time = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })
+  return `${date}, ${time}`
 }
 function totalLinkedUnits(img: RenderImage): number {
   return Object.values(img.linkedUnits).reduce((s, n) => s + (n ?? 0), 0)
@@ -404,12 +414,34 @@ function RenderCard({
           </TooltipContent>
         </Tooltip>
 
+        {/* Attribution — developer / project / phase, each with its id (masterplan-card style) */}
+        <div className="space-y-1 text-[11px] text-muted-foreground">
+          <p className="flex items-center gap-1.5">
+            <Building2 className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{img.developerName}</span>
+            <IdTag value={img.developerId} />
+          </p>
+          <p className="flex items-center gap-1.5">
+            <FolderKanban className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{img.mainProjectName}</span>
+            <IdTag value={img.mainProjectId} />
+          </p>
+          {img.projectId !== img.mainProjectId && (
+            <p className="flex items-center gap-1.5">
+              <Layers className="h-3 w-3 flex-shrink-0" />
+              <span className="truncate">{img.projectName.startsWith(`${img.mainProjectName} — `) ? img.projectName.slice(img.mainProjectName.length + 3) : img.projectName}</span>
+              <IdTag value={img.projectId} />
+            </p>
+          )}
+        </div>
+
         <div className="mt-auto flex items-center justify-between gap-1.5 pt-1 text-[11px] text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <Calendar className="h-3 w-3" />
-            {formatDate(img.createdAt)}
+            {formatDateTime(img.createdAt)}
           </span>
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1 whitespace-nowrap">
+            {(img.fileSizeKb / 1024).toFixed(1)} MB ·
             {img.source === "Brochure Extraction" ? (
               <FileText className="h-3 w-3" />
             ) : (
@@ -787,7 +819,7 @@ export function RenderImagesPage({
   const [images, setImages] = useState<RenderImage[]>(RENDER_IMAGES)
   const [search, setSearch] = useState("")
   const [developerFilter, setDeveloperFilter] = useState<string[]>([])
-  const [projectSels, setProjectSels] = useState<NonNullable<ProjectTreeSelection>[]>([])
+  const [projectSels, setProjectSels] = useState<string[]>([])
   const [phaseFilter, setPhaseFilter] = useState<string[]>([])
   const [linkedFilter, setLinkedFilter] = useState<string[]>([])
   const [sourceFilter, setSourceFilter] = useState<string[]>([])
@@ -837,7 +869,7 @@ export function RenderImagesPage({
       if (q && !img.id.toLowerCase().includes(q) && !img.caption.toLowerCase().includes(q)) return false
       if (!scope && developerFilter.length > 0 && !developerFilter.includes(img.developerName)) return false
       // Project tree selections resolve to a union of project ids (main + phases / main only / phases)
-      if (!scope && projectSels.length > 0 && !projectSels.some((s) => s.projectIds.includes(img.projectId))) return false
+      if (!scope && projectSels.length > 0 && !projectSels.includes(img.projectId)) return false
       // Scoped to a main project: filter by phase (Main Project = the main project's own images)
       if (scope && !scope.isPhase && phaseFilter.length > 0 && !phaseFilter.includes(phaseLabelOf(img))) return false
       if (linkedFilter.length > 0) {
@@ -1137,7 +1169,7 @@ export function RenderImagesPage({
                     )}
                   </button>
                   {!isCollapsed && (
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                       {groupSlice(key, imgs).map((img) => (
                         <RenderCard
                           key={img.id}
@@ -1155,7 +1187,7 @@ export function RenderImagesPage({
             })}
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {paginated.map((img) => (
               <RenderCard
                 key={img.id}
@@ -1292,7 +1324,7 @@ export function RenderImagesPage({
               projectId: target.id, projectName: target.name,
               mainProjectId: main.id, mainProjectName: main.name,
               isLinked: false, source: "Uploaded" as const,
-              createdAt: now, linkedUnits: {}, availableListed: 0,
+              createdAt: now, linkedUnits: {}, availableListed: 0, fileSizeKb: 1024,
             })),
             ...prev,
           ])

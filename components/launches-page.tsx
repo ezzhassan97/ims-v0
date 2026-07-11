@@ -847,7 +847,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
   const [search, setSearch] = useState("")
   const [developerF, setDeveloperF] = useState<string[]>([])
   const [areaF, setAreaF] = useState<string[]>([])
-  const [projectSels, setProjectSels] = useState<NonNullable<ProjectTreeSelection>[]>([])
+  const [projectSels, setProjectSels] = useState<string[]>([])
   const [sourceF, setSourceF] = useState("all")
   const [alreadyCreatedF, setAlreadyCreatedF] = useState("all")
   const [aiUpdatesF, setAiUpdatesF] = useState("all")
@@ -958,7 +958,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
       if (search && !`${l.id} ${l.projectNameEn}`.toLowerCase().includes(search.toLowerCase())) return false
       if (developerF.length && !developerF.includes(l.developer.name)) return false
       if (areaF.length && !areaF.includes(l.area)) return false
-      if (projectSels.length && !projectSels.some((s) => s.projectIds.includes(l.id))) return false
+      if (projectSels.length && !projectSels.includes(l.id)) return false
       if (sourceF !== "all" && l.source !== sourceF) return false
       if (alreadyCreatedF === "Existing" && !l.existingProject) return false
       if (alreadyCreatedF === "New" && l.existingProject) return false
