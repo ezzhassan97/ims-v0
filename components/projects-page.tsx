@@ -3,7 +3,7 @@
 import { useState } from "react"
 import {
   Home, ChevronRight, Sparkles, Globe, HelpCircle, Rocket, Layers, CreditCard,
-  Image as ImageIcon, LayoutTemplate, Building2, Map, Trees, Building, HardHat,
+  Image as ImageIcon, LayoutTemplate, Building2, Map, Trees, Building as BuildingIcon, HardHat,
   Database, Paperclip, ScrollText,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -16,7 +16,7 @@ import { SplittingRules } from "@/components/splitting-rules"
 import { AmenitiesList } from "@/components/amenities-list"
 import { AmenitiesMap } from "@/components/amenities-map"
 import { FAQsTab } from "@/components/faqs-tab"
-import { MasterplansTab } from "@/components/masterplans-tab"
+import { MasterplansPage } from "@/components/masterplans-page"
 import { ConstructionUpdatesTab } from "@/components/construction-updates-tab"
 import { RenderImagesPage } from "@/components/render-images-page"
 import { LaunchesPage } from "@/components/launches-page"
@@ -30,14 +30,12 @@ import {
   type SplittingRule,
   type Amenity,
   type FAQ,
-  type MasterplanFile,
   type ConstructionUpdate,
   initialBuildings,
   initialUnits,
   initialSplittingRules,
   initialAmenities,
   initialFAQs,
-  initialMasterplans,
   initialConstructionUpdates,
   systemAmenities,
 } from "@/lib/mock-data"
@@ -59,8 +57,6 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
   const [showAmenitiesColumn, setShowAmenitiesColumn] = useState(true)
 
   const [faqs, setFaqs] = useState<FAQ[]>(initialFAQs)
-
-  const [masterplans, setMasterplans] = useState<MasterplanFile[]>(initialMasterplans)
 
   const [constructionUpdates, setConstructionUpdates] = useState<ConstructionUpdate[]>(initialConstructionUpdates)
 
@@ -302,7 +298,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
                 { value: "properties", label: "Properties", icon: Building2 },
                 { value: "masterplans", label: "Masterplans", icon: Map },
                 { value: "amenities", label: "Masterplan Amenities", icon: Trees },
-                { value: "buildings", label: "Masterplan Buildings", icon: Building },
+                { value: "buildings", label: "Masterplan Buildings", icon: BuildingIcon },
                 { value: "construction-updates", label: "Construction Updates", icon: HardHat },
                 { value: "ingestion-entries", label: "Ingestion Entries", icon: Database },
                 { value: "attachments", label: "Attachments", icon: Paperclip },
@@ -340,7 +336,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
           </TabsContent>
 
           <TabsContent value="masterplans" className="mt-4">
-            <MasterplansTab masterplans={masterplans} />
+            <MasterplansPage embedded scopeProject={{ name: project?.name ?? "", isPhase: project?.isPhase ?? false, mainProject: project?.mainProject?.name }} />
           </TabsContent>
 
           <TabsContent value="amenities" className="mt-4">

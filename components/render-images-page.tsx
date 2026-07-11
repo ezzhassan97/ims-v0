@@ -18,6 +18,7 @@ import {
   ExternalLink,
   Eye,
   FileText,
+  Filter,
   FolderKanban,
   Group,
   ImageIcon,
@@ -49,6 +50,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  FilterMultiSelect, FilterSelect, FiltersDrawer, FilterDrawerField, MultiSortControl, ProjectTreeSelect, GroupPager,
+  type SortLevel, type ProjectTreeNode, type ProjectTreeSelection,
+} from "@/components/table-kit"
 import { cn } from "@/lib/utils"
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -85,21 +90,31 @@ const DEVELOPERS = [
   { id: "DEV-005", name: "Emaar Misr" },
 ]
 
-interface ProjectRef { id: string; name: string; devId: string; parentId: string | null }
+interface ProjectRef { id: string; name: string; devId: string; parentId: string | null; status: "Active" | "Hidden" }
 const PROJECTS: ProjectRef[] = [
-  { id: "P-MAR", name: "Marassi", devId: "DEV-005", parentId: null },
-  { id: "P-MAR-1", name: "Marassi — Phase 1", devId: "DEV-005", parentId: "P-MAR" },
-  { id: "P-MAR-2", name: "Marassi — Phase 2", devId: "DEV-005", parentId: "P-MAR" },
-  { id: "P-PHO", name: "Palm Hills October", devId: "DEV-002", parentId: null },
-  { id: "P-PHO-1", name: "Palm Hills October — Phase 1", devId: "DEV-002", parentId: "P-PHO" },
-  { id: "P-PHO-2", name: "Palm Hills October — Phase 2", devId: "DEV-002", parentId: "P-PHO" },
-  { id: "P-SW", name: "SODIC West", devId: "DEV-003", parentId: null },
-  { id: "P-SW-A", name: "SODIC West — Villette", devId: "DEV-003", parentId: "P-SW" },
-  { id: "P-NB", name: "North Bay", devId: "DEV-004", parentId: null },
-  { id: "P-NB-A", name: "North Bay — Phase A", devId: "DEV-004", parentId: "P-NB" },
+  { id: "P-MAR", name: "Marassi", devId: "DEV-005", parentId: null, status: "Active" },
+  { id: "P-MAR-1", name: "Marassi — Phase 1", devId: "DEV-005", parentId: "P-MAR", status: "Active" },
+  { id: "P-MAR-2", name: "Marassi — Phase 2", devId: "DEV-005", parentId: "P-MAR", status: "Hidden" },
+  { id: "P-PHO", name: "Palm Hills October", devId: "DEV-002", parentId: null, status: "Active" },
+  { id: "P-PHO-1", name: "Palm Hills October — Phase 1", devId: "DEV-002", parentId: "P-PHO", status: "Active" },
+  { id: "P-PHO-2", name: "Palm Hills October — Phase 2", devId: "DEV-002", parentId: "P-PHO", status: "Active" },
+  { id: "P-SW", name: "SODIC West", devId: "DEV-003", parentId: null, status: "Active" },
+  { id: "P-SW-A", name: "SODIC West — Villette", devId: "DEV-003", parentId: "P-SW", status: "Hidden" },
+  { id: "P-NB", name: "North Bay", devId: "DEV-004", parentId: null, status: "Hidden" },
+  { id: "P-NB-A", name: "North Bay — Phase A", devId: "DEV-004", parentId: "P-NB", status: "Active" },
 ]
 
 const MAIN_PROJECTS = PROJECTS.filter((p) => p.parentId === null)
+
+/** Tree for the grouped Project dropdown (optionally narrowed to one developer). */
+function projectTree(devId?: string): ProjectTreeNode[] {
+  return MAIN_PROJECTS
+    .filter((p) => !devId || p.devId === devId)
+    .map((p) => ({
+      id: p.id, name: p.name, status: p.status,
+      phases: PROJECTS.filter((ph) => ph.parentId === p.id).map((ph) => ({ id: ph.id, name: ph.name, status: ph.status })),
+    }))
+}
 
 const IMG_POOL = [
   "/aerial-view-masterplan-residential-development-blu.jpg",
@@ -201,101 +216,6 @@ const saleTypeColor: Record<SaleType, string> = {
   Resale: "text-purple-300",
   "Nawy Now": "text-teal-300",
   Rental: "text-orange-300",
-}
-
-// ── Searchable multi-select filter ─────────────────────────────────────────────
-function SearchableMultiSelect({
-  label,
-  options,
-  selected,
-  onChange,
-  width,
-  searchable = true,
-}: {
-  label: string
-  options: string[]
-  selected: Set<string>
-  onChange: (s: Set<string>) => void
-  width?: string
-  searchable?: boolean
-}) {
-  const [q, setQ] = useState("")
-  const filtered = useMemo(
-    () => (q ? options.filter((o) => o.toLowerCase().includes(q.toLowerCase())) : options),
-    [q, options],
-  )
-  const hasVal = selected.size > 0
-  const display = selected.size === 0 ? label : selected.size === 1 ? [...selected][0] : `${label} · ${selected.size}`
-
-  return (
-    <Popover onOpenChange={(o) => !o && setQ("")}>
-      <PopoverTrigger asChild>
-        <Button
-          variant={hasVal ? "default" : "outline"}
-          size="sm"
-          className={cn("h-8 text-xs justify-between min-w-0 px-2.5", width)}
-        >
-          <span className="truncate">{display}</span>
-          <ChevronDown className="h-3 w-3 ml-1 shrink-0 opacity-60" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-60 p-2" align="start" sideOffset={4}>
-        {searchable && (
-          <div className="relative mb-2">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={`Search ${label.toLowerCase()}…`}
-              className="h-8 pl-7 text-xs"
-            />
-          </div>
-        )}
-        <div className="space-y-0.5 max-h-56 overflow-y-auto">
-          {filtered.map((opt) => {
-            const isChecked = selected.has(opt)
-            return (
-              <button
-                key={opt}
-                onClick={() => {
-                  const next = new Set(selected)
-                  isChecked ? next.delete(opt) : next.add(opt)
-                  onChange(next)
-                }}
-                className={cn(
-                  "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors text-left",
-                  isChecked ? "bg-primary/10 text-primary" : "hover:bg-muted",
-                )}
-              >
-                <div
-                  className={cn(
-                    "h-3.5 w-3.5 rounded-sm border flex items-center justify-center shrink-0 transition-colors",
-                    isChecked ? "bg-primary border-primary" : "border-border",
-                  )}
-                >
-                  {isChecked && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
-                </div>
-                <span className="truncate">{opt}</span>
-              </button>
-            )
-          })}
-          {filtered.length === 0 && (
-            <p className="px-2 py-3 text-center text-xs text-muted-foreground">No matches</p>
-          )}
-        </div>
-        {hasVal && (
-          <div className="border-t border-border mt-1.5 pt-1.5">
-            <button
-              onClick={() => onChange(new Set())}
-              className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1 rounded-md hover:bg-muted transition-colors"
-            >
-              Clear selection
-            </button>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
-  )
 }
 
 // ── Linked-units tooltip badge ─────────────────────────────────────────────────
@@ -725,38 +645,128 @@ function DeleteDialog({
   )
 }
 
-// ── Add Image dialog (placeholder) ──────────────────────────────────────────────
-function AddImageDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+// ── Add Image dialog — dependent searchable dropdowns + multi-file upload ──────
+interface UploadEntry { key: string; name: string; url: string; status: "loading" | "done" }
+
+function AddImageDialog({ open, onClose, onSave }: {
+  open: boolean
+  onClose: () => void
+  onSave: (files: UploadEntry[], devId: string, projectSel: NonNullable<ProjectTreeSelection>) => void
+}) {
+  const [devId, setDevId] = useState("")
+  const [projectSel, setProjectSel] = useState<ProjectTreeSelection>(null)
+  const [files, setFiles] = useState<UploadEntry[]>([])
+  const fileInput = useRef<HTMLInputElement>(null)
+  const keyRef = useRef(0)
+
+  const reset = () => { setDevId(""); setProjectSel(null); setFiles([]) }
+  const close = () => { reset(); onClose() }
+
+  const addFiles = (list: FileList | null) => {
+    if (!list) return
+    const entries: UploadEntry[] = [...list].map((f) => ({
+      key: `up-${++keyRef.current}`,
+      name: f.name,
+      url: URL.createObjectURL(f),
+      status: "loading" as const,
+    }))
+    setFiles((prev) => [...prev, ...entries])
+    // Simulated upload — each file finishes on its own staggered timer
+    entries.forEach((e, i) => {
+      setTimeout(() => {
+        setFiles((prev) => prev.map((f) => (f.key === e.key ? { ...f, status: "done" } : f)))
+      }, 700 + i * 450)
+    })
+  }
+
+  const allDone = files.length > 0 && files.every((f) => f.status === "done")
+  const canSave = !!devId && !!projectSel && allDone
+
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+    <Dialog open={open} onOpenChange={(o) => !o && close()}>
+      <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Plus className="h-4 w-4 text-muted-foreground" /> Add Render Image
+            <Plus className="h-4 w-4 text-muted-foreground" /> Add Render Images
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-1">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">Developer</label>
-              <Input placeholder="Select developer…" className="h-8 text-sm" />
+              <label className="text-xs font-medium">Developer <span className="text-red-500">*</span></label>
+              <FilterSelect
+                label="Select developer…"
+                value={devId}
+                options={DEVELOPERS.map((d) => ({ value: d.id, label: d.name, sublabel: `ID: ${d.id}` }))}
+                onChange={(v) => { setDevId(v); setProjectSel(null) }}
+                searchable
+                className="w-full"
+                width="w-full"
+              />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">Project</label>
-              <Input placeholder="Select project…" className="h-8 text-sm" />
+              <label className="text-xs font-medium">Project <span className="text-red-500">*</span></label>
+              <ProjectTreeSelect
+                label={devId ? "Select project…" : "Pick a developer first"}
+                projects={devId ? projectTree(devId) : []}
+                value={projectSel}
+                onChange={setProjectSel}
+                className="w-full"
+              />
             </div>
           </div>
-          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-muted/30 px-6 py-10 text-center">
+
+          {/* Drop zone / browse */}
+          <input ref={fileInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = "" }} />
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files) }}
+            className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-muted/30 px-6 py-8 text-center transition-colors hover:border-primary/40 hover:bg-primary/5"
+          >
             <div className="rounded-full bg-secondary p-3">
               <Upload className="h-6 w-6 text-muted-foreground" />
             </div>
-            <p className="text-sm font-medium">Drag & drop render images here</p>
-            <p className="text-xs text-muted-foreground">or click to browse · PNG, JPG up to 20MB</p>
-          </div>
+            <p className="text-sm font-medium">Click to choose images or drag & drop</p>
+            <p className="text-xs text-muted-foreground">Multiple files supported · PNG, JPG up to 20MB</p>
+          </button>
+
+          {/* Picked files — each with its own loading state */}
+          {files.length > 0 && (
+            <div className="grid max-h-56 grid-cols-4 gap-2 overflow-y-auto">
+              {files.map((f) => (
+                <div key={f.key} className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-border bg-muted">
+                  <img src={f.url} alt={f.name} className={cn("h-full w-full object-cover transition-opacity", f.status === "loading" && "opacity-40")} />
+                  {f.status === "loading" ? (
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    </span>
+                  ) : (
+                    <>
+                      <span className="absolute left-1 top-1 rounded bg-emerald-600/90 p-0.5"><Check className="h-3 w-3 text-white" /></span>
+                      <button
+                        onClick={() => setFiles((prev) => prev.filter((x) => x.key !== f.key))}
+                        className="absolute right-1 top-1 rounded bg-black/60 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </>
+                  )}
+                  <span className="absolute inset-x-0 bottom-0 truncate bg-black/50 px-1.5 py-0.5 text-[10px] text-white">{f.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {files.length > 0 && !allDone && (
+            <p className="text-xs text-muted-foreground">Uploading {files.filter((f) => f.status === "loading").length} of {files.length}…</p>
+          )}
         </div>
         <DialogFooter className="gap-2">
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={onClose}>Add Images</Button>
+          <Button variant="outline" size="sm" onClick={close}>Cancel</Button>
+          <Button size="sm" disabled={!canSave} onClick={() => { if (projectSel) { onSave(files, devId, projectSel); reset() } }}>
+            Save {files.length > 0 && `${files.length} image${files.length === 1 ? "" : "s"}`}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -775,11 +785,12 @@ export function RenderImagesPage({
 } = {}) {
   const [images, setImages] = useState<RenderImage[]>(RENDER_IMAGES)
   const [search, setSearch] = useState("")
-  const [developerFilter, setDeveloperFilter] = useState<Set<string>>(new Set())
-  const [projectFilter, setProjectFilter] = useState<Set<string>>(new Set())
-  const [phaseFilter, setPhaseFilter] = useState<Set<string>>(new Set())
-  const [linkedFilter, setLinkedFilter] = useState<Set<string>>(new Set())
-  const [sourceFilter, setSourceFilter] = useState<Set<string>>(new Set())
+  const [developerFilter, setDeveloperFilter] = useState<string[]>([])
+  const [projectSel, setProjectSel] = useState<ProjectTreeSelection>(null)
+  const [phaseFilter, setPhaseFilter] = useState<string[]>([])
+  const [linkedFilter, setLinkedFilter] = useState<string[]>([])
+  const [sourceFilter, setSourceFilter] = useState<string[]>([])
+  const [showAllFilters, setShowAllFilters] = useState(false)
 
   // Resolve the scoped project against the render-images mock (name match, demo fallback)
   const scope = useMemo(() => {
@@ -801,8 +812,8 @@ export function RenderImagesPage({
   const [deleteTargets, setDeleteTargets] = useState<RenderImage[] | null>(null)
   const [showAdd, setShowAdd] = useState(false)
 
-  // Sort (Created date / Linked units, single primary) & group
-  const [sort, setSort] = useState<{ key: "createdAt" | "linked"; dir: "asc" | "desc" } | null>(null)
+  // Multi-level sort (Created date / Linked units) & group
+  const [sorts, setSorts] = useState<SortLevel[]>([])
   // Main-project scope defaults to grouping by phase (main images first, then each phase)
   const [groupByColumn, setGroupByColumn] = useState<string | null>(scopeProject && !scopeProject.isPhase ? "phase" : null)
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
@@ -823,25 +834,28 @@ export function RenderImagesPage({
     const q = search.trim().toLowerCase()
     const result = baseImages.filter((img) => {
       if (q && !img.id.toLowerCase().includes(q) && !img.caption.toLowerCase().includes(q)) return false
-      if (!scope && developerFilter.size > 0 && !developerFilter.has(img.developerName)) return false
-      // Project filter matches main project name OR the image's own project name
-      if (!scope && projectFilter.size > 0 && !projectFilter.has(img.mainProjectName)) return false
+      if (!scope && developerFilter.length > 0 && !developerFilter.includes(img.developerName)) return false
+      // Project tree selection resolves to a set of project ids (main + phases / main only / one phase)
+      if (!scope && projectSel && !projectSel.projectIds.includes(img.projectId)) return false
       // Scoped to a main project: filter by phase (Main Project = the main project's own images)
-      if (scope && !scope.isPhase && phaseFilter.size > 0 && !phaseFilter.has(phaseLabelOf(img))) return false
-      if (linkedFilter.size > 0) {
+      if (scope && !scope.isPhase && phaseFilter.length > 0 && !phaseFilter.includes(phaseLabelOf(img))) return false
+      if (linkedFilter.length > 0) {
         const state = img.isLinked && totalLinkedUnits(img) > 0 ? "Linked" : "Unlinked"
-        if (!linkedFilter.has(state)) return false
+        if (!linkedFilter.includes(state)) return false
       }
-      if (sourceFilter.size > 0 && !sourceFilter.has(img.source)) return false
+      if (sourceFilter.length > 0 && !sourceFilter.includes(img.source)) return false
       return true
     })
-    if (!sort) return result
-    const mul = sort.dir === "asc" ? 1 : -1
+    if (!sorts.length) return result
     return [...result].sort((a, b) => {
-      if (sort.key === "linked") return (totalLinkedUnits(a) - totalLinkedUnits(b)) * mul
-      return (a.createdAt < b.createdAt ? -mul : a.createdAt > b.createdAt ? mul : 0)
+      for (const s of sorts) {
+        const va = s.key === "linked" ? totalLinkedUnits(a) : a.createdAt
+        const vb = s.key === "linked" ? totalLinkedUnits(b) : b.createdAt
+        if (va !== vb) return (va < vb ? -1 : 1) * (s.dir === "asc" ? 1 : -1)
+      }
+      return 0
     })
-  }, [baseImages, scope, search, developerFilter, projectFilter, phaseFilter, linkedFilter, sourceFilter, sort])
+  }, [baseImages, scope, search, developerFilter, projectSel, phaseFilter, linkedFilter, sourceFilter, sorts])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const paginated = useMemo(
@@ -853,10 +867,15 @@ export function RenderImagesPage({
   useEffect(() => {
     setCurrentPage((p) => Math.min(p, totalPages))
   }, [totalPages])
+  // Per-group pagination — real data can put thousands of images in one group
+  const GROUP_PAGE_SIZE = 12
+  const [groupPages, setGroupPages] = useState<Record<string, number>>({})
+
   // Reset to first page when filters/sort/group change
   useEffect(() => {
     setCurrentPage(1)
-  }, [search, developerFilter, projectFilter, phaseFilter, linkedFilter, sourceFilter, sort, groupByColumn, pageSize])
+    setGroupPages({})
+  }, [search, developerFilter, projectSel, phaseFilter, linkedFilter, sourceFilter, sorts, groupByColumn, pageSize])
 
   // Group ALL filtered results (across every page) into sections when groupByColumn is set
   const sections = useMemo(() => {
@@ -880,25 +899,33 @@ export function RenderImagesPage({
     return entries
   }, [filtered, groupByColumn, scope])
 
+  // The visible slice of each group (its own mini page)
+  const groupSlice = (key: string, imgs: RenderImage[]) => {
+    const page = groupPages[key] ?? 1
+    return imgs.slice((page - 1) * GROUP_PAGE_SIZE, page * GROUP_PAGE_SIZE)
+  }
+
   // What is actually on screen, in VISIBLE order: section-flattened when grouped, else the current page.
   // Shift-range selection must follow this order, not the underlying sorted order.
   const displayed = useMemo(
-    () => (sections ? sections.flatMap(([, imgs]) => imgs) : paginated),
-    [sections, paginated],
+    () => (sections ? sections.flatMap(([key, imgs]) => (collapsedSections.has(key) ? [] : groupSlice(key, imgs))) : paginated),
+    [sections, paginated, groupPages, collapsedSections],
   )
   const displayedIndex = useMemo(() => new Map(displayed.map((im, i) => [im.id, i])), [displayed])
   const lastClickedIdx = useRef<number | null>(null)
 
-  const hasFilters =
-    !!search || developerFilter.size > 0 || projectFilter.size > 0 || phaseFilter.size > 0 || linkedFilter.size > 0 || sourceFilter.size > 0
+  const activeFilterCount =
+    (developerFilter.length ? 1 : 0) + (projectSel ? 1 : 0) + (phaseFilter.length ? 1 : 0) +
+    (linkedFilter.length ? 1 : 0) + (sourceFilter.length ? 1 : 0)
+  const hasFilters = !!search || activeFilterCount > 0
 
   const clearAll = () => {
     setSearch("")
-    setDeveloperFilter(new Set())
-    setProjectFilter(new Set())
-    setPhaseFilter(new Set())
-    setLinkedFilter(new Set())
-    setSourceFilter(new Set())
+    setDeveloperFilter([])
+    setProjectSel(null)
+    setPhaseFilter([])
+    setLinkedFilter([])
+    setSourceFilter([])
   }
 
   // Shift-click selects the whole range between the last clicked card and this one
@@ -967,52 +994,25 @@ export function RenderImagesPage({
             <div className="flex flex-1 flex-wrap gap-2">
               {/* Unscoped page: Developer + Project filters. Scoped main project: Phase filter. Scoped phase: neither. */}
               {!scope && (
-                <SearchableMultiSelect
-                  label="Developer"
-                  options={DEVELOPERS.map((d) => d.name)}
-                  selected={developerFilter}
-                  onChange={setDeveloperFilter}
-                  width="flex-1"
-                />
+                <FilterMultiSelect label="Developer" options={DEVELOPERS.map((d) => d.name)} value={developerFilter} onChange={setDeveloperFilter} className="flex-1" />
               )}
               {!scope && (
-                <SearchableMultiSelect
-                  label="Project"
-                  options={MAIN_PROJECTS.map((p) => p.name)}
-                  selected={projectFilter}
-                  onChange={setProjectFilter}
-                  width="flex-1"
-                />
+                <ProjectTreeSelect projects={projectTree()} value={projectSel} onChange={setProjectSel} className="flex-1" />
               )}
               {scope && !scope.isPhase && (
-                <SearchableMultiSelect
-                  label="Phase"
-                  options={["Main Project", ...scope.phases.map((p) => p.name)]}
-                  selected={phaseFilter}
-                  onChange={setPhaseFilter}
-                  width="flex-1"
-                />
+                <FilterMultiSelect label="Phase" options={["Main Project", ...scope.phases.map((p) => p.name)]} value={phaseFilter} onChange={setPhaseFilter} className="flex-1" />
               )}
-              <SearchableMultiSelect
-                label="Linked"
-                options={["Linked", "Unlinked"]}
-                selected={linkedFilter}
-                onChange={setLinkedFilter}
-                width="flex-1"
-                searchable={false}
-              />
-              <SearchableMultiSelect
-                label="Source"
-                options={[...SOURCES]}
-                selected={sourceFilter}
-                onChange={setSourceFilter}
-                width="flex-1"
-                searchable={false}
-              />
+              <FilterMultiSelect label="Linked" options={["Linked", "Unlinked"]} value={linkedFilter} onChange={setLinkedFilter} className="flex-1" />
+              <FilterMultiSelect label="Source" options={[...SOURCES]} value={sourceFilter} onChange={setSourceFilter} className="flex-1" />
             </div>
           </div>
           <div className="flex items-center justify-between border-t border-border pt-2.5">
-            <div>
+            <div className="flex items-center gap-2">
+              <Button variant={activeFilterCount > 0 ? "default" : "outline"} size="sm" className="h-8 gap-1.5" onClick={() => setShowAllFilters(true)}>
+                <Filter className="h-3.5 w-3.5" />
+                All Filters
+                {activeFilterCount > 0 && <span className="ml-0.5 rounded-full bg-primary-foreground/20 px-1.5 text-[10px] font-semibold">{activeFilterCount}</span>}
+              </Button>
               {hasFilters && (
                 <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground" onClick={clearAll}>
                   <X className="mr-1 h-3.5 w-3.5" />
@@ -1021,51 +1021,15 @@ export function RenderImagesPage({
               )}
             </div>
             <div className="flex items-center gap-2">
-              {/* Sort — one row per field with asc/desc arrow toggles */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant={sort ? "default" : "outline"} size="sm" className="h-8">
-                    <ArrowUpDown className="mr-1.5 h-3.5 w-3.5" />
-                    Sort
-                    {sort && (
-                      <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
-                        {sort.key === "createdAt" ? "Created" : "Linked"} · {sort.dir === "asc" ? "Asc" : "Desc"}
-                      </Badge>
-                    )}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-60">
-                  <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">Sort by</DropdownMenuLabel>
-                  {([
-                    { key: "createdAt", label: "Created date" },
-                    { key: "linked", label: "Linked units count" },
-                  ] as const).map((f) => (
-                    <div key={f.key} className="flex items-center gap-2 px-2 py-1.5">
-                      <span className="flex-1 text-sm">{f.label}</span>
-                      <button
-                        onClick={() => setSort({ key: f.key, dir: "asc" })}
-                        className={cn("rounded p-1", sort?.key === f.key && sort.dir === "asc" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}
-                        title="Ascending"
-                      >
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setSort({ key: f.key, dir: "desc" })}
-                        className={cn("rounded p-1", sort?.key === f.key && sort.dir === "desc" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")}
-                        title="Descending"
-                      >
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  {sort && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => setSort(null)} className="text-sm text-red-600">Clear sort</DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {/* Multi-level sort — canonical control */}
+              <MultiSortControl
+                fields={[
+                  { key: "createdAt", label: "Created date" },
+                  { key: "linked", label: "Linked units count" },
+                ]}
+                sorts={sorts}
+                onChange={setSorts}
+              />
 
               {/* Group dropdown */}
               <DropdownMenu>
@@ -1094,10 +1058,9 @@ export function RenderImagesPage({
           </div>
         </div>
 
-        {/* Grid card */}
+        {/* Header bar — its own card; the image cards list freely below it */}
         <div className="rounded-xl border border-border bg-card">
-          {/* Header bar */}
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-2.5">
               <Checkbox
                 checked={displayed.length > 0 && displayed.every((im) => selected.has(im.id))}
@@ -1131,78 +1094,89 @@ export function RenderImagesPage({
               <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Image
             </Button>
           </div>
+        </div>
 
-          {/* Grid */}
-          {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 px-6 py-20 text-center">
-              <div className="rounded-full bg-secondary p-4">
-                <ImageIcon className="h-8 w-8 text-muted-foreground" />
-              </div>
-              <p className="text-sm font-medium">No render images found</p>
-              <p className="text-xs text-muted-foreground">Try adjusting your search or filters.</p>
+        {/* Cards — freely listed on the page (no wrapping container), like grouped properties */}
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card px-6 py-20 text-center">
+            <div className="rounded-full bg-secondary p-4">
+              <ImageIcon className="h-8 w-8 text-muted-foreground" />
             </div>
-          ) : sections ? (
-            <div className="space-y-2 p-4">
-              {sections.map(([key, imgs]) => {
-                const isCollapsed = collapsedSections.has(key)
-                return (
-                  <div key={key} className="space-y-3">
-                    <button
-                      className="group flex w-full items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-secondary/60"
-                      onClick={() =>
-                        setCollapsedSections((prev) => {
-                          const next = new Set(prev)
-                          next.has(key) ? next.delete(key) : next.add(key)
-                          return next
-                        })
-                      }
-                    >
-                      <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", isCollapsed && "-rotate-90")} />
-                      <span className="text-sm font-semibold text-foreground">{key}</span>
-                      <Badge variant="secondary" className="text-xs">{imgs.length}</Badge>
-                      <div className="h-px flex-1 bg-border" />
-                    </button>
+            <p className="text-sm font-medium">No render images found</p>
+            <p className="text-xs text-muted-foreground">Try adjusting your search or filters.</p>
+          </div>
+        ) : sections ? (
+          <div className="space-y-2">
+            {sections.map(([key, imgs]) => {
+              const isCollapsed = collapsedSections.has(key)
+              return (
+                <div key={key} className="space-y-3">
+                  <button
+                    className="group flex w-full items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-secondary/60"
+                    onClick={() =>
+                      setCollapsedSections((prev) => {
+                        const next = new Set(prev)
+                        next.has(key) ? next.delete(key) : next.add(key)
+                        return next
+                      })
+                    }
+                  >
+                    <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", isCollapsed && "-rotate-90")} />
+                    <span className="text-sm font-semibold text-foreground">{key}</span>
+                    <Badge variant="secondary" className="text-xs">{imgs.length.toLocaleString()}</Badge>
+                    <div className="h-px flex-1 bg-border" />
+                    {/* Subtle per-group pagination — huge groups page inside themselves */}
                     {!isCollapsed && (
-                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                        {imgs.map((img) => (
-                          <RenderCard
-                            key={img.id}
-                            img={img}
-                            selected={selected.has(img.id)}
-                            onSelect={(shift) => toggleSelect(img.id, shift)}
-                            onView={() => setViewImage(img)}
-                            onDelete={() => setDeleteTargets([img])}
-                          />
-                        ))}
-                      </div>
+                      <GroupPager
+                        total={imgs.length}
+                        page={groupPages[key] ?? 1}
+                        pageSize={GROUP_PAGE_SIZE}
+                        onPage={(p) => setGroupPages((prev) => ({ ...prev, [key]: p }))}
+                      />
                     )}
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              {paginated.map((img) => (
-                <RenderCard
-                  key={img.id}
-                  img={img}
-                  selected={selected.has(img.id)}
-                  onSelect={(shift) => toggleSelect(img.id, shift)}
-                  onView={() => setViewImage(img)}
-                  onDelete={() => setDeleteTargets([img])}
-                />
-              ))}
-            </div>
-          )}
+                  </button>
+                  {!isCollapsed && (
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                      {groupSlice(key, imgs).map((img) => (
+                        <RenderCard
+                          key={img.id}
+                          img={img}
+                          selected={selected.has(img.id)}
+                          onSelect={(shift) => toggleSelect(img.id, shift)}
+                          onView={() => setViewImage(img)}
+                          onDelete={() => setDeleteTargets([img])}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {paginated.map((img) => (
+              <RenderCard
+                key={img.id}
+                img={img}
+                selected={selected.has(img.id)}
+                onSelect={(shift) => toggleSelect(img.id, shift)}
+                onView={() => setViewImage(img)}
+                onDelete={() => setDeleteTargets([img])}
+              />
+            ))}
+          </div>
+        )}
 
-          {/* Pagination footer (grouped mode shows all results, so no pager) */}
-          {filtered.length > 0 && sections && (
-            <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
-              {filtered.length.toLocaleString()} images in {sections.length} group{sections.length !== 1 ? "s" : ""}
-            </div>
-          )}
-          {filtered.length > 0 && !sections && (
-            <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-muted-foreground">
+        {/* Footer — its own bar */}
+        {filtered.length > 0 && sections && (
+          <div className="rounded-xl border border-border bg-card px-4 py-3 text-xs text-muted-foreground">
+            {filtered.length.toLocaleString()} images in {sections.length} group{sections.length !== 1 ? "s" : ""}
+          </div>
+        )}
+        {filtered.length > 0 && !sections && (
+          <div className="rounded-xl border border-border bg-card">
+            <div className="flex items-center justify-between px-4 py-3 text-sm text-muted-foreground">
               <span>
                 {`${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filtered.length)}`}{" "}
                 of {filtered.length.toLocaleString()} images
@@ -1249,8 +1223,8 @@ export function RenderImagesPage({
                 </div>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Bulk action bar — download only (max 40 at a time), no bulk delete, no select-all */}
@@ -1298,8 +1272,58 @@ export function RenderImagesPage({
         onConfirm={() => deleteTargets && performDelete(deleteTargets.map((im) => im.id))}
       />
 
-      {/* Add image dialog */}
-      <AddImageDialog open={showAdd} onClose={() => setShowAdd(false)} />
+      {/* Add image dialog — dependent dropdowns + multi-file upload */}
+      <AddImageDialog
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        onSave={(files, devId, sel) => {
+          const dev = DEVELOPERS.find((d) => d.id === devId)!
+          const target = PROJECTS.find((p) => p.id === sel.id) ?? MAIN_PROJECTS[0]
+          const mainId = target.parentId ?? target.id
+          const main = PROJECTS.find((p) => p.id === mainId)!
+          const now = new Date().toISOString()
+          setImages((prev) => [
+            ...files.map((f, i) => ({
+              id: `RND-${String(20001 + prev.length + i)}`,
+              url: f.url,
+              caption: f.name,
+              developerId: dev.id, developerName: dev.name,
+              projectId: target.id, projectName: target.name,
+              mainProjectId: main.id, mainProjectName: main.name,
+              isLinked: false, source: "Uploaded" as const,
+              createdAt: now, linkedUnits: {}, availableListed: 0,
+            })),
+            ...prev,
+          ])
+          toast.success(`${files.length} image${files.length === 1 ? "" : "s"} saved to ${target.name}`)
+          setShowAdd(false)
+        }}
+      />
+
+      {/* All Filters drawer — same filters, same order as the toolbar */}
+      <FiltersDrawer open={showAllFilters} onClose={() => setShowAllFilters(false)} activeCount={activeFilterCount} onClear={clearAll}>
+        {!scope && (
+          <FilterDrawerField label="Developer">
+            <FilterMultiSelect label="Developer" options={DEVELOPERS.map((d) => d.name)} value={developerFilter} onChange={setDeveloperFilter} className="w-full" />
+          </FilterDrawerField>
+        )}
+        {!scope && (
+          <FilterDrawerField label="Project">
+            <ProjectTreeSelect projects={projectTree()} value={projectSel} onChange={setProjectSel} className="w-full" />
+          </FilterDrawerField>
+        )}
+        {scope && !scope.isPhase && (
+          <FilterDrawerField label="Phase">
+            <FilterMultiSelect label="Phase" options={["Main Project", ...scope.phases.map((p) => p.name)]} value={phaseFilter} onChange={setPhaseFilter} className="w-full" />
+          </FilterDrawerField>
+        )}
+        <FilterDrawerField label="Linked">
+          <FilterMultiSelect label="Linked" options={["Linked", "Unlinked"]} value={linkedFilter} onChange={setLinkedFilter} className="w-full" />
+        </FilterDrawerField>
+        <FilterDrawerField label="Source">
+          <FilterMultiSelect label="Source" options={[...SOURCES]} value={sourceFilter} onChange={setSourceFilter} className="w-full" />
+        </FilterDrawerField>
+      </FiltersDrawer>
     </div>
   )
 }

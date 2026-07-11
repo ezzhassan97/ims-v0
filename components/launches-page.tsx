@@ -807,7 +807,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
   const visibleCols = colOrder.filter((id) => !hiddenCols.has(id)).map((id) => LAUNCH_COLS.find((c) => c.id === id)!).filter(Boolean)
   // Sticky-left offset for a frozen column = checkbox (+ Order col on Listed / Currently Active) + preceding frozen widths
   const frozenLeft = (colId: string) => {
-    let left = 40 + (tab === "active" || tab === "listed" ? 56 : 0)
+    let left = 40 + (dragTab ? 56 : 0)
     for (const c of visibleCols) {
       if (c.id === colId) break
       if (frozenCols.has(c.id)) left += c.width
@@ -827,7 +827,8 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
     () => mockLaunches.filter((l) => l.approvalStatus === "Approved" && l.ingestionStatus === "Ingested").map((l) => l.id),
   )
   const dragId = useRef<string | null>(null)
-  const dragTab = tab === "active" || tab === "listed"
+  // Manual ranking is a global-launches feature only — the project-details embed has no drag
+  const dragTab = !scoped && (tab === "active" || tab === "listed")
 
   // ── Rows per tab ────────────────────────────────────────────────────────────
 
@@ -1507,14 +1508,14 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
         {/* ── LISTED ─────────────────────────────────────────────────────────── */}
         <TabsContent value="listed" className="mt-4 space-y-4">
           {toolbar}
-          <p className="text-xs text-muted-foreground">Drag rows to reorder. Order reflects on Nawy Listing website and Mobile App.</p>
+          {dragTab && <p className="text-xs text-muted-foreground">Drag rows to reorder. Order reflects on Nawy Listing website and Mobile App.</p>}
           {renderTable("Listed Launches")}
         </TabsContent>
 
         {/* ── CURRENTLY ACTIVE ───────────────────────────────────────────────── */}
         <TabsContent value="active" className="mt-4 space-y-4">
           {toolbar}
-          <p className="text-xs text-muted-foreground">Drag rows to reorder. Order reflects on Nawy Listing website and Mobile App.</p>
+          {dragTab && <p className="text-xs text-muted-foreground">Drag rows to reorder. Order reflects on Nawy Listing website and Mobile App.</p>}
           {renderTable("Currently Active")}
         </TabsContent>
       </Tabs>

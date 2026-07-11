@@ -1,7 +1,15 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { ChevronRight, Home, Plus, Search, X } from "lucide-react"
+import { ChevronDown, ChevronRight, Group as GroupIcon, Home, Plus, Search, X } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -19,7 +27,7 @@ import { cn } from "@/lib/utils"
 import { LinkedPlanCard, type PlanCardData } from "@/components/all-properties-page"
 import { PaymentPlanDrawer } from "@/components/payment-plan-builder"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
-import { TableCard, TableCardHeader, TableFooter, FilterSelect } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableFooter, FilterSelect, MultiSortControl, GroupPager, type SortLevel } from "@/components/table-kit"
 
 // ── Mock data (deterministic, modeled on the production listing) ───────────────
 type PlanRow = PlanCardData & { phase: string | null; createdIso: string; updatedIso: string }
@@ -96,7 +104,46 @@ const PLANS: PlanRow[] = Array.from({ length: 24 }, (_, i) => {
   }
 })
 
-const SORT_OPTIONS = ["Last updated ↓", "Last updated ↑", "Created ↓", "Created ↑", "Name A–Z"]
+// Multi-level sort fields — % fields parse their numeric value ("—" sorts lowest)
+const SORT_FIELDS = [
+  { key: "createdAt", label: "Created at" },
+  { key: "updatedAt", label: "Updated at" },
+  { key: "dp", label: "Downpayment %" },
+  { key: "instalPct", label: "Installment %" },
+  { key: "discount", label: "Discount %" },
+]
+const pct = (v: string) => { const n = parseFloat(String(v).replace(/[^\d.]/g, "")); return Number.isFinite(n) ? n : -1 }
+function sortVal(p: PlanRow, key: string): string | number {
+  switch (key) {
+    case "createdAt": return p.createdIso
+    case "updatedAt": return p.updatedIso
+    case "dp": return pct(p.dp)
+    case "instalPct": return pct(p.instalPct)
+    case "discount": return pct(p.discount)
+    default: return ""
+  }
+}
+
+// Group-by fields
+const GROUP_FIELDS = [
+  { key: "devName", label: "Developer" },
+  { key: "projName", label: "Project" },
+  { key: "planType", label: "Type" },
+  { key: "frequency", label: "Frequency" },
+  { key: "offer", label: "Offer" },
+  { key: "currency", label: "Currency" },
+]
+function groupVal(p: PlanRow, key: string): string {
+  switch (key) {
+    case "devName": return p.devName
+    case "projName": return p.projName
+    case "planType": return p.planType
+    case "frequency": return p.frequency === "—" ? "No Frequency" : p.frequency
+    case "offer": return p.hasOffer ? "Offer" : "No Offer"
+    case "currency": return p.currency
+    default: return "Other"
+  }
+}
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = {}) {
@@ -109,7 +156,11 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
   const [frequencyF, setFrequencyF] = useState("")
   const [currencyF, setCurrencyF] = useState("")
   const [offerF, setOfferF] = useState("")
-  const [sortBy, setSortBy] = useState("Last updated ↓")
+  const [sorts, setSorts] = useState<SortLevel[]>([])
+  const [groupBy, setGroupBy] = useState<string | null>(null)
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const GROUP_PAGE_SIZE = 8
+  const [groupPages, setGroupPages] = useState<Record<string, number>>({})
 
   const [detailsPlan, setDetailsPlan] = useState<PlanCardData | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -138,17 +189,29 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
       return true
     })
     const sorted = [...result]
-    switch (sortBy) {
-      case "Last updated ↑": sorted.sort((a, b) => a.updatedIso.localeCompare(b.updatedIso)); break
-      case "Created ↓": sorted.sort((a, b) => b.createdIso.localeCompare(a.createdIso)); break
-      case "Created ↑": sorted.sort((a, b) => a.createdIso.localeCompare(b.createdIso)); break
-      case "Name A–Z": sorted.sort((a, b) => a.name.localeCompare(b.name)); break
-      default: sorted.sort((a, b) => b.updatedIso.localeCompare(a.updatedIso))
+    if (sorts.length) {
+      sorted.sort((a, b) => {
+        for (const s of sorts) {
+          const va = sortVal(a, s.key), vb = sortVal(b, s.key)
+          if (va !== vb) return (va < vb ? -1 : 1) * (s.dir === "asc" ? 1 : -1)
+        }
+        return 0
+      })
+    } else {
+      sorted.sort((a, b) => b.updatedIso.localeCompare(a.updatedIso)) // default: last updated first
     }
     return sorted
-  }, [plans, search, developerF, projectF, phaseF, typeF, frequencyF, currencyF, offerF, sortBy])
+  }, [plans, search, developerF, projectF, phaseF, typeF, frequencyF, currencyF, offerF, sorts])
 
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
+
+  // Group-by sections over ALL filtered plans (each group pages inside itself)
+  const sections = useMemo(() => {
+    if (!groupBy) return null
+    const map: Record<string, PlanRow[]> = {}
+    for (const p of filtered) (map[groupVal(p, groupBy)] ??= []).push(p)
+    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
+  }, [filtered, groupBy])
 
   const hasFilters = !!search || !!developerF || !!projectF || !!phaseF || !!typeF || !!frequencyF || !!currencyF || !!offerF
   const clearAll = () => {
@@ -202,19 +265,40 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
             <FilterSelect label="Frequency" value={frequencyF} options={FREQUENCIES} onChange={(v) => { setFrequencyF(v); setPage(1) }} className="w-40" />
             <FilterSelect label="Currency" value={currencyF} options={["EGP", "USD"]} onChange={(v) => { setCurrencyF(v); setPage(1) }} className="w-36" />
             <FilterSelect label="Offer" value={offerF} options={["Offer", "No Offer"]} onChange={(v) => { setOfferF(v); setPage(1) }} className="w-32" />
-            <div className="ml-auto flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Sort</span>
-              <FilterSelect label="Sort" value={sortBy} options={SORT_OPTIONS} onChange={(v) => setSortBy(v || "Last updated ↓")} className="w-44" />
-            </div>
             {hasFilters && (
               <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground" onClick={clearAll}>
                 <X className="mr-1 h-3.5 w-3.5" />Clear All
               </Button>
             )}
+            <div className="ml-auto flex items-center gap-2">
+              <MultiSortControl fields={SORT_FIELDS} sorts={sorts} onChange={(s) => { setSorts(s); setPage(1) }} />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant={groupBy ? "default" : "outline"} size="sm" className="h-8 gap-1.5">
+                    <GroupIcon className="h-3.5 w-3.5" />
+                    Group
+                    {groupBy && (
+                      <Badge variant="secondary" className="ml-0.5 h-4 px-1.5 text-[10px]">
+                        {GROUP_FIELDS.find((f) => f.key === groupBy)?.label}
+                      </Badge>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setGroupBy(null)}>No Grouping</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {GROUP_FIELDS.map((f) => (
+                    <DropdownMenuItem key={f.key} onClick={() => { setGroupBy(f.key); setCollapsedGroups(new Set()); setGroupPages({}) }}>
+                      {f.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
 
-        {/* Plans grid */}
+        {/* Header — its own card; the plan cards list freely below it (like grouped properties) */}
         <TableCard>
           <TableCardHeader
             title="Payment Plans"
@@ -225,28 +309,81 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
               </Button>
             }
           />
-          {filtered.length === 0 ? (
-            <p className="px-6 py-16 text-center text-sm text-muted-foreground">No payment plans match your filters.</p>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {pageRows.map((plan) => (
-                <LinkedPlanCard
-                  key={plan.id}
-                  plan={plan}
-                  fullWidth
-                  hideFooter
-                  isExpanded={false}
-                  onToggleExpand={() => {}}
-                  totalInGroup={pageRows.length}
-                  onView={() => setDetailsPlan(plan)}
-                  onRemove={() => setDeletingPlan(plan)}
-                  removeConfirm={false}
-                />
-              ))}
-            </div>
-          )}
-          <TableFooter page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="plans" />
         </TableCard>
+
+        {filtered.length === 0 ? (
+          <p className="rounded-xl border border-border bg-card px-6 py-16 text-center text-sm text-muted-foreground">No payment plans match your filters.</p>
+        ) : sections ? (
+          <div className="space-y-2">
+            {sections.map(([key, groupPlans]) => {
+              const isCollapsed = collapsedGroups.has(key)
+              const gp = groupPages[key] ?? 1
+              const slice = groupPlans.slice((gp - 1) * GROUP_PAGE_SIZE, gp * GROUP_PAGE_SIZE)
+              return (
+                <div key={key} className="space-y-3">
+                  <button
+                    className="group flex w-full items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-secondary/60"
+                    onClick={() => setCollapsedGroups((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })}
+                  >
+                    <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", isCollapsed && "-rotate-90")} />
+                    <span className="text-sm font-semibold text-foreground">{key}</span>
+                    <Badge variant="secondary" className="text-xs">{groupPlans.length.toLocaleString()}</Badge>
+                    <div className="h-px flex-1 bg-border" />
+                    {!isCollapsed && (
+                      <GroupPager total={groupPlans.length} page={gp} pageSize={GROUP_PAGE_SIZE} onPage={(p) => setGroupPages((prev) => ({ ...prev, [key]: p }))} />
+                    )}
+                  </button>
+                  {!isCollapsed && (
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                      {slice.map((plan) => (
+                        <LinkedPlanCard
+                          key={plan.id}
+                          plan={plan}
+                          fullWidth
+                          hideFooter
+                          isExpanded={false}
+                          onToggleExpand={() => {}}
+                          totalInGroup={slice.length}
+                          onView={() => setDetailsPlan(plan)}
+                          onRemove={() => setDeletingPlan(plan)}
+                          removeConfirm={false}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            {pageRows.map((plan) => (
+              <LinkedPlanCard
+                key={plan.id}
+                plan={plan}
+                fullWidth
+                hideFooter
+                isExpanded={false}
+                onToggleExpand={() => {}}
+                totalInGroup={pageRows.length}
+                onView={() => setDetailsPlan(plan)}
+                onRemove={() => setDeletingPlan(plan)}
+                removeConfirm={false}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Footer — its own bar */}
+        {sections ? (
+          <div className="rounded-xl border border-border bg-card px-4 py-3 text-xs text-muted-foreground">
+            {filtered.length.toLocaleString()} plans in {sections.length} group{sections.length !== 1 ? "s" : ""}
+          </div>
+        ) : (
+          <TableCard>
+            <TableFooter page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="plans" />
+          </TableCard>
+        )}
       </div>
 
       {/* View drawer (read-only, Edit at the bottom) */}

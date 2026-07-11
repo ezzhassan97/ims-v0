@@ -119,7 +119,7 @@ const navItems: NavItem[] = [
     icon: <Paperclip className="h-4 w-4" />,
     children: [
       { label: "Brochures", icon: <FileText className="h-4 w-4" /> },
-      { label: "Masterplan", icon: <Map className="h-4 w-4" /> },
+      { label: "Masterplans", icon: <Map className="h-4 w-4" /> },
       { label: "Floor Plans", icon: <Layers className="h-4 w-4" /> },
       { label: "Render Images", icon: <ImageIcon className="h-4 w-4" /> },
       { label: "Media Library", icon: <Video className="h-4 w-4" /> },

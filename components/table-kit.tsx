@@ -3,7 +3,7 @@
 import type React from "react"
 import { useEffect, useRef, useState } from "react"
 import {
-  Search, X, Filter, SlidersHorizontal, ArrowUpDown, Group as GroupIcon, Columns3, ChevronDown, Check, Copy,
+  Search, X, Filter, SlidersHorizontal, ArrowUp, ArrowDown, ArrowUpDown, Group as GroupIcon, Columns3, ChevronDown, Check, Copy,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, GripVertical, Lock, Unlock, Eye, EyeOff,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -619,5 +619,236 @@ export function TabStrip({ children, className }: { children: React.ReactNode; c
         </button>
       )}
     </div>
+  )
+}
+
+// ── Generic multi-level sort control (design system) ──────────────────────────
+export type SortLevel = { key: string; dir: "asc" | "desc" }
+
+/**
+ * Canonical multi-level Sort button: add levels, pick a field, asc/desc per level,
+ * levels are ranked in order. Use this for EVERY table/grid Sort button.
+ */
+export function MultiSortControl({ fields, sorts, onChange }: {
+  fields: { key: string; label: string }[]
+  sorts: SortLevel[]
+  onChange: (next: SortLevel[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+
+  const used = new Set(sorts.map((s) => s.key))
+  const available = fields.filter((f) => !used.has(f.key))
+
+  return (
+    <div ref={ref} className="relative">
+      <Button variant={sorts.length ? "default" : "outline"} size="sm" className="h-8 gap-1.5" onClick={() => setOpen((v) => !v)}>
+        <ArrowUpDown className="h-3.5 w-3.5" />Sort
+        {sorts.length > 0 && <span className="ml-0.5 rounded-full bg-primary-foreground/20 px-1.5 text-[10px] font-semibold">{sorts.length}</span>}
+      </Button>
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-md">
+          <p className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Multi-level sort</p>
+          {sorts.length === 0 && <p className="px-3 py-1.5 text-xs text-muted-foreground">No sort applied — add a level below.</p>}
+          {sorts.map((s, i) => (
+            <div key={s.key} className="flex items-center gap-2 px-3 py-1.5">
+              <span className="w-4 text-[11px] text-muted-foreground">{i + 1}.</span>
+              <span className="flex-1 text-sm">{fields.find((f) => f.key === s.key)?.label ?? s.key}</span>
+              <button onClick={() => onChange(sorts.map((x, j) => (j === i ? { ...x, dir: "asc" } : x)))} className={cn("rounded p-1", s.dir === "asc" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")} title="Ascending"><ArrowUp className="h-3.5 w-3.5" /></button>
+              <button onClick={() => onChange(sorts.map((x, j) => (j === i ? { ...x, dir: "desc" } : x)))} className={cn("rounded p-1", s.dir === "desc" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")} title="Descending"><ArrowDown className="h-3.5 w-3.5" /></button>
+              <button onClick={() => onChange(sorts.filter((_, j) => j !== i))} className="rounded p-1 text-muted-foreground hover:text-red-600" title="Remove level"><X className="h-3.5 w-3.5" /></button>
+            </div>
+          ))}
+          {available.length > 0 && (
+            <>
+              <div className="my-1 h-px bg-border" />
+              <p className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Add level</p>
+              {available.map((f) => (
+                <button key={f.key} onClick={() => onChange([...sorts, { key: f.key, dir: "asc" }])} className="flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-secondary">+ {f.label}</button>
+              ))}
+            </>
+          )}
+          {sorts.length > 0 && (
+            <>
+              <div className="my-1 h-px bg-border" />
+              <button onClick={() => { onChange([]); setOpen(false) }} className="flex w-full items-center px-3 py-1.5 text-left text-sm text-red-600 hover:bg-secondary">Clear sort</button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Project dropdown grouped by main project (design system) ──────────────────
+export type ProjectTreeNode = {
+  id: string
+  name: string
+  status?: "Active" | "Hidden"
+  phases: { id: string; name: string; status?: "Active" | "Hidden" }[]
+}
+/** A selection resolves to the set of project ids it covers (main + phases / main only / one phase). */
+export type ProjectTreeSelection = { kind: "project" | "main-only" | "phase"; id: string; label: string; projectIds: string[] } | null
+
+function ProjStatusTag({ status }: { status?: "Active" | "Hidden" }) {
+  if (!status) return null
+  return (
+    <span className={cn(
+      "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded border px-1.5 py-px text-[10px] font-medium",
+      status === "Active" ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-600",
+    )}>
+      {status}
+    </span>
+  )
+}
+
+/**
+ * Canonical searchable Project select, grouped by main project: pick the main project
+ * WITH all its phases, the main project only, or a single phase. Every row shows the
+ * id + Active/Hidden tag; phases show their parent project.
+ */
+export function ProjectTreeSelect({ label = "Project", projects, value, onChange, className }: {
+  label?: string
+  projects: ProjectTreeNode[]
+  value: ProjectTreeSelection
+  onChange: (v: ProjectTreeSelection) => void
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState("")
+  const ref = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (open) setTimeout(() => inputRef.current?.focus(), 40) }, [open])
+  useEffect(() => {
+    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setQ("") } }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+
+  const needle = q.trim().toLowerCase()
+  const visible = projects
+    .map((p) => {
+      const phaseHits = p.phases.filter((ph) => ph.name.toLowerCase().includes(needle))
+      const selfHit = p.name.toLowerCase().includes(needle)
+      if (!needle || selfHit) return { ...p, phases: p.phases }
+      if (phaseHits.length) return { ...p, phases: phaseHits }
+      return null
+    })
+    .filter(Boolean) as ProjectTreeNode[]
+
+  const pick = (v: ProjectTreeSelection) => { onChange(v); setOpen(false); setQ("") }
+  const active = !!value
+
+  return (
+    <div ref={ref} className={cn("relative", className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex h-8 w-full items-center justify-between gap-1.5 rounded-md border bg-white px-2.5 text-sm transition-colors hover:bg-muted/50",
+          active ? "border-primary text-primary" : "border-input text-foreground",
+        )}
+      >
+        <span className="truncate text-left">{value ? value.label : label}</span>
+        <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-border bg-card shadow-md">
+          <div className="border-b border-border p-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects or phases…" className="w-full rounded-md border border-input bg-white py-1.5 pl-8 pr-3 text-sm outline-none placeholder:text-muted-foreground/60" />
+            </div>
+          </div>
+          <div className="max-h-72 overflow-y-auto py-1">
+            <button onClick={() => pick(null)} className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-secondary", !active && "text-primary")}>
+              <span className="flex h-3.5 w-3.5 items-center justify-center">{!active && <Check className="h-3.5 w-3.5" />}</span>
+              All {label}s
+            </button>
+            {visible.map((p) => {
+              const allIds = [p.id, ...p.phases.map((ph) => ph.id)]
+              const isProj = value?.kind === "project" && value.id === p.id
+              const isMainOnly = value?.kind === "main-only" && value.id === p.id
+              return (
+                <div key={p.id} className="mt-0.5">
+                  {/* Main project + all phases */}
+                  <button onClick={() => pick({ kind: "project", id: p.id, label: p.phases.length ? `${p.name} + phases` : p.name, projectIds: allIds })} className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-secondary", isProj && "bg-primary/5")}>
+                    <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center">{isProj && <Check className="h-3.5 w-3.5 text-primary" />}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-medium">{p.name}</span>
+                        <ProjStatusTag status={p.status} />
+                      </span>
+                      <span className="font-mono text-[10px] text-muted-foreground">ID: {p.id}{p.phases.length > 0 && ` · incl. ${p.phases.length} phase${p.phases.length === 1 ? "" : "s"}`}</span>
+                    </span>
+                  </button>
+                  {/* Main project only */}
+                  {p.phases.length > 0 && (
+                    <button onClick={() => pick({ kind: "main-only", id: p.id, label: `${p.name} (main only)`, projectIds: [p.id] })} className={cn("flex w-full items-center gap-2 py-1.5 pl-9 pr-3 text-left hover:bg-secondary", isMainOnly && "bg-primary/5")}>
+                      <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center">{isMainOnly && <Check className="h-3.5 w-3.5 text-primary" />}</span>
+                      <span className="text-sm text-muted-foreground">Main project only</span>
+                    </button>
+                  )}
+                  {/* Phases */}
+                  {p.phases.map((ph) => {
+                    const isPh = value?.kind === "phase" && value.id === ph.id
+                    return (
+                      <button key={ph.id} onClick={() => pick({ kind: "phase", id: ph.id, label: ph.name, projectIds: [ph.id] })} className={cn("flex w-full items-center gap-2 py-1.5 pl-9 pr-3 text-left hover:bg-secondary", isPh && "bg-primary/5")}>
+                        <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center">{isPh && <Check className="h-3.5 w-3.5 text-primary" />}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1.5">
+                            <span className="truncate text-sm">{ph.name}</span>
+                            <ProjStatusTag status={ph.status} />
+                          </span>
+                          <span className="font-mono text-[10px] text-muted-foreground">ID: {ph.id} · in {p.name}</span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            })}
+            {visible.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No results</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Per-group mini pager (design system) ──────────────────────────────────────
+/**
+ * Subtle pagination inside a group-by section — real data can put thousands of
+ * rows/cards in one group. Renders "start–end of total" + tiny chevrons.
+ */
+export function GroupPager({ total, page, pageSize, onPage }: { total: number; page: number; pageSize: number; onPage: (p: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize))
+  if (pages <= 1) return null
+  const start = (page - 1) * pageSize + 1
+  const end = Math.min(page * pageSize, total)
+  return (
+    <span className="ml-auto flex flex-shrink-0 items-center gap-1 text-[11px] font-normal text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+      {start.toLocaleString()}–{end.toLocaleString()} of {total.toLocaleString()}
+      <button
+        disabled={page <= 1}
+        onClick={() => onPage(page - 1)}
+        className="flex h-5 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <ChevronLeft className="h-3 w-3" />
+      </button>
+      <button
+        disabled={page >= pages}
+        onClick={() => onPage(page + 1)}
+        className="flex h-5 w-5 items-center justify-center rounded border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <ChevronRight className="h-3 w-3" />
+      </button>
+    </span>
   )
 }
