@@ -209,9 +209,25 @@ const mockLaunches: Launch[] = [
     phase: "Phase 2", projectLevel: "Phase", parentProjectId: "Marassi",
     area: "North Coast", areaId: AREA_ID["North Coast"],
     approvalStatus: "Pending Review", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
+    // Matched an already-created phase that has an ACTIVE launch (LCH-011) -> ingestion conflict
+    existingProject: { id: "PRJ-202", name: "Marassi North Coast — Phase 2" },
     launchStatus: "Upcoming", type: "Release", source: "Manual",
     listingCompletion: 45, eoiAmount: 75000, coverImage: COVER,
     sentAt: "2024-01-12T10:20:00", createdAt: "2024-01-12T11:00:00", updatedAt: "2024-01-14T16:45:00",
+  },
+  {
+    id: "LCH-011",
+    developer: { name: "Emaar Misr", logo: LOGO, id: "DEV-002" },
+    projectNameEn: "Marassi North Coast", projectId: "PRJ-202",
+    phase: "Phase 2", projectLevel: "Phase", parentProjectId: "Marassi",
+    area: "North Coast", areaId: AREA_ID["North Coast"],
+    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
+    existingProject: { id: "PRJ-202", name: "Marassi North Coast — Phase 2" },
+    listingProject: { id: "LST-011", name: "Marassi North Coast" },
+    launchStatus: "Active", type: "Launch", source: "WhatsApp",
+    listingCompletion: 95, eoiAmount: 100000, coverImage: COVER,
+    aiUpdates: { count: 2, lastAt: "2024-01-11T09:00:00" }, ingestedAt: "2024-01-06T08:00:00",
+    sentAt: "2024-01-05T07:30:00", createdAt: "2024-01-05T09:00:00", updatedAt: "2024-01-13T12:00:00",
   },
   {
     id: "LCH-003",
@@ -1415,7 +1431,15 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
   )
 
   if (viewingLaunch) {
-    return <LaunchDetailsPage launch={viewingLaunch} onBack={() => setViewingLaunch(null)} />
+    return (
+      <LaunchDetailsPage
+        launch={viewingLaunch}
+        onBack={() => setViewingLaunch(null)}
+        allLaunches={launches}
+        // Ingesting over an existing project closes its currently-active launch
+        onResolveConflict={(closedId) => patch([closedId], { launchStatus: "Closed" })}
+      />
+    )
   }
 
   return (
