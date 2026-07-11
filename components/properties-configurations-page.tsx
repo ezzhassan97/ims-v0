@@ -1222,7 +1222,7 @@ export function PropertiesConfigurationsPage() {
         </div>
 
         <Tabs defaultValue="developer-types" className="space-y-4">
-          <TabsList className="bg-card">
+          <TabsList>
             <TabsTrigger value="developer-types">Developer Types</TabsTrigger>
             <TabsTrigger value="property-types">Property Types</TabsTrigger>
             <TabsTrigger value="finishing-types">Finishing Types</TabsTrigger>

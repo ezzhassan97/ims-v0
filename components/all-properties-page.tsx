@@ -5270,7 +5270,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
         )}
 
         <Tabs defaultValue="grouped" className="space-y-4" onValueChange={setActiveTab}>
-          <TabsList className="bg-card">
+          <TabsList>
             <TabsTrigger value="grouped"><Boxes className="mr-1.5 h-3.5 w-3.5" />Grouped Properties</TabsTrigger>
             <TabsTrigger value="detailed"><List className="mr-1.5 h-3.5 w-3.5" />Detailed Properties</TabsTrigger>
           </TabsList>

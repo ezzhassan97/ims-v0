@@ -1989,7 +1989,7 @@ export function AdvancedDataGrid({
   return (
     <div className="h-full flex flex-col p-4 gap-3">
       {/* ── Unified toolbar container ─────────────────────────────────── */}
-      <div className="bg-card border border-border rounded-xl p-3 shadow-sm space-y-3">
+      <div className="bg-card border border-border rounded-xl p-3 space-y-3">
         {/* Row 1: search + quick filters + date range */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Search */}

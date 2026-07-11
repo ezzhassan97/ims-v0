@@ -622,13 +622,13 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
 
         {/* Tabs */}
         <Tabs defaultValue="seo" className="space-y-4">
-          <TabsList className="bg-card">
+          <TabsList>
             {DETAIL_TABS.map((t) => (
               <TabsTrigger key={t.value} value={t.value} className="gap-1.5"><t.icon className="h-3.5 w-3.5" />{t.label}</TabsTrigger>
             ))}
           </TabsList>
-          <TabsContent value="seo"><SeoTab developer={developer} /></TabsContent>
-          <TabsContent value="faqs"><FaqsTab developer={developer} /></TabsContent>
+          <TabsContent value="seo"><SeoTab entity={developer} /></TabsContent>
+          <TabsContent value="faqs"><FaqsTab entityName={developer.name} /></TabsContent>
           <TabsContent value="projects"><ProjectsTab developer={developer} /></TabsContent>
           <TabsContent value="whatsapp-media"><WhatsAppMediaTable hideDeveloperFilter /></TabsContent>
           <TabsContent value="contacts"><ContactsTab /></TabsContent>
@@ -661,7 +661,7 @@ function Field({ label, value, rtl }: { label: string; value: string; rtl?: bool
   )
 }
 function TabCard({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-xl border border-border bg-card p-6 shadow-sm">{children}</div>
+  return <div className="rounded-xl border border-border bg-card p-6">{children}</div>
 }
 
 /** Reuses the exact Projects table from the Projects page, scoped to this developer and
@@ -675,11 +675,12 @@ function ProjectsTab({ developer }: { developer: Developer }) {
   return <ProjectsPage embedded hideDeveloperFilter rows={devProjects} />
 }
 
-function SeoTab({ developer }: { developer: Developer }) {
-  const [descEn, setDescEn] = useState(`<p>${developer.descriptionEn}</p>`)
-  const [descAr, setDescAr] = useState(`<p>${developer.descriptionAr}</p>`)
-  const [metaTitleEn, setMetaTitleEn] = useState(`${developer.name} — Projects & Properties`)
-  const [metaTitleAr, setMetaTitleAr] = useState(`${developer.nameAr} — المشروعات والعقارات`)
+/** Shared SEO editor (developer details, areas page) — pass any entity with names + descriptions. */
+export function SeoTab({ entity }: { entity: { name: string; nameAr: string; descriptionEn: string; descriptionAr: string } }) {
+  const [descEn, setDescEn] = useState(`<p>${entity.descriptionEn}</p>`)
+  const [descAr, setDescAr] = useState(`<p>${entity.descriptionAr}</p>`)
+  const [metaTitleEn, setMetaTitleEn] = useState(`${entity.name} — Projects & Properties`)
+  const [metaTitleAr, setMetaTitleAr] = useState(`${entity.nameAr} — المشروعات والعقارات`)
   const [metaDescEn, setMetaDescEn] = useState("")
   const [metaDescAr, setMetaDescAr] = useState("")
   const wc = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0)
@@ -758,10 +759,11 @@ function LangToggle({ lang, onChange }: { lang: "en" | "ar"; onChange: (l: "en" 
   )
 }
 
-function FaqsTab({ developer }: { developer: Developer }) {
+/** Shared FAQs manager (developer details, areas page). */
+export function FaqsTab({ entityName }: { entityName: string }) {
   const [lang, setLang] = useState<"en" | "ar">("en")
   const [faqs, setFaqs] = useState<Faq[]>([
-    { id: "faq-1", active: true, questionEn: `Where are ${developer.name}'s projects located?`, answerEn: "Across New Cairo, Sheikh Zayed, the North Coast, and 6th of October.", questionAr: "أين تقع مشروعات المطور؟", answerAr: "في القاهرة الجديدة والشيخ زايد والساحل الشمالي و6 أكتوبر." },
+    { id: "faq-1", active: true, questionEn: `Where are ${entityName}'s projects located?`, answerEn: "Across New Cairo, Sheikh Zayed, the North Coast, and 6th of October.", questionAr: "أين تقع مشروعات المطور؟", answerAr: "في القاهرة الجديدة والشيخ زايد والساحل الشمالي و6 أكتوبر." },
     { id: "faq-2", active: true, questionEn: "What payment plans are available?", answerEn: "Flexible plans from 5% down payment and up to 12 years of installments.", questionAr: "ما أنظمة السداد المتاحة؟", answerAr: "أنظمة مرنة تبدأ من 5% مقدم وحتى 12 سنة أقساط." },
     { id: "faq-3", active: false, questionEn: "Is delivery on schedule?", answerEn: "Projects follow the announced delivery timelines with periodic updates.", questionAr: "هل التسليم في الموعد؟", answerAr: "تلتزم المشروعات بمواعيد التسليم المعلنة مع تحديثات دورية." },
   ])

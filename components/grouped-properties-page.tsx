@@ -57,6 +57,7 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { TabStrip } from "@/components/table-kit"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -774,7 +775,7 @@ function GroupCard({
   }, [desc])
 
   return (
-    <div className={cn("rounded-lg border bg-card shadow-sm overflow-hidden relative", isSelected ? "border-primary ring-1 ring-primary/30" : "border-border")}>
+    <div className={cn("rounded-lg border bg-card overflow-hidden relative", isSelected ? "border-primary ring-1 ring-primary/30" : "border-border")}>
 
       {/* ── Archive confirmation overlay ── */}
       {confirmArchive && (
@@ -2062,11 +2063,11 @@ export function GroupedPropertyDetails({
 
         {/* ── Tabs — single-row scrollable icon tabs (shared design system) ── */}
         <Tabs defaultValue="additional-info" className="space-y-4">
-          <div className="overflow-x-auto">
-            <TabsList className="w-max bg-card">
+          <TabStrip>
+            <TabsList className="w-max">
               {detailTabs.map((t) => <TabsTrigger key={t.value} value={t.value}><t.icon className="mr-1.5 h-3.5 w-3.5" />{t.label}</TabsTrigger>)}
             </TabsList>
-          </div>
+          </TabStrip>
 
           <TabsContent value="detailed-properties">
             <div className="rounded-xl border border-border bg-card p-4">

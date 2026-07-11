@@ -514,7 +514,7 @@ function WhatsAppGroupDetails({ group, onBack }: { group: WaGroup; onBack: () =>
 
         {/* Tabs */}
         <Tabs defaultValue="media" className="space-y-4">
-          <TabsList className="bg-card">
+          <TabsList>
             <TabsTrigger value="media" className="gap-1.5"><ImageIcon className="h-3.5 w-3.5" />Media</TabsTrigger>
             <TabsTrigger value="summary" className="gap-1.5"><MessageSquareText className="h-3.5 w-3.5" />Group summary</TabsTrigger>
           </TabsList>

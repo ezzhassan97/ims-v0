@@ -22,7 +22,7 @@ import {
   FINISHING_OPTIONS, DELIVERY_TYPE_OPTIONS, CURRENCY_OPTIONS,
 } from "@/components/additional-info-tab"
 import { TYPE_TREE, buildTypeGroups, type GroupedProperty } from "@/components/grouped-properties-page"
-import { FilterMultiSelect } from "@/components/table-kit"
+import { FilterMultiSelect, TabStrip } from "@/components/table-kit"
 import {
   Table,
   TableBody,
@@ -1640,8 +1640,8 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
 
       {/* Tabbed Container — single-row scrollable icon tabs (shared design system) */}
       <Tabs defaultValue={launch.source === "WhatsApp" ? "whatsapp" : "project"} className="w-full">
-        <div className="mb-4 overflow-x-auto">
-          <TabsList className="w-max bg-secondary gap-0.5">
+        <TabStrip className="mb-4">
+          <TabsList className="w-max gap-0.5">
             {launch.source === "WhatsApp" && (
               <TabsTrigger value="whatsapp" className="data-[state=active]:bg-card"><MessageSquare className="mr-1.5 h-3.5 w-3.5" />WhatsApp Messages</TabsTrigger>
             )}
@@ -1653,7 +1653,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
             <TabsTrigger value="attachments" className="data-[state=active]:bg-card"><Paperclip className="mr-1.5 h-3.5 w-3.5" />Attachments</TabsTrigger>
             <TabsTrigger value="audit" className="data-[state=active]:bg-card"><ScrollText className="mr-1.5 h-3.5 w-3.5" />Audit Logs</TabsTrigger>
           </TabsList>
-        </div>
+        </TabStrip>
 
         {/* Project Details Tab */}
         <TabsContent value="project">

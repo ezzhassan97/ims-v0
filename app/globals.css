@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* Hide the native scrollbar (used by tab strips — arrows + trackpad still scroll) */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 @utility animate-in {
   animation-name: enter;
   animation-duration: var(--tw-duration, 150ms);

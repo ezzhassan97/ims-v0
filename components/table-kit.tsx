@@ -564,3 +564,60 @@ export function ColumnsSheet({
     </Sheet>
   )
 }
+
+// ── Scrollable tab strip (design system) ──────────────────────────────────────
+/**
+ * Wrap a TabsList in this when the tabs can overflow: the native scrollbar is
+ * hidden and left/right chevrons appear to scroll the strip (trackpad still works).
+ */
+export function TabStrip({ children, className }: { children: React.ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [canLeft, setCanLeft] = useState(false)
+  const [canRight, setCanRight] = useState(false)
+
+  const update = () => {
+    const el = ref.current
+    if (!el) return
+    setCanLeft(el.scrollLeft > 2)
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2)
+  }
+
+  useEffect(() => {
+    update()
+    window.addEventListener("resize", update)
+    return () => window.removeEventListener("resize", update)
+  }, [])
+
+  const scroll = (dir: 1 | -1) => ref.current?.scrollBy({ left: dir * 320, behavior: "smooth" })
+  const overflows = canLeft || canRight
+
+  return (
+    <div className={cn("flex items-center gap-1", className)}>
+      {overflows && (
+        <button
+          type="button"
+          onClick={() => scroll(-1)}
+          disabled={!canLeft}
+          className={cn("flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors", canLeft ? "hover:bg-secondary hover:text-foreground" : "opacity-40")}
+          aria-label="Scroll tabs left"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+      )}
+      <div ref={ref} onScroll={update} className="no-scrollbar overflow-x-auto">
+        {children}
+      </div>
+      {overflows && (
+        <button
+          type="button"
+          onClick={() => scroll(1)}
+          disabled={!canRight}
+          className={cn("flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors", canRight ? "hover:bg-secondary hover:text-foreground" : "opacity-40")}
+          aria-label="Scroll tabs right"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+  )
+}

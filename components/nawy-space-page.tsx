@@ -5015,7 +5015,7 @@ export function NawySpacePage() {
         </div>
 
         <Tabs defaultValue="images" className="space-y-4">
-          <TabsList className="bg-card">
+          <TabsList>
             <TabsTrigger value="images">Images</TabsTrigger>
             <TabsTrigger value="analysis">Construction Update Analysis</TabsTrigger>
           </TabsList>

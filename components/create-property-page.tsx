@@ -268,7 +268,7 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
         </div>
 
         {/* Sticky header */}
-        <div className="sticky top-0 z-20 flex items-center justify-between rounded-lg border border-border bg-card px-5 py-3 shadow-sm">
+        <div className="sticky top-0 z-20 flex items-center justify-between rounded-lg border border-border bg-card px-5 py-3">
           <div className="flex items-center gap-2">
             <h1 className="text-base font-semibold">Create {SALE_TYPE_LABEL[variation]} Property</h1>
             <Badge variant="outline" className="text-xs">{SALE_TYPE_LABEL[variation]}</Badge>

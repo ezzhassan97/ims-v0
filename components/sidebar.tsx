@@ -80,6 +80,10 @@ const navItems: NavItem[] = [
     ],
   },
   {
+    label: "Areas",
+    icon: <MapPin className="h-4 w-4" />,
+  },
+  {
     label: "Developers",
     icon: <Building2 className="h-4 w-4" />,
   },

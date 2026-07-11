@@ -23,6 +23,7 @@ import { LaunchesPage } from "@/components/launches-page"
 import { AllPropertiesPage } from "@/components/all-properties-page"
 import { PaymentPlansPage } from "@/components/payment-plans-page"
 import { ComingSoon } from "@/components/coming-soon"
+import { TabStrip } from "@/components/table-kit"
 import {
   type Building,
   type Unit,
@@ -287,8 +288,8 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
 
         <Tabs defaultValue="features" className="w-full">
           {/* Single-row scrollable icon tabs — scales as tabs keep growing */}
-          <div className="overflow-x-auto">
-            <TabsList className="w-max bg-secondary">
+          <TabStrip>
+            <TabsList className="w-max">
               {[
                 { value: "features", label: "Features", icon: Sparkles },
                 { value: "seo", label: "SEO", icon: Globe },
@@ -313,7 +314,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
                 </TabsTrigger>
               ))}
             </TabsList>
-          </div>
+          </TabStrip>
 
           {/* Not built yet → coming soon */}
           {["features", "seo", "phases", "floor-plans", "ingestion-entries", "attachments", "audit-logs"].map((value) => (

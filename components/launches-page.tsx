@@ -43,6 +43,8 @@ import {
   Archive,
   Rocket,
   CheckCircle,
+  Clock,
+  LayoutGrid,
   ListChecks,
   Activity,
   XCircle,
@@ -1431,6 +1433,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
         <TabsList className="bg-secondary">
           {!scoped && (
             <TabsTrigger value="all" className="data-[state=active]:bg-card">
+              <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />
               All
               <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-gray-200 bg-gray-100 px-1 text-[10px] font-semibold text-gray-600">
                 {launches.length}
@@ -1439,6 +1442,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
           )}
           {!scoped && (
             <TabsTrigger value="pending" className="data-[state=active]:bg-card">
+              <Clock className="mr-1.5 h-3.5 w-3.5" />
               Pending Review
               <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-amber-200 bg-amber-100 px-1 text-[10px] font-semibold text-amber-700">
                 {pendingCount}

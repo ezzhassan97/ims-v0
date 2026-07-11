@@ -16,6 +16,7 @@ import { WhatsAppGroupsPage } from "@/components/whatsapp-groups-page"
 import { WhatsAppConfigurationsPage } from "@/components/whatsapp-configurations-page"
 import { AllPropertiesPage } from "@/components/all-properties-page"
 import { DevelopersPage } from "@/components/developers-page"
+import { AreasPage } from "@/components/areas-page"
 import { QualitySystemPage } from "@/components/quality-system-page"
 import { NawySpacePage } from "@/components/nawy-space-page"
 import { RenderImagesPage } from "@/components/render-images-page"
@@ -54,6 +55,8 @@ export function AppShell() {
         return <AllPropertiesPage fixedSaleType="Nawy Now" pageTitle="Nawy Now Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
       case "Rental Properties":
         return <AllPropertiesPage fixedSaleType="Rental" pageTitle="Rental Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
+      case "Areas":
+        return <AreasPage />
       case "Developers":
         return <DevelopersPage />
       case "Testing Playground":
