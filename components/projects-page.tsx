@@ -1,7 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { Home, ChevronRight } from "lucide-react"
+import {
+  Home, ChevronRight, Sparkles, Globe, HelpCircle, Rocket, Layers, CreditCard,
+  Image as ImageIcon, LayoutTemplate, Building2, Map, Trees, Building, HardHat,
+  Database, Paperclip, ScrollText,
+} from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ProjectHeader } from "@/components/project-header"
 import type { ProjectRow } from "@/lib/projects-mock"
@@ -282,30 +286,34 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
         <ProjectHeader />
 
         <Tabs defaultValue="features" className="w-full">
-          <TabsList className="h-auto flex-wrap justify-start bg-secondary">
-            {[
-              ["features", "Features"],
-              ["seo", "SEO"],
-              ["faqs", "FAQs"],
-              ["launches", "Launches"],
-              ["phases", "Phases"],
-              ["payment-plans", "Payment Plans"],
-              ["render-images", "Render Images"],
-              ["floor-plans", "Floor Plans"],
-              ["properties", "Properties"],
-              ["masterplans", "Masterplans"],
-              ["amenities", "Masterplan Amenities"],
-              ["buildings", "Masterplan Buildings"],
-              ["construction-updates", "Construction Updates"],
-              ["ingestion-entries", "Ingestion Entries"],
-              ["attachments", "Attachments"],
-              ["audit-logs", "Audit Logs"],
-            ].map(([value, label]) => (
-              <TabsTrigger key={value} value={value} className="data-[state=active]:bg-card">
-                {label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          {/* Single-row scrollable icon tabs — scales as tabs keep growing */}
+          <div className="overflow-x-auto">
+            <TabsList className="w-max bg-secondary">
+              {[
+                { value: "features", label: "Features", icon: Sparkles },
+                { value: "seo", label: "SEO", icon: Globe },
+                { value: "faqs", label: "FAQs", icon: HelpCircle },
+                { value: "launches", label: "Launches", icon: Rocket },
+                { value: "phases", label: "Phases", icon: Layers },
+                { value: "payment-plans", label: "Payment Plans", icon: CreditCard },
+                { value: "render-images", label: "Render Images", icon: ImageIcon },
+                { value: "floor-plans", label: "Floor Plans", icon: LayoutTemplate },
+                { value: "properties", label: "Properties", icon: Building2 },
+                { value: "masterplans", label: "Masterplans", icon: Map },
+                { value: "amenities", label: "Masterplan Amenities", icon: Trees },
+                { value: "buildings", label: "Masterplan Buildings", icon: Building },
+                { value: "construction-updates", label: "Construction Updates", icon: HardHat },
+                { value: "ingestion-entries", label: "Ingestion Entries", icon: Database },
+                { value: "attachments", label: "Attachments", icon: Paperclip },
+                { value: "audit-logs", label: "Audit Logs", icon: ScrollText },
+              ].map(({ value, label, icon: Icon }) => (
+                <TabsTrigger key={value} value={value} className="data-[state=active]:bg-card">
+                  <Icon className="mr-1.5 h-3.5 w-3.5" />
+                  {label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
 
           {/* Not built yet → coming soon */}
           {["features", "seo", "phases", "floor-plans", "ingestion-entries", "attachments", "audit-logs"].map((value) => (

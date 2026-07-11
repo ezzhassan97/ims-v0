@@ -18,7 +18,6 @@ import { AllPropertiesPage } from "@/components/all-properties-page"
 import { DevelopersPage } from "@/components/developers-page"
 import { QualitySystemPage } from "@/components/quality-system-page"
 import { NawySpacePage } from "@/components/nawy-space-page"
-import { ProjectsNewPage } from "@/components/projects-new-page"
 import { RenderImagesPage } from "@/components/render-images-page"
 import { PaymentPlansPage } from "@/components/payment-plans-page"
 import { PropertiesConfigurationsPage } from "@/components/properties-configurations-page"
@@ -43,12 +42,18 @@ export function AppShell() {
     switch (activePage) {
       case "Projects":
         return <ProjectsPage />
-      case "Projects New":
-        return <ProjectsNewPage />
       case "Launches":
         return <LaunchesPage />
       case "All Properties":
         return <AllPropertiesPage onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
+      case "Primary Properties":
+        return <AllPropertiesPage fixedSaleType="Primary" pageTitle="Primary Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
+      case "Resale Properties":
+        return <AllPropertiesPage fixedSaleType="Resale" pageTitle="Resale Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
+      case "Nawy Now Properties":
+        return <AllPropertiesPage fixedSaleType="Nawy Now" pageTitle="Nawy Now Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
+      case "Rental Properties":
+        return <AllPropertiesPage fixedSaleType="Rental" pageTitle="Rental Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
       case "Developers":
         return <DevelopersPage />
       case "Testing Playground":

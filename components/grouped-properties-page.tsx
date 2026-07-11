@@ -23,7 +23,15 @@ import {
   ChevronsRight,
   ChevronUp,
   Copy,
+  CreditCard,
+  Database,
   Edit,
+  History,
+  Image as ImageIcon,
+  LayoutTemplate,
+  List,
+  Paperclip,
+  ScrollText,
   Eye,
   EyeOff,
   ExternalLink,
@@ -1977,15 +1985,15 @@ const GROUPED_HIDDEN_COLS: ColId[] = [
 ]
 
 const DETAIL_TABS = [
-  { value: "additional-info", label: "Additional Info" },
-  { value: "detailed-properties", label: "Detailed Properties" },
-  { value: "payment-plans", label: "Payment Plans" },
-  { value: "floor-plans", label: "Floor Plans" },
-  { value: "gallery", label: "Gallery" },
-  { value: "attachments", label: "Attachments" },
-  { value: "price-history", label: "Price History" },
-  { value: "ingestion-entries", label: "Entries" },
-  { value: "audit-logs", label: "Audit Logs" },
+  { value: "additional-info", label: "Additional Info", icon: Info },
+  { value: "detailed-properties", label: "Detailed Properties", icon: List },
+  { value: "payment-plans", label: "Payment Plans", icon: CreditCard },
+  { value: "floor-plans", label: "Floor Plans", icon: LayoutTemplate },
+  { value: "gallery", label: "Gallery", icon: ImageIcon },
+  { value: "attachments", label: "Attachments", icon: Paperclip },
+  { value: "price-history", label: "Price History", icon: History },
+  { value: "ingestion-entries", label: "Entries", icon: Database },
+  { value: "audit-logs", label: "Audit Logs", icon: ScrollText },
 ]
 
 // Tabs that reuse the unit-drawer panels (value → PropertyDetailTab tab id)
@@ -2052,11 +2060,13 @@ export function GroupedPropertyDetails({
           detailView
         />
 
-        {/* ── Tabs ── */}
+        {/* ── Tabs — single-row scrollable icon tabs (shared design system) ── */}
         <Tabs defaultValue="additional-info" className="space-y-4">
-          <TabsList className="bg-card">
-            {detailTabs.map((t) => <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>)}
-          </TabsList>
+          <div className="overflow-x-auto">
+            <TabsList className="w-max bg-card">
+              {detailTabs.map((t) => <TabsTrigger key={t.value} value={t.value}><t.icon className="mr-1.5 h-3.5 w-3.5" />{t.label}</TabsTrigger>)}
+            </TabsList>
+          </div>
 
           <TabsContent value="detailed-properties">
             <div className="rounded-xl border border-border bg-card p-4">

@@ -68,7 +68,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import {
-  ArrowLeft,
+  ChevronRight,
+  CreditCard,
+  Gift,
+  Paperclip,
+  Rocket,
+  ScrollText,
   Copy,
   Check,
   Edit,
@@ -1136,7 +1141,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
     setOfferingImages((prev) => ({ ...prev, [id]: [] }))
     setOfferingFloorPlans((prev) => ({ ...prev, [id]: [] }))
     setEditingOfferingIds((prev) => new Set(prev).add(id))
-    setExpandedOfferingIds((prev) => new Set(prev).add(id))
+    // New card starts collapsed — the user expands it to fill the additional fields.
   }
 
   const toggleExpandOffering = (id: number) =>
@@ -1245,11 +1250,14 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Back Button */}
-      <Button variant="ghost" onClick={onBack} className="mb-2">
-        <ArrowLeft className="h-4 w-4 mr-2" />
-        Back to Launches
-      </Button>
+      {/* Breadcrumb — Launches (back) > current launch id */}
+      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <button onClick={onBack} className="flex items-center hover:text-foreground"><Home className="h-3.5 w-3.5" /></button>
+        <ChevronRight className="h-3 w-3" />
+        <button onClick={onBack} className="hover:text-foreground hover:underline">Launches</button>
+        <ChevronRight className="h-3 w-3" />
+        <span className="font-medium text-foreground">ID: {launch.id}</span>
+      </div>
 
       {/* Main Details Container — 3 sections split by thin dividers */}
       <Card className="overflow-hidden p-0 gap-0">
@@ -1630,20 +1638,22 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Tabbed Container */}
+      {/* Tabbed Container — single-row scrollable icon tabs (shared design system) */}
       <Tabs defaultValue={launch.source === "WhatsApp" ? "whatsapp" : "project"} className="w-full">
-        <TabsList className="bg-secondary mb-4 flex-wrap h-auto gap-0.5">
-          {launch.source === "WhatsApp" && (
-            <TabsTrigger value="whatsapp" className="data-[state=active]:bg-card">WhatsApp Messages</TabsTrigger>
-          )}
-          <TabsTrigger value="project" className="data-[state=active]:bg-card">Project Details</TabsTrigger>
-          <TabsTrigger value="launch-info" className="data-[state=active]:bg-card">Launch Details</TabsTrigger>
-          <TabsTrigger value="incentives" className="data-[state=active]:bg-card">Launch Incentives</TabsTrigger>
-          <TabsTrigger value="payment" className="data-[state=active]:bg-card">Payment Plans</TabsTrigger>
-          <TabsTrigger value="offerings" className="data-[state=active]:bg-card">Property Offerings</TabsTrigger>
-          <TabsTrigger value="attachments" className="data-[state=active]:bg-card">Attachments</TabsTrigger>
-          <TabsTrigger value="audit" className="data-[state=active]:bg-card">Audit Logs</TabsTrigger>
-        </TabsList>
+        <div className="mb-4 overflow-x-auto">
+          <TabsList className="w-max bg-secondary gap-0.5">
+            {launch.source === "WhatsApp" && (
+              <TabsTrigger value="whatsapp" className="data-[state=active]:bg-card"><MessageSquare className="mr-1.5 h-3.5 w-3.5" />WhatsApp Messages</TabsTrigger>
+            )}
+            <TabsTrigger value="project" className="data-[state=active]:bg-card"><Building2 className="mr-1.5 h-3.5 w-3.5" />Project Details</TabsTrigger>
+            <TabsTrigger value="launch-info" className="data-[state=active]:bg-card"><Rocket className="mr-1.5 h-3.5 w-3.5" />Launch Details</TabsTrigger>
+            <TabsTrigger value="incentives" className="data-[state=active]:bg-card"><Gift className="mr-1.5 h-3.5 w-3.5" />Launch Incentives</TabsTrigger>
+            <TabsTrigger value="payment" className="data-[state=active]:bg-card"><CreditCard className="mr-1.5 h-3.5 w-3.5" />Payment Plans</TabsTrigger>
+            <TabsTrigger value="offerings" className="data-[state=active]:bg-card"><Home className="mr-1.5 h-3.5 w-3.5" />Property Offerings</TabsTrigger>
+            <TabsTrigger value="attachments" className="data-[state=active]:bg-card"><Paperclip className="mr-1.5 h-3.5 w-3.5" />Attachments</TabsTrigger>
+            <TabsTrigger value="audit" className="data-[state=active]:bg-card"><ScrollText className="mr-1.5 h-3.5 w-3.5" />Audit Logs</TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* Project Details Tab */}
         <TabsContent value="project">
@@ -2116,6 +2126,7 @@ export function LaunchDetailsPage({ launch, onBack }: LaunchDetailsPageProps) {
                     fullWidth
                     hideFooter
                     hideIds={!planIngested}
+                    hideTimestamps={!planIngested}
                     statusTag={planIngested
                       ? <span className="text-[9px] font-semibold text-emerald-600 bg-[#EDFAF4] border border-[#A7F3D0] px-1.5 py-px rounded-full">● Ingested</span>
                       : <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-px rounded-full">● Draft</span>}

@@ -803,9 +803,9 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
   const [sorts, setSorts] = useState<LaunchSort[]>([])
 
   const visibleCols = colOrder.filter((id) => !hiddenCols.has(id)).map((id) => LAUNCH_COLS.find((c) => c.id === id)!).filter(Boolean)
-  // Sticky-left offset for a frozen column = checkbox (+ Order col on Currently Active) + preceding frozen widths
+  // Sticky-left offset for a frozen column = checkbox (+ Order col on Listed / Currently Active) + preceding frozen widths
   const frozenLeft = (colId: string) => {
-    let left = 40 + (tab === "active" ? 56 : 0)
+    let left = 40 + (tab === "active" || tab === "listed" ? 56 : 0)
     for (const c of visibleCols) {
       if (c.id === colId) break
       if (frozenCols.has(c.id)) left += c.width
@@ -820,11 +820,12 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
     setIngestedFrom(""); setIngestedTo(""); setPage(1)
   }
 
-  // Currently Active tab manual ordering (rank = position in this array)
+  // Manual ordering for Listed / Currently Active tabs (rank = position in this array)
   const [activeOrder, setActiveOrder] = useState<string[]>(
-    () => mockLaunches.filter((l) => l.approvalStatus === "Approved" && l.ingestionStatus === "Ingested" && l.launchStatus === "Active").map((l) => l.id),
+    () => mockLaunches.filter((l) => l.approvalStatus === "Approved" && l.ingestionStatus === "Ingested").map((l) => l.id),
   )
   const dragId = useRef<string | null>(null)
+  const dragTab = tab === "active" || tab === "listed"
 
   // ── Rows per tab ────────────────────────────────────────────────────────────
 
@@ -876,7 +877,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
       if (ingestedTo && (!l.ingestedAt || new Date(l.ingestedAt) > new Date(ingestedTo + "T23:59:59"))) return false
       return true
     })
-    if (t === "active") rows = [...rows].sort((a, b) => orderRank(a.id) - orderRank(b.id))
+    if (t === "active" || t === "listed") rows = [...rows].sort((a, b) => orderRank(a.id) - orderRank(b.id))
     // Multi-level sort (Sort button / header click) overrides the default/manual order
     if (sorts.length) {
       rows = [...rows].sort((a, b) => {
@@ -1193,14 +1194,13 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
 
   const renderRow = (l: Launch, idx: number) => {
     const selected = selectedIds.includes(l.id)
-    const isActiveTab = tab === "active"
     return (
       <TableRow
         key={l.id}
-        draggable={isActiveTab}
-        onDragStart={isActiveTab ? () => { dragId.current = l.id } : undefined}
-        onDragOver={isActiveTab ? (e) => e.preventDefault() : undefined}
-        onDrop={isActiveTab ? () => onRowDrop(l.id) : undefined}
+        draggable={dragTab}
+        onDragStart={dragTab ? () => { dragId.current = l.id } : undefined}
+        onDragOver={dragTab ? (e) => e.preventDefault() : undefined}
+        onDrop={dragTab ? () => onRowDrop(l.id) : undefined}
         className={cn("hover:bg-muted/40", selected && "bg-primary/5")}
       >
         {/* Sticky checkbox */}
@@ -1213,8 +1213,8 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
           />
         </TableCell>
 
-        {/* Order (Currently Active only) — frozen after the checkbox */}
-        {isActiveTab && (
+        {/* Order (Listed / Currently Active) — frozen after the checkbox */}
+        {dragTab && (
           <TableCell className={cn("sticky left-10 z-10 w-14", selected ? "bg-primary/5" : "bg-card")}>
             <div className="flex cursor-grab items-center gap-1 active:cursor-grabbing">
               <GripVertical className="h-3.5 w-3.5 text-muted-foreground/60" />
@@ -1253,7 +1253,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
     )
   }
 
-  const colCount = 3 + visibleCols.length + (tab === "active" ? 1 : 0)
+  const colCount = 3 + visibleCols.length + (dragTab ? 1 : 0)
 
   // Grouped rows (over the full filtered set, like the developers table)
   const groups = groupBy === "none" ? null : (() => {
@@ -1314,7 +1314,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
                   className="cursor-pointer"
                 />
               </TableHead>
-              {tab === "active" && <TableHead className="sticky left-10 z-20 w-14 bg-muted/60">Order</TableHead>}
+              {dragTab && <TableHead className="sticky left-10 z-20 w-14 bg-muted/60">Order</TableHead>}
               <TableHead className="whitespace-nowrap">ID</TableHead>
               {visibleCols.map(renderTh)}
               <TableHead className="sticky right-0 z-20 w-10 bg-secondary/30"></TableHead>
@@ -1500,9 +1500,10 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
         </TabsContent>
         )}
 
-        {/* ── LISTED STATUS ──────────────────────────────────────────────────── */}
+        {/* ── LISTED ─────────────────────────────────────────────────────────── */}
         <TabsContent value="listed" className="mt-4 space-y-4">
           {toolbar}
+          <p className="text-xs text-muted-foreground">Drag rows to reorder. Order reflects on Nawy Listing website and Mobile App.</p>
           {renderTable("Listed Launches")}
         </TabsContent>
 

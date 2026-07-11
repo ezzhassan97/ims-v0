@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle,
   ArrowUpDown,
+  Boxes,
+  List,
   Baby,
   Bell,
   Building2,
@@ -1513,7 +1515,7 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewO
   )
 }
 
-export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false, onRemove, onView, cascadeRemovesPrice = false, fullWidth = false, selected, onSelectToggle, hideFooter = false, statusTag, hideIds = false, removeConfirm = true }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean; onRemove?: () => void; onView?: () => void; cascadeRemovesPrice?: boolean; fullWidth?: boolean; selected?: boolean; onSelectToggle?: () => void; hideFooter?: boolean; statusTag?: React.ReactNode; /** Draft plans have no system ids yet — hides the plan id and project id. */ hideIds?: boolean; /** false = X calls onRemove directly (caller owns confirmation, e.g. a delete dialog). */ removeConfirm?: boolean }) {
+export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup, readOnly = false, onRemove, onView, cascadeRemovesPrice = false, fullWidth = false, selected, onSelectToggle, hideFooter = false, statusTag, hideIds = false, hideTimestamps = false, removeConfirm = true }: { plan: PlanCardData; isExpanded: boolean; onToggleExpand: () => void; totalInGroup: number; readOnly?: boolean; onRemove?: () => void; onView?: () => void; cascadeRemovesPrice?: boolean; fullWidth?: boolean; selected?: boolean; onSelectToggle?: () => void; hideFooter?: boolean; statusTag?: React.ReactNode; /** Draft plans have no system ids yet — hides the plan id and project id. */ hideIds?: boolean; /** Draft plans aren't persisted yet — hides the Created/Updated row. */ hideTimestamps?: boolean; /** false = X calls onRemove directly (caller owns confirmation, e.g. a delete dialog). */ removeConfirm?: boolean }) {
   const selectable = selected !== undefined || onSelectToggle !== undefined
   const [copiedId, setCopiedId] = useState(false)
   const [confirmUnlink, setConfirmUnlink] = useState(false)
@@ -1640,11 +1642,13 @@ export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup,
         )}
       </div>
 
-      {/* Timestamps — pushed to bottom */}
-      <div className="mt-auto flex items-center gap-3.5 px-3 py-[5px] border-t border-border">
-        <span className="text-[10px] text-[#5A6A85] flex items-center gap-1"><span className="font-medium text-[#8C9BB5]">Created</span> {plan.createdAt}</span>
-        <span className="text-[10px] text-[#5A6A85] flex items-center gap-1"><span className="font-medium text-[#8C9BB5]">Updated</span> {plan.updatedAt}</span>
-      </div>
+      {/* Timestamps — pushed to bottom (hidden on drafts) */}
+      {!hideTimestamps && (
+        <div className="mt-auto flex items-center gap-3.5 px-3 py-[5px] border-t border-border">
+          <span className="text-[10px] text-[#5A6A85] flex items-center gap-1"><span className="font-medium text-[#8C9BB5]">Created</span> {plan.createdAt}</span>
+          <span className="text-[10px] text-[#5A6A85] flex items-center gap-1"><span className="font-medium text-[#8C9BB5]">Updated</span> {plan.updatedAt}</span>
+        </div>
+      )}
 
       {/* Footer */}
       {!hideFooter && (
@@ -5035,7 +5039,7 @@ function DateRangeDropdown({
   )
 }
 
-export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedded = false, scopeProject }: { onOpenGroupDetail?: (d: GroupDetailPayload) => void; onCreateProperty?: (v: Variation) => void; embedded?: boolean; scopeProject?: { name: string; isPhase: boolean; mainProject?: string } } = {}) {
+export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedded = false, scopeProject, fixedSaleType, pageTitle }: { onOpenGroupDetail?: (d: GroupDetailPayload) => void; onCreateProperty?: (v: Variation) => void; embedded?: boolean; scopeProject?: { name: string; isPhase: boolean; mainProject?: string }; /** Sale-type page (Primary/Resale/Nawy Now/Rental): locks the sale type, hides its dropdown + the analytics cards. */ fixedSaleType?: string; pageTitle?: string } = {}) {
   // Scoped (project details embed): properties of that project — for a phase, of its main
   // project. Mock rows only name-match a subset of projects, so fall back when nothing matches.
   const scopeTarget = scopeProject ? (scopeProject.isPhase ? scopeProject.mainProject ?? scopeProject.name : scopeProject.name) : undefined
@@ -5053,7 +5057,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
   const [planTypeFilter, setPlanTypeFilter] = useState<Set<string>>(new Set())
   const [developerFilter, setDeveloperFilter] = useState<Set<string>>(new Set())
   const [projectFilter, setProjectFilter] = useState<Set<string>>(new Set())
-  const [saleTypeFilter, setSaleTypeFilter] = useState<Set<string>>(new Set())
+  const [saleTypeFilter, setSaleTypeFilter] = useState<Set<string>>(() => (fixedSaleType ? new Set([fixedSaleType]) : new Set()))
   const [availabilityFilter, setAvailabilityFilter] = useState<Set<string>>(new Set())
   const [entryTypeFilter, setEntryTypeFilter] = useState<Set<string>>(new Set())
   const [listingFilter, setListingFilter] = useState<Set<string>>(new Set())
@@ -5103,7 +5107,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
     setPlanTypeFilter(new Set())
     setDeveloperFilter(new Set())
     setProjectFilter(new Set())
-    setSaleTypeFilter(new Set())
+    setSaleTypeFilter(fixedSaleType ? new Set([fixedSaleType]) : new Set())
     setAvailabilityFilter(new Set())
     setEntryTypeFilter(new Set())
     setListingFilter(new Set())
@@ -5121,10 +5125,13 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
     setGroupByColumn(null)
   }
 
+  // The locked sale type on Primary/Resale/Nawy Now/Rental pages never counts as a user filter
+  const countedSaleTypeFilter = fixedSaleType ? new Set<string>() : saleTypeFilter
+
   const hasAnyFilter =
     !!searchQuery ||
     districtFilter.size > 0 || areaFilter.size > 0 || planTypeFilter.size > 0 ||
-    developerFilter.size > 0 || projectFilter.size > 0 || saleTypeFilter.size > 0 ||
+    developerFilter.size > 0 || projectFilter.size > 0 || countedSaleTypeFilter.size > 0 ||
     availabilityFilter.size > 0 || entryTypeFilter.size > 0 || listingFilter.size > 0 ||
     propertyCategoryFilter.size > 0 || propertyTypeFilter.size > 0 || propertySubTypeFilter.size > 0 ||
     finishingTypeFilter.size > 0 || deliveryTypeFilter.size > 0 ||
@@ -5255,28 +5262,29 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
         {!embedded && (
           <div className="px-1 pt-1">
             <p className="text-xs text-muted-foreground mb-1">Properties</p>
-            <h1 className="text-2xl font-semibold text-foreground">All Properties</h1>
+            <h1 className="text-2xl font-semibold text-foreground">{pageTitle ?? "All Properties"}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              All Properties View in the inventory, switch between grouped properties on listing and
-              detailed properties on E-realty.
+              {pageTitle ? `${pageTitle} in the inventory, switch between grouped properties on listing and detailed properties on E-realty.` : "All Properties View in the inventory, switch between grouped properties on listing and detailed properties on E-realty."}
             </p>
           </div>
         )}
 
         <Tabs defaultValue="grouped" className="space-y-4" onValueChange={setActiveTab}>
           <TabsList className="bg-card">
-            <TabsTrigger value="grouped">Grouped Properties</TabsTrigger>
-            <TabsTrigger value="detailed">Detailed Properties</TabsTrigger>
+            <TabsTrigger value="grouped"><Boxes className="mr-1.5 h-3.5 w-3.5" />Grouped Properties</TabsTrigger>
+            <TabsTrigger value="detailed"><List className="mr-1.5 h-3.5 w-3.5" />Detailed Properties</TabsTrigger>
           </TabsList>
 
           {/* ── Shared section: analytics cards + filter bar ── */}
           <div className="space-y-3">
-            {/* Analytics cards */}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-              {cardStats.map(({ label, listed, total }) => (
-                <SaleTypeCard key={label} label={label} listed={listed} total={total} />
-              ))}
-            </div>
+            {/* Analytics cards — hidden on fixed sale-type pages */}
+            {!fixedSaleType && (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                {cardStats.map(({ label, listed, total }) => (
+                  <SaleTypeCard key={label} label={label} listed={listed} total={total} />
+                ))}
+              </div>
+            )}
 
             {/* Unified toolbar card */}
             <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
@@ -5301,7 +5309,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                   {!embedded && <FilterDropdown label="Area"           options={filterOptions.areas}           selected={areaFilter}          onChange={setAreaFilter}          className="flex-1" />}
                   {!embedded && <FilterDropdown label="Developer"      options={filterOptions.developers}      selected={developerFilter}     onChange={setDeveloperFilter}     className="flex-1" />}
                   <FilterDropdown label="Project"        options={filterOptions.projects}        selected={projectFilter}       onChange={setProjectFilter}       className="flex-1" />
-                  <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter}      className="flex-1" />
+                  {!fixedSaleType && <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter}      className="flex-1" />}
                   <FilterDropdown label="Status"         options={filterOptions.availability}    selected={availabilityFilter}  onChange={setAvailabilityFilter}  className="flex-1" />
                   <FilterDropdown label="Entry Type"     options={filterOptions.entryTypes}      selected={entryTypeFilter}     onChange={setEntryTypeFilter}     className="flex-1" />
                   <FilterDropdown label="Listing Status" options={filterOptions.listingStatuses} selected={listingFilter}       onChange={setListingFilter}       className="flex-1" />
@@ -5334,7 +5342,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                     All Filters
                     {hasAnyFilter && (
                       <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
-                        {[districtFilter, areaFilter, planTypeFilter, developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + (priceMin || priceMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0) + (planOfferFilter ? 1 : 0)}
+                        {[districtFilter, areaFilter, planTypeFilter, developerFilter, projectFilter, countedSaleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + (priceMin || priceMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0) + (planOfferFilter ? 1 : 0)}
                       </Badge>
                     )}
                   </Button>
@@ -5477,7 +5485,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                     <SheetTitle>All Filters</SheetTitle>
                     {hasAnyFilter && (
                       <Badge variant="secondary" className="text-[11px]">
-                        {[districtFilter, areaFilter, planTypeFilter, developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + (priceMin || priceMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0) + (planOfferFilter ? 1 : 0)} active
+                        {[districtFilter, areaFilter, planTypeFilter, developerFilter, projectFilter, countedSaleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + (priceMin || priceMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0) + (planOfferFilter ? 1 : 0)} active
                       </Badge>
                     )}
                   </div>
@@ -5492,7 +5500,9 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                         { label: "Developer",          filter: developerFilter,          setFilter: setDeveloperFilter,          options: filterOptions.developers },
                       ]),
                       { label: "Project",            filter: projectFilter,            setFilter: setProjectFilter,            options: filterOptions.projects },
-                      { label: "Sale Type",          filter: saleTypeFilter,           setFilter: setSaleTypeFilter,           options: filterOptions.saleTypes },
+                      ...(fixedSaleType ? [] : [
+                        { label: "Sale Type",          filter: saleTypeFilter,           setFilter: setSaleTypeFilter,           options: filterOptions.saleTypes },
+                      ]),
                       { label: "Status",             filter: availabilityFilter,       setFilter: setAvailabilityFilter,       options: filterOptions.availability },
                       { label: "Entry Type",         filter: entryTypeFilter,          setFilter: setEntryTypeFilter,          options: filterOptions.entryTypes },
                       { label: "Listing Status",     filter: listingFilter,            setFilter: setListingFilter,            options: filterOptions.listingStatuses },
