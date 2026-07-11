@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  Building2, Check, ChevronDown, ChevronRight, Download, Eye, Filter, FolderKanban,
-  Group as GroupIcon, Home, Map, Plus, Search, Trash2, Upload, X,
+  Building2, Calendar, Check, ChevronDown, ChevronRight, Download, Eye, Filter, FolderKanban,
+  Group as GroupIcon, Home, Map, Maximize2, Plus, Search, Trash2, Upload, X,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,9 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Separator } from "@/components/ui/separator"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
+import { FullscreenViewer } from "@/components/render-images-page"
 import { toast } from "sonner"
 import {
   TableCard, TableCardHeader, TableFooter, FilterMultiSelect, FilterSelect, FiltersDrawer, FilterDrawerField,
@@ -41,6 +44,7 @@ interface Masterplan {
   projectId: string
   projectName: string
   mainProjectId: string
+  mainProjectName: string
   createdAt: string
 }
 
@@ -96,6 +100,7 @@ const MASTERPLANS: Masterplan[] = Array.from({ length: 18 }, (_, i) => {
     projectId: project.id,
     projectName: project.name,
     mainProjectId: project.parentId ?? project.id,
+    mainProjectName: (project.parentId ? PROJECTS.find((x) => x.id === project.parentId)!.name : project.name),
     createdAt: new Date(MP_BASE - i * 86_400_000 * 2.3).toISOString(),
   }
 })
@@ -112,8 +117,18 @@ const GROUP_FIELDS = [
   { key: "resolution", label: "Resolution" },
 ]
 
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })
+/** Canonical timestamp: "10 Jan 2026, 07:00 AM". */
+function fmtDateTime(iso: string): string {
+  const d = new Date(iso)
+  const date = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+  const time = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })
+  return `${date}, ${time}`
+}
+/** "Project - Phase" on one line when the masterplan belongs to a phase. */
+function projectLine(mp: Masterplan): string {
+  if (mp.projectId === mp.mainProjectId) return mp.mainProjectName
+  const phase = mp.projectName.startsWith(`${mp.mainProjectName} — `) ? mp.projectName.slice(mp.mainProjectName.length + 3) : mp.projectName
+  return `${mp.mainProjectName} - ${phase}`
 }
 const TYPE_TONE: Record<MpType, string> = {
   "Listing Masterplan": "border-blue-200 bg-blue-100 text-blue-700",
@@ -122,24 +137,25 @@ const TYPE_TONE: Record<MpType, string> = {
 }
 
 // ── Card ───────────────────────────────────────────────────────────────────────
-function MasterplanCard({ mp, onDelete }: { mp: Masterplan; onDelete: () => void }) {
+function MasterplanCard({ mp, onView, onDelete }: { mp: Masterplan; onView: () => void; onDelete: () => void }) {
   return (
     <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-muted-foreground/30">
       <div className="relative aspect-[16/10] w-full overflow-hidden bg-muted">
-        <img src={mp.imageUrl} alt={mp.name} className="h-full w-full object-cover" />
+        <img src={mp.imageUrl} alt={mp.id} className="h-full w-full object-cover" />
         <span className={cn("absolute left-2 top-2 inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", TYPE_TONE[mp.type])}>
           {mp.type.replace(" Masterplan", "")}
         </span>
         <span className="absolute right-2 top-2 rounded-md bg-background/90 px-1.5 py-0.5 text-[11px] font-semibold shadow-sm backdrop-blur">v{mp.version}</span>
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-foreground" title={mp.name}>{mp.name}</p>
-            <IdTag value={mp.id} />
-          </div>
+        {/* No title — the masterplan ID takes its place (same as render image cards) */}
+        <div className="flex items-center justify-between gap-2">
+          <IdTag value={mp.id} className="text-xs font-medium text-foreground" />
           <div className="flex flex-shrink-0 items-center gap-0.5">
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => toast.success(`Downloading ${mp.name}…`)}>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={onView}>
+              <Eye className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => toast.success(`Downloading ${mp.id}…`)}>
               <Download className="h-3.5 w-3.5" />
             </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={onDelete}>
@@ -148,15 +164,93 @@ function MasterplanCard({ mp, onDelete }: { mp: Masterplan; onDelete: () => void
           </div>
         </div>
         <div className="space-y-1 text-[11px] text-muted-foreground">
-          <p className="flex items-center gap-1.5"><Building2 className="h-3 w-3" />{mp.developerName}</p>
-          <p className="flex items-center gap-1.5"><FolderKanban className="h-3 w-3" />{mp.projectName}</p>
+          <p className="flex items-center gap-1.5">
+            <Building2 className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{mp.developerName}</span>
+            <IdTag value={mp.developerId} />
+          </p>
+          <p className="flex items-center gap-1.5">
+            <FolderKanban className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{projectLine(mp)}</span>
+            <IdTag value={mp.projectId} />
+          </p>
         </div>
         <div className="mt-auto flex items-center justify-between pt-1 text-[11px] text-muted-foreground">
           <span className="font-medium text-foreground/70">{mp.ext} <span className="font-normal text-muted-foreground">· {(mp.fileSizeKb / 1024).toFixed(1)} MB</span></span>
-          <span>{fmtDate(mp.createdAt)}</span>
+          <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{fmtDateTime(mp.createdAt)}</span>
         </div>
       </div>
     </div>
+  )
+}
+
+// ── View drawer — image (click for fullscreen) + metadata ──────────────────────
+function MasterplanDrawer({ mp, onClose, onDelete }: { mp: Masterplan | null; onClose: () => void; onDelete: (mp: Masterplan) => void }) {
+  const [fullscreen, setFullscreenState] = useState(false)
+  // Ref mirrors the state so the Sheet dismiss guards never read a stale value —
+  // closing the fullscreen viewer must NOT dismiss the drawer underneath.
+  const fullscreenRef = useRef(false)
+  const setFullscreen = (v: boolean) => { fullscreenRef.current = v; setFullscreenState(v) }
+  useEffect(() => { setFullscreen(false) }, [mp?.id])
+  if (!mp) return null
+
+  return (
+    <>
+      <Sheet open={!!mp} onOpenChange={(o) => { if (!o) { setFullscreen(false); onClose() } }}>
+        <SheetContent
+          className="flex w-[560px] flex-col p-0 sm:max-w-[560px]"
+          onEscapeKeyDown={(e) => { if (fullscreenRef.current) { e.preventDefault(); setFullscreen(false) } }}
+          onPointerDownOutside={(e) => { if (fullscreenRef.current) e.preventDefault() }}
+          onInteractOutside={(e) => { if (fullscreenRef.current) e.preventDefault() }}
+        >
+          <SheetTitle className="sr-only">Masterplan {mp.id}</SheetTitle>
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
+            <div className="flex items-center gap-2">
+              <IdTag value={mp.id} className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-foreground" />
+              <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", TYPE_TONE[mp.type])}>{mp.type.replace(" Masterplan", "")}</span>
+              <Badge variant="outline" className="text-xs">v{mp.version}</Badge>
+            </div>
+          </div>
+
+          <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+            <div className="group relative overflow-hidden rounded-xl border border-border bg-muted">
+              <button className="block w-full cursor-zoom-in" onClick={() => setFullscreen(true)}>
+                <img src={mp.imageUrl} alt={mp.id} className="w-full object-cover" />
+                <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/20 group-hover:opacity-100">
+                  <Maximize2 className="h-6 w-6 text-white drop-shadow" />
+                </span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+              <div>
+                <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Developer</p>
+                <p className="flex items-center gap-1.5 text-sm"><Building2 className="h-3.5 w-3.5 text-muted-foreground" />{mp.developerName} <IdTag value={mp.developerId} /></p>
+              </div>
+              <div>
+                <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Project</p>
+                <p className="flex items-center gap-1.5 text-sm"><FolderKanban className="h-3.5 w-3.5 text-muted-foreground" />{projectLine(mp)} <IdTag value={mp.projectId} /></p>
+              </div>
+              <div>
+                <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Format</p>
+                <p className="text-sm">{mp.ext} · {(mp.fileSizeKb / 1024).toFixed(1)} MB</p>
+              </div>
+              <div>
+                <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Created at</p>
+                <p className="text-sm">{fmtDateTime(mp.createdAt)}</p>
+              </div>
+            </div>
+
+            <Separator />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => toast.success(`Downloading ${mp.id}…`)}><Download className="h-3.5 w-3.5" />Download</Button>
+              <Button variant="outline" size="sm" className="gap-1.5 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => onDelete(mp)}><Trash2 className="h-3.5 w-3.5" />Delete</Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+      {fullscreen && <FullscreenViewer images={[mp.imageUrl]} startIndex={0} label={mp.id} caption={projectLine(mp)} onClose={() => setFullscreen(false)} />}
+    </>
   )
 }
 
@@ -280,6 +374,7 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [showCreate, setShowCreate] = useState(false)
+  const [viewing, setViewing] = useState<Masterplan | null>(null)
   const [deleting, setDeleting] = useState<Masterplan | null>(null)
 
   // Scoped (project details embed): masterplans of that project (fallback to all — mock names rarely match)
@@ -342,7 +437,7 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
   const cardGrid = (rows: Masterplan[]) => (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {rows.map((mp) => (
-        <MasterplanCard key={mp.id} mp={mp} onDelete={() => setDeleting(mp)} />
+        <MasterplanCard key={mp.id} mp={mp} onView={() => setViewing(mp)} onDelete={() => setDeleting(mp)} />
       ))}
     </div>
   )
@@ -482,6 +577,9 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
         ))}
       </div>
 
+      {/* View drawer */}
+      <MasterplanDrawer mp={viewing} onClose={() => setViewing(null)} onDelete={(m) => { setViewing(null); setDeleting(m) }} />
+
       {/* Create dialog */}
       <CreateMasterplanDialog
         open={showCreate}
@@ -506,6 +604,7 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
               projectId: target.id,
               projectName: target.name,
               mainProjectId: target.parentId ?? target.id,
+              mainProjectName: target.parentId ? (PROJECTS.find((x) => x.id === target.parentId)?.name ?? target.name) : target.name,
               createdAt: now,
             })),
             ...prev,

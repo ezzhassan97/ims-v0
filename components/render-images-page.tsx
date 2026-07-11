@@ -82,6 +82,7 @@ interface RenderImage {
   /** Present when the image was extracted from a brochure */
   brochure?: { id: string; name: string; url: string }
   fileSizeKb: number
+  ext: "PNG" | "JPG"
 }
 
 // ── Static reference data ──────────────────────────────────────────────────────
@@ -185,6 +186,7 @@ const RENDER_IMAGES: RenderImage[] = Array.from({ length: 28 }, (_, i) => {
     availableListed,
     brochure,
     fileSizeKb: 640 + ((i * 397) % 3200),
+    ext: (["PNG", "JPG"] as const)[i % 2],
   }
 })
 
@@ -288,7 +290,7 @@ function CopyId({ id, className }: { id: string; className?: string }) {
 }
 
 // ── Fullscreen image viewer ─────────────────────────────────────────────────────
-function FullscreenViewer({ images, startIndex, onClose, label }: { images: string[]; startIndex: number; onClose: () => void; label?: string }) {
+export function FullscreenViewer({ images, startIndex, onClose, label, caption }: { images: string[]; startIndex: number; onClose: () => void; label?: string; caption?: string }) {
   const [current, setCurrent] = useState(startIndex)
   const go = (dir: number) => setCurrent((c) => (c + dir + images.length) % images.length)
   useEffect(() => {
@@ -309,9 +311,12 @@ function FullscreenViewer({ images, startIndex, onClose, label }: { images: stri
 
   return (
     <div className="fixed inset-0 z-[200] flex flex-col bg-black/90" onClick={onClose}>
-      <div className="flex items-center justify-between p-3">
-        {label ? (
-          <span className="rounded-md bg-white/10 px-2.5 py-1 font-mono text-sm text-white/90" onClick={(e) => e.stopPropagation()}>{label}</span>
+      <div className="flex items-center justify-between gap-3 p-3">
+        {label || caption ? (
+          <span className="flex min-w-0 items-center gap-2.5" onClick={(e) => e.stopPropagation()}>
+            {label && <span className="flex-shrink-0 rounded-md bg-white/10 px-2.5 py-1 font-mono text-sm text-white/90">{label}</span>}
+            {caption && <span className="truncate text-sm text-white/70">{caption}</span>}
+          </span>
         ) : <span />}
         <button className="rounded-full p-1.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white" onClick={onClose}>
           <X className="h-5 w-5" />
@@ -414,7 +419,7 @@ function RenderCard({
           </TooltipContent>
         </Tooltip>
 
-        {/* Attribution — developer / project / phase, each with its id (masterplan-card style) */}
+        {/* Attribution — developer, then "Project - Phase" on one line (id of the linked entity) */}
         <div className="space-y-1 text-[11px] text-muted-foreground">
           <p className="flex items-center gap-1.5">
             <Building2 className="h-3 w-3 flex-shrink-0" />
@@ -423,31 +428,28 @@ function RenderCard({
           </p>
           <p className="flex items-center gap-1.5">
             <FolderKanban className="h-3 w-3 flex-shrink-0" />
-            <span className="truncate">{img.mainProjectName}</span>
-            <IdTag value={img.mainProjectId} />
+            <span className="truncate">
+              {img.projectId !== img.mainProjectId
+                ? `${img.mainProjectName} - ${img.projectName.startsWith(`${img.mainProjectName} — `) ? img.projectName.slice(img.mainProjectName.length + 3) : img.projectName}`
+                : img.mainProjectName}
+            </span>
+            <IdTag value={img.projectId} />
           </p>
-          {img.projectId !== img.mainProjectId && (
-            <p className="flex items-center gap-1.5">
-              <Layers className="h-3 w-3 flex-shrink-0" />
-              <span className="truncate">{img.projectName.startsWith(`${img.mainProjectName} — `) ? img.projectName.slice(img.mainProjectName.length + 3) : img.projectName}</span>
-              <IdTag value={img.projectId} />
-            </p>
-          )}
         </div>
 
+        {/* Footer: Source · Extension · Size — timestamp on the right */}
         <div className="mt-auto flex items-center justify-between gap-1.5 pt-1 text-[11px] text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <Calendar className="h-3 w-3" />
-            {formatDateTime(img.createdAt)}
-          </span>
           <span className="flex items-center gap-1 whitespace-nowrap">
-            {(img.fileSizeKb / 1024).toFixed(1)} MB ·
             {img.source === "Brochure Extraction" ? (
               <FileText className="h-3 w-3" />
             ) : (
               <Upload className="h-3 w-3" />
             )}
-            {img.source === "Brochure Extraction" ? "Brochure" : "Uploaded"}
+            {img.source === "Brochure Extraction" ? "Brochure" : "Uploaded"} · {img.ext} · {(img.fileSizeKb / 1024).toFixed(1)} MB
+          </span>
+          <span className="flex items-center gap-1 whitespace-nowrap">
+            <Calendar className="h-3 w-3" />
+            {formatDateTime(img.createdAt)}
           </span>
         </div>
       </div>
@@ -613,7 +615,7 @@ function RenderDrawer({
         </div>
       </SheetContent>
     </Sheet>
-    {fullscreen && <FullscreenViewer images={[img.url || "/placeholder.jpg"]} startIndex={0} label={img.id} onClose={() => setFullscreen(false)} />}
+    {fullscreen && <FullscreenViewer images={[img.url || "/placeholder.jpg"]} startIndex={0} label={img.id} caption={img.caption} onClose={() => setFullscreen(false)} />}
     </>
   )
 }
@@ -1325,6 +1327,7 @@ export function RenderImagesPage({
               mainProjectId: main.id, mainProjectName: main.name,
               isLinked: false, source: "Uploaded" as const,
               createdAt: now, linkedUnits: {}, availableListed: 0, fileSizeKb: 1024,
+              ext: (/\.png$/i.test(f.name) ? "PNG" : "JPG") as "PNG" | "JPG",
             })),
             ...prev,
           ])

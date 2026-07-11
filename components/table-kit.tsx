@@ -800,17 +800,17 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-border bg-card shadow-md">
-          <div className="border-b border-border p-2">
+        <div className="absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-border bg-card shadow-md">
+          <div className="border-b border-border p-1.5">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects or phases…" className="w-full rounded-md border border-input bg-white py-1.5 pl-8 pr-3 text-sm outline-none placeholder:text-muted-foreground/60" />
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+              <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects or phases…" className="w-full rounded-md border border-input bg-white py-1 pl-7 pr-2 text-[13px] outline-none placeholder:text-muted-foreground/60" />
             </div>
           </div>
-          <div className="max-h-72 overflow-y-auto py-1">
+          <div className="max-h-64 overflow-y-auto py-0.5">
             <button
               onClick={() => { if (multi) onValuesChange?.([]); else { onChange?.(null); setOpen(false); setQ("") } }}
-              className={cn("flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-secondary", !active && "font-medium text-primary")}
+              className={cn("flex w-full items-center px-2.5 py-1 text-left text-[13px] hover:bg-secondary", !active && "font-medium text-primary")}
             >
               {multi && values.length > 0 ? "Clear selection" : `All ${label}s`}
             </button>
@@ -821,23 +821,23 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
                 selectedInFamily === familyIds.length ? "on" : selectedInFamily > 0 ? "some" : "off"
               const isMainSingle = value?.kind === "project" && value.id === p.id
               return (
-                <div key={p.id} className="mt-0.5">
+                <div key={p.id}>
                   {/* Main project — multi: cascades to all phases · single: picks the main project */}
                   <button
                     onClick={() => {
                       if (multi) toggleIds(familyIds, mainState !== "on")
                       else { onChange?.({ kind: "project", id: p.id, label: p.name, projectIds: [p.id] }); setOpen(false); setQ("") }
                     }}
-                    className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-secondary", (multi ? mainState !== "off" : isMainSingle) && "bg-primary/5")}
+                    className={cn("flex w-full items-center gap-1.5 px-2.5 py-1 text-left hover:bg-secondary", (multi ? mainState !== "off" : isMainSingle) && "bg-primary/5")}
                   >
                     {multi && <CheckBox state={mainState} />}
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{p.name}</span>
+                      <span className="block truncate text-[13px] font-medium leading-tight">{p.name}</span>
                       {showId(p.id) && <span className="font-mono text-[10px] text-muted-foreground">{showId(p.id)}</span>}
                     </span>
                     <span className="flex flex-shrink-0 items-center gap-1.5">
                       {p.phases.length > 0 && (
-                        <span className="rounded bg-secondary px-1 py-px text-[10px] font-medium tabular-nums text-muted-foreground">{p.phases.length}P</span>
+                        <span className="whitespace-nowrap text-[10px] text-muted-foreground">{p.phases.length} Phase{p.phases.length === 1 ? "" : "s"}</span>
                       )}
                       <ProjStatusTag status={p.status} />
                     </span>
@@ -846,10 +846,10 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
                   {multi && p.phases.length > 0 && (
                     <button
                       onClick={() => toggleIds([p.id], !set.has(p.id))}
-                      className={cn("flex w-full items-center gap-2 py-1.5 pl-9 pr-3 text-left hover:bg-secondary", set.has(p.id) && "bg-primary/5")}
+                      className={cn("flex w-full items-center gap-1.5 py-1 pl-8 pr-2.5 text-left hover:bg-secondary", set.has(p.id) && "bg-primary/5")}
                     >
                       <CheckBox state={set.has(p.id) ? "on" : "off"} />
-                      <span className="flex-1 text-sm text-muted-foreground">Main project only</span>
+                      <span className="flex-1 text-xs text-muted-foreground">Main project only</span>
                     </button>
                   )}
                   {/* Phases — toggle individually */}
@@ -862,11 +862,11 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
                           if (multi) toggleIds([ph.id], !set.has(ph.id))
                           else { onChange?.({ kind: "phase", id: ph.id, label: ph.name, projectIds: [ph.id] }); setOpen(false); setQ("") }
                         }}
-                        className={cn("flex w-full items-center gap-2 py-1.5 pl-9 pr-3 text-left hover:bg-secondary", phOn && "bg-primary/5")}
+                        className={cn("flex w-full items-center gap-1.5 py-1 pl-8 pr-2.5 text-left hover:bg-secondary", phOn && "bg-primary/5")}
                       >
                         {multi && <CheckBox state={phOn ? "on" : "off"} />}
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm">{ph.name}</span>
+                          <span className="block truncate text-[13px] leading-tight">{ph.name}</span>
                           <span className="font-mono text-[10px] text-muted-foreground">{[showId(ph.id), `in ${p.name}`].filter(Boolean).join(" · ")}</span>
                         </span>
                         <ProjStatusTag status={ph.status} />
