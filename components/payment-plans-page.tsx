@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { ChevronDown, ChevronRight, Group as GroupIcon, Home, Plus, Search, X } from "lucide-react"
+import { ChevronDown, ChevronRight, Filter, Group as GroupIcon, Home, Plus, Search, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import {
   DropdownMenu,
@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils"
 import { LinkedPlanCard, type PlanCardData } from "@/components/all-properties-page"
 import { PaymentPlanDrawer } from "@/components/payment-plan-builder"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
-import { TableCard, TableCardHeader, TableFooter, FilterSelect, MultiSortControl, GroupPager, type SortLevel } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableFooter, FilterSelect, FiltersDrawer, FilterDrawerField, MultiSortControl, GroupPager, type SortLevel } from "@/components/table-kit"
 
 // ── Mock data (deterministic, modeled on the production listing) ───────────────
 type PlanRow = PlanCardData & { phase: string | null; createdIso: string; updatedIso: string }
@@ -156,6 +156,7 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
   const [frequencyF, setFrequencyF] = useState("")
   const [currencyF, setCurrencyF] = useState("")
   const [offerF, setOfferF] = useState("")
+  const [showAllFilters, setShowAllFilters] = useState(false)
   const [sorts, setSorts] = useState<SortLevel[]>([])
   const [groupBy, setGroupBy] = useState<string | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -213,7 +214,8 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
   }, [filtered, groupBy])
 
-  const hasFilters = !!search || !!developerF || !!projectF || !!phaseF || !!typeF || !!frequencyF || !!currencyF || !!offerF
+  const activeFilterCount = [developerF, projectF, phaseF, typeF, frequencyF, currencyF, offerF].filter(Boolean).length
+  const hasFilters = !!search || activeFilterCount > 0
   const clearAll = () => {
     setSearch(""); setDeveloperF(""); setProjectF(""); setPhaseF(""); setTypeF("")
     setFrequencyF(""); setCurrencyF(""); setOfferF(""); setPage(1)
@@ -260,17 +262,27 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
             <FilterSelect label="Project" value={projectF} options={projects} onChange={(v) => { setProjectF(v); setPage(1) }} className="w-44" />
             <FilterSelect label="Phase" value={phaseF} options={phases} onChange={(v) => { setPhaseF(v); setPage(1) }} className="w-36" />
           </div>
-          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <FilterSelect label="Plan type" value={typeF} options={PLAN_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-40" />
             <FilterSelect label="Frequency" value={frequencyF} options={FREQUENCIES} onChange={(v) => { setFrequencyF(v); setPage(1) }} className="w-40" />
             <FilterSelect label="Currency" value={currencyF} options={["EGP", "USD"]} onChange={(v) => { setCurrencyF(v); setPage(1) }} className="w-36" />
             <FilterSelect label="Offer" value={offerF} options={["Offer", "No Offer"]} onChange={(v) => { setOfferF(v); setPage(1) }} className="w-32" />
-            {hasFilters && (
-              <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground" onClick={clearAll}>
-                <X className="mr-1 h-3.5 w-3.5" />Clear All
+          </div>
+          {/* Divider row: All Filters + Clear on the left, Sort + Group on the right */}
+          <div className="flex items-center justify-between border-t border-border pt-2.5">
+            <div className="flex items-center gap-2">
+              <Button variant={activeFilterCount > 0 ? "default" : "outline"} size="sm" className="h-8 gap-1.5" onClick={() => setShowAllFilters(true)}>
+                <Filter className="h-3.5 w-3.5" />
+                All Filters
+                {activeFilterCount > 0 && <span className="ml-0.5 rounded-full bg-primary-foreground/20 px-1.5 text-[10px] font-semibold">{activeFilterCount}</span>}
               </Button>
-            )}
-            <div className="ml-auto flex items-center gap-2">
+              {hasFilters && (
+                <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground" onClick={clearAll}>
+                  <X className="mr-1 h-3.5 w-3.5" />Clear All
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
               <MultiSortControl fields={SORT_FIELDS} sorts={sorts} onChange={(s) => { setSorts(s); setPage(1) }} />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -445,6 +457,31 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* All Filters drawer — same filters, same order as the toolbar */}
+      <FiltersDrawer open={showAllFilters} onClose={() => setShowAllFilters(false)} activeCount={activeFilterCount} onClear={clearAll}>
+        <FilterDrawerField label="Developer">
+          <FilterSelect label="Developer" value={developerF} options={developers} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-full" />
+        </FilterDrawerField>
+        <FilterDrawerField label="Project">
+          <FilterSelect label="Project" value={projectF} options={projects} onChange={(v) => { setProjectF(v); setPage(1) }} className="w-full" />
+        </FilterDrawerField>
+        <FilterDrawerField label="Phase">
+          <FilterSelect label="Phase" value={phaseF} options={phases} onChange={(v) => { setPhaseF(v); setPage(1) }} className="w-full" />
+        </FilterDrawerField>
+        <FilterDrawerField label="Plan type">
+          <FilterSelect label="Plan type" value={typeF} options={PLAN_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-full" />
+        </FilterDrawerField>
+        <FilterDrawerField label="Frequency">
+          <FilterSelect label="Frequency" value={frequencyF} options={FREQUENCIES} onChange={(v) => { setFrequencyF(v); setPage(1) }} className="w-full" />
+        </FilterDrawerField>
+        <FilterDrawerField label="Currency">
+          <FilterSelect label="Currency" value={currencyF} options={["EGP", "USD"]} onChange={(v) => { setCurrencyF(v); setPage(1) }} className="w-full" />
+        </FilterDrawerField>
+        <FilterDrawerField label="Offer">
+          <FilterSelect label="Offer" value={offerF} options={["Offer", "No Offer"]} onChange={(v) => { setOfferF(v); setPage(1) }} className="w-full" />
+        </FilterDrawerField>
+      </FiltersDrawer>
     </div>
   )
 }
