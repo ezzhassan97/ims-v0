@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { IdTag } from "@/components/table-kit"
 import { SeoTab, FaqsTab } from "@/components/developers-page"
 import {
-  GlobalMapDialog, MapDrawDialog, centroid, LEVEL_COLOR,
+  GlobalMapDialog, MapDrawDialog, LevelChip, centroid, LEVEL_COLOR,
   type GeoLevel, type GeoRef, type MapLocation, type Pt,
 } from "@/components/area-map"
 import { cn } from "@/lib/utils"
@@ -148,7 +148,7 @@ function GeoTag({ ok, kind }: { ok: boolean; kind: "Pin" | "Polygon" }) {
   )
 }
 
-function GeoCard({ item, selected, onSelect, childCount, childLabel, onEdit, onDraw }: {
+function GeoCard({ item, selected, onSelect, childCount, childLabel, onEdit, onDraw, showGeoTags = true, kind, parentLine }: {
   item: GeoBase
   selected?: boolean
   onSelect?: () => void
@@ -156,6 +156,12 @@ function GeoCard({ item, selected, onSelect, childCount, childLabel, onEdit, onD
   childLabel?: string
   onEdit?: () => void
   onDraw?: () => void
+  /** Pin/polygon uploaded tags under the Arabic name (hidden on SEO/FAQs selector). */
+  showGeoTags?: boolean
+  /** Area/Subarea tag next to the ID (SEO/FAQs selector mixes both levels). */
+  kind?: GeoLevel
+  /** "Parent: …" caption for subareas in mixed lists. */
+  parentLine?: string
 }) {
   return (
     <div
@@ -168,14 +174,22 @@ function GeoCard({ item, selected, onSelect, childCount, childLabel, onEdit, onD
     >
       <div className="flex gap-2">
         <div className="min-w-0 flex-1">
-          <IdTag value={item.id} className="text-[11px]" />
+          <div className="flex items-center gap-1.5">
+            <IdTag value={item.id} className="text-[11px]" />
+            {kind && <LevelChip level={kind} />}
+          </div>
           <div className={cn("mt-0.5 truncate text-sm", selected ? "font-semibold text-primary" : "font-medium text-foreground")}>{item.nameEn}</div>
           <div className="truncate text-xs text-muted-foreground">{item.nameAr}</div>
+          {parentLine && <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{parentLine}</div>}
+          {showGeoTags && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              <GeoTag ok={!!item.pin} kind="Pin" />
+              <GeoTag ok={!!item.polygon} kind="Polygon" />
+            </div>
+          )}
         </div>
         <div className="flex flex-shrink-0 flex-col items-end gap-1">
           <StatusTag status={item.status} />
-          <GeoTag ok={!!item.pin} kind="Pin" />
-          <GeoTag ok={!!item.polygon} kind="Polygon" />
           {childCount !== undefined && (
             <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
               {childCount} {childLabel}
@@ -208,7 +222,7 @@ function GeoCard({ item, selected, onSelect, childCount, childLabel, onEdit, onD
   )
 }
 
-function GeoColumn({ title, items, selectedId, onSelect, childCount, childLabel, onCreate, onUpload, uploadTooltip, onEdit, onDraw, searchPlaceholder }: {
+function GeoColumn({ title, items, selectedId, onSelect, childCount, childLabel, onCreate, onUpload, uploadTooltip, onEdit, onDraw, searchPlaceholder, showGeoTags = true, kindOf, parentOf }: {
   title: string
   items: GeoBase[]
   selectedId?: string | null
@@ -221,6 +235,9 @@ function GeoColumn({ title, items, selectedId, onSelect, childCount, childLabel,
   onEdit?: (id: string) => void
   onDraw?: (id: string) => void
   searchPlaceholder: string
+  showGeoTags?: boolean
+  kindOf?: (item: GeoBase) => GeoLevel
+  parentOf?: (item: GeoBase) => string | undefined
 }) {
   const [q, setQ] = useState("")
   const needle = q.trim().toLowerCase()
@@ -265,6 +282,9 @@ function GeoColumn({ title, items, selectedId, onSelect, childCount, childLabel,
             childLabel={childLabel}
             onEdit={onEdit ? () => onEdit(it.id) : undefined}
             onDraw={onDraw ? () => onDraw(it.id) : undefined}
+            showGeoTags={showGeoTags}
+            kind={kindOf?.(it)}
+            parentLine={parentOf?.(it)}
           />
         ))}
         {filtered.length === 0 && (
@@ -504,10 +524,13 @@ export function AreasPage() {
   const [uploadLevel, setUploadLevel] = useState<"Districts" | "Areas" | null>(null)
   const [mapOpen, setMapOpen] = useState(false)
 
-  // SEO / FAQs working area
+  // SEO / FAQs working item — the selector lists areas AND subareas together
   const [workAreaId, setWorkAreaId] = useState<string>(AREAS0[0].id)
-  const workArea = areas.find((a) => a.id === workAreaId) ?? areas[0]
-  const workDistrict = districts.find((d) => d.id === workArea?.districtId)?.nameEn ?? ""
+  const workItem: Area | Subarea | undefined = areas.find((a) => a.id === workAreaId) ?? subareas.find((s) => s.id === workAreaId) ?? areas[0]
+  const workIsSub = !!workItem && "areaId" in workItem
+  const workParent = workIsSub
+    ? areas.find((a) => a.id === (workItem as Subarea).areaId)?.nameEn ?? ""
+    : districts.find((d) => d.id === (workItem as Area | undefined)?.districtId)?.nameEn ?? ""
 
   const dName = (id: string | null) => districts.find((d) => d.id === id)?.nameEn ?? ""
   const visibleAreas = selDistrict ? areas.filter((a) => a.districtId === selDistrict) : areas
@@ -541,15 +564,18 @@ export function AreasPage() {
         : subareas.find((s) => s.id === drawTarget.id)
     : undefined
 
+  // Subareas listed right after their parent area
+  const seoItems: GeoBase[] = areas.flatMap((a) => [a as GeoBase, ...subareas.filter((s) => s.areaId === a.id)])
   const areaSelector = (
     <GeoColumn
-      title="Areas"
-      items={areas}
+      title="Areas & Subareas"
+      items={seoItems}
       selectedId={workAreaId}
       onSelect={setWorkAreaId}
-      childCount={(id) => subareas.filter((s) => s.areaId === id).length}
-      childLabel="subareas"
-      searchPlaceholder="Search areas by name or ID"
+      showGeoTags={false}
+      kindOf={(it) => ("areaId" in it ? "Subarea" : "Area")}
+      parentOf={(it) => ("areaId" in it ? `Parent: ${areas.find((a) => a.id === (it as Subarea).areaId)?.nameEn ?? ""} · ID: ${(it as Subarea).areaId}` : undefined)}
+      searchPlaceholder="Search areas or subareas by name or ID"
     />
   )
 
@@ -629,8 +655,8 @@ export function AreasPage() {
           <TabsContent value="seo" className="mt-4">
             <div className="grid items-start gap-4 lg:grid-cols-[320px_1fr]">
               {areaSelector}
-              {workArea && (
-                <SeoTab key={workArea.id} entity={{ name: workArea.nameEn, nameAr: workArea.nameAr, descriptionEn: `${workArea.nameEn} is one of ${workDistrict}'s most in-demand areas.`, descriptionAr: `${workArea.nameAr} من أكثر المناطق طلبًا.` }} />
+              {workItem && (
+                <SeoTab key={workItem.id} entity={{ name: workItem.nameEn, nameAr: workItem.nameAr, descriptionEn: `${workItem.nameEn} is one of ${workParent}'s most in-demand ${workIsSub ? "subareas" : "areas"}.`, descriptionAr: `${workItem.nameAr} من أكثر المناطق طلبًا.` }} />
               )}
             </div>
           </TabsContent>
@@ -639,7 +665,7 @@ export function AreasPage() {
           <TabsContent value="faqs" className="mt-4">
             <div className="grid items-start gap-4 lg:grid-cols-[320px_1fr]">
               {areaSelector}
-              {workArea && <FaqsTab key={workArea.id} entityName={workArea.nameEn} />}
+              {workItem && <FaqsTab key={workItem.id} entityName={workItem.nameEn} />}
             </div>
           </TabsContent>
         </Tabs>
