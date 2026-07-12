@@ -64,7 +64,7 @@ import { toast } from "sonner"
 import { LaunchDetailsPage } from "@/components/launch-details-page"
 import {
   TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, DateRangeFilter,
-  FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, ColumnsSheet, ProjectTreeSelect,
+  FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, ColumnsSheet, ProjectTreeSelect, GroupPager,
   type ManagedColumn, type ProjectTreeNode, type ProjectTreeSelection,
 } from "@/components/table-kit"
 import { cn } from "@/lib/utils"
@@ -878,6 +878,10 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
   const [frozenCols, setFrozenCols] = useState<Set<string>>(new Set())
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  // Per-group pagination — real data can put hundreds of launches in one group
+  const GROUP_PAGE_SIZE = 10
+  const [groupPages, setGroupPages] = useState<Record<string, number>>({})
+  useEffect(() => { setGroupPages({}) }, [groupBy, tab])
   const [sorts, setSorts] = useState<LaunchSort[]>([])
 
   const visibleCols = colOrder.filter((id) => !hiddenCols.has(id)).map((id) => LAUNCH_COLS.find((c) => c.id === id)!).filter(Boolean)
@@ -1436,10 +1440,13 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
                         <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", collapsedGroups.has(g.label) && "-rotate-90")} />
                         <Chip tone={groupChipTone(g.label)}>{g.label}</Chip>
                         <span className="text-xs text-muted-foreground">{g.rows.length} launch{g.rows.length !== 1 ? "es" : ""}</span>
+                        {!collapsedGroups.has(g.label) && (
+                          <GroupPager total={g.rows.length} page={groupPages[g.label] ?? 1} pageSize={GROUP_PAGE_SIZE} onPage={(pg) => setGroupPages((prev) => ({ ...prev, [g.label]: pg }))} />
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
-                  {!collapsedGroups.has(g.label) && g.rows.map((l, idx) => renderRow(l, idx))}
+                  {!collapsedGroups.has(g.label) && g.rows.slice(((groupPages[g.label] ?? 1) - 1) * GROUP_PAGE_SIZE, (groupPages[g.label] ?? 1) * GROUP_PAGE_SIZE).map((l, idx) => renderRow(l, idx))}
                 </Fragment>
               ))
             ) : (

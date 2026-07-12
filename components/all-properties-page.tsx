@@ -80,6 +80,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { initialUnits, projectPhases, type Unit } from "@/lib/mock-data"
 import { GroupedPropertiesView, type SharedFilterState, type GroupDetailPayload } from "@/components/grouped-properties-page"
+import { GroupPager } from "@/components/table-kit"
 import type { Variation } from "@/components/additional-info-tab"
 import { AddMediaDialog } from "@/components/add-media-dialog"
 import { ChooseAssetsDrawer } from "@/components/choose-assets-drawer"
@@ -3297,6 +3298,10 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
     setGroupByColumn,
   } = filters
   const [allTableRows, setRows] = useState<PropertyRow[]>(() => createRows())
+  // Per-group pagination — real data can put thousands of rows in one group
+  const GROUP_PAGE_SIZE = 10
+  const [groupPages, setGroupPages] = useState<Record<string, number>>({})
+  useEffect(() => { setGroupPages({}) }, [groupByColumn])
   const rows = useMemo(() => {
     if (!scopeProjectName) return allTableRows
     const matched = allTableRows.filter((r) => r.project.name === scopeProjectName)
@@ -4093,8 +4098,11 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
                         />
                         {group}
                         <Badge variant="secondary">{items.length}</Badge>
+                        {!collapsed && (
+                          <GroupPager total={items.length} page={groupPages[group] ?? 1} pageSize={GROUP_PAGE_SIZE} onPage={(pg) => setGroupPages((prev) => ({ ...prev, [group]: pg }))} />
+                        )}
                       </div>
-                      {!collapsed && renderTableRows(items)}
+                      {!collapsed && renderTableRows(items.slice(((groupPages[group] ?? 1) - 1) * GROUP_PAGE_SIZE, (groupPages[group] ?? 1) * GROUP_PAGE_SIZE))}
                     </div>
                   )
                 })

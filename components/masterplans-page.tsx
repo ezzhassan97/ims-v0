@@ -220,6 +220,23 @@ function MasterplanDrawer({ mp, onClose, onDelete }: { mp: Masterplan | null; on
                   <Maximize2 className="h-6 w-6 text-white drop-shadow" />
                 </span>
               </button>
+              {/* Icon actions — top-right over the image */}
+              <div className="absolute right-2 top-2 flex items-center gap-1.5">
+                <button
+                  onClick={() => toast.success(`Downloading ${mp.id}…`)}
+                  title="Download"
+                  className="flex h-8 w-8 items-center justify-center rounded-md bg-background/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-background"
+                >
+                  <Download className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => onDelete(mp)}
+                  title="Delete"
+                  className="flex h-8 w-8 items-center justify-center rounded-md bg-background/90 text-red-600 shadow-sm backdrop-blur transition-colors hover:bg-red-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-x-6 gap-y-3">
@@ -241,11 +258,6 @@ function MasterplanDrawer({ mp, onClose, onDelete }: { mp: Masterplan | null; on
               </div>
             </div>
 
-            <Separator />
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => toast.success(`Downloading ${mp.id}…`)}><Download className="h-3.5 w-3.5" />Download</Button>
-              <Button variant="outline" size="sm" className="gap-1.5 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => onDelete(mp)}><Trash2 className="h-3.5 w-3.5" />Delete</Button>
-            </div>
           </div>
         </SheetContent>
       </Sheet>

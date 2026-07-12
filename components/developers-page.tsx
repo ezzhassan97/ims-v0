@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useMemo, useRef, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
   Search, SlidersHorizontal, ArrowUpDown, ArrowUp, ArrowDown, Columns3, Plus, Copy, Check, ChevronDown, Download,
   ArrowRight, Home, ChevronRight, Pencil, ChevronUp, MoreHorizontal, MessageCircle,
@@ -15,7 +15,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { StoryBadge } from "@/components/all-properties-page"
-import { TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, FiltersDrawer, FilterDrawerField, ColumnsSheet, type ManagedColumn } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, FiltersDrawer, FilterDrawerField, ColumnsSheet, GroupPager, type ManagedColumn } from "@/components/table-kit"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { RichTextEditor } from "@/components/rich-text-editor"
@@ -120,6 +120,10 @@ export function DevelopersPage() {
   const [orgF, setOrgF] = useState<string[]>([])
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  // Per-group pagination — real data can put hundreds of rows in one group
+  const GROUP_PAGE_SIZE = 10
+  const [groupPages, setGroupPages] = useState<Record<string, number>>({})
+  useEffect(() => { setGroupPages({}) }, [groupBy, q, statusF, priorityF, orgF])
   const [sorts, setSorts] = useState<{ key: SortKey; dir: "asc" | "desc" }[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const lastClickedRef = useRef<number | null>(null)
@@ -358,10 +362,13 @@ export function DevelopersPage() {
                             <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", collapsedGroups.has(g.label) && "-rotate-90")} />
                             <StoryBadge value={g.label} />
                             <span className="text-xs text-muted-foreground">{g.rows.length} developer{g.rows.length !== 1 ? "s" : ""}</span>
+                            {!collapsedGroups.has(g.label) && (
+                              <GroupPager total={g.rows.length} page={groupPages[g.label] ?? 1} pageSize={GROUP_PAGE_SIZE} onPage={(pg) => setGroupPages((prev) => ({ ...prev, [g.label]: pg }))} />
+                            )}
                           </div>
                         </td>
                       </tr>
-                      {!collapsedGroups.has(g.label) && g.rows.map(renderRow)}
+                      {!collapsedGroups.has(g.label) && g.rows.slice(((groupPages[g.label] ?? 1) - 1) * GROUP_PAGE_SIZE, (groupPages[g.label] ?? 1) * GROUP_PAGE_SIZE).map(renderRow)}
                     </Fragment>
                   ))
                 ) : (
