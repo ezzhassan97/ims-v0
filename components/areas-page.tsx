@@ -137,6 +137,17 @@ function StatusTag({ status }: { status: GeoStatus }) {
 
 // ─── Entity card & hierarchy column ───────────────────────────────────────────
 
+function GeoTag({ ok, kind }: { ok: boolean; kind: "Pin" | "Polygon" }) {
+  return (
+    <span className={cn(
+      "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none",
+      ok ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-700",
+    )}>
+      {ok ? `${kind} Uploaded` : `Missing ${kind}`}
+    </span>
+  )
+}
+
 function GeoCard({ item, selected, onSelect, childCount, childLabel, onEdit, onDraw }: {
   item: GeoBase
   selected?: boolean
@@ -146,7 +157,6 @@ function GeoCard({ item, selected, onSelect, childCount, childLabel, onEdit, onD
   onEdit?: () => void
   onDraw?: () => void
 }) {
-  const hasGeo = !!(item.pin || item.polygon)
   return (
     <div
       onClick={onSelect}
@@ -156,41 +166,46 @@ function GeoCard({ item, selected, onSelect, childCount, childLabel, onEdit, onD
         selected ? "border-primary/50 ring-1 ring-primary/25" : "border-border hover:border-muted-foreground/35",
       )}
     >
-      <div className="flex items-center justify-between gap-2">
-        <IdTag value={item.id} className="text-[11px]" />
-        <StatusTag status={item.status} />
-      </div>
-      <div className={cn("mt-1 truncate text-sm", selected ? "font-semibold text-primary" : "font-medium text-foreground")}>{item.nameEn}</div>
-      <div className="truncate text-xs text-muted-foreground">{item.nameAr}</div>
-      <div className="mt-1.5 space-y-0.5 text-[10px] leading-4 text-muted-foreground">
-        <div>Created: {fmtDateTime(item.createdAt)}</div>
-        <div>Updated: {fmtDateTime(item.updatedAt)}</div>
-      </div>
-      {(onEdit || onDraw || childCount !== undefined) && (
-        <div className="mt-2 flex items-center gap-0.5 border-t border-border/70 pt-1.5">
-          {onEdit && (
-            <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" title="Edit"
-              onClick={(e) => { e.stopPropagation(); onEdit() }}>
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-          )}
-          {onDraw && (
-            <span className="relative">
-              <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" title="Draw on map"
-                onClick={(e) => { e.stopPropagation(); onDraw() }}>
-                <MapIcon className="h-3.5 w-3.5" />
-              </Button>
-              {hasGeo && <span className="pointer-events-none absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-emerald-500" />}
-            </span>
-          )}
+      <div className="flex gap-2">
+        <div className="min-w-0 flex-1">
+          <IdTag value={item.id} className="text-[11px]" />
+          <div className={cn("mt-0.5 truncate text-sm", selected ? "font-semibold text-primary" : "font-medium text-foreground")}>{item.nameEn}</div>
+          <div className="truncate text-xs text-muted-foreground">{item.nameAr}</div>
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            <GeoTag ok={!!item.pin} kind="Pin" />
+            <GeoTag ok={!!item.polygon} kind="Polygon" />
+          </div>
+        </div>
+        <div className="flex flex-shrink-0 flex-col items-end gap-1">
+          <StatusTag status={item.status} />
           {childCount !== undefined && (
-            <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+            <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
               {childCount} {childLabel}
-              <ChevronRight className="h-3.5 w-3.5" />
+              <ChevronRight className="h-3 w-3" />
             </span>
+          )}
+          {(onEdit || onDraw) && (
+            <div className="flex items-center gap-0.5">
+              {onEdit && (
+                <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" title="Edit"
+                  onClick={(e) => { e.stopPropagation(); onEdit() }}>
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+              )}
+              {onDraw && (
+                <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" title="Draw on map"
+                  onClick={(e) => { e.stopPropagation(); onDraw() }}>
+                  <MapIcon className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
           )}
         </div>
-      )}
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2 border-t border-border/70 pt-1.5 text-[10px] leading-none text-muted-foreground">
+        <span className="truncate">Created: {fmtDateTime(item.createdAt)}</span>
+        <span className="truncate">Updated: {fmtDateTime(item.updatedAt)}</span>
+      </div>
     </div>
   )
 }
@@ -213,9 +228,10 @@ function GeoColumn({ title, items, selectedId, onSelect, childCount, childLabel,
   const needle = q.trim().toLowerCase()
   const filtered = items.filter((it) => !needle || it.nameEn.toLowerCase().includes(needle) || it.nameAr.includes(q.trim()) || it.id.includes(needle))
   return (
-    <div className="flex h-[calc(100vh-330px)] min-h-[480px] flex-col gap-2 rounded-xl border border-border bg-[#F1F4F5] p-2.5">
-      <div className="flex items-center gap-2 px-0.5">
-        <h3 className="truncate text-sm font-semibold text-foreground">{title}</h3>
+    <div className="flex h-[calc(100vh-330px)] min-h-[480px] flex-col overflow-hidden rounded-xl border border-border bg-card">
+      <div className="space-y-2 border-b border-border px-2.5 py-2.5">
+        <div className="flex items-center gap-2">
+          <h3 className="truncate text-sm font-semibold text-foreground">{title}</h3>
         <span className="flex-shrink-0 rounded-md border border-blue-200 bg-blue-100 px-2 text-xs font-medium text-blue-700">{filtered.length}</span>
         <div className="ml-auto flex flex-shrink-0 items-center gap-1">
           {onUpload && (
@@ -233,13 +249,14 @@ function GeoColumn({ title, items, selectedId, onSelect, childCount, childLabel,
               <Plus className="h-3.5 w-3.5" />Create
             </Button>
           )}
+          </div>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder} className="h-8 pl-8 text-sm" />
         </div>
       </div>
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder} className="h-8 bg-card pl-8 text-sm" />
-      </div>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-0.5">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-[#F1F4F5] p-2.5">
         {filtered.map((it) => (
           <GeoCard
             key={it.id}
