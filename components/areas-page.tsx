@@ -171,13 +171,11 @@ function GeoCard({ item, selected, onSelect, childCount, childLabel, onEdit, onD
           <IdTag value={item.id} className="text-[11px]" />
           <div className={cn("mt-0.5 truncate text-sm", selected ? "font-semibold text-primary" : "font-medium text-foreground")}>{item.nameEn}</div>
           <div className="truncate text-xs text-muted-foreground">{item.nameAr}</div>
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            <GeoTag ok={!!item.pin} kind="Pin" />
-            <GeoTag ok={!!item.polygon} kind="Polygon" />
-          </div>
         </div>
         <div className="flex flex-shrink-0 flex-col items-end gap-1">
           <StatusTag status={item.status} />
+          <GeoTag ok={!!item.pin} kind="Pin" />
+          <GeoTag ok={!!item.polygon} kind="Polygon" />
           {childCount !== undefined && (
             <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
               {childCount} {childLabel}
@@ -185,15 +183,15 @@ function GeoCard({ item, selected, onSelect, childCount, childLabel, onEdit, onD
             </span>
           )}
           {(onEdit || onDraw) && (
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-1">
               {onEdit && (
-                <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" title="Edit"
+                <Button variant="outline" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" title="Edit"
                   onClick={(e) => { e.stopPropagation(); onEdit() }}>
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>
               )}
               {onDraw && (
-                <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" title="Draw on map"
+                <Button variant="outline" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" title="Draw on map"
                   onClick={(e) => { e.stopPropagation(); onDraw() }}>
                   <MapIcon className="h-3.5 w-3.5" />
                 </Button>
@@ -549,6 +547,8 @@ export function AreasPage() {
       items={areas}
       selectedId={workAreaId}
       onSelect={setWorkAreaId}
+      childCount={(id) => subareas.filter((s) => s.areaId === id).length}
+      childLabel="subareas"
       searchPlaceholder="Search areas by name or ID"
     />
   )
