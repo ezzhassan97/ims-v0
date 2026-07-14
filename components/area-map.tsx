@@ -1,7 +1,7 @@
 "use client"
 
-import { useRef, useState } from "react"
-import { Check, Hand, MapPin, Minus, PenLine, Plus, Search, Trash2, X } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { AlertTriangle, Check, Hand, MapPin, Minus, PenLine, Plus, Search, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -31,6 +31,16 @@ export function centroid(polygon: Pt[] | null, pin: Pt | null): Pt {
 }
 
 const ptsStr = (pts: Pt[]) => pts.map((p) => `${p.x},${p.y}`).join(" ")
+
+/** Ray-casting point-in-polygon test. */
+function pointInPolygon(p: Pt, poly: Pt[]): boolean {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y
+    if ((yi > p.y) !== (yj > p.y) && p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
+}
 
 export function LevelChip({ level }: { level: GeoLevel }) {
   const c = LEVEL_COLOR[level]
@@ -181,7 +191,7 @@ function MapSearch({ locations, onGo, className }: { locations: MapLocation[]; o
 function PinMarker({ pt, color, zoom, onPointerDown, cursor }: {
   pt: Pt; color: string; zoom: number; onPointerDown?: () => void; cursor?: string
 }) {
-  const k = 1.7 / zoom
+  const k = 1.1 / zoom
   return (
     <g
       transform={`translate(${pt.x},${pt.y}) scale(${k})`}
@@ -236,9 +246,21 @@ export function MapDrawDialog({ name, level, entityId, pin: pin0, polygon: polyg
     const c = centroid(polygon0, pin0)
     return { cx: c.x, cy: c.y, zoom: polygon0 || pin0 ? zoomFor(level) : 1 }
   })
+  const [error, setError] = useState<string | null>(null)
   const dragRef = useRef<DragState>(null)
 
+  // Any geometry change may resolve the pin-outside-polygon error
+  useEffect(() => { setError(null) }, [pin, poly])
+
   const zoomBy = (f: number) => setView((v) => ({ ...v, zoom: Math.min(8, Math.max(0.75, v.zoom * f)) }))
+
+  const trySave = () => {
+    if (pin && poly && poly.length >= 3 && !pointInPolygon(pin, poly)) {
+      setError(`The ${level.toLowerCase()} pin must be inside its polygon — move the pin inside the drawn boundary, then save.`)
+      return
+    }
+    onSave(pin, poly)
+  }
 
   const down: PtHandler = (p, e, mpp) => {
     if (dragRef.current) return // a pin/vertex handle claimed this pointer
@@ -333,10 +355,17 @@ export function MapDrawDialog({ name, level, entityId, pin: pin0, polygon: polyg
         </div>
 
         <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
-          <p className="text-xs text-muted-foreground">{hint}</p>
+          {error ? (
+            <p className="flex items-center gap-1.5 text-xs font-medium text-red-600">
+              <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+              {error}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">{hint}</p>
+          )}
           <div className="flex flex-shrink-0 gap-2">
             <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-            <Button size="sm" onClick={() => onSave(pin, poly)}>Save Geometry</Button>
+            <Button size="sm" onClick={trySave}>Save Geometry</Button>
           </div>
         </div>
       </DialogContent>
@@ -355,6 +384,8 @@ export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
   const [layers, setLayers] = useState<Record<GeoLevel, boolean>>({ District: true, Area: true, Subarea: true })
   const [selKey, setSelKey] = useState<string | null>(null)
   const [editGeo, setEditGeo] = useState(false)
+  const [drawMode, setDrawMode] = useState<"pin" | "poly" | null>(null)
+  const [draft, setDraft] = useState<Pt[] | null>(null)
   const [view, setView] = useState<MapView>({ cx: 500, cy: 350, zoom: 0.95 })
   const dragRef = useRef<DragState>(null)
 
@@ -363,9 +394,16 @@ export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
   const LABEL_MIN: Record<GeoLevel, number> = { District: 0, Area: 1.4, Subarea: 2.6 }
 
   const zoomBy = (f: number) => setView((v) => ({ ...v, zoom: Math.min(8, Math.max(0.75, v.zoom * f)) }))
+  const stopDrawing = () => { setDrawMode(null); setDraft(null) }
 
   const down: PtHandler = (p, e, mpp) => {
     if (dragRef.current) return
+    if (drawMode === "pin" && selKey) {
+      setList((ls) => ls.map((g) => (keyOf(g) === selKey ? { ...g, pin: p } : g)))
+      stopDrawing()
+      return
+    }
+    if (drawMode === "poly" && selKey) { setDraft((d) => [...(d ?? []), p]); return }
     dragRef.current = { t: "pan", sx: e.clientX, sy: e.clientY, cx0: view.cx, cy0: view.cy, mpp }
   }
   const move: PtHandler = (p, e) => {
@@ -386,6 +424,7 @@ export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
       return g
     }))
     setSelKey(keyOf(target))
+    stopDrawing()
     toast.success(`Geometry re-linked to ${target.name}`)
   }
   const clearGeo = (what: "pin" | "polygon") => {
@@ -405,7 +444,7 @@ export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
 
         <div className="flex min-h-0 flex-1">
           <div className="relative min-w-0 flex-1 bg-[#EFEDE5]">
-            <MapSvg view={view} onDown={down} onMove={move} onUp={() => (dragRef.current = null)} cursor="grab">
+            <MapSvg view={view} onDown={down} onMove={move} onUp={() => (dragRef.current = null)} cursor={drawMode ? "crosshair" : "grab"}>
               {visibleLevels.map((lvl) =>
                 list.filter((g) => g.level === lvl && g.polygon).map((g) => {
                   const isSel = keyOf(g) === selKey
@@ -415,8 +454,8 @@ export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
                     <g key={keyOf(g)}>
                       <polygon
                         points={ptsStr(g.polygon!)} fill={c} fillOpacity={isSel ? 0.35 : 0.15} stroke={c}
-                        strokeWidth={(isSel ? 2.6 : 1.4) / view.zoom} style={{ cursor: "pointer" }}
-                        onPointerDown={() => setSelKey(keyOf(g))}
+                        strokeWidth={(isSel ? 2.6 : 1.4) / view.zoom} style={{ cursor: drawMode ? "crosshair" : "pointer" }}
+                        onPointerDown={() => { if (drawMode) return; setSelKey(keyOf(g)) }}
                       />
                       {view.zoom >= LABEL_MIN[lvl] && (
                         <text x={cen.x} y={cen.y} textAnchor="middle" fontSize={(lvl === "District" ? 13 : 11) / view.zoom}
@@ -436,10 +475,22 @@ export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
                 list.filter((g) => g.level === lvl && g.pin).map((g) => (
                   <PinMarker
                     key={keyOf(g)} pt={g.pin!} color={LEVEL_COLOR[lvl]} zoom={view.zoom}
-                    cursor={editGeo && keyOf(g) === selKey ? "move" : "pointer"}
-                    onPointerDown={() => { setSelKey(keyOf(g)); if (editGeo) dragRef.current = { t: "pin", key: keyOf(g) } }}
+                    cursor={drawMode ? "crosshair" : editGeo && keyOf(g) === selKey ? "move" : "pointer"}
+                    onPointerDown={() => { if (drawMode) return; setSelKey(keyOf(g)); if (editGeo) dragRef.current = { t: "pin", key: keyOf(g) } }}
                   />
                 )),
+              )}
+              {draft && draft.length > 0 && sel && (
+                <g>
+                  <polyline points={ptsStr(draft)} fill="none" stroke={LEVEL_COLOR[sel.level]} strokeWidth={2 / view.zoom} strokeDasharray={`${5 / view.zoom} ${4 / view.zoom}`} />
+                  {draft.length >= 3 && (
+                    <line x1={draft[draft.length - 1].x} y1={draft[draft.length - 1].y} x2={draft[0].x} y2={draft[0].y}
+                      stroke={LEVEL_COLOR[sel.level]} strokeOpacity={0.4} strokeWidth={1.5 / view.zoom} strokeDasharray={`${3 / view.zoom} ${3 / view.zoom}`} />
+                  )}
+                  {draft.map((p, i) => (
+                    <circle key={i} cx={p.x} cy={p.y} r={4.5 / view.zoom} fill={LEVEL_COLOR[sel.level]} stroke="#fff" strokeWidth={1.5 / view.zoom} />
+                  ))}
+                </g>
               )}
             </MapSvg>
             <MapSearch locations={locations} onGo={(l) => setView({ cx: l.center.x, cy: l.center.y, zoom: zoomFor(l.kind) })} className="absolute left-3 top-3 z-10 w-72" />
@@ -477,7 +528,7 @@ export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
                     )}>
                       {sel.status}
                     </span>
-                    <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => { setSelKey(null); setEditGeo(false) }}>
+                    <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => { setSelKey(null); setEditGeo(false); stopDrawing() }}>
                       <X className="h-4 w-4" />
                     </button>
                   </div>
@@ -507,15 +558,53 @@ export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="h-8 flex-1 gap-1 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
-                    disabled={!sel.pin} onClick={() => clearGeo("pin")}>
-                    <Trash2 className="h-3.5 w-3.5" />Pin
-                  </Button>
-                  <Button variant="outline" size="sm" className="h-8 flex-1 gap-1 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
-                    disabled={!sel.polygon} onClick={() => clearGeo("polygon")}>
-                    <Trash2 className="h-3.5 w-3.5" />Polygon
-                  </Button>
+                  {sel.pin ? (
+                    <Button variant="outline" size="sm" className="h-8 flex-1 gap-1 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                      onClick={() => clearGeo("pin")}>
+                      <Trash2 className="h-3.5 w-3.5" />Pin
+                    </Button>
+                  ) : (
+                    <Button variant="outline" size="sm"
+                      className={cn("h-8 flex-1 gap-1 text-xs", drawMode === "pin" && "border-primary/50 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary")}
+                      onClick={() => { setDrawMode("pin"); setDraft(null) }}>
+                      <MapPin className="h-3.5 w-3.5" />Draw pin
+                    </Button>
+                  )}
+                  {sel.polygon ? (
+                    <Button variant="outline" size="sm" className="h-8 flex-1 gap-1 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                      onClick={() => clearGeo("polygon")}>
+                      <Trash2 className="h-3.5 w-3.5" />Polygon
+                    </Button>
+                  ) : (
+                    <Button variant="outline" size="sm"
+                      className={cn("h-8 flex-1 gap-1 text-xs", drawMode === "poly" && "border-primary/50 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary")}
+                      onClick={() => { setDrawMode("poly"); setDraft([]) }}>
+                      <PenLine className="h-3.5 w-3.5" />Draw polygon
+                    </Button>
+                  )}
                 </div>
+
+                {drawMode && (
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-2.5">
+                    <p className="text-xs leading-4 text-foreground">
+                      {drawMode === "pin"
+                        ? <>Click the map to place the pin for <span className="font-semibold">{sel.name}</span>.</>
+                        : <>Click the map to add polygon vertices for <span className="font-semibold">{sel.name}</span> — {draft?.length ?? 0} added (at least 3).</>}
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      {drawMode === "poly" && (
+                        <Button size="sm" className="h-7 flex-1 gap-1 text-xs" disabled={!draft || draft.length < 3}
+                          onClick={() => {
+                            setList((ls) => ls.map((g) => (keyOf(g) === selKey ? { ...g, polygon: draft } : g)))
+                            stopDrawing()
+                          }}>
+                          <Check className="h-3 w-3" />Finish
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={stopDrawing}>Cancel</Button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-1.5 p-6 text-center">
