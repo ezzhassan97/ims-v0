@@ -392,6 +392,9 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
   // Levels present in this map (e.g. District/Area/Subarea, or Project/Phase)
   const levels = [...new Set(entities.map((e) => e.level))]
   const [list, setList] = useState<GeoRef[]>(entities)
+  // Last saved snapshot — every edit produces a new array, so reference equality tracks dirtiness
+  const [baseline, setBaseline] = useState<GeoRef[]>(entities)
+  const dirty = list !== baseline
   const [layers, setLayers] = useState<Record<GeoLevel, boolean>>({ District: true, Area: true, Subarea: true, Project: true, Phase: true })
   const [undrawnTab, setUndrawnTab] = useState<GeoLevel>(levels[0])
   const [selKey, setSelKey] = useState<string | null>(null)
@@ -670,8 +673,15 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
             )}
 
             <div className="flex gap-2 border-t border-border p-3">
-              <Button variant="outline" size="sm" className="flex-1" onClick={onClose}>Cancel</Button>
-              <Button size="sm" className="flex-1" onClick={() => onSave(list)}>Save Changes</Button>
+              {/* Cancel = back to the Not Drawn list; the dialog closes via the top-right X */}
+              <Button variant="outline" size="sm" className="flex-1" disabled={!sel && !drawMode}
+                onClick={() => { setSelKey(null); setEditGeo(false); stopDrawing() }}>
+                Cancel
+              </Button>
+              <Button size="sm" className="flex-1" disabled={!dirty}
+                onClick={() => { onSave(list); setBaseline(list); setSelKey(null); setEditGeo(false); stopDrawing() }}>
+                Save Changes
+              </Button>
             </div>
           </div>
         </div>

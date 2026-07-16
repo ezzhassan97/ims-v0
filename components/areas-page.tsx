@@ -760,7 +760,6 @@ export function AreasPage() {
             setDistricts((ds) => ds.map((d) => { const g = find("District", d.id); return g ? { ...d, pin: g.pin, polygon: g.polygon } : d }))
             setAreas((as) => as.map((a) => { const g = find("Area", a.id); return g ? { ...a, pin: g.pin, polygon: g.polygon } : a }))
             setSubareas((ss) => ss.map((s) => { const g = find("Subarea", s.id); return g ? { ...s, pin: g.pin, polygon: g.polygon } : s }))
-            setMapOpen(false)
             toast.success("Map changes saved")
           }}
         />

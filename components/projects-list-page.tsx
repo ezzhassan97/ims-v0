@@ -363,7 +363,6 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             onClose={() => setMapOpen(false)}
             onSave={(updated) => {
               setProjGeo(updated)
-              setMapOpen(false)
               toast.success("Map changes saved")
             }}
           />
