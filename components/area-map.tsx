@@ -40,6 +40,18 @@ export function centroid(polygon: Pt[] | null, pin: Pt | null): Pt {
 
 const ptsStr = (pts: Pt[]) => pts.map((p) => `${p.x},${p.y}`).join(" ")
 
+/** Subsequence fuzzy match: "ph2" matches "Phase 2", "prj5" matches "PRJ-0005". */
+const fuzzyMatch = (q: string, s: string) => {
+  const t = s.toLowerCase()
+  let i = 0
+  for (const ch of q.toLowerCase().replace(/\s+/g, "")) {
+    i = t.indexOf(ch, i)
+    if (i === -1) return false
+    i++
+  }
+  return true
+}
+
 /** Ray-casting point-in-polygon test. */
 function pointInPolygon(p: Pt, poly: Pt[]): boolean {
   let inside = false
@@ -397,6 +409,7 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
   const dirty = list !== baseline
   const [layers, setLayers] = useState<Record<GeoLevel, boolean>>({ District: true, Area: true, Subarea: true, Project: true, Phase: true })
   const [undrawnTab, setUndrawnTab] = useState<GeoLevel>(levels[0])
+  const [undrawnQ, setUndrawnQ] = useState("")
   const [selKey, setSelKey] = useState<string | null>(null)
   const [editGeo, setEditGeo] = useState(false)
   const [drawMode, setDrawMode] = useState<"pin" | "poly" | null>(null)
@@ -408,6 +421,7 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
   const sel = selKey ? list.find((g) => keyOf(g) === selKey) ?? null : null
   const LABEL_MIN: Record<GeoLevel, number> = { District: 0, Area: 1.4, Subarea: 2.6, Project: 0, Phase: 1.4 }
   const undrawnOf = (lvl: GeoLevel) => list.filter((g) => g.level === lvl && (!g.pin || !g.polygon))
+  const undrawnVisible = undrawnOf(undrawnTab).filter((g) => !undrawnQ.trim() || fuzzyMatch(undrawnQ, g.name) || fuzzyMatch(undrawnQ, g.id))
 
   const zoomBy = (f: number) => setView((v) => ({ ...v, zoom: Math.min(8, Math.max(0.75, v.zoom * f)) }))
   const stopDrawing = () => { setDrawMode(null); setDraft(null) }
@@ -647,8 +661,12 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                     </button>
                   ))}
                 </div>
+                <div className="relative mt-2">
+                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input value={undrawnQ} onChange={(e) => setUndrawnQ(e.target.value)} placeholder={`Search ${undrawnTab.toLowerCase()}s by name or ID`} className="h-8 pl-8 text-sm" />
+                </div>
                 <div className="mt-2 min-h-0 flex-1 space-y-1.5 overflow-y-auto">
-                  {undrawnOf(undrawnTab).map((g) => (
+                  {undrawnVisible.map((g) => (
                     <div
                       key={keyOf(g)} onClick={() => setSelKey(keyOf(g))}
                       className="cursor-pointer rounded-lg border border-border bg-card p-2 text-left transition-colors hover:border-muted-foreground/40"
@@ -663,11 +681,13 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                       </div>
                     </div>
                   ))}
-                  {undrawnOf(undrawnTab).length === 0 && (
+                  {undrawnOf(undrawnTab).length === 0 ? (
                     <p className="flex items-center justify-center gap-1.5 py-8 text-xs text-muted-foreground">
                       <Check className="h-3.5 w-3.5 text-emerald-500" />All {undrawnTab.toLowerCase()}s are fully drawn
                     </p>
-                  )}
+                  ) : undrawnVisible.length === 0 ? (
+                    <p className="py-8 text-center text-xs text-muted-foreground">No matches for “{undrawnQ.trim()}”</p>
+                  ) : null}
                 </div>
               </div>
             )}
