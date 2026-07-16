@@ -13,12 +13,20 @@ import { toast } from "sonner"
 
 // ── Geometry model ─────────────────────────────────────────────────────────────
 export interface Pt { x: number; y: number }
-export type GeoLevel = "District" | "Area" | "Subarea"
+export type GeoLevel = "District" | "Area" | "Subarea" | "Project" | "Phase"
 /** Flattened geo entity handed to the global map. */
 export interface GeoRef { id: string; name: string; level: GeoLevel; status: "Active" | "Hidden"; pin: Pt | null; polygon: Pt[] | null }
 export interface MapLocation { id: string; name: string; kind: string; center: Pt }
 
-export const LEVEL_COLOR: Record<GeoLevel, string> = { District: "#2563eb", Area: "#059669", Subarea: "#d97706" }
+export const LEVEL_COLOR: Record<GeoLevel, string> = { District: "#2563eb", Area: "#059669", Subarea: "#d97706", Project: "#7c3aed", Phase: "#0891b2" }
+
+/** Deterministic blob polygon for mock geometry (no Math.random — SSR-hydration safe). */
+const BLOB_RM = [1, 0.82, 1.12, 0.9, 1.06, 0.8]
+export const blobPolygon = (cx: number, cy: number, r: number): Pt[] =>
+  BLOB_RM.map((m, i) => {
+    const a = (i * 60 * Math.PI) / 180
+    return { x: Math.round(cx + Math.cos(a) * r * m), y: Math.round(cy + Math.sin(a) * r * m * 0.72) }
+  })
 
 export function centroid(polygon: Pt[] | null, pin: Pt | null): Pt {
   if (polygon && polygon.length > 0) {
@@ -374,14 +382,18 @@ export function MapDrawDialog({ name, level, entityId, pin: pin0, polygon: polyg
 }
 
 // ── Global map (90% dialog): all layers, toggle / edit / re-link ──────────────
-export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
+export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSave, onClose }: {
   entities: GeoRef[]
   locations: MapLocation[]
+  title?: string
   onSave: (updated: GeoRef[]) => void
   onClose: () => void
 }) {
+  // Levels present in this map (e.g. District/Area/Subarea, or Project/Phase)
+  const levels = [...new Set(entities.map((e) => e.level))]
   const [list, setList] = useState<GeoRef[]>(entities)
-  const [layers, setLayers] = useState<Record<GeoLevel, boolean>>({ District: true, Area: true, Subarea: true })
+  const [layers, setLayers] = useState<Record<GeoLevel, boolean>>({ District: true, Area: true, Subarea: true, Project: true, Phase: true })
+  const [undrawnTab, setUndrawnTab] = useState<GeoLevel>(levels[0])
   const [selKey, setSelKey] = useState<string | null>(null)
   const [editGeo, setEditGeo] = useState(false)
   const [drawMode, setDrawMode] = useState<"pin" | "poly" | null>(null)
@@ -391,7 +403,8 @@ export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
 
   const keyOf = (g: GeoRef) => `${g.level}:${g.id}`
   const sel = selKey ? list.find((g) => keyOf(g) === selKey) ?? null : null
-  const LABEL_MIN: Record<GeoLevel, number> = { District: 0, Area: 1.4, Subarea: 2.6 }
+  const LABEL_MIN: Record<GeoLevel, number> = { District: 0, Area: 1.4, Subarea: 2.6, Project: 0, Phase: 1.4 }
+  const undrawnOf = (lvl: GeoLevel) => list.filter((g) => g.level === lvl && (!g.pin || !g.polygon))
 
   const zoomBy = (f: number) => setView((v) => ({ ...v, zoom: Math.min(8, Math.max(0.75, v.zoom * f)) }))
   const stopDrawing = () => { setDrawMode(null); setDraft(null) }
@@ -432,13 +445,13 @@ export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
     setList((ls) => ls.map((g) => (keyOf(g) === selKey ? { ...g, [what]: null } : g)))
   }
 
-  const visibleLevels = (["District", "Area", "Subarea"] as GeoLevel[]).filter((l) => layers[l])
+  const visibleLevels = levels.filter((l) => layers[l])
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[92vw]">
         <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
-          <DialogTitle className="text-base font-semibold">Areas Map</DialogTitle>
+          <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
           <span className="hidden text-xs text-muted-foreground sm:block">Toggle layers, click a pin or polygon to select it, then edit its geometry or re-link it.</span>
         </div>
 
@@ -501,7 +514,7 @@ export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
           <div className="flex w-[300px] flex-shrink-0 flex-col border-l border-border">
             <div className="border-b border-border p-3">
               <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Layers</div>
-              {(["District", "Area", "Subarea"] as GeoLevel[]).map((lvl) => (
+              {levels.map((lvl) => (
                 <div key={lvl} className="flex items-center gap-2 py-1">
                   <span className="h-2.5 w-2.5 flex-shrink-0 rounded-sm" style={{ backgroundColor: LEVEL_COLOR[lvl] }} />
                   <span className="text-sm text-foreground">{lvl}s</span>
@@ -607,10 +620,52 @@ export function GlobalMapDialog({ entities, locations, onSave, onClose }: {
                 )}
               </div>
             ) : (
-              <div className="flex flex-1 flex-col items-center justify-center gap-1.5 p-6 text-center">
-                <MapPin className="h-5 w-5 text-muted-foreground" />
-                <p className="text-sm font-medium text-foreground">Nothing selected</p>
-                <p className="text-xs text-muted-foreground">Click a polygon or pin on the map to inspect, edit or re-link it.</p>
+              <div className="flex min-h-0 flex-1 flex-col p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Not Drawn Yet</div>
+                <p className="mb-2 mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                  Records missing a pin or polygon — click one to select it, then draw it on the map. Or click any shape on the map to inspect it.
+                </p>
+                <div className="flex rounded-lg bg-secondary p-0.5">
+                  {levels.map((lvl) => (
+                    <button
+                      key={lvl} type="button" onClick={() => setUndrawnTab(lvl)}
+                      className={cn(
+                        "flex flex-1 items-center justify-center gap-1 rounded-md px-1 py-1 text-xs font-medium transition-colors",
+                        undrawnTab === lvl ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {lvl}s
+                      <span className={cn(
+                        "rounded px-1 text-[10px] font-semibold leading-4",
+                        undrawnOf(lvl).length > 0 ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700",
+                      )}>
+                        {undrawnOf(lvl).length}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2 min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+                  {undrawnOf(undrawnTab).map((g) => (
+                    <div
+                      key={keyOf(g)} onClick={() => setSelKey(keyOf(g))}
+                      className="cursor-pointer rounded-lg border border-border bg-card p-2 text-left transition-colors hover:border-muted-foreground/40"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-medium text-foreground">{g.name}</span>
+                        <IdTag value={g.id} />
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {!g.pin && <span className="rounded-md border border-red-200 bg-red-100 px-1.5 py-0.5 text-[10px] font-medium leading-none text-red-700">Missing Pin</span>}
+                        {!g.polygon && <span className="rounded-md border border-red-200 bg-red-100 px-1.5 py-0.5 text-[10px] font-medium leading-none text-red-700">Missing Polygon</span>}
+                      </div>
+                    </div>
+                  ))}
+                  {undrawnOf(undrawnTab).length === 0 && (
+                    <p className="flex items-center justify-center gap-1.5 py-8 text-xs text-muted-foreground">
+                      <Check className="h-3.5 w-3.5 text-emerald-500" />All {undrawnTab.toLowerCase()}s are fully drawn
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 

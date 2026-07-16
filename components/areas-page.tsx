@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { IdTag } from "@/components/table-kit"
 import { SeoTab, FaqsTab } from "@/components/developers-page"
 import {
-  GlobalMapDialog, MapDrawDialog, LevelChip, centroid, LEVEL_COLOR,
+  GlobalMapDialog, MapDrawDialog, LevelChip, blobPolygon as blob, centroid, LEVEL_COLOR,
   type GeoLevel, type GeoRef, type MapLocation, type Pt,
 } from "@/components/area-map"
 import { cn } from "@/lib/utils"
@@ -38,14 +38,6 @@ interface GeoBase {
 interface District extends GeoBase {}
 interface Area extends GeoBase { districtId: string }
 interface Subarea extends GeoBase { areaId: string }
-
-// Deterministic blob polygon (no Math.random — keeps SSR hydration stable)
-const RM = [1, 0.82, 1.12, 0.9, 1.06, 0.8]
-const blob = (cx: number, cy: number, r: number): Pt[] =>
-  RM.map((m, i) => {
-    const a = (i * 60 * Math.PI) / 180
-    return { x: Math.round(cx + Math.cos(a) * r * m), y: Math.round(cy + Math.sin(a) * r * m * 0.72) }
-  })
 
 const T0 = new Date("2026-01-05T09:00:00").getTime()
 const DAY = 86_400_000

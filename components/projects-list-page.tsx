@@ -3,8 +3,9 @@
 import { Fragment, useMemo, useState } from "react"
 import {
   Check, ChevronDown, MoreHorizontal, Eye, ToggleRight, Layers, Building2,
-  Group as GroupIcon, FolderTree, CheckCircle2, Tag as TagIcon,
+  Group as GroupIcon, FolderTree, CheckCircle2, Tag as TagIcon, Map as MapIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -16,6 +17,35 @@ import {
   PROJECTS, PROJECT_DEVELOPERS, AREAS, DISTRICTS,
   type ProjectRow, type ProjListingStatus, type ProjPrimaryStatus, type ProjEntryType,
 } from "@/lib/projects-mock"
+import { GlobalMapDialog, blobPolygon, centroid, type GeoRef, type MapLocation } from "@/components/area-map"
+
+// ── Mock geometry for the projects & phases map ────────────────────────────────
+// Mains spread across the basemap; phases cluster inside their parent. Some
+// records deliberately miss a pin/polygon to feed the "Not Drawn Yet" list.
+const MAIN_ROWS = PROJECTS.filter((p) => !p.isPhase)
+const PROJECT_GEO0: GeoRef[] = PROJECTS.map((p) => {
+  const mainId = p.mainProject?.id ?? p.id
+  const mi = Math.max(0, MAIN_ROWS.findIndex((m) => m.id === mainId))
+  const cx = 150 + (mi % 4) * 225 + ((mi * 37) % 40)
+  const cy = 180 + Math.floor(mi / 4) * 175 + ((mi * 53) % 50)
+  if (!p.isPhase) {
+    return {
+      id: p.id, name: p.name, level: "Project" as const, status: p.listingStatus,
+      pin: mi % 4 === 3 ? null : { x: cx, y: cy },
+      polygon: mi % 3 === 2 ? null : blobPolygon(cx, cy, 46),
+    }
+  }
+  const siblings = PROJECTS.filter((q) => q.isPhase && q.mainProject?.id === mainId)
+  const pi = Math.max(0, siblings.findIndex((q) => q.id === p.id))
+  const px = cx - 25 + (pi % 3) * 26
+  const py = cy - 18 + Math.floor(pi / 3) * 24
+  return {
+    id: p.id, name: p.name, level: "Phase" as const, status: p.listingStatus,
+    pin: pi % 3 === 1 ? null : { x: px, y: py },
+    polygon: pi % 2 === 1 ? null : blobPolygon(px, py, 14),
+  }
+})
+const PROJECT_MAP_LOCATIONS: MapLocation[] = PROJECT_GEO0.map((g) => ({ id: g.id, name: g.name, kind: g.level, center: centroid(g.polygon, g.pin) }))
 
 const PRIMARY_STATUSES: ProjPrimaryStatus[] = ["Launch", "On-Sale", "On-Hold", "Sold-Off", "Archived"]
 
@@ -98,6 +128,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [mapOpen, setMapOpen] = useState(false)
+  const [projGeo, setProjGeo] = useState<GeoRef[]>(PROJECT_GEO0)
 
   const toggleGroup = (label: string) =>
     setCollapsedGroups((prev) => { const n = new Set(prev); n.has(label) ? n.delete(label) : n.add(label); return n })
@@ -263,7 +295,15 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
 
         {/* Table */}
         <TableCard>
-          <TableCardHeader title="Projects" count={filtered.length} />
+          <TableCardHeader
+            title="Projects"
+            count={filtered.length}
+            cta={!embedded ? (
+              <Button size="sm" className="h-8 gap-1.5" onClick={() => setMapOpen(true)}>
+                <MapIcon className="h-3.5 w-3.5" />Map
+              </Button>
+            ) : undefined}
+          />
           <div className="overflow-x-auto">
             <table className={cn("w-max text-sm", COL_SEP)}>
               <thead className="border-b border-border bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -314,6 +354,20 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             <TableFooter page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="projects" />
           )}
         </TableCard>
+
+        {mapOpen && (
+          <GlobalMapDialog
+            title="Projects Map"
+            entities={projGeo}
+            locations={PROJECT_MAP_LOCATIONS}
+            onClose={() => setMapOpen(false)}
+            onSave={(updated) => {
+              setProjGeo(updated)
+              setMapOpen(false)
+              toast.success("Map changes saved")
+            }}
+          />
+        )}
       </div>
     </div>
   )
