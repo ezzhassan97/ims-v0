@@ -370,8 +370,8 @@ function SummaryBox({ title, lines }: { title: string; lines: string[] }) {
   )
 }
 
-function BulkUploadDrawer({ level, rows, onClose }: {
-  level: "Districts" | "Areas"
+export function BulkUploadDrawer({ level, rows, onClose }: {
+  level: "Districts" | "Areas" | "Projects"
   rows: { id: string; name: string; kind: string }[]
   onClose: () => void
 }) {
@@ -405,7 +405,7 @@ function BulkUploadDrawer({ level, rows, onClose }: {
         <div className="border-b border-border px-4 py-3">
           <SheetTitle className="text-base font-semibold">Map Pins & Polygons — {level}</SheetTitle>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Bulk upload {level === "Areas" ? "areas & subareas" : "districts"} pins and polygons as GeoJSON.
+            Bulk upload {level === "Areas" ? "areas & subareas" : level === "Districts" ? "districts" : "projects & phases"} pins and polygons as GeoJSON.
           </p>
         </div>
 

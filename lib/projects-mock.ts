@@ -4,6 +4,7 @@
 export type ProjListingStatus = "Active" | "Hidden"
 export type ProjPrimaryStatus = "Launch" | "On-Sale" | "On-Hold" | "Sold-Off" | "Archived"
 export type ProjEntryType = "Automatic" | "Manual"
+export type ProjOrg = "Nawy" | "Partners"
 
 export interface ProjectRow {
   id: string
@@ -17,6 +18,20 @@ export interface ProjectRow {
   listingStatus: ProjListingStatus
   primaryStatus: ProjPrimaryStatus
   entryType: ProjEntryType
+  organizations: ProjOrg[]
+  category: string
+  projectType: string
+  projectSubtype: string
+  /** Land area in km² — null when unknown */
+  areaKm2: number | null
+  galleryImages: string[]
+  brochureCount: number
+  listingMasterplan: boolean
+  gisMasterplan: boolean
+  buildingsCount: number
+  /** Property counts impacted by primary-status changes */
+  groupedProps: number
+  detailedProps: number
   createdAt: string
   updatedAt: string
 }
@@ -35,6 +50,16 @@ export const DISTRICTS = ["5th Settlement", "Sodic West", "Ras El Hekma", "R7", 
 export const SUBAREAS = ["Golden Square", "Bloomfields", "West Somid", "El Hekma Bay", "R7 Central", "Waslet Dahshour"]
 
 const PRIMARY: ProjPrimaryStatus[] = ["Launch", "On-Sale", "On-Hold", "Sold-Off", "Archived"]
+
+const CATEGORIES = ["Residential", "Commercial", "Mixed Use"]
+const PROJECT_TYPES = ["Compound", "Standalone", "Coastal Resort"]
+const PROJECT_SUBTYPES = ["Apartments", "Villas", "Mixed Units"]
+const GALLERY_POOL = [
+  "/aerial-view-masterplan-residential-development-blu.jpg",
+  "/luxury-clubhouse-exterior.jpg",
+  "/placeholder.jpg",
+]
+const orgsFor = (seed: number): ProjOrg[] => (seed % 3 === 0 ? ["Nawy"] : seed % 3 === 1 ? ["Nawy", "Partners"] : ["Partners"])
 
 const PROJECT_NAMES = [
   "New Cairo Residences", "North Coast Bay", "West Gate", "Lagoon District",
@@ -67,6 +92,18 @@ function buildRows(): ProjectRow[] {
       listingStatus: i % 5 === 0 ? "Hidden" : "Active",
       primaryStatus: PRIMARY[i % PRIMARY.length],
       entryType: i % 3 === 0 ? "Manual" : "Automatic",
+      organizations: orgsFor(i),
+      category: CATEGORIES[i % CATEGORIES.length],
+      projectType: PROJECT_TYPES[i % PROJECT_TYPES.length],
+      projectSubtype: PROJECT_SUBTYPES[(i + 1) % PROJECT_SUBTYPES.length],
+      areaKm2: i % 4 === 3 ? null : Number((0.6 + i * 0.45).toFixed(1)),
+      galleryImages: GALLERY_POOL.slice(0, i % 4),
+      brochureCount: i % 3 === 2 ? 0 : (i % 4) + 1,
+      listingMasterplan: i % 3 !== 1,
+      gisMasterplan: i % 2 === 0,
+      buildingsCount: i % 5 === 4 ? 0 : 6 + i * 3,
+      groupedProps: 4 + ((i * 3) % 18),
+      detailedProps: 30 + ((i * 23) % 160),
       createdAt: isoDate(i * 6, 9),
       updatedAt: isoDate(i * 6 + 3, 14),
     }
@@ -87,6 +124,18 @@ function buildRows(): ProjectRow[] {
         listingStatus: seed % 4 === 0 ? "Hidden" : "Active",
         primaryStatus: PRIMARY[seed % PRIMARY.length],
         entryType: seed % 2 === 0 ? "Manual" : "Automatic",
+        organizations: orgsFor(seed),
+        category: CATEGORIES[i % CATEGORIES.length],
+        projectType: PROJECT_TYPES[i % PROJECT_TYPES.length],
+        projectSubtype: PROJECT_SUBTYPES[seed % PROJECT_SUBTYPES.length],
+        areaKm2: seed % 3 === 0 ? null : Number((0.2 + p * 0.15 + (i % 3) * 0.1).toFixed(2)),
+        galleryImages: GALLERY_POOL.slice(0, seed % 4),
+        brochureCount: seed % 4 === 1 ? 0 : seed % 3,
+        listingMasterplan: seed % 4 !== 2,
+        gisMasterplan: seed % 3 !== 1,
+        buildingsCount: seed % 4 === 0 ? 0 : 2 + (seed % 9),
+        groupedProps: 2 + (seed % 9),
+        detailedProps: 12 + ((seed * 13) % 70),
         createdAt: isoDate(i * 6 + p + 1, 10),
         updatedAt: isoDate(i * 6 + p + 4, 16),
       })

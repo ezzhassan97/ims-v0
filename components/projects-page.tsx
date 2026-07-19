@@ -15,7 +15,7 @@ import { PropertiesTable } from "@/components/properties-table"
 import { SplittingRules } from "@/components/splitting-rules"
 import { AmenitiesList } from "@/components/amenities-list"
 import { AmenitiesMap } from "@/components/amenities-map"
-import { FAQsTab } from "@/components/faqs-tab"
+import { SeoTab, FaqsTab } from "@/components/developers-page"
 import { MasterplansPage } from "@/components/masterplans-page"
 import { ConstructionUpdatesTab } from "@/components/construction-updates-tab"
 import { RenderImagesPage } from "@/components/render-images-page"
@@ -313,7 +313,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
           </TabStrip>
 
           {/* Not built yet → coming soon */}
-          {["features", "seo", "phases", "floor-plans", "ingestion-entries", "attachments", "audit-logs"].map((value) => (
+          {["features", "phases", "floor-plans", "ingestion-entries", "attachments", "audit-logs"].map((value) => (
             <TabsContent key={value} value={value} className="mt-4">
               <ComingSoon pageName={value === "seo" ? "SEO" : value.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ")} />
             </TabsContent>
@@ -432,14 +432,20 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
             </div>
           </TabsContent>
 
-          <TabsContent value="faqs" className="mt-4">
-            <FAQsTab
-              faqs={faqs}
-              onAddFAQ={handleAddFAQ}
-              onUpdateFAQ={handleUpdateFAQ}
-              onDeleteFAQ={handleDeleteFAQ}
-              onReorderFAQs={handleReorderFAQs}
+          {/* SEO & FAQs — exactly the same components as developer details */}
+          <TabsContent value="seo" className="mt-4">
+            <SeoTab
+              key={project?.name}
+              entity={{
+                name: project?.name ?? "",
+                nameAr: project?.name ?? "",
+                descriptionEn: `${project?.name ?? ""} is one of ${project?.area ?? "the area"}'s most in-demand projects.`,
+                descriptionAr: `${project?.name ?? ""} من أكثر المشروعات طلبًا.`,
+              }}
             />
+          </TabsContent>
+          <TabsContent value="faqs" className="mt-4">
+            <FaqsTab key={project?.name} entityName={project?.name ?? ""} />
           </TabsContent>
 
           <TabsContent value="construction-updates" className="mt-4">
