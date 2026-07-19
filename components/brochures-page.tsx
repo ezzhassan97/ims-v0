@@ -403,12 +403,33 @@ function AssetCard({ a, index, selected, onToggleSelect, onStatus, onView, onZoo
   )
 }
 
-/** Side drawer: full details + metadata of one extracted asset. */
-function AssetDrawer({ a, onClose, onStatus }: { a: ExtractedAsset | null; onClose: () => void; onStatus: (id: string, s: AssetStatus) => void }) {
+/** Side drawer: full details + metadata of one extracted asset, with the source brochure page docked on the left. */
+function AssetDrawer({ a, b, list, onNavigate, onClose, onStatus }: {
+  a: ExtractedAsset | null
+  b: Brochure
+  /** Same-kind assets in display order — powers prev/next + the X/Y counter */
+  list: ExtractedAsset[]
+  onNavigate: (a: ExtractedAsset) => void
+  onClose: () => void
+  onStatus: (id: string, s: AssetStatus) => void
+}) {
   const [fullscreen, setFullscreen] = useState(false)
   const fullscreenRef = useRef(false)
   fullscreenRef.current = fullscreen
   useEffect(() => { setFullscreen(false) }, [a?.id])
+  const idx = a ? list.findIndex((x) => x.id === a.id) : -1
+  const prev = idx > 0 ? list[idx - 1] : null
+  const next = idx >= 0 && idx < list.length - 1 ? list[idx + 1] : null
+  useEffect(() => {
+    if (!a) return
+    const h = (e: KeyboardEvent) => {
+      if (fullscreenRef.current) return
+      if (e.key === "ArrowRight" && next) onNavigate(next)
+      else if (e.key === "ArrowLeft" && prev) onNavigate(prev)
+    }
+    window.addEventListener("keydown", h)
+    return () => window.removeEventListener("keydown", h)
+  })
   if (!a) return null
   const field = (label: string, value: React.ReactNode) => (
     <div>
@@ -419,16 +440,44 @@ function AssetDrawer({ a, onClose, onStatus }: { a: ExtractedAsset | null; onClo
   return (
     <Sheet open onOpenChange={(o) => { if (!o && !fullscreenRef.current) onClose() }}>
       <SheetContent
-        side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-[480px]"
+        side="right" className="flex w-full flex-row gap-0 p-0 sm:max-w-[860px]"
         onEscapeKeyDown={(e) => { if (fullscreenRef.current) e.preventDefault() }}
         onPointerDownOutside={(e) => { if (fullscreenRef.current) e.preventDefault() }}
         onInteractOutside={(e) => { if (fullscreenRef.current) e.preventDefault() }}
       >
         <SheetTitle className="sr-only">Asset {a.id}</SheetTitle>
-        <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-4">
+
+        {/* Source brochure, opened on this asset's page */}
+        <div className="relative hidden w-[360px] flex-shrink-0 flex-col items-center justify-center bg-neutral-900 p-5 lg:flex">
+          <div className="flex max-h-full w-full flex-col overflow-hidden rounded-md bg-white shadow-2xl" style={{ aspectRatio: "1 / 1.35" }}>
+            <img src="/aerial-view-masterplan-residential-development-blu.jpg" alt={`${b.fileName} — page ${a.page}`} className="h-3/5 w-full object-cover" />
+            <div className="flex-1 space-y-2 p-5">
+              <div className="h-2.5 w-2/3 rounded bg-neutral-200" />
+              <div className="h-2 w-full rounded bg-neutral-100" />
+              <div className="h-2 w-11/12 rounded bg-neutral-100" />
+              <div className="h-2 w-4/5 rounded bg-neutral-100" />
+              <div className="h-2 w-3/5 rounded bg-neutral-100" />
+            </div>
+          </div>
+          <div className="absolute bottom-3 left-1/2 z-10 max-w-[90%] -translate-x-1/2 truncate rounded-md bg-background/95 px-2 py-1 text-[11px] font-medium text-foreground shadow-md">
+            {b.fileName} — Page {a.page}
+          </div>
+        </div>
+
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto border-l border-border">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border py-4 pl-5 pr-12">
           <IdTag value={a.id} className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-foreground" />
           <span className="text-xs text-muted-foreground">{a.kind}</span>
-          <span className={cn("ml-auto inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", ASSET_STATUS_TONE[a.status])}>{a.status}</span>
+          <div className="ml-auto flex items-center gap-1.5">
+            <Button variant="outline" size="icon" className="h-7 w-7" disabled={!prev} onClick={() => prev && onNavigate(prev)} title="Previous">
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="whitespace-nowrap text-xs font-medium tabular-nums text-muted-foreground">{idx + 1}/{list.length}</span>
+            <Button variant="outline" size="icon" className="h-7 w-7" disabled={!next} onClick={() => next && onNavigate(next)} title="Next">
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium", ASSET_STATUS_TONE[a.status])}>{a.status}</span>
+          </div>
         </div>
         <div className="flex-1 space-y-4 px-5 py-4">
           <img src={a.imageUrl} alt={a.id} className="aspect-[4/3] w-full cursor-zoom-in rounded-xl border border-border object-cover" onClick={() => setFullscreen(true)} />
@@ -465,6 +514,7 @@ function AssetDrawer({ a, onClose, onStatus }: { a: ExtractedAsset | null; onClo
         </div>
         <div className="flex gap-2 border-t border-border p-4">
           <ApproveRejectButtons status={a.status} onStatus={(s) => onStatus(a.id, s)} />
+        </div>
         </div>
       </SheetContent>
       {fullscreen && (
@@ -686,7 +736,11 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
         <BulkBarButton danger icon={<X className="h-4 w-4" />} onClick={() => bulkSet("Rejected")}>Reject</BulkBarButton>
       </FloatingBulkBar>
 
-      <AssetDrawer a={viewing ? assets.find((x) => x.id === viewing.id) ?? null : null} onClose={() => setViewing(null)} onStatus={setStatus} />
+      {(() => {
+        const cur = viewing ? assets.find((x) => x.id === viewing.id) ?? null : null
+        const list = cur ? assets.filter((x) => x.kind === cur.kind) : []
+        return <AssetDrawer a={cur} b={b} list={list} onNavigate={setViewing} onClose={() => setViewing(null)} onStatus={setStatus} />
+      })()}
 
       {zoomed && (
         <FullscreenViewer
