@@ -2,12 +2,13 @@
 
 import { Fragment, useMemo, useState } from "react"
 import {
-  ArrowRight, Check, ChevronDown, MoreHorizontal, Download, Eye, FileText, ToggleRight, Layers, Building2,
-  Group as GroupIcon, FolderTree, CheckCircle2, Plus, Tag as TagIcon, Map as MapIcon, Upload,
+  ArrowRight, Check, ChevronDown, MoreHorizontal, Download, Eye, FileText, Globe, ToggleRight, Layers, Building2,
+  Group as GroupIcon, Image as ImageIcon, MapPin, Plus, Tag as TagIcon, Map as MapIcon, Upload,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
@@ -24,7 +25,6 @@ import {
   type ProjectRow, type ProjListingStatus, type ProjPrimaryStatus, type ProjEntryType, type ProjOrg,
 } from "@/lib/projects-mock"
 import { GlobalMapDialog, MapDrawDialog, blobPolygon, centroid, LEVEL_COLOR, type GeoRef, type MapLocation } from "@/components/area-map"
-import { FullscreenViewer } from "@/components/render-images-page"
 import { BulkUploadDrawer } from "@/components/areas-page"
 
 // ── Mock geometry for the projects & phases map ────────────────────────────────
@@ -198,6 +198,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const [listingF, setListingF] = useState("")
   const [primaryF, setPrimaryF] = useState("")
   const [entryF, setEntryF] = useState("")
+  const [levelF, setLevelF] = useState("")
   const [coordF, setCoordF] = useState("")
   const [polyF, setPolyF] = useState("")
   const [listingMpF, setListingMpF] = useState("")
@@ -216,7 +217,6 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const [primaryDlg, setPrimaryDlg] = useState<ProjectRow | null>(null)
   const [bulkListing, setBulkListing] = useState(false)
   const [drawTarget, setDrawTarget] = useState<ProjectRow | null>(null)
-  const [gallery, setGallery] = useState<{ images: string[]; index: number; label: string } | null>(null)
   const [creating, setCreating] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [orgDlg, setOrgDlg] = useState<ProjectRow | null>(null)
@@ -250,6 +250,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       if (listingF && r.listingStatus !== listingF) return false
       if (primaryF && r.primaryStatus !== primaryF) return false
       if (entryF && r.entryType !== entryF) return false
+      if (levelF && (r.isPhase ? "Phase" : "Main Project") !== levelF) return false
       if (coordF && (geoOf(r.id)?.pin ? "Active" : "Hidden") !== coordF) return false
       if (polyF && (geoOf(r.id)?.polygon ? "Active" : "Hidden") !== polyF) return false
       if (listingMpF && (r.listingMasterplan ? "Uploaded" : "Missing") !== listingMpF) return false
@@ -268,7 +269,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, q, developerF, districtF, areaF, listingF, primaryF, entryF, coordF, polyF, listingMpF, gisMpF, buildingsF, sorts, projGeo])
+  }, [rows, q, developerF, districtF, areaF, listingF, primaryF, entryF, levelF, coordF, polyF, listingMpF, gisMpF, buildingsF, sorts, projGeo])
 
   const groups = useMemo(() => {
     if (groupBy === "none" || groupBy === "mainProject") return null
@@ -283,11 +284,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
 
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
 
-  // Analytics
-  const projectCount = rows.filter((r) => !r.isPhase).length
-  const phaseCount = rows.filter((r) => r.isPhase).length
-  const activeCount = rows.filter((r) => r.listingStatus === "Active").length
-  const onSaleCount = rows.filter((r) => r.primaryStatus === "On-Sale").length
+  // Coverage analytics — dynamic: follow the applied filters
+  const mainCount = filtered.filter((r) => !r.isPhase).length
+  const phaseCount = filtered.filter((r) => r.isPhase).length
+  const covered = (pred: (r: ProjectRow) => boolean) => filtered.filter(pred).length
 
   if (creating) {
     return (
@@ -377,22 +377,6 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       <td className="px-4 py-3"><ColorTag value={r.projectSubtype} /></td>
       <td className="whitespace-nowrap px-4 py-3 text-sm text-muted-foreground">{r.areaKm2 == null ? "—" : `${r.areaKm2} km²`}</td>
 
-      {/* Gallery images — click opens the fullscreen carousel */}
-      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-        {r.galleryImages.length === 0 ? (
-          <Tag value="No images" cls={RED_TAG} />
-        ) : (
-          <div className="flex items-center gap-1">
-            {r.galleryImages.slice(0, 3).map((src, i) => (
-              <button key={i} onClick={() => setGallery({ images: r.galleryImages, index: i, label: r.id })}
-                className="h-8 w-12 flex-shrink-0 overflow-hidden rounded-md border border-border transition-opacity hover:opacity-80">
-                <img src={src} alt={`${r.name} gallery ${i + 1}`} className="h-full w-full object-cover" />
-              </button>
-            ))}
-          </div>
-        )}
-      </td>
-
       {/* Brochures */}
       <td className="px-4 py-3">
         {r.brochureCount === 0 ? (
@@ -455,12 +439,14 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           </div>
         )}
 
-        {/* Analytics cards */}
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <AnalyticsCard icon={<FolderTree className="h-4 w-4 text-primary" />} label="Projects" value={projectCount} />
-          <AnalyticsCard icon={<Layers className="h-4 w-4 text-indigo-600" />} label="Phases" value={phaseCount} />
-          <AnalyticsCard icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} label="Active Listings" value={activeCount} />
-          <AnalyticsCard icon={<TagIcon className="h-4 w-4 text-amber-500" />} label="On-Sale" value={onSaleCount} />
+        {/* Coverage analytics — how complete the data is across the filtered rows */}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <CoverageCard icon={<MapPin className="h-4 w-4 text-primary" />} label="Coordinates & Polygons" covered={covered((r) => !!geoOf(r.id)?.pin && !!geoOf(r.id)?.polygon)} total={filtered.length} />
+          <CoverageCard icon={<MapIcon className="h-4 w-4 text-indigo-600" />} label="Listing Masterplan" covered={covered((r) => r.listingMasterplan)} total={filtered.length} />
+          <CoverageCard icon={<Globe className="h-4 w-4 text-emerald-600" />} label="GIS Masterplan" covered={covered((r) => r.gisMasterplan)} total={filtered.length} />
+          <CoverageCard icon={<Building2 className="h-4 w-4 text-amber-500" />} label="Buildings" covered={covered((r) => r.buildingsCount > 0)} total={filtered.length} />
+          <CoverageCard icon={<FileText className="h-4 w-4 text-purple-600" />} label="Brochures" covered={covered((r) => r.brochureCount > 0)} total={filtered.length} />
+          <CoverageCard icon={<ImageIcon className="h-4 w-4 text-rose-500" />} label="Gallery Images" covered={covered((r) => r.galleryImages.length > 0)} total={filtered.length} />
         </div>
 
         {/* Search + filters + controls */}
@@ -469,7 +455,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           onSearch={(v) => { setQ(v); setPage(1) }}
           searchPlaceholder="Project name or ID"
           hideAdvanced
-          activeFilters={[developerF, districtF, areaF, listingF, primaryF, entryF, coordF, polyF, listingMpF, gisMpF, buildingsF].filter(Boolean).length}
+          activeFilters={[developerF, districtF, areaF, listingF, primaryF, entryF, levelF, coordF, polyF, listingMpF, gisMpF, buildingsF].filter(Boolean).length}
           filters={
             <>
               {!hideDeveloperFilter && <FilterSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name, sublabel: d.id }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-44" />}
@@ -478,6 +464,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               <FilterSelect label="Listing Status" value={listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Primary Status" value={primaryF} options={PRIMARY_STATUSES} onChange={(v) => { setPrimaryF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Entry Type" value={entryF} options={["Automatic", "Manual"]} onChange={(v) => { setEntryF(v); setPage(1) }} className="w-36" />
+              <FilterSelect label="Level" value={levelF} options={["Main Project", "Phase"]} onChange={(v) => { setLevelF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Coordinates" value={coordF} options={["Active", "Hidden"]} onChange={(v) => { setCoordF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Polygons" value={polyF} options={["Active", "Hidden"]} onChange={(v) => { setPolyF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Listing Masterplan" value={listingMpF} options={["Uploaded", "Missing"]} onChange={(v) => { setListingMpF(v); setPage(1) }} className="w-40" />
@@ -514,7 +501,13 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         <TableCard>
           <TableCardHeader
             title="Projects"
-            count={filtered.length}
+            count={mainCount}
+            extra={
+              <>
+                <span className="ml-1 text-sm font-semibold text-foreground">Phases</span>
+                <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{phaseCount.toLocaleString()}</span>
+              </>
+            }
             cta={!embedded ? (
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setUploadOpen(true)}>
@@ -554,7 +547,6 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
                   <Th>Type</Th>
                   <Th>Subtype</Th>
                   <Th>Area (km²)</Th>
-                  <Th>Gallery Images</Th>
                   <Th>Brochures</Th>
                   <Th>Coordinates</Th>
                   <Th>Map Polygons</Th>
@@ -582,7 +574,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
                   groups.map((g) => (
                     <Fragment key={g.label}>
                       <tr className="cursor-pointer bg-muted/40 hover:bg-muted/60" onClick={() => toggleGroup(g.label)}>
-                        <td colSpan={30} className="p-0">
+                        <td colSpan={29} className="p-0">
                           <div className="sticky left-0 flex w-max items-center gap-2 px-5 py-2">
                             <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", collapsedGroups.has(g.label) && "-rotate-90")} />
                             <span className="text-sm font-semibold text-foreground">{g.label}</span>
@@ -597,7 +589,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
                   pageRows.map(renderRow)
                 )}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={30} className="px-5 py-16 text-center text-sm text-muted-foreground">No projects match your filters.</td></tr>
+                  <tr><td colSpan={29} className="px-5 py-16 text-center text-sm text-muted-foreground">No projects match your filters.</td></tr>
                 )}
               </tbody>
             </table>
@@ -701,10 +693,6 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           />
         )}
 
-        {gallery && (
-          <FullscreenViewer images={gallery.images} startIndex={gallery.index} onClose={() => setGallery(null)} label={gallery.label} caption="Gallery" />
-        )}
-
         {orgDlg && (
           <OrganizationsDialog
             r={orgDlg}
@@ -747,11 +735,19 @@ function Th({ children, className }: { children: React.ReactNode; className?: st
   return <th className={cn("whitespace-nowrap px-4 py-3 text-left", className)}>{children}</th>
 }
 
-function AnalyticsCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
+/** Coverage stat: covered/total + % + progress bar. */
+function CoverageCard({ icon, label, covered, total }: { icon: React.ReactNode; label: string; covered: number; total: number }) {
+  const pct = total === 0 ? 0 : Math.round((covered / total) * 100)
   return (
     <div className="rounded-lg border border-border bg-card p-3">
-      <div className="mb-1 flex items-center gap-2">{icon}<span className="text-xs text-muted-foreground">{label}</span></div>
-      <p className="text-xl font-bold text-foreground">{value.toLocaleString()}</p>
+      <div className="mb-1 flex items-center gap-2">{icon}<span className="truncate text-xs text-muted-foreground">{label}</span></div>
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-xl font-bold leading-6 text-foreground">
+          {covered}<span className="text-sm font-medium text-muted-foreground">/{total}</span>
+        </p>
+        <span className="text-xs font-semibold text-foreground">{pct}%</span>
+      </div>
+      <Progress value={pct} className="mt-1.5 h-1.5" />
     </div>
   )
 }

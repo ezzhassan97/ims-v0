@@ -261,7 +261,7 @@ export function TableCard({ children, className }: { children: React.ReactNode; 
 }
 
 // ── White header: title + blue count tag + optional CTA ───────────────────────
-export function TableCardHeader({ title, count, cta }: { title: string; count?: number; cta?: React.ReactNode }) {
+export function TableCardHeader({ title, count, extra, cta }: { title: string; count?: number; /** Rendered after the count chip (e.g. a second label + count). */ extra?: React.ReactNode; cta?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-border bg-card px-5 py-3.5">
       <div className="flex items-center gap-2">
@@ -269,6 +269,7 @@ export function TableCardHeader({ title, count, cta }: { title: string; count?: 
         {count !== undefined && (
           <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{count.toLocaleString()}</span>
         )}
+        {extra}
       </div>
       {cta}
     </div>
