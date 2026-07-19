@@ -24,6 +24,7 @@ import {
   type SortLevel, type ProjectTreeNode, type ProjectTreeSelection,
 } from "@/components/table-kit"
 import { PROJECTS, PROJECT_DEVELOPERS } from "@/lib/projects-mock"
+import { FullscreenViewer } from "@/components/render-images-page"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -337,18 +338,19 @@ function ApproveRejectButtons({ status, onStatus, compact }: { status: AssetStat
   )
 }
 
-function AssetCard({ a, index, selected, onToggleSelect, onStatus, onView }: {
+function AssetCard({ a, index, selected, onToggleSelect, onStatus, onView, onZoom }: {
   a: ExtractedAsset
   index: number
   selected: boolean
   onToggleSelect: (index: number, shift: boolean) => void
   onStatus: (s: AssetStatus) => void
   onView: () => void
+  onZoom: () => void
 }) {
   return (
     <div className={cn("flex select-none flex-col overflow-hidden rounded-xl border bg-card transition-colors", selected ? "border-primary/60 ring-1 ring-primary/30" : "border-border")}>
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted">
-        <img src={a.imageUrl} alt={a.id} className="h-full w-full object-cover" />
+        <img src={a.imageUrl} alt={a.id} className="h-full w-full cursor-zoom-in object-cover" onClick={onZoom} />
         {/* Shift+click on the checkbox range-selects */}
         <span className="absolute left-2 top-2" onClick={(e) => { e.preventDefault(); onToggleSelect(index, e.shiftKey) }}>
           <Checkbox checked={selected} className="h-4 w-4 border-2 bg-background/90 shadow-sm" />
@@ -400,6 +402,10 @@ function AssetCard({ a, index, selected, onToggleSelect, onStatus, onView }: {
 
 /** Side drawer: full details + metadata of one extracted asset. */
 function AssetDrawer({ a, onClose, onStatus }: { a: ExtractedAsset | null; onClose: () => void; onStatus: (id: string, s: AssetStatus) => void }) {
+  const [fullscreen, setFullscreen] = useState(false)
+  const fullscreenRef = useRef(false)
+  fullscreenRef.current = fullscreen
+  useEffect(() => { setFullscreen(false) }, [a?.id])
   if (!a) return null
   const field = (label: string, value: React.ReactNode) => (
     <div>
@@ -408,8 +414,13 @@ function AssetDrawer({ a, onClose, onStatus }: { a: ExtractedAsset | null; onClo
     </div>
   )
   return (
-    <Sheet open onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-[480px]">
+    <Sheet open onOpenChange={(o) => { if (!o && !fullscreenRef.current) onClose() }}>
+      <SheetContent
+        side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-[480px]"
+        onEscapeKeyDown={(e) => { if (fullscreenRef.current) e.preventDefault() }}
+        onPointerDownOutside={(e) => { if (fullscreenRef.current) e.preventDefault() }}
+        onInteractOutside={(e) => { if (fullscreenRef.current) e.preventDefault() }}
+      >
         <SheetTitle className="sr-only">Asset {a.id}</SheetTitle>
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-4">
           <IdTag value={a.id} className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-foreground" />
@@ -417,7 +428,7 @@ function AssetDrawer({ a, onClose, onStatus }: { a: ExtractedAsset | null; onClo
           <span className={cn("ml-auto inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", ASSET_STATUS_TONE[a.status])}>{a.status}</span>
         </div>
         <div className="flex-1 space-y-4 px-5 py-4">
-          <img src={a.imageUrl} alt={a.id} className="aspect-[4/3] w-full rounded-xl border border-border object-cover" />
+          <img src={a.imageUrl} alt={a.id} className="aspect-[4/3] w-full cursor-zoom-in rounded-xl border border-border object-cover" onClick={() => setFullscreen(true)} />
           <div className="grid grid-cols-2 gap-x-6 gap-y-3">
             {field("Page", `Page ${a.page}`)}
             {a.kind === "Floor Plans" && field("Category", <Chip tone={FP_CATEGORY_TONE[a.category!]}>{a.category}</Chip>)}
@@ -453,15 +464,53 @@ function AssetDrawer({ a, onClose, onStatus }: { a: ExtractedAsset | null; onClo
           <ApproveRejectButtons status={a.status} onStatus={(s) => onStatus(a.id, s)} />
         </div>
       </SheetContent>
+      {fullscreen && (
+        <FullscreenViewer images={[a.imageUrl]} startIndex={0} onClose={() => setFullscreen(false)} label={a.id}
+          caption={a.kind === "Floor Plans" ? `${a.category} · ${a.fpType}` : a.title} />
+      )}
     </Sheet>
   )
 }
 
 const KIND_ICON: Record<AssetKind, typeof LayoutGrid> = { "Floor Plans": LayoutGrid, "Render Images": ImageIcon, Masterplans: MapIcon }
 
+/** Per-kind review analytics: total + approved / rejected / pending, live from the assets state. */
+function KindStatCard({ kind, list }: { kind: AssetKind; list: ExtractedAsset[] }) {
+  const Icon = KIND_ICON[kind]
+  const approved = list.filter((a) => a.status === "Approved").length
+  const rejected = list.filter((a) => a.status === "Rejected").length
+  const pending = list.filter((a) => a.status === "Needs Review").length
+  return (
+    <div className="rounded-xl border border-border bg-card p-3.5">
+      <div className="flex items-center gap-2">
+        <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+        <span className="truncate text-sm font-medium text-foreground">{kind}</span>
+        <span className="ml-auto text-xl font-semibold leading-6 text-foreground">{list.length}</span>
+      </div>
+      <div className="mt-2.5 grid grid-cols-3 gap-1.5 text-center">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 py-1">
+          <div className="text-sm font-semibold leading-5 text-emerald-700">{approved}</div>
+          <div className="text-[10px] leading-3 text-emerald-700/80">Approved</div>
+        </div>
+        <div className="rounded-lg border border-red-200 bg-red-50 py-1">
+          <div className="text-sm font-semibold leading-5 text-red-600">{rejected}</div>
+          <div className="text-[10px] leading-3 text-red-600/80">Rejected</div>
+        </div>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 py-1">
+          <div className="text-sm font-semibold leading-5 text-amber-700">{pending}</div>
+          <div className="text-[10px] leading-3 text-amber-700/80">Pending</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochure; onBack: () => void }) {
   const [assets, setAssets] = useState<ExtractedAsset[]>(() => genAssets(b))
   const [viewing, setViewing] = useState<ExtractedAsset | null>(null)
+  const [zoomed, setZoomed] = useState<ExtractedAsset | null>(null)
   const [activeTab, setActiveTab] = useState<string>("Brochure")
   const [selIds, setSelIds] = useState<Set<string>>(new Set())
   const lastIdxRef = useRef<number | null>(null)
@@ -524,6 +573,7 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
                 onToggleSelect={toggleSelect}
                 onStatus={(s) => setStatus(a.id, s)}
                 onView={() => setViewing(a)}
+                onZoom={() => setZoomed(a)}
               />
             ))}
           </div>
@@ -603,6 +653,13 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
           </div>
         </div>
 
+        {/* Per-kind review analytics — live with every approve/reject */}
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(["Floor Plans", "Render Images", "Masterplans"] as AssetKind[]).map((kind) => (
+            <KindStatCard key={kind} kind={kind} list={assets.filter((a) => a.kind === kind)} />
+          ))}
+        </div>
+
         {/* Asset tabs — Brochure preview first */}
         <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSelIds(new Set()); lastIdxRef.current = null }} className="w-full">
           <TabsList>
@@ -641,6 +698,13 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
       </FloatingBulkBar>
 
       <AssetDrawer a={viewing ? assets.find((x) => x.id === viewing.id) ?? null : null} onClose={() => setViewing(null)} onStatus={setStatus} />
+
+      {zoomed && (
+        <FullscreenViewer
+          images={[zoomed.imageUrl]} startIndex={0} onClose={() => setZoomed(null)} label={zoomed.id}
+          caption={zoomed.kind === "Floor Plans" ? `${zoomed.category} · ${zoomed.fpType}` : zoomed.title}
+        />
+      )}
     </div>
   )
 }
@@ -876,13 +940,13 @@ export function BrochuresPage() {
           <p className="text-sm text-muted-foreground">All project brochures in the system with their AI extraction & review progress</p>
         </div>
 
-        {/* Analytics */}
+        {/* Analytics — dynamic: follow the applied filters */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <StatCard icon={FileText} label="Total Brochures" value={rows.length} tone="border-blue-200 bg-blue-50 text-blue-600" />
-          <StatCard icon={FileX2} label="Not Extracted" value={rows.filter((b) => b.extraction === "Not Extracted").length} tone="border-gray-200 bg-gray-50 text-gray-500" />
-          <StatCard icon={Loader2} label="Queued / Extracting" value={rows.filter((b) => b.extraction === "Queued" || b.extraction === "Extracting").length} tone="border-purple-200 bg-purple-50 text-purple-600" />
-          <StatCard icon={Clock} label="Pending Review" value={rows.filter((b) => b.extraction === "Pending Review").length} tone="border-amber-200 bg-amber-50 text-amber-600" />
-          <StatCard icon={CheckCircle2} label="Reviewed" value={rows.filter((b) => b.extraction === "Reviewed").length} tone="border-emerald-200 bg-emerald-50 text-emerald-600" />
+          <StatCard icon={FileText} label="Total Brochures" value={filtered.length} tone="border-blue-200 bg-blue-50 text-blue-600" />
+          <StatCard icon={FileX2} label="Not Extracted" value={filtered.filter((b) => b.extraction === "Not Extracted").length} tone="border-gray-200 bg-gray-50 text-gray-500" />
+          <StatCard icon={Loader2} label="Queued / Extracting" value={filtered.filter((b) => b.extraction === "Queued" || b.extraction === "Extracting").length} tone="border-purple-200 bg-purple-50 text-purple-600" />
+          <StatCard icon={Clock} label="Pending Review" value={filtered.filter((b) => b.extraction === "Pending Review").length} tone="border-amber-200 bg-amber-50 text-amber-600" />
+          <StatCard icon={CheckCircle2} label="Reviewed" value={filtered.filter((b) => b.extraction === "Reviewed").length} tone="border-emerald-200 bg-emerald-50 text-emerald-600" />
         </div>
 
         {/* Toolbar */}
