@@ -7,7 +7,6 @@ import { ComingSoon } from "@/components/coming-soon"
 import { TestingPlayground } from "@/components/testing-playground"
 import { ValidationRulesPage } from "@/components/validation-rules-page"
 import { LaunchesPage } from "@/components/launches-page"
-import { AreasFAQsPage } from "@/components/areas-faqs-page"
 import { SoldUnitsPage } from "@/components/sold-units-page"
 import { AuditLogsPage } from "@/components/audit-logs-page"
 import { ConstructionUpdatesPage } from "@/components/construction-updates-page"
@@ -17,7 +16,6 @@ import { WhatsAppConfigurationsPage } from "@/components/whatsapp-configurations
 import { AllPropertiesPage } from "@/components/all-properties-page"
 import { DevelopersPage } from "@/components/developers-page"
 import { AreasPage } from "@/components/areas-page"
-import { QualitySystemPage } from "@/components/quality-system-page"
 import { NawySpacePage } from "@/components/nawy-space-page"
 import { RenderImagesPage } from "@/components/render-images-page"
 import { PaymentPlansPage } from "@/components/payment-plans-page"
@@ -64,8 +62,6 @@ export function AppShell() {
         return <DevelopersPage />
       case "Testing Playground":
         return <TestingPlayground />
-      case "Quality System":
-        return <QualitySystemPage />
       case "Nawy Space":
         return <NawySpacePage />
       case "Render Images":
@@ -82,8 +78,6 @@ export function AppShell() {
         return <PropertiesConfigurationsPage />
       case "Validation Rules":
         return <ValidationRulesPage />
-      case "Areas FAQs":
-        return <AreasFAQsPage />
       case "Sold Units":
         return <SoldUnitsPage />
       case "Audit Logs":

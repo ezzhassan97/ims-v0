@@ -18,7 +18,6 @@ import {
   Map,
   Layers,
   ImageIcon,
-  Video,
   CreditCard,
   Home,
   Package,
@@ -35,7 +34,6 @@ import {
   ShieldCheck,
   AlertTriangle,
   ScrollText,
-  Users,
   UsersRound,
   Cog,
   BarChart3,
@@ -122,7 +120,6 @@ const navItems: NavItem[] = [
       { label: "Masterplans", icon: <Map className="h-4 w-4" /> },
       { label: "Floor Plans", icon: <Layers className="h-4 w-4" /> },
       { label: "Render Images", icon: <ImageIcon className="h-4 w-4" /> },
-      { label: "Media Library", icon: <Video className="h-4 w-4" /> },
       { label: "Payment Plans", icon: <CreditCard className="h-4 w-4" /> },
     ],
   },
@@ -151,7 +148,6 @@ const navItems: NavItem[] = [
     label: "Data Validation",
     icon: <ShieldCheck className="h-4 w-4" />,
     children: [
-      { label: "Quality System", icon: <Activity className="h-4 w-4" /> },
       { label: "Validation Rules", icon: <ShieldCheck className="h-4 w-4" /> },
       { label: "Data Issues", icon: <AlertTriangle className="h-4 w-4" /> },
     ],
@@ -162,17 +158,11 @@ const navItems: NavItem[] = [
     children: [
       { label: "Properties Configurations", icon: <SlidersHorizontal className="h-4 w-4" /> },
       { label: "Project Configurations", icon: <FolderKanban className="h-4 w-4" /> },
-      { label: "Map Configurations", icon: <MapPin className="h-4 w-4" /> },
-      { label: "Areas FAQs", icon: <MapPin className="h-4 w-4" /> },
     ],
   },
   {
     label: "Audit Logs",
     icon: <ScrollText className="h-4 w-4" />,
-  },
-  {
-    label: "Users Management",
-    icon: <Users className="h-4 w-4" />,
   },
   {
     label: "Testing Playground",
