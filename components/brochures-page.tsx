@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, ChevronLeft, ChevronRight, Clock,
-  Download, Eye, FileText, FileX2, Home, Image as ImageIcon, LayoutGrid, Loader2,
-  Map as MapIcon, MoreHorizontal, Plus, Search, Upload, X,
+  Download, ExternalLink, Eye, FileText, FileX2, Home, Image as ImageIcon, LayoutGrid, Loader2,
+  Map as MapIcon, MoreHorizontal, Plus, Search, Trash2, Upload, X, ZoomIn, ZoomOut,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -105,6 +105,7 @@ function fmtDateTime(iso: string): string {
   const time = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })
   return `${date}, ${time}`
 }
+const pageCount = (b: Brochure) => Math.max(6, Math.round(b.fileSizeMb * 4))
 const sumReviewed = (b: Brochure) => b.floorPlans.reviewed + b.renderImages.reviewed + b.masterplans.reviewed
 const sumTotal = (b: Brochure) => b.floorPlans.total + b.renderImages.total + b.masterplans.total
 const progressPct = (b: Brochure) => (sumTotal(b) === 0 ? 0 : Math.round((sumReviewed(b) / sumTotal(b)) * 100))
@@ -171,7 +172,7 @@ function ReviewProgressCell({ b }: { b: Brochure }) {
 
 /** Mock PDF page viewer — used by the fullscreen dialog and the Brochure tab. */
 function PdfViewer({ b, className }: { b: Brochure; className?: string }) {
-  const pages = Math.max(6, Math.round(b.fileSizeMb * 4))
+  const pages = pageCount(b)
   const [page, setPage] = useState(1)
   return (
     <div className={cn("relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-neutral-900 p-6", className)}>
@@ -403,6 +404,79 @@ function AssetCard({ a, index, selected, onToggleSelect, onStatus, onView, onZoo
   )
 }
 
+/** Docked brochure viewer: white header/footer, scrollable pages, zoom, follows the asset's page. */
+function BrochurePane({ b, page }: { b: Brochure; page: number }) {
+  const total = pageCount(b)
+  const [zoom, setZoom] = useState(1)
+  const [current, setCurrent] = useState(page)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const pageEls = useRef<(HTMLDivElement | null)[]>([])
+  const goTo = (p: number) => {
+    const t = Math.min(total, Math.max(1, p))
+    setCurrent(t)
+    pageEls.current[t - 1]?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
+  // Follow the asset being reviewed — delayed past the sheet's open animation + autofocus,
+  // which would otherwise scroll the pane back to the top
+  useEffect(() => {
+    const t = setTimeout(() => goTo(page), 420)
+    return () => clearTimeout(t)
+  }, [page]) // eslint-disable-line react-hooks/exhaustive-deps
+  const onScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    let p = 1
+    pageEls.current.forEach((pg, i) => { if (pg && pg.offsetTop <= el.scrollTop + 80) p = i + 1 })
+    setCurrent(p)
+  }
+  return (
+    <div className="hidden w-[440px] flex-shrink-0 flex-col border-r border-border lg:flex">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-4 py-3">
+        <FileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{b.fileName}</span>
+        <IdTag value={b.id} className="flex-shrink-0 text-[11px]" />
+      </div>
+      <div ref={scrollRef} onScroll={onScroll} className="relative min-h-0 flex-1 space-y-4 overflow-auto bg-neutral-900 p-4">
+        {Array.from({ length: total }, (_, i) => (
+          <div key={i} ref={(el) => { pageEls.current[i] = el }} className="mx-auto" style={{ width: `${Math.round(zoom * 100)}%`, minWidth: zoom > 1 ? `${Math.round(zoom * 100)}%` : undefined }}>
+            <div className="flex flex-col overflow-hidden rounded-md bg-white shadow-2xl" style={{ aspectRatio: "1 / 1.35" }}>
+              <img src="/aerial-view-masterplan-residential-development-blu.jpg" alt={`${b.fileName} — page ${i + 1}`} className="h-3/5 w-full object-cover" />
+              <div className="flex-1 space-y-2 p-5">
+                <div className="h-2.5 w-2/3 rounded bg-neutral-200" />
+                <div className="h-2 w-full rounded bg-neutral-100" />
+                <div className="h-2 w-11/12 rounded bg-neutral-100" />
+                <div className="h-2 w-4/5 rounded bg-neutral-100" />
+                <div className="h-2 w-3/5 rounded bg-neutral-100" />
+              </div>
+            </div>
+            <div className="mt-1 text-center text-[10px] text-neutral-400">Page {i + 1}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border bg-card px-3 py-2">
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7" disabled={current <= 1} onClick={() => goTo(current - 1)} title="Previous page">
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="whitespace-nowrap text-xs font-medium tabular-nums text-foreground">Page {current} / {total}</span>
+          <Button variant="ghost" size="icon" className="h-7 w-7" disabled={current >= total} onClick={() => goTo(current + 1)} title="Next page">
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7" disabled={zoom <= 0.6} onClick={() => setZoom((z) => Math.max(0.6, Number((z - 0.2).toFixed(1))))} title="Zoom out">
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <span className="w-10 text-center text-xs tabular-nums text-muted-foreground">{Math.round(zoom * 100)}%</span>
+          <Button variant="ghost" size="icon" className="h-7 w-7" disabled={zoom >= 2} onClick={() => setZoom((z) => Math.min(2, Number((z + 0.2).toFixed(1))))} title="Zoom in">
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** Side drawer: full details + metadata of one extracted asset, with the source brochure page docked on the left. */
 function AssetDrawer({ a, b, list, onNavigate, onClose, onStatus }: {
   a: ExtractedAsset | null
@@ -440,7 +514,7 @@ function AssetDrawer({ a, b, list, onNavigate, onClose, onStatus }: {
   return (
     <Sheet open onOpenChange={(o) => { if (!o && !fullscreenRef.current) onClose() }}>
       <SheetContent
-        side="right" className="flex w-full flex-row gap-0 p-0 sm:max-w-[860px]"
+        side="right" className="flex w-full flex-row gap-0 p-0 sm:max-w-[940px]"
         onEscapeKeyDown={(e) => { if (fullscreenRef.current) e.preventDefault() }}
         onPointerDownOutside={(e) => { if (fullscreenRef.current) e.preventDefault() }}
         onInteractOutside={(e) => { if (fullscreenRef.current) e.preventDefault() }}
@@ -448,23 +522,9 @@ function AssetDrawer({ a, b, list, onNavigate, onClose, onStatus }: {
         <SheetTitle className="sr-only">Asset {a.id}</SheetTitle>
 
         {/* Source brochure, opened on this asset's page */}
-        <div className="relative hidden w-[360px] flex-shrink-0 flex-col items-center justify-center bg-neutral-900 p-5 lg:flex">
-          <div className="flex max-h-full w-full flex-col overflow-hidden rounded-md bg-white shadow-2xl" style={{ aspectRatio: "1 / 1.35" }}>
-            <img src="/aerial-view-masterplan-residential-development-blu.jpg" alt={`${b.fileName} — page ${a.page}`} className="h-3/5 w-full object-cover" />
-            <div className="flex-1 space-y-2 p-5">
-              <div className="h-2.5 w-2/3 rounded bg-neutral-200" />
-              <div className="h-2 w-full rounded bg-neutral-100" />
-              <div className="h-2 w-11/12 rounded bg-neutral-100" />
-              <div className="h-2 w-4/5 rounded bg-neutral-100" />
-              <div className="h-2 w-3/5 rounded bg-neutral-100" />
-            </div>
-          </div>
-          <div className="absolute bottom-3 left-1/2 z-10 max-w-[90%] -translate-x-1/2 truncate rounded-md bg-background/95 px-2 py-1 text-[11px] font-medium text-foreground shadow-md">
-            {b.fileName} — Page {a.page}
-          </div>
-        </div>
+        <BrochurePane b={b} page={a.page} />
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto border-l border-border">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         <div className="flex shrink-0 items-center gap-2 border-b border-border py-4 pl-5 pr-12">
           <IdTag value={a.id} className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-foreground" />
           <span className="text-xs text-muted-foreground">{a.kind}</span>
@@ -527,6 +587,48 @@ function AssetDrawer({ a, b, list, onNavigate, onClose, onStatus }: {
 
 const KIND_ICON: Record<AssetKind, typeof LayoutGrid> = { "Floor Plans": LayoutGrid, "Render Images": ImageIcon, Masterplans: MapIcon }
 
+/** Delete confirmation: cascade (brochure + extracted data) vs brochure only. */
+function DeleteBrochureDialog({ b, onClose, onConfirm }: { b: Brochure; onClose: () => void; onConfirm: (mode: "cascade" | "only") => void }) {
+  const [mode, setMode] = useState<"cascade" | "only">("cascade")
+  const opts = [
+    { key: "cascade" as const, title: "Delete brochure & all extracted data", desc: `Also removes the ${sumTotal(b)} extracted floor plans, render images and masterplans.` },
+    { key: "only" as const, title: "Delete the brochure only", desc: "Keeps the extracted floor plans, render images and masterplans linked to the project." },
+  ]
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-red-600" />Delete brochure?</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{b.fileName}</span> (ID: {b.id}) will be permanently deleted. Choose what happens to its extracted data:
+        </p>
+        <div className="space-y-2">
+          {opts.map((o) => (
+            <button
+              key={o.key} type="button" onClick={() => setMode(o.key)}
+              className={cn(
+                "flex w-full items-start gap-2.5 rounded-lg border p-3 text-left transition-colors",
+                mode === o.key ? "border-red-400 bg-red-50/50 ring-1 ring-red-300" : "border-border hover:border-muted-foreground/40",
+              )}
+            >
+              <span className={cn("mt-0.5 h-3.5 w-3.5 flex-shrink-0 rounded-full border-2", mode === o.key ? "border-red-500 bg-red-500 [box-shadow:inset_0_0_0_2.5px_white]" : "border-muted-foreground/40")} />
+              <span>
+                <span className="block text-sm font-medium text-foreground">{o.title}</span>
+                <span className="block text-xs text-muted-foreground">{o.desc}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={() => onConfirm(mode)}>Delete</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 /** Per-kind review analytics: total + approved / rejected / pending. */
 function KindStatCard({ kind, total, approved, rejected, pending }: { kind: AssetKind; total: number; approved: number; rejected: number; pending: number }) {
   const Icon = KIND_ICON[kind]
@@ -557,10 +659,11 @@ function KindStatCard({ kind, total, approved, rejected, pending }: { kind: Asse
   )
 }
 
-export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochure; onBack: () => void }) {
+export function BrochureDetailsPage({ brochure: b, onBack, onDeleted }: { brochure: Brochure; onBack: () => void; onDeleted: (mode: "cascade" | "only") => void }) {
   const [assets, setAssets] = useState<ExtractedAsset[]>(() => genAssets(b))
   const [viewing, setViewing] = useState<ExtractedAsset | null>(null)
   const [zoomed, setZoomed] = useState<ExtractedAsset | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [activeTab, setActiveTab] = useState<string>("Brochure")
   const [selIds, setSelIds] = useState<Set<string>>(new Set())
   const lastIdxRef = useRef<number | null>(null)
@@ -654,8 +757,11 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="truncate text-base font-semibold text-foreground">{b.fileName}</h1>
                 <StageTag stage={b.extraction} />
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <IdTag value={b.id} className="text-[11px]" />
                 <span className="text-xs text-muted-foreground">{b.fileSizeMb} MB</span>
+                <span className="text-xs text-muted-foreground">{pageCount(b)} pages</span>
               </div>
               <div className="mt-2.5 flex flex-wrap items-start gap-x-7 gap-y-2">
                 <div>
@@ -689,12 +795,25 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
                 </div>
               </div>
             </div>
-            <div className="w-full sm:w-52">
-              <div className="mb-1 flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">{approved}/{assets.length} assets approved</span>
-                <span className="font-semibold text-foreground">{pct}%</span>
+            <div className="flex items-start gap-1.5">
+              <div className="w-full sm:w-52">
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{approved}/{assets.length} assets approved</span>
+                  <span className="font-semibold text-foreground">{pct}%</span>
+                </div>
+                <Progress value={pct} className="h-2" />
               </div>
-              <Progress value={pct} className="h-2" />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0 text-muted-foreground"><MoreHorizontal className="h-4 w-4" /></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem className="text-sm" onClick={() => window.open(`/brochures/${b.id}`, "_blank")}><ExternalLink className="mr-1.5 h-3.5 w-3.5" />Open in new tab</DropdownMenuItem>
+                  <DropdownMenuItem className="text-sm" onClick={() => toast.success(`Downloading ${b.fileName}…`)}><Download className="mr-1.5 h-3.5 w-3.5" />Download</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="text-sm text-red-600 focus:text-red-600" onClick={() => setConfirmDelete(true)}><Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
@@ -748,6 +867,8 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
           caption={zoomed.kind === "Floor Plans" ? `${zoomed.category} · ${zoomed.fpType}` : zoomed.title}
         />
       )}
+
+      {confirmDelete && <DeleteBrochureDialog b={b} onClose={() => setConfirmDelete(false)} onConfirm={(mode) => { setConfirmDelete(false); onDeleted(mode) }} />}
     </div>
   )
 }
@@ -866,6 +987,14 @@ export function BrochuresPage() {
   const [selected, setSelected] = useState<Brochure | null>(null)
   const [pdf, setPdf] = useState<Brochure | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [deleting, setDeleting] = useState<Brochure | null>(null)
+
+  const deleteBrochure = (target: Brochure, mode: "cascade" | "only") => {
+    setRows((prev) => prev.filter((x) => x.id !== target.id))
+    setSelected((cur) => (cur?.id === target.id ? null : cur))
+    toast.success(mode === "cascade" ? `${target.fileName} and all extracted data deleted` : `${target.fileName} deleted — extracted data kept`)
+    setDeleting(null)
+  }
 
   const [search, setSearch] = useState("")
   const [developerF, setDeveloperF] = useState<string[]>([])
@@ -927,7 +1056,13 @@ export function BrochuresPage() {
       return cur.dir === "asc" ? [{ key, dir: "desc" }] : []
     })
 
-  if (selected) return <BrochureDetailsPage brochure={selected} onBack={() => setSelected(null)} />
+  if (selected) {
+    return (
+      <>
+        <BrochureDetailsPage brochure={selected} onBack={() => setSelected(null)} onDeleted={(mode) => deleteBrochure(selected, mode)} />
+      </>
+    )
+  }
 
   const cell = (colId: string, b: Brochure) => {
     switch (colId) {
@@ -1096,8 +1231,10 @@ export function BrochuresPage() {
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem className="text-sm" onClick={() => setSelected(b)}><Eye className="mr-1.5 h-3.5 w-3.5" />View</DropdownMenuItem>
                           <DropdownMenuItem className="text-sm" onClick={() => setPdf(b)}><FileText className="mr-1.5 h-3.5 w-3.5" />Open PDF</DropdownMenuItem>
-                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-sm" onClick={() => window.open(`/brochures/${b.id}`, "_blank")}><ExternalLink className="mr-1.5 h-3.5 w-3.5" />Open in new tab</DropdownMenuItem>
                           <DropdownMenuItem className="text-sm" onClick={() => toast.success(`Downloading ${b.fileName}…`)}><Download className="mr-1.5 h-3.5 w-3.5" />Download</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-sm text-red-600 focus:text-red-600" onClick={() => setDeleting(b)}><Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -1139,6 +1276,8 @@ export function BrochuresPage() {
       />
 
       {pdf && <PdfPreviewDialog b={pdf} onClose={() => setPdf(null)} />}
+
+      {deleting && <DeleteBrochureDialog b={deleting} onClose={() => setDeleting(null)} onConfirm={(mode) => deleteBrochure(deleting, mode)} />}
 
       {uploadOpen && (
         <UploadBrochureDialog
