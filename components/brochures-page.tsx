@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
-  AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, ChevronLeft, ChevronRight, Clock,
-  Download, ExternalLink, Eye, FileText, FileX2, Home, Image as ImageIcon, LayoutGrid, Loader2,
+  AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock,
+  Download, ExternalLink, Eye, FileText, FileX2, Group as GroupIcon, Home, Image as ImageIcon, LayoutGrid, Loader2,
   Map as MapIcon, MoreHorizontal, Plus, Search, Trash2, Upload, X, ZoomIn, ZoomOut,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -20,7 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   TableCard, TableCardHeader, TableFooter, FilterMultiSelect, FilterSelect, FiltersDrawer, FilterDrawerField,
-  ColumnsSheet, MultiSortControl, ProjectTreeSelect, FloatingBulkBar, BulkBarButton, IdTag, COL_SEP,
+  ColumnsSheet, MultiSortControl, ProjectTreeSelect, FloatingBulkBar, BulkBarButton, GroupPager, IdTag, COL_SEP,
   type SortLevel, type ProjectTreeNode, type ProjectTreeSelection,
 } from "@/components/table-kit"
 import { PROJECTS, PROJECT_DEVELOPERS } from "@/lib/projects-mock"
@@ -404,8 +404,8 @@ function AssetCard({ a, index, selected, onToggleSelect, onStatus, onView, onZoo
   )
 }
 
-/** Docked brochure viewer: white header/footer, scrollable pages, zoom, follows the asset's page. */
-function BrochurePane({ b, page }: { b: Brochure; page: number }) {
+/** Brochure viewer: white header/footer, scrollable pages, zoom. Docked in the asset drawer and embedded in the Brochure tab. */
+function BrochurePane({ b, page = 1, className }: { b: Brochure; page?: number; className?: string }) {
   const total = pageCount(b)
   const [zoom, setZoom] = useState(1)
   const [current, setCurrent] = useState(page)
@@ -430,7 +430,7 @@ function BrochurePane({ b, page }: { b: Brochure; page: number }) {
     setCurrent(p)
   }
   return (
-    <div className="hidden w-[440px] flex-shrink-0 flex-col border-r border-border lg:flex">
+    <div className={cn("flex-col", className ?? "hidden w-[440px] flex-shrink-0 border-r border-border lg:flex")}>
       <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-4 py-3">
         <FileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{b.fileName}</span>
@@ -834,8 +834,8 @@ export function BrochureDetailsPage({ brochure: b, onBack, onDeleted }: { brochu
             })}
           </TabsList>
           <TabsContent value="Brochure" className="mt-4">
-            <div className="flex h-[68vh] flex-col overflow-hidden rounded-xl border border-border">
-              <PdfViewer b={b} />
+            <div className="h-[74vh] overflow-hidden rounded-xl border border-border">
+              <BrochurePane b={b} className="flex h-full w-full" />
             </div>
           </TabsContent>
           {(["Floor Plans", "Render Images", "Masterplans"] as AssetKind[]).map((kind) => (
@@ -1001,6 +1001,10 @@ export function BrochuresPage() {
   const [projectSels, setProjectSels] = useState<string[]>([])
   const [stageF, setStageF] = useState<string[]>([])
   const [sorts, setSorts] = useState<SortLevel[]>([])
+  const [groupBy, setGroupBy] = useState<"none" | "developerName" | "projectName" | "extraction">("none")
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const GROUP_PAGE_SIZE = 10
+  const [groupPages, setGroupPages] = useState<Record<string, number>>({})
   const [showFilters, setShowFilters] = useState(false)
   const [showColumns, setShowColumns] = useState(false)
   const [colOrder, setColOrder] = useState<string[]>(BROCHURE_COLS.map((c) => c.id))
@@ -1034,8 +1038,26 @@ export function BrochuresPage() {
     return out
   }, [rows, search, developerF, projectSels, stageF, sorts])
 
-  useEffect(() => { setPage(1) }, [search, developerF, projectSels, stageF, sorts, pageSize])
+  useEffect(() => { setPage(1); setGroupPages({}) }, [search, developerF, projectSels, stageF, sorts, pageSize, groupBy])
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
+
+  const GROUP_OPTIONS = [
+    { key: "none", label: "Group by" },
+    { key: "developerName", label: "Developer" },
+    { key: "projectName", label: "Project" },
+    { key: "extraction", label: "AI Extraction Stage" },
+  ] as const
+  const groups = groupBy === "none" ? null : (() => {
+    const map = new Map<string, Brochure[]>()
+    for (const b of filtered) {
+      const k = b[groupBy]
+      if (!map.has(k)) map.set(k, [])
+      map.get(k)!.push(b)
+    }
+    return [...map.entries()].map(([label, rs]) => ({ label, rows: rs }))
+  })()
+  const toggleGroup = (label: string) =>
+    setCollapsedGroups((prev) => { const n = new Set(prev); n.has(label) ? n.delete(label) : n.add(label); return n })
 
   const activeFilters = (developerF.length ? 1 : 0) + (projectSels.length ? 1 : 0) + (stageF.length ? 1 : 0)
   const clearAll = () => { setSearch(""); setDeveloperF([]); setProjectSels([]); setStageF([]) }
@@ -1101,6 +1123,35 @@ export function BrochuresPage() {
   }
 
   const TS_KEYS = new Set(["createdAt", "updatedAt", "progress"])
+
+  const renderRow = (b: Brochure) => (
+    <TableRow key={b.id} className="cursor-pointer transition-colors hover:bg-muted/40" onClick={() => setSelected(b)}>
+      {visibleCols.map((c) => (
+        <TableCell
+          key={c.id}
+          className={cn("py-3", frozenCols.has(c.id) && "sticky z-10 bg-card")}
+          style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
+        >
+          {cell(c.id, b)}
+        </TableCell>
+      ))}
+      <TableCell className="sticky right-0 z-10 border-l border-border bg-card" onClick={(e) => e.stopPropagation()}>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground"><MoreHorizontal className="h-4 w-4" /></Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem className="text-sm" onClick={() => setSelected(b)}><Eye className="mr-1.5 h-3.5 w-3.5" />View</DropdownMenuItem>
+            <DropdownMenuItem className="text-sm" onClick={() => setPdf(b)}><FileText className="mr-1.5 h-3.5 w-3.5" />Open PDF</DropdownMenuItem>
+            <DropdownMenuItem className="text-sm" onClick={() => window.open(`/brochures/${b.id}`, "_blank")}><ExternalLink className="mr-1.5 h-3.5 w-3.5" />Open in new tab</DropdownMenuItem>
+            <DropdownMenuItem className="text-sm" onClick={() => toast.success(`Downloading ${b.fileName}…`)}><Download className="mr-1.5 h-3.5 w-3.5" />Download</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-sm text-red-600 focus:text-red-600" onClick={() => setDeleting(b)}><Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
+  )
 
   return (
     <div className="min-h-screen bg-secondary/40">
@@ -1171,6 +1222,20 @@ export function BrochuresPage() {
             </div>
             <div className="flex items-center gap-2">
               <MultiSortControl fields={SORT_FIELDS} sorts={sorts} onChange={setSorts} />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant={groupBy === "none" ? "outline" : "default"} size="sm" className="h-8 gap-1.5">
+                    <GroupIcon className="h-3.5 w-3.5" />{GROUP_OPTIONS.find((g) => g.key === groupBy)?.label}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {GROUP_OPTIONS.map((g) => (
+                    <DropdownMenuItem key={g.key} className="text-sm" onClick={() => setGroupBy(g.key)}>
+                      {g.key === "none" ? "No grouping" : g.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setShowColumns(true)}>Columns</Button>
             </div>
           </div>
@@ -1212,41 +1277,44 @@ export function BrochuresPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pageRows.map((b) => (
-                  <TableRow key={b.id} className="cursor-pointer transition-colors hover:bg-muted/40" onClick={() => setSelected(b)}>
-                    {visibleCols.map((c) => (
-                      <TableCell
-                        key={c.id}
-                        className={cn("py-3", frozenCols.has(c.id) && "sticky z-10 bg-card")}
-                        style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
-                      >
-                        {cell(c.id, b)}
-                      </TableCell>
-                    ))}
-                    <TableCell className="sticky right-0 z-10 border-l border-border bg-card" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground"><MoreHorizontal className="h-4 w-4" /></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem className="text-sm" onClick={() => setSelected(b)}><Eye className="mr-1.5 h-3.5 w-3.5" />View</DropdownMenuItem>
-                          <DropdownMenuItem className="text-sm" onClick={() => setPdf(b)}><FileText className="mr-1.5 h-3.5 w-3.5" />Open PDF</DropdownMenuItem>
-                          <DropdownMenuItem className="text-sm" onClick={() => window.open(`/brochures/${b.id}`, "_blank")}><ExternalLink className="mr-1.5 h-3.5 w-3.5" />Open in new tab</DropdownMenuItem>
-                          <DropdownMenuItem className="text-sm" onClick={() => toast.success(`Downloading ${b.fileName}…`)}><Download className="mr-1.5 h-3.5 w-3.5" />Download</DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-sm text-red-600 focus:text-red-600" onClick={() => setDeleting(b)}><Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {groups
+                  ? groups.map((g) => {
+                    const collapsed = collapsedGroups.has(g.label)
+                    const pg = groupPages[g.label] ?? 1
+                    return (
+                      <Fragment key={g.label}>
+                        <TableRow className="bg-secondary/60 hover:bg-secondary/60">
+                          <TableCell colSpan={visibleCols.length + 1} className="py-2">
+                            <div className="flex items-center gap-2">
+                              <button type="button" onClick={() => toggleGroup(g.label)} className="text-muted-foreground hover:text-foreground">
+                                <ChevronDown className={cn("h-4 w-4 transition-transform", collapsed && "-rotate-90")} />
+                              </button>
+                              {groupBy === "extraction"
+                                ? <StageTag stage={g.label as ExtractionStage} />
+                                : <span className="text-sm font-semibold text-foreground">{g.label}</span>}
+                              <span className="rounded-md border border-blue-200 bg-blue-100 px-2 text-xs font-medium text-blue-700">{g.rows.length}</span>
+                              {!collapsed && (
+                                <GroupPager total={g.rows.length} page={pg} pageSize={GROUP_PAGE_SIZE} onPage={(p) => setGroupPages((prev) => ({ ...prev, [g.label]: p }))} />
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {!collapsed && g.rows.slice((pg - 1) * GROUP_PAGE_SIZE, pg * GROUP_PAGE_SIZE).map(renderRow)}
+                      </Fragment>
+                    )
+                  })
+                  : pageRows.map(renderRow)}
                 {filtered.length === 0 && (
                   <TableRow><TableCell colSpan={visibleCols.length + 1} className="py-16 text-center text-sm text-muted-foreground">No brochures match your filters.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
           </div>
-          <TableFooter page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="brochures" />
+          {groups ? (
+            <div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">{filtered.length} brochures in {groups.length} group{groups.length !== 1 ? "s" : ""}</div>
+          ) : (
+            <TableFooter page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="brochures" />
+          )}
         </TableCard>
       </div>
 
