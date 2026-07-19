@@ -27,6 +27,8 @@ import { cn } from "@/lib/utils"
 type MpType = "Listing Masterplan" | "Numbered Masterplan" | "GIS Masterplan"
 type MpResolution = "High" | "Med" | "Low"
 type MpExt = "PNG" | "JPG" | "GeoTIFF" | "MBTiles"
+/** GIS masterplans are Published/Unpublished; image masterplans are Active/Hidden. */
+type MpStatus = "Published" | "Unpublished" | "Active" | "Hidden"
 
 interface Masterplan {
   id: string
@@ -37,6 +39,7 @@ interface Masterplan {
   dimensions: { width: number; height: number }
   /** Image masterplans are PNG/JPG; GIS masterplans are GeoTIFF/MBTiles. */
   ext: MpExt
+  status: MpStatus
   fileSizeKb: number
   version: number
   developerId: string
@@ -93,6 +96,7 @@ const MASTERPLANS: Masterplan[] = Array.from({ length: 18 }, (_, i) => {
     resolution: RESOLUTIONS[i % RESOLUTIONS.length],
     dimensions: { width: [4096, 2048, 1920][i % 3], height: [2160, 1080, 1080][i % 3] },
     ext: (type === "GIS Masterplan" ? (["GeoTIFF", "MBTiles"] as const)[i % 2] : (["PNG", "JPG"] as const)[i % 2]) as MpExt,
+    status: (type === "GIS Masterplan" ? (i % 2 === 0 ? "Published" : "Unpublished") : (i % 4 === 3 ? "Hidden" : "Active")) as MpStatus,
     fileSizeKb: [3840, 1920, 980][i % 3] + i * 13,
     version: (i % 4) + 1,
     developerId: dev.id,
@@ -135,6 +139,15 @@ const TYPE_TONE: Record<MpType, string> = {
   "Numbered Masterplan": "border-purple-200 bg-purple-100 text-purple-700",
   "GIS Masterplan": "border-emerald-200 bg-emerald-100 text-emerald-700",
 }
+const STATUS_TONE: Record<MpStatus, string> = {
+  Published: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Active: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Unpublished: "border-gray-200 bg-gray-100 text-gray-600",
+  Hidden: "border-red-200 bg-red-100 text-red-700",
+}
+function MpStatusTag({ status }: { status: MpStatus }) {
+  return <span className={cn("inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none", STATUS_TONE[status])}>{status}</span>
+}
 
 // ── Card ───────────────────────────────────────────────────────────────────────
 function MasterplanCard({ mp, onView, onDelete }: { mp: Masterplan; onView: () => void; onDelete: () => void }) {
@@ -150,7 +163,10 @@ function MasterplanCard({ mp, onView, onDelete }: { mp: Masterplan; onView: () =
       <div className="flex flex-1 flex-col gap-2 p-3">
         {/* No title — the masterplan ID takes its place (same as render image cards) */}
         <div className="flex items-center justify-between gap-2">
-          <IdTag value={mp.id} className="text-xs font-medium text-foreground" />
+          <div className="flex min-w-0 items-center gap-1.5">
+            <IdTag value={mp.id} className="text-xs font-medium text-foreground" />
+            <MpStatusTag status={mp.status} />
+          </div>
           <div className="flex flex-shrink-0 items-center gap-0.5">
             <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={onView}>
               <Eye className="h-3.5 w-3.5" />
@@ -208,6 +224,7 @@ function MasterplanDrawer({ mp, onClose, onDelete }: { mp: Masterplan | null; on
             <div className="flex items-center gap-2">
               <IdTag value={mp.id} className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-foreground" />
               <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", TYPE_TONE[mp.type])}>{mp.type.replace(" Masterplan", "")}</span>
+              <MpStatusTag status={mp.status} />
               <Badge variant="outline" className="text-xs">v{mp.version}</Badge>
             </div>
           </div>
