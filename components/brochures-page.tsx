@@ -938,6 +938,23 @@ export function BrochuresPage() {
           <StatCard icon={CheckCircle2} label="Reviewed" value={filtered.filter((b) => b.extraction === "Reviewed").length} tone="border-emerald-200 bg-emerald-50 text-emerald-600" />
         </div>
 
+        {/* Per-kind review analytics — dynamic: follow the applied filters */}
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(["Floor Plans", "Render Images", "Masterplans"] as AssetKind[]).map((kind) => {
+            const key = kind === "Floor Plans" ? "floorPlans" : kind === "Render Images" ? "renderImages" : "masterplans"
+            const sum = (f: (rc: ReviewCount) => number) => filtered.reduce((s, b) => s + f(b[key as "floorPlans" | "renderImages" | "masterplans"]), 0)
+            return (
+              <KindStatCard
+                key={kind} kind={kind}
+                total={sum((rc) => rc.total)}
+                approved={sum((rc) => rc.reviewed - rc.rejected)}
+                rejected={sum((rc) => rc.rejected)}
+                pending={sum((rc) => rc.total - rc.reviewed)}
+              />
+            )
+          })}
+        </div>
+
         {/* Toolbar */}
         <div className="space-y-2.5 rounded-lg border border-border bg-card p-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -968,23 +985,6 @@ export function BrochuresPage() {
               <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setShowColumns(true)}>Columns</Button>
             </div>
           </div>
-        </div>
-
-        {/* Per-kind review analytics — dynamic: follow the applied filters */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          {(["Floor Plans", "Render Images", "Masterplans"] as AssetKind[]).map((kind) => {
-            const key = kind === "Floor Plans" ? "floorPlans" : kind === "Render Images" ? "renderImages" : "masterplans"
-            const sum = (f: (rc: ReviewCount) => number) => filtered.reduce((s, b) => s + f(b[key as "floorPlans" | "renderImages" | "masterplans"]), 0)
-            return (
-              <KindStatCard
-                key={kind} kind={kind}
-                total={sum((rc) => rc.total)}
-                approved={sum((rc) => rc.reviewed - rc.rejected)}
-                rejected={sum((rc) => rc.rejected)}
-                pending={sum((rc) => rc.total - rc.reviewed)}
-              />
-            )
-          })}
         </div>
 
         {/* Table */}
