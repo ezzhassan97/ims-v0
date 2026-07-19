@@ -150,7 +150,8 @@ function MpStatusTag({ status }: { status: MpStatus }) {
 }
 
 // ── Card ───────────────────────────────────────────────────────────────────────
-function MasterplanCard({ mp, onView, onDelete }: { mp: Masterplan; onView: () => void; onDelete: () => void }) {
+function MasterplanCard({ mp, onView, onDelete, onStatusChange }: { mp: Masterplan; onView: () => void; onDelete: () => void; onStatusChange: (s: MpStatus) => void }) {
+  const statusOptions: MpStatus[] = mp.type === "GIS Masterplan" ? ["Published", "Unpublished"] : ["Active", "Hidden"]
   return (
     <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-muted-foreground/30">
       <div className="relative aspect-[16/10] w-full overflow-hidden bg-muted">
@@ -165,7 +166,22 @@ function MasterplanCard({ mp, onView, onDelete }: { mp: Masterplan; onView: () =
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <IdTag value={mp.id} className="text-xs font-medium text-foreground" />
-            <MpStatusTag status={mp.status} />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" title="Change status" className="inline-flex items-center gap-0.5">
+                  <MpStatusTag status={mp.status} />
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {statusOptions.map((s) => (
+                  <DropdownMenuItem key={s} className="text-sm" onClick={() => onStatusChange(s)}>
+                    <Check className={cn("mr-1.5 h-3.5 w-3.5", mp.status === s ? "opacity-100" : "opacity-0")} />
+                    {s}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           <div className="flex flex-shrink-0 items-center gap-0.5">
             <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={onView}>
@@ -393,7 +409,7 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
   const [developerFilter, setDeveloperFilter] = useState<string[]>([])
   const [projectSels, setProjectSels] = useState<string[]>([])
   const [typeFilter, setTypeFilter] = useState<string[]>([])
-  const [resolutionFilter, setResolutionFilter] = useState<string[]>([])
+  const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [sorts, setSorts] = useState<SortLevel[]>([])
   const [groupBy, setGroupBy] = useState<string | null>(null)
@@ -429,7 +445,8 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
       if (!scope && developerFilter.length > 0 && !developerFilter.includes(m.developerName)) return false
       if (!scope && projectSels.length > 0 && !projectSels.includes(m.projectId)) return false
       if (typeFilter.length > 0 && !typeFilter.includes(m.type)) return false
-      if (resolutionFilter.length > 0 && !resolutionFilter.includes(m.resolution)) return false
+      // GIS statuses map onto the same visibility concept: Published ≈ Active, Unpublished ≈ Hidden
+      if (statusFilter.length > 0 && !statusFilter.includes(m.status === "Published" ? "Active" : m.status === "Unpublished" ? "Hidden" : m.status)) return false
       return true
     })
     if (!sorts.length) return result
@@ -441,12 +458,12 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
       }
       return 0
     })
-  }, [baseItems, scope, search, developerFilter, projectSels, typeFilter, resolutionFilter, sorts])
+  }, [baseItems, scope, search, developerFilter, projectSels, typeFilter, statusFilter, sorts])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
   useEffect(() => { setPage((p) => Math.min(p, totalPages)) }, [totalPages])
-  useEffect(() => { setPage(1); setGroupPages({}) }, [search, developerFilter, projectSels, typeFilter, resolutionFilter, sorts, groupBy, pageSize])
+  useEffect(() => { setPage(1); setGroupPages({}) }, [search, developerFilter, projectSels, typeFilter, statusFilter, sorts, groupBy, pageSize])
 
   const sections = useMemo(() => {
     if (!groupBy) return null
@@ -459,14 +476,17 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
   }, [filtered, groupBy])
 
   const activeFilterCount =
-    (developerFilter.length ? 1 : 0) + (projectSels.length ? 1 : 0) + (typeFilter.length ? 1 : 0) + (resolutionFilter.length ? 1 : 0)
+    (developerFilter.length ? 1 : 0) + (projectSels.length ? 1 : 0) + (typeFilter.length ? 1 : 0) + (statusFilter.length ? 1 : 0)
   const hasFilters = !!search || activeFilterCount > 0
-  const clearAll = () => { setSearch(""); setDeveloperFilter([]); setProjectSels([]); setTypeFilter([]); setResolutionFilter([]) }
+  const clearAll = () => { setSearch(""); setDeveloperFilter([]); setProjectSels([]); setTypeFilter([]); setStatusFilter([]) }
 
   const cardGrid = (rows: Masterplan[]) => (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {rows.map((mp) => (
-        <MasterplanCard key={mp.id} mp={mp} onView={() => setViewing(mp)} onDelete={() => setDeleting(mp)} />
+        <MasterplanCard
+          key={mp.id} mp={mp} onView={() => setViewing(mp)} onDelete={() => setDeleting(mp)}
+          onStatusChange={(s) => { setItems((prev) => prev.map((m) => (m.id === mp.id ? { ...m, status: s } : m))); toast.success(`${mp.id} set to ${s}`) }}
+        />
       ))}
     </div>
   )
@@ -506,7 +526,7 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
               {!scope && <FilterMultiSelect label="Developer" options={DEVELOPERS.map((d) => d.name)} value={developerFilter} onChange={setDeveloperFilter} className="flex-1" />}
               {!scope && <ProjectTreeSelect multi projects={projectTree()} values={projectSels} onValuesChange={setProjectSels} className="flex-1" />}
               <FilterMultiSelect label="Type" options={[...MP_TYPES]} value={typeFilter} onChange={setTypeFilter} className="flex-1" />
-              <FilterMultiSelect label="Resolution" options={[...RESOLUTIONS]} value={resolutionFilter} onChange={setResolutionFilter} className="flex-1" />
+              <FilterMultiSelect label="Status" options={["Active", "Hidden"]} value={statusFilter} onChange={setStatusFilter} className="flex-1" />
             </div>
           </div>
           <div className="flex items-center justify-between border-t border-border pt-2.5">
@@ -676,8 +696,8 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
         <FilterDrawerField label="Type">
           <FilterMultiSelect label="Type" options={[...MP_TYPES]} value={typeFilter} onChange={setTypeFilter} className="w-full" />
         </FilterDrawerField>
-        <FilterDrawerField label="Resolution">
-          <FilterMultiSelect label="Resolution" options={[...RESOLUTIONS]} value={resolutionFilter} onChange={setResolutionFilter} className="w-full" />
+        <FilterDrawerField label="Status">
+          <FilterMultiSelect label="Status" options={["Active", "Hidden"]} value={statusFilter} onChange={setStatusFilter} className="w-full" />
         </FilterDrawerField>
       </FiltersDrawer>
     </div>
