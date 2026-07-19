@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CheckCircle2, ChevronLeft, ChevronRight, Clock,
+  AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, ChevronLeft, ChevronRight, Clock,
   Download, Eye, FileText, FileX2, Home, Image as ImageIcon, LayoutGrid, Loader2,
   Map as MapIcon, MoreHorizontal, Plus, Search, Upload, X,
 } from "lucide-react"
@@ -31,7 +31,8 @@ import { toast } from "sonner"
 // ─── Types & mock ─────────────────────────────────────────────────────────────
 
 type ExtractionStage = "Not Extracted" | "Queued" | "Extracting" | "Pending Review" | "Reviewed"
-interface ReviewCount { reviewed: number; total: number }
+/** reviewed = approved + rejected */
+interface ReviewCount { reviewed: number; rejected: number; total: number }
 export interface Brochure {
   id: string
   fileName: string
@@ -71,10 +72,11 @@ const BROCHURES0: Brochure[] = Array.from({ length: 14 }, (_, i) => {
   const row = PROJECTS[i % PROJECTS.length]
   const stage = STAGES[i % 5]
   const mk = (total: number, seed: number): ReviewCount => {
-    if (stage === "Not Extracted" || stage === "Queued") return { reviewed: 0, total: 0 }
-    if (stage === "Extracting") return { reviewed: 0, total }
-    if (stage === "Reviewed") return { reviewed: total, total }
-    return { reviewed: Math.floor((total * ((seed % 4) + 1)) / 5), total }
+    if (stage === "Not Extracted" || stage === "Queued") return { reviewed: 0, rejected: 0, total: 0 }
+    if (stage === "Extracting") return { reviewed: 0, rejected: 0, total }
+    if (stage === "Reviewed") return { reviewed: total, rejected: Math.floor(total / 6), total }
+    const reviewed = Math.floor((total * ((seed % 4) + 1)) / 5)
+    return { reviewed, rejected: Math.floor(reviewed / 4), total }
   }
   return {
     id: String(82490 - i * 37),
@@ -289,7 +291,7 @@ function genAssets(b: Brochure): ExtractedAsset[] {
       kind,
       page: 3 + ((i * 7) % 60),
       imageUrl: imgs[i % imgs.length],
-      status: (i < rc.reviewed ? "Approved" : "Needs Review") as AssetStatus,
+      status: (i < rc.reviewed - rc.rejected ? "Approved" : i < rc.reviewed ? "Rejected" : "Needs Review") as AssetStatus,
     }))
   return [
     ...base("Floor Plans", b.floorPlans, 91000, FP_IMGS).map((a, i) => ({
@@ -356,7 +358,11 @@ function AssetCard({ a, index, selected, onToggleSelect, onStatus, onView, onZoo
           <Checkbox checked={selected} className="h-4 w-4 border-2 bg-background/90 shadow-sm" />
         </span>
         <span className={cn("absolute bottom-2 left-2 inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", ASSET_STATUS_TONE[a.status])}>{a.status}</span>
-        <span className="absolute right-2 top-2 rounded-md bg-background/90 px-1.5 py-0.5 text-[11px] font-semibold shadow-sm backdrop-blur">P. {a.page}</span>
+        <Button variant="ghost" size="icon" className="absolute right-2 top-2 h-7 w-7 rounded-md bg-background/90 text-muted-foreground shadow-sm backdrop-blur hover:text-foreground"
+          title="View details" onClick={onView}>
+          <Eye className="h-3.5 w-3.5" />
+        </Button>
+        <span className="absolute bottom-2 right-2 rounded-md bg-background/90 px-1.5 py-0.5 text-[11px] font-semibold shadow-sm backdrop-blur">P. {a.page}</span>
       </div>
       <div className="flex flex-1 flex-col gap-1.5 p-2.5">
         {a.kind === "Floor Plans" && (
@@ -371,12 +377,12 @@ function AssetCard({ a, index, selected, onToggleSelect, onStatus, onView, onZoo
         )}
         {a.kind === "Render Images" && (
           <>
+            <IdTag value={a.id} className="text-xs font-medium text-foreground" />
             <p className="truncate text-sm font-medium leading-5 text-foreground">{a.title}</p>
             <p className="line-clamp-2 text-xs leading-4 text-muted-foreground">{a.caption}</p>
             <div className="flex flex-wrap gap-1">
               {a.tags!.map((t) => <span key={t} className="rounded border border-border px-1 py-px text-[10px] text-muted-foreground">{t}</span>)}
             </div>
-            <IdTag value={a.id} />
           </>
         )}
         {a.kind === "Masterplans" && (
@@ -391,9 +397,6 @@ function AssetCard({ a, index, selected, onToggleSelect, onStatus, onView, onZoo
         )}
         <div className="mt-auto flex items-center gap-1.5 pt-1.5">
           <ApproveRejectButtons status={a.status} onStatus={onStatus} compact />
-          <Button variant="outline" size="icon" className="h-7 w-7 flex-shrink-0 text-muted-foreground hover:text-foreground" title="View details" onClick={onView}>
-            <Eye className="h-3.5 w-3.5" />
-          </Button>
         </div>
       </div>
     </div>
@@ -474,12 +477,9 @@ function AssetDrawer({ a, onClose, onStatus }: { a: ExtractedAsset | null; onClo
 
 const KIND_ICON: Record<AssetKind, typeof LayoutGrid> = { "Floor Plans": LayoutGrid, "Render Images": ImageIcon, Masterplans: MapIcon }
 
-/** Per-kind review analytics: total + approved / rejected / pending, live from the assets state. */
-function KindStatCard({ kind, list }: { kind: AssetKind; list: ExtractedAsset[] }) {
+/** Per-kind review analytics: total + approved / rejected / pending. */
+function KindStatCard({ kind, total, approved, rejected, pending }: { kind: AssetKind; total: number; approved: number; rejected: number; pending: number }) {
   const Icon = KIND_ICON[kind]
-  const approved = list.filter((a) => a.status === "Approved").length
-  const rejected = list.filter((a) => a.status === "Rejected").length
-  const pending = list.filter((a) => a.status === "Needs Review").length
   return (
     <div className="rounded-xl border border-border bg-card p-3.5">
       <div className="flex items-center gap-2">
@@ -487,7 +487,7 @@ function KindStatCard({ kind, list }: { kind: AssetKind; list: ExtractedAsset[] 
           <Icon className="h-3.5 w-3.5" />
         </span>
         <span className="truncate text-sm font-medium text-foreground">{kind}</span>
-        <span className="ml-auto text-xl font-semibold leading-6 text-foreground">{list.length}</span>
+        <span className="ml-auto text-xl font-semibold leading-6 text-foreground">{total}</span>
       </div>
       <div className="mt-2.5 grid grid-cols-3 gap-1.5 text-center">
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 py-1">
@@ -594,10 +594,6 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
           <span className="font-medium text-foreground">ID: {b.id}</span>
         </div>
 
-        <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onBack}>
-          <ArrowLeft className="h-3.5 w-3.5" />Back to Brochures
-        </Button>
-
         {/* Main info — compact: all fields share one line, small dates */}
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex flex-wrap items-start gap-3">
@@ -651,13 +647,6 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
               <Progress value={pct} className="h-2" />
             </div>
           </div>
-        </div>
-
-        {/* Per-kind review analytics — live with every approve/reject */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          {(["Floor Plans", "Render Images", "Masterplans"] as AssetKind[]).map((kind) => (
-            <KindStatCard key={kind} kind={kind} list={assets.filter((a) => a.kind === kind)} />
-          ))}
         </div>
 
         {/* Asset tabs — Brochure preview first */}
@@ -906,7 +895,7 @@ export function BrochuresPage() {
       case "developer":
         return (
           <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[10px] font-semibold text-muted-foreground">
+            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-border bg-muted text-[10px] font-semibold text-muted-foreground">
               {b.developerLogo}
             </span>
             <LinkCell name={b.developerName} id={b.developerId} href={`/developers/${b.developerId}`} />
@@ -979,6 +968,23 @@ export function BrochuresPage() {
               <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setShowColumns(true)}>Columns</Button>
             </div>
           </div>
+        </div>
+
+        {/* Per-kind review analytics — dynamic: follow the applied filters */}
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(["Floor Plans", "Render Images", "Masterplans"] as AssetKind[]).map((kind) => {
+            const key = kind === "Floor Plans" ? "floorPlans" : kind === "Render Images" ? "renderImages" : "masterplans"
+            const sum = (f: (rc: ReviewCount) => number) => filtered.reduce((s, b) => s + f(b[key as "floorPlans" | "renderImages" | "masterplans"]), 0)
+            return (
+              <KindStatCard
+                key={kind} kind={kind}
+                total={sum((rc) => rc.total)}
+                approved={sum((rc) => rc.reviewed - rc.rejected)}
+                rejected={sum((rc) => rc.rejected)}
+                pending={sum((rc) => rc.total - rc.reviewed)}
+              />
+            )
+          })}
         </div>
 
         {/* Table */}
@@ -1101,9 +1107,9 @@ export function BrochuresPage() {
               phaseId: target.isPhase ? target.id : null,
               phaseName: target.isPhase ? target.name : null,
               extraction: "Not Extracted",
-              floorPlans: { reviewed: 0, total: 0 },
-              renderImages: { reviewed: 0, total: 0 },
-              masterplans: { reviewed: 0, total: 0 },
+              floorPlans: { reviewed: 0, rejected: 0, total: 0 },
+              renderImages: { reviewed: 0, rejected: 0, total: 0 },
+              masterplans: { reviewed: 0, rejected: 0, total: 0 },
               createdAt: stamp,
               updatedAt: stamp,
             }, ...prev])
