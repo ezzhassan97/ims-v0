@@ -1,13 +1,15 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CheckCircle2, ChevronLeft, ChevronRight, Clock,
+  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CheckCircle2, ChevronLeft, ChevronRight, Clock,
   Download, Eye, FileText, FileX2, Home, Image as ImageIcon, LayoutGrid, Loader2,
-  Map as MapIcon, MoreHorizontal, Search, X,
+  Map as MapIcon, MoreHorizontal, Plus, Search, Upload, X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -17,11 +19,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
-  TableCard, TableCardHeader, TableFooter, FilterMultiSelect, FiltersDrawer, FilterDrawerField,
-  ColumnsSheet, MultiSortControl, ProjectTreeSelect, IdTag, COL_SEP,
-  type SortLevel, type ProjectTreeNode,
+  TableCard, TableCardHeader, TableFooter, FilterMultiSelect, FilterSelect, FiltersDrawer, FilterDrawerField,
+  ColumnsSheet, MultiSortControl, ProjectTreeSelect, FloatingBulkBar, BulkBarButton, IdTag, COL_SEP,
+  type SortLevel, type ProjectTreeNode, type ProjectTreeSelection,
 } from "@/components/table-kit"
-import { PROJECTS } from "@/lib/projects-mock"
+import { PROJECTS, PROJECT_DEVELOPERS } from "@/lib/projects-mock"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -35,6 +37,7 @@ export interface Brochure {
   fileSizeMb: number
   developerId: string
   developerName: string
+  developerLogo: string
   projectId: string
   projectName: string
   /** null when the brochure is linked to the main project directly */
@@ -78,6 +81,7 @@ const BROCHURES0: Brochure[] = Array.from({ length: 14 }, (_, i) => {
     fileSizeMb: Number((2 + ((i * 1.7) % 9)).toFixed(1)),
     developerId: row.developer.id,
     developerName: row.developer.name,
+    developerLogo: row.developer.logo,
     projectId: row.isPhase ? row.mainProject!.id : row.id,
     projectName: row.isPhase ? row.mainProject!.name : row.name,
     phaseId: row.isPhase ? row.id : null,
@@ -102,8 +106,8 @@ const sumReviewed = (b: Brochure) => b.floorPlans.reviewed + b.renderImages.revi
 const sumTotal = (b: Brochure) => b.floorPlans.total + b.renderImages.total + b.masterplans.total
 const progressPct = (b: Brochure) => (sumTotal(b) === 0 ? 0 : Math.round((sumReviewed(b) / sumTotal(b)) * 100))
 
-function projectTree(): ProjectTreeNode[] {
-  return PROJECTS.filter((p) => !p.isPhase).map((p) => ({
+function projectTree(devId?: string): ProjectTreeNode[] {
+  return PROJECTS.filter((p) => !p.isPhase && (!devId || p.developer.id === devId)).map((p) => ({
     id: p.id, name: p.name, status: p.listingStatus,
     phases: PROJECTS.filter((ph) => ph.isPhase && ph.mainProject?.id === p.id).map((ph) => ({ id: ph.id, name: ph.name, status: ph.listingStatus })),
   }))
@@ -162,9 +166,38 @@ function ReviewProgressCell({ b }: { b: Brochure }) {
 
 // ─── Fullscreen PDF preview ───────────────────────────────────────────────────
 
-function PdfPreviewDialog({ b, onClose }: { b: Brochure; onClose: () => void }) {
+/** Mock PDF page viewer — used by the fullscreen dialog and the Brochure tab. */
+function PdfViewer({ b, className }: { b: Brochure; className?: string }) {
   const pages = Math.max(6, Math.round(b.fileSizeMb * 4))
   const [page, setPage] = useState(1)
+  return (
+    <div className={cn("relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-neutral-900 p-6", className)}>
+      {/* Mock page — real viewer renders the PDF here */}
+      <div className="flex h-full max-h-full flex-col overflow-hidden rounded-md bg-white shadow-2xl" style={{ aspectRatio: "1 / 1.35" }}>
+        <img src="/aerial-view-masterplan-residential-development-blu.jpg" alt={`${b.fileName} — page ${page}`} className="h-3/5 w-full object-cover" />
+        <div className="flex-1 space-y-2.5 p-6">
+          <div className="h-3 w-2/3 rounded bg-neutral-200" />
+          <div className="h-2 w-full rounded bg-neutral-100" />
+          <div className="h-2 w-full rounded bg-neutral-100" />
+          <div className="h-2 w-4/5 rounded bg-neutral-100" />
+          <div className="h-2 w-11/12 rounded bg-neutral-100" />
+          <div className="h-2 w-3/5 rounded bg-neutral-100" />
+        </div>
+      </div>
+      <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-lg bg-background/95 px-1.5 py-1 shadow-md backdrop-blur">
+        <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <span className="px-1 text-xs font-medium text-foreground">Page {page} / {pages}</span>
+        <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function PdfPreviewDialog({ b, onClose }: { b: Brochure; onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[86vw]">
@@ -178,29 +211,7 @@ function PdfPreviewDialog({ b, onClose }: { b: Brochure; onClose: () => void }) 
             <Download className="h-3.5 w-3.5" />Download
           </Button>
         </div>
-        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-neutral-900 p-6">
-          {/* Mock page — real viewer renders the PDF here */}
-          <div className="flex h-full max-h-full flex-col overflow-hidden rounded-md bg-white shadow-2xl" style={{ aspectRatio: "1 / 1.35" }}>
-            <img src="/aerial-view-masterplan-residential-development-blu.jpg" alt={`${b.fileName} — page ${page}`} className="h-3/5 w-full object-cover" />
-            <div className="flex-1 space-y-2.5 p-6">
-              <div className="h-3 w-2/3 rounded bg-neutral-200" />
-              <div className="h-2 w-full rounded bg-neutral-100" />
-              <div className="h-2 w-full rounded bg-neutral-100" />
-              <div className="h-2 w-4/5 rounded bg-neutral-100" />
-              <div className="h-2 w-11/12 rounded bg-neutral-100" />
-              <div className="h-2 w-3/5 rounded bg-neutral-100" />
-            </div>
-          </div>
-          <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-lg bg-background/95 px-1.5 py-1 shadow-md backdrop-blur">
-            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="px-1 text-xs font-medium text-foreground">Page {page} / {pages}</span>
-            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+        <PdfViewer b={b} />
       </DialogContent>
     </Dialog>
   )
@@ -210,15 +221,27 @@ function PdfPreviewDialog({ b, onClose }: { b: Brochure; onClose: () => void }) 
 
 type AssetKind = "Floor Plans" | "Render Images" | "Masterplans"
 type AssetStatus = "Needs Review" | "Approved" | "Rejected"
+type FpCategory = "Residential" | "Commercial"
+type FpType = "Property" | "Property Floor" | "Building Floor"
+type MpAssetType = "Normal" | "Numbered" | "Project Location" | "Other"
+
 interface ExtractedAsset {
   id: string
   kind: AssetKind
-  title: string
-  desc: string
   page: number
-  keywords: string[]
   imageUrl: string
   status: AssetStatus
+  /** Floor plans */
+  category?: FpCategory
+  fpType?: FpType
+  metadata?: { label: string; value: string }[]
+  /** Render images (title also used by masterplans) */
+  title?: string
+  caption?: string
+  tags?: string[]
+  /** Masterplans */
+  mpType?: MpAssetType
+  desc?: string
 }
 
 const ASSET_STATUS_TONE: Record<AssetStatus, string> = {
@@ -226,80 +249,148 @@ const ASSET_STATUS_TONE: Record<AssetStatus, string> = {
   Approved: "border-emerald-200 bg-emerald-100 text-emerald-700",
   Rejected: "border-red-200 bg-red-100 text-red-700",
 }
-
-const ASSET_META: Record<AssetKind, { imgs: string[]; titles: string[]; keywords: string[] }> = {
-  "Floor Plans": {
-    imgs: ["/placeholder.jpg", "/aerial-view-masterplan-residential-development-blu.jpg"],
-    titles: ["Typical floor plan — 2BR Type A", "Ground floor plan — 3BR corner", "First floor plan — Villa 320", "Roof plan — Penthouse", "Duplex lower level plan", "Studio unit plan"],
-    keywords: ["floor plan", "layout", "dimensions", "rooms"],
-  },
-  "Render Images": {
-    imgs: ["/luxury-clubhouse-exterior.jpg", "/aerial-view-masterplan-residential-development-blu.jpg", "/placeholder.jpg"],
-    titles: ["Clubhouse exterior at dusk", "Central park landscape", "Aerial view of the compound", "Pool deck render", "Boulevard street scene", "Residential cluster facade"],
-    keywords: ["render", "exterior", "landscape", "lifestyle"],
-  },
-  Masterplans: {
-    imgs: ["/aerial-view-masterplan-residential-development-blu.jpg"],
-    titles: ["Full compound masterplan", "Phase masterplan overview", "Zoning masterplan"],
-    keywords: ["masterplan", "aerial", "zoning", "phases"],
-  },
+const FP_CATEGORY_TONE: Record<FpCategory, string> = {
+  Residential: "border-blue-200 bg-blue-100 text-blue-700",
+  Commercial: "border-amber-200 bg-amber-100 text-amber-700",
+}
+const MP_TYPE_TONE: Record<MpAssetType, string> = {
+  Normal: "border-gray-200 bg-gray-100 text-gray-600",
+  Numbered: "border-purple-200 bg-purple-100 text-purple-700",
+  "Project Location": "border-blue-200 bg-blue-100 text-blue-700",
+  Other: "border-gray-200 bg-gray-100 text-gray-600",
+}
+function Chip({ tone, children }: { tone: string; children: React.ReactNode }) {
+  return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none", tone)}>{children}</span>
 }
 
+const FP_META_POOL: { label: string; value: (i: number) => string }[] = [
+  { label: "Unit Type", value: (i) => ["Apartment", "Villa", "Duplex", "Studio"][i % 4] },
+  { label: "Bedrooms", value: (i) => String(1 + (i % 4)) },
+  { label: "Bathrooms", value: (i) => String(1 + (i % 3)) },
+  { label: "BUA", value: (i) => `${95 + i * 7} m²` },
+  { label: "Garden Area", value: (i) => (i % 2 ? `${40 + i * 3} m²` : "—") },
+  { label: "Floor No.", value: (i) => String(i % 6) },
+  { label: "Orientation", value: (i) => ["North", "East", "South", "West"][i % 4] },
+  { label: "Finishing", value: (i) => ["Core & Shell", "Semi-Finished", "Fully Finished"][i % 3] },
+  { label: "Terrace", value: (i) => (i % 3 ? "Yes" : "No") },
+  { label: "Unit Code", value: (i) => `B${1 + (i % 9)}-${101 + i}` },
+]
+const RI_TITLES = ["Clubhouse exterior at dusk", "Central park landscape", "Aerial view of the compound", "Pool deck render", "Boulevard street scene", "Residential cluster facade"]
+const RI_TAGS = ["render", "exterior", "landscape", "lifestyle", "amenities"]
+const MP_TITLES = ["Full compound masterplan", "Phase masterplan overview", "Zoning masterplan", "Location map"]
+const FP_IMGS = ["/placeholder.jpg", "/aerial-view-masterplan-residential-development-blu.jpg"]
+const RI_IMGS = ["/luxury-clubhouse-exterior.jpg", "/aerial-view-masterplan-residential-development-blu.jpg", "/placeholder.jpg"]
+
 function genAssets(b: Brochure): ExtractedAsset[] {
-  const build = (kind: AssetKind, rc: ReviewCount, idBase: number): ExtractedAsset[] => {
-    const meta = ASSET_META[kind]
-    return Array.from({ length: rc.total }, (_, i) => ({
-      id: `${b.id}-${idBase + i}`,
+  const base = (kind: AssetKind, rc: ReviewCount, idBase: number, imgs: string[]) =>
+    Array.from({ length: rc.total }, (_, i) => ({
+      id: String(idBase + i),
       kind,
-      title: meta.titles[i % meta.titles.length],
-      desc: `${meta.titles[i % meta.titles.length]} extracted from ${b.fileName}.`,
       page: 3 + ((i * 7) % 60),
-      keywords: meta.keywords.slice(0, 3 + (i % 2)),
-      imageUrl: meta.imgs[i % meta.imgs.length],
-      status: i < rc.reviewed ? "Approved" : "Needs Review",
+      imageUrl: imgs[i % imgs.length],
+      status: (i < rc.reviewed ? "Approved" : "Needs Review") as AssetStatus,
     }))
-  }
   return [
-    ...build("Floor Plans", b.floorPlans, 100),
-    ...build("Render Images", b.renderImages, 400),
-    ...build("Masterplans", b.masterplans, 900),
+    ...base("Floor Plans", b.floorPlans, 91000, FP_IMGS).map((a, i) => ({
+      ...a,
+      category: (i % 3 === 2 ? "Commercial" : "Residential") as FpCategory,
+      fpType: (["Property", "Property Floor", "Building Floor"] as FpType[])[i % 3],
+      metadata: FP_META_POOL.slice(0, 5 + (i % 6)).map((m) => ({ label: m.label, value: m.value(i) })),
+    })),
+    ...base("Render Images", b.renderImages, 94000, RI_IMGS).map((a, i) => ({
+      ...a,
+      title: RI_TITLES[i % RI_TITLES.length],
+      caption: `${RI_TITLES[i % RI_TITLES.length]} — extracted from ${b.fileName}.`,
+      tags: RI_TAGS.slice(0, 3 + (i % 2)),
+    })),
+    ...base("Masterplans", b.masterplans, 98000, ["/aerial-view-masterplan-residential-development-blu.jpg"]).map((a, i) => ({
+      ...a,
+      mpType: (["Normal", "Numbered", "Project Location", "Other"] as MpAssetType[])[i % 4],
+      title: MP_TITLES[i % MP_TITLES.length],
+      desc: `${MP_TITLES[i % MP_TITLES.length]} for ${b.projectName}, extracted from ${b.fileName}.`,
+    })),
   ]
 }
 
-function AssetCard({ a, onStatus }: { a: ExtractedAsset; onStatus: (s: AssetStatus) => void }) {
+function ApproveRejectButtons({ status, onStatus, compact }: { status: AssetStatus; onStatus: (s: AssetStatus) => void; compact?: boolean }) {
   return (
-    <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
+    <>
+      <Button
+        variant="outline" size="sm"
+        className={cn("flex-1 gap-1 text-xs", compact ? "h-7" : "h-8", status === "Approved"
+          ? "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-600 hover:text-white"
+          : "border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-700")}
+        onClick={() => onStatus("Approved")}
+      >
+        <CheckCircle2 className="h-3.5 w-3.5" />Approve
+      </Button>
+      <Button
+        variant="outline" size="sm"
+        className={cn("flex-1 gap-1 text-xs", compact ? "h-7" : "h-8", status === "Rejected"
+          ? "border-red-600 bg-red-600 text-white hover:bg-red-600 hover:text-white"
+          : "border-red-200 text-red-600 hover:bg-red-50 hover:text-red-600")}
+        onClick={() => onStatus("Rejected")}
+      >
+        <X className="h-3.5 w-3.5" />Reject
+      </Button>
+    </>
+  )
+}
+
+function AssetCard({ a, index, selected, onToggleSelect, onStatus, onView }: {
+  a: ExtractedAsset
+  index: number
+  selected: boolean
+  onToggleSelect: (index: number, shift: boolean) => void
+  onStatus: (s: AssetStatus) => void
+  onView: () => void
+}) {
+  return (
+    <div className={cn("flex select-none flex-col overflow-hidden rounded-xl border bg-card transition-colors", selected ? "border-primary/60 ring-1 ring-primary/30" : "border-border")}>
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted">
-        <img src={a.imageUrl} alt={a.title} className="h-full w-full object-cover" />
-        <span className={cn("absolute left-2 top-2 inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", ASSET_STATUS_TONE[a.status])}>{a.status}</span>
+        <img src={a.imageUrl} alt={a.id} className="h-full w-full object-cover" />
+        {/* Shift+click on the checkbox range-selects */}
+        <span className="absolute left-2 top-2" onClick={(e) => { e.preventDefault(); onToggleSelect(index, e.shiftKey) }}>
+          <Checkbox checked={selected} className="h-4 w-4 border-2 bg-background/90 shadow-sm" />
+        </span>
+        <span className={cn("absolute bottom-2 left-2 inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", ASSET_STATUS_TONE[a.status])}>{a.status}</span>
         <span className="absolute right-2 top-2 rounded-md bg-background/90 px-1.5 py-0.5 text-[11px] font-semibold shadow-sm backdrop-blur">P. {a.page}</span>
       </div>
       <div className="flex flex-1 flex-col gap-1.5 p-2.5">
-        <p className="line-clamp-2 text-sm font-medium leading-5 text-foreground">{a.title}</p>
-        <p className="line-clamp-2 text-xs leading-4 text-muted-foreground">{a.desc}</p>
-        <div className="flex flex-wrap gap-1">
-          {a.keywords.map((k) => (
-            <span key={k} className="rounded border border-border px-1 py-px text-[10px] text-muted-foreground">{k}</span>
-          ))}
-        </div>
-        <div className="mt-auto flex gap-1.5 pt-1.5">
-          <Button
-            variant="outline" size="sm"
-            className={cn("h-7 flex-1 gap-1 text-xs", a.status === "Approved"
-              ? "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-600 hover:text-white"
-              : "border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-700")}
-            onClick={() => onStatus("Approved")}
-          >
-            <CheckCircle2 className="h-3.5 w-3.5" />Approve
-          </Button>
-          <Button
-            variant="outline" size="sm"
-            className={cn("h-7 flex-1 gap-1 text-xs", a.status === "Rejected"
-              ? "border-red-600 bg-red-600 text-white hover:bg-red-600 hover:text-white"
-              : "border-red-200 text-red-600 hover:bg-red-50 hover:text-red-600")}
-            onClick={() => onStatus("Rejected")}
-          >
-            <X className="h-3.5 w-3.5" />Reject
+        {a.kind === "Floor Plans" && (
+          <>
+            <IdTag value={a.id} className="text-xs font-medium text-foreground" />
+            <div className="flex flex-wrap gap-1">
+              <Chip tone={FP_CATEGORY_TONE[a.category!]}>{a.category}</Chip>
+              <Chip tone="border-purple-200 bg-purple-100 text-purple-700">{a.fpType}</Chip>
+            </div>
+            <p className="text-[11px] text-muted-foreground">{a.metadata!.length} metadata fields</p>
+          </>
+        )}
+        {a.kind === "Render Images" && (
+          <>
+            <p className="truncate text-sm font-medium leading-5 text-foreground">{a.title}</p>
+            <p className="line-clamp-2 text-xs leading-4 text-muted-foreground">{a.caption}</p>
+            <div className="flex flex-wrap gap-1">
+              {a.tags!.map((t) => <span key={t} className="rounded border border-border px-1 py-px text-[10px] text-muted-foreground">{t}</span>)}
+            </div>
+            <IdTag value={a.id} />
+          </>
+        )}
+        {a.kind === "Masterplans" && (
+          <>
+            <div className="flex items-center justify-between gap-2">
+              <IdTag value={a.id} className="text-xs font-medium text-foreground" />
+              <Chip tone={MP_TYPE_TONE[a.mpType!]}>{a.mpType}</Chip>
+            </div>
+            <p className="truncate text-sm font-medium leading-5 text-foreground">{a.title}</p>
+            <p className="line-clamp-2 text-xs leading-4 text-muted-foreground">{a.desc}</p>
+          </>
+        )}
+        <div className="mt-auto flex items-center gap-1.5 pt-1.5">
+          <ApproveRejectButtons status={a.status} onStatus={onStatus} compact />
+          <Button variant="outline" size="icon" className="h-7 w-7 flex-shrink-0 text-muted-foreground hover:text-foreground" title="View details" onClick={onView}>
+            <Eye className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
@@ -307,10 +398,73 @@ function AssetCard({ a, onStatus }: { a: ExtractedAsset; onStatus: (s: AssetStat
   )
 }
 
+/** Side drawer: full details + metadata of one extracted asset. */
+function AssetDrawer({ a, onClose, onStatus }: { a: ExtractedAsset | null; onClose: () => void; onStatus: (id: string, s: AssetStatus) => void }) {
+  if (!a) return null
+  const field = (label: string, value: React.ReactNode) => (
+    <div>
+      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-sm text-foreground">{value}</div>
+    </div>
+  )
+  return (
+    <Sheet open onOpenChange={(o) => !o && onClose()}>
+      <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-[480px]">
+        <SheetTitle className="sr-only">Asset {a.id}</SheetTitle>
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-4">
+          <IdTag value={a.id} className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-foreground" />
+          <span className="text-xs text-muted-foreground">{a.kind}</span>
+          <span className={cn("ml-auto inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", ASSET_STATUS_TONE[a.status])}>{a.status}</span>
+        </div>
+        <div className="flex-1 space-y-4 px-5 py-4">
+          <img src={a.imageUrl} alt={a.id} className="aspect-[4/3] w-full rounded-xl border border-border object-cover" />
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+            {field("Page", `Page ${a.page}`)}
+            {a.kind === "Floor Plans" && field("Category", <Chip tone={FP_CATEGORY_TONE[a.category!]}>{a.category}</Chip>)}
+            {a.kind === "Floor Plans" && field("Type", <Chip tone="border-purple-200 bg-purple-100 text-purple-700">{a.fpType}</Chip>)}
+            {a.kind === "Masterplans" && field("Type", <Chip tone={MP_TYPE_TONE[a.mpType!]}>{a.mpType}</Chip>)}
+          </div>
+          {a.title && field("Title", a.title)}
+          {a.caption && field("Caption", a.caption)}
+          {a.desc && field("Description", a.desc)}
+          {a.tags && field("Tags", (
+            <span className="mt-0.5 flex flex-wrap gap-1">
+              {a.tags.map((t) => <span key={t} className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">{t}</span>)}
+            </span>
+          ))}
+          {a.metadata && (
+            <div>
+              <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Metadata
+                <span className="rounded-md border border-blue-200 bg-blue-100 px-1.5 text-[10px] font-semibold text-blue-700">{a.metadata.length}</span>
+              </div>
+              <div className="overflow-hidden rounded-lg border border-border">
+                {a.metadata.map((m, i) => (
+                  <div key={m.label} className={cn("flex items-center justify-between gap-3 px-3 py-1.5 text-sm", i > 0 && "border-t border-border/70")}>
+                    <span className="text-muted-foreground">{m.label}</span>
+                    <span className="font-medium text-foreground">{m.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2 border-t border-border p-4">
+          <ApproveRejectButtons status={a.status} onStatus={(s) => onStatus(a.id, s)} />
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
 const KIND_ICON: Record<AssetKind, typeof LayoutGrid> = { "Floor Plans": LayoutGrid, "Render Images": ImageIcon, Masterplans: MapIcon }
 
 export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochure; onBack: () => void }) {
   const [assets, setAssets] = useState<ExtractedAsset[]>(() => genAssets(b))
+  const [viewing, setViewing] = useState<ExtractedAsset | null>(null)
+  const [activeTab, setActiveTab] = useState<string>("Brochure")
+  const [selIds, setSelIds] = useState<Set<string>>(new Set())
+  const lastIdxRef = useRef<number | null>(null)
   const approved = assets.filter((a) => a.status === "Approved").length
   const pct = assets.length === 0 ? 0 : Math.round((approved / assets.length) * 100)
 
@@ -319,9 +473,26 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
     setAssets((prev) => prev.map((a) => (a.kind === kind ? { ...a, status: s } : a)))
     toast.success(`All ${kind.toLowerCase()} ${s === "Approved" ? "approved" : "rejected"}`)
   }
+  const bulkSet = (s: AssetStatus) => {
+    setAssets((prev) => prev.map((a) => (selIds.has(a.id) ? { ...a, status: s } : a)))
+    toast.success(`${selIds.size} asset${selIds.size > 1 ? "s" : ""} ${s === "Approved" ? "approved" : "rejected"}`)
+    setSelIds(new Set())
+  }
 
   const kindTab = (kind: AssetKind) => {
     const list = assets.filter((a) => a.kind === kind)
+    const toggleSelect = (index: number, shift: boolean) => {
+      setSelIds((prev) => {
+        const n = new Set(prev)
+        if (shift && lastIdxRef.current !== null) {
+          const [lo, hi] = [Math.min(lastIdxRef.current, index), Math.max(lastIdxRef.current, index)]
+          for (let i = lo; i <= hi; i++) n.add(list[i].id)
+        } else if (n.has(list[index].id)) n.delete(list[index].id)
+        else n.add(list[index].id)
+        lastIdxRef.current = index
+        return n
+      })
+    }
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-2">
@@ -346,7 +517,15 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
           </p>
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {list.map((a) => <AssetCard key={a.id} a={a} onStatus={(s) => setStatus(a.id, s)} />)}
+            {list.map((a, i) => (
+              <AssetCard
+                key={a.id} a={a} index={i}
+                selected={selIds.has(a.id)}
+                onToggleSelect={toggleSelect}
+                onStatus={(s) => setStatus(a.id, s)}
+                onView={() => setViewing(a)}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -369,54 +548,52 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
           <ArrowLeft className="h-3.5 w-3.5" />Back to Brochures
         </Button>
 
-        {/* Main info */}
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="flex flex-wrap items-start gap-4">
-            <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
-              <FileText className="h-5 w-5" />
+        {/* Main info — compact: all fields share one line, small dates */}
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="flex flex-wrap items-start gap-3">
+            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
+              <FileText className="h-4 w-4" />
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="truncate text-lg font-semibold text-foreground">{b.fileName}</h1>
+                <h1 className="truncate text-base font-semibold text-foreground">{b.fileName}</h1>
                 <StageTag stage={b.extraction} />
-              </div>
-              <div className="mt-0.5 flex items-center gap-3">
                 <IdTag value={b.id} className="text-[11px]" />
                 <span className="text-xs text-muted-foreground">{b.fileSizeMb} MB</span>
               </div>
-              <div className="mt-3 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              <div className="mt-2.5 flex flex-wrap items-start gap-x-7 gap-y-2">
                 <div>
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Developer</div>
-                  <a href={`/developers/${b.developerId}`} target="_blank" rel="noopener noreferrer" className="font-medium text-foreground hover:text-primary hover:underline">{b.developerName}</a>
+                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Developer</div>
+                  <a href={`/developers/${b.developerId}`} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-foreground hover:text-primary hover:underline">{b.developerName}</a>
                   <IdTag value={b.developerId} className="ml-1.5" />
                 </div>
                 <div>
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Project</div>
-                  <a href={`/projects/${b.projectId}`} target="_blank" rel="noopener noreferrer" className="font-medium text-foreground hover:text-primary hover:underline">{b.projectName}</a>
+                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Project</div>
+                  <a href={`/projects/${b.projectId}`} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-foreground hover:text-primary hover:underline">{b.projectName}</a>
                   <IdTag value={b.projectId} className="ml-1.5" />
                 </div>
                 <div>
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Phase</div>
+                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Phase</div>
                   {b.phaseName ? (
                     <>
-                      <a href={`/projects/${b.phaseId}`} target="_blank" rel="noopener noreferrer" className="font-medium text-foreground hover:text-primary hover:underline">{b.phaseName}</a>
+                      <a href={`/projects/${b.phaseId}`} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-foreground hover:text-primary hover:underline">{b.phaseName}</a>
                       <IdTag value={b.phaseId!} className="ml-1.5" />
                     </>
                   ) : (
-                    <span className="text-muted-foreground">— (main project)</span>
+                    <span className="text-sm text-muted-foreground">—</span>
                   )}
                 </div>
                 <div>
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Created At</div>
-                  <span className="text-foreground">{fmtDateTime(b.createdAt)}</span>
+                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Created At</div>
+                  <span className="text-xs text-muted-foreground">{fmtDateTime(b.createdAt)}</span>
                 </div>
                 <div>
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Updated At</div>
-                  <span className="text-foreground">{fmtDateTime(b.updatedAt)}</span>
+                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Updated At</div>
+                  <span className="text-xs text-muted-foreground">{fmtDateTime(b.updatedAt)}</span>
                 </div>
               </div>
             </div>
-            <div className="w-full sm:w-56">
+            <div className="w-full sm:w-52">
               <div className="mb-1 flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">{approved}/{assets.length} assets approved</span>
                 <span className="font-semibold text-foreground">{pct}%</span>
@@ -426,9 +603,10 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
           </div>
         </div>
 
-        {/* Asset tabs */}
-        <Tabs defaultValue="Floor Plans" className="w-full">
+        {/* Asset tabs — Brochure preview first */}
+        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSelIds(new Set()); lastIdxRef.current = null }} className="w-full">
           <TabsList>
+            <TabsTrigger value="Brochure"><FileText className="mr-1.5 h-3.5 w-3.5" />Brochure</TabsTrigger>
             {(["Floor Plans", "Render Images", "Masterplans"] as AssetKind[]).map((kind) => {
               const Icon = KIND_ICON[kind]
               const n = assets.filter((a) => a.kind === kind).length
@@ -440,12 +618,121 @@ export function BrochureDetailsPage({ brochure: b, onBack }: { brochure: Brochur
               )
             })}
           </TabsList>
+          <TabsContent value="Brochure" className="mt-4">
+            <div className="flex h-[68vh] flex-col overflow-hidden rounded-xl border border-border">
+              <PdfViewer b={b} />
+            </div>
+          </TabsContent>
           {(["Floor Plans", "Render Images", "Masterplans"] as AssetKind[]).map((kind) => (
             <TabsContent key={kind} value={kind} className="mt-4">{kindTab(kind)}</TabsContent>
           ))}
         </Tabs>
       </div>
+
+      {/* Bulk actions for shift-selected assets */}
+      <FloatingBulkBar
+        count={selIds.size}
+        total={assets.filter((a) => a.kind === activeTab).length}
+        onSelectAll={() => setSelIds(new Set(assets.filter((a) => a.kind === activeTab).map((a) => a.id)))}
+        onClear={() => { setSelIds(new Set()); lastIdxRef.current = null }}
+      >
+        <BulkBarButton icon={<CheckCircle2 className="h-4 w-4" />} onClick={() => bulkSet("Approved")}>Approve</BulkBarButton>
+        <BulkBarButton danger icon={<X className="h-4 w-4" />} onClick={() => bulkSet("Rejected")}>Reject</BulkBarButton>
+      </FloatingBulkBar>
+
+      <AssetDrawer a={viewing ? assets.find((x) => x.id === viewing.id) ?? null : null} onClose={() => setViewing(null)} onStatus={setStatus} />
     </div>
+  )
+}
+
+// ─── Upload brochure (with duplicate hash check) ──────────────────────────────
+
+function UploadBrochureDialog({ existing, onClose, onSave }: {
+  existing: Brochure[]
+  onClose: () => void
+  onSave: (fileName: string, fileSizeMb: number, devId: string, projectSel: NonNullable<ProjectTreeSelection>) => void
+}) {
+  const [devId, setDevId] = useState("")
+  const [projectSel, setProjectSel] = useState<ProjectTreeSelection>(null)
+  const [file, setFile] = useState<File | null>(null)
+  const [phase, setPhase] = useState<"form" | "checking" | "dup">("form")
+  const [dupMatch, setDupMatch] = useState<Brochure | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const targetId = projectSel ? (projectSel.id.startsWith("GRP-") ? projectSel.projectIds[0] : projectSel.id) : ""
+  const onProject = existing.filter((x) => (x.phaseId ?? x.projectId) === targetId)
+  const ready = devId && projectSel && file
+
+  const submit = () => {
+    if (!file || !projectSel) return
+    // Same file name on the same developer + project/phase → hash-compare against prior uploads
+    setPhase("checking")
+    setTimeout(() => {
+      const match = existing.find(
+        (x) => x.fileName.toLowerCase() === file.name.toLowerCase() && x.developerId === devId && (x.phaseId ?? x.projectId) === targetId,
+      )
+      if (match) { setDupMatch(match); setPhase("dup") }
+      else {
+        onSave(file.name, Math.max(0.1, Number((file.size / 1024 / 1024).toFixed(1))), devId, projectSel)
+      }
+    }, 1400)
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>Upload Brochure</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Developer</div>
+            <FilterSelect label="Select developer…" value={devId}
+              options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))}
+              onChange={(v) => { setDevId(v); setProjectSel(null); setPhase("form"); setDupMatch(null) }}
+              searchable className="w-full" width="w-full" />
+          </div>
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Project</div>
+            <ProjectTreeSelect projects={projectTree(devId || undefined)} value={projectSel}
+              onChange={(v) => { setProjectSel(v); setPhase("form"); setDupMatch(null) }} className="w-full" />
+          </div>
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Brochure file</div>
+            <button
+              type="button"
+              className="flex h-24 w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border bg-card transition-colors hover:border-muted-foreground/40"
+              onClick={() => inputRef.current?.click()}
+            >
+              <Upload className="h-4 w-4 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">{file ? file.name : "Browse or drag a PDF file"}</span>
+            </button>
+            <input ref={inputRef} type="file" accept=".pdf" className="hidden"
+              onChange={(e) => { setFile(e.target.files?.[0] ?? null); setPhase("form"); setDupMatch(null) }} />
+          </div>
+
+          {phase === "checking" && (
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-3 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" />
+              Hashing file (SHA-256) and comparing against {onProject.length} brochure{onProject.length !== 1 ? "s" : ""} on this {projectSel?.kind === "phase" ? "phase" : "project"}…
+            </div>
+          )}
+          {phase === "dup" && dupMatch && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <span>
+                Duplicate detected — the file hash matches <span className="font-semibold">{dupMatch.fileName}</span> (ID: {dupMatch.id}) already uploaded
+                for this {dupMatch.phaseId ? "phase" : "project"}. Upload cancelled; choose a different file.
+              </span>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={!ready || phase === "checking"} onClick={submit}>
+            {phase === "checking" ? "Checking…" : "Upload"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -468,9 +755,10 @@ const SORT_FIELDS = [
 ]
 
 export function BrochuresPage() {
-  const [rows] = useState<Brochure[]>(BROCHURES0)
+  const [rows, setRows] = useState<Brochure[]>(BROCHURES0)
   const [selected, setSelected] = useState<Brochure | null>(null)
   const [pdf, setPdf] = useState<Brochure | null>(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
 
   const [search, setSearch] = useState("")
   const [developerF, setDeveloperF] = useState<string[]>([])
@@ -551,7 +839,15 @@ export function BrochuresPage() {
             </div>
           </div>
         )
-      case "developer": return <LinkCell name={b.developerName} id={b.developerId} href={`/developers/${b.developerId}`} />
+      case "developer":
+        return (
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[10px] font-semibold text-muted-foreground">
+              {b.developerLogo}
+            </span>
+            <LinkCell name={b.developerName} id={b.developerId} href={`/developers/${b.developerId}`} />
+          </div>
+        )
       case "project": return <LinkCell name={b.projectName} id={b.projectId} href={`/projects/${b.projectId}`} />
       case "phase": return b.phaseName ? <LinkCell name={b.phaseName} id={b.phaseId!} href={`/projects/${b.phaseId}`} /> : <span className="text-sm text-muted-foreground">—</span>
       case "extraction": return <StageTag stage={b.extraction} />
@@ -623,7 +919,15 @@ export function BrochuresPage() {
 
         {/* Table */}
         <TableCard>
-          <TableCardHeader title="Brochures" count={filtered.length} />
+          <TableCardHeader
+            title="Brochures"
+            count={filtered.length}
+            cta={
+              <Button size="sm" className="h-8 gap-1.5" onClick={() => setUploadOpen(true)}>
+                <Plus className="h-3.5 w-3.5" />Upload Brochure
+              </Button>
+            }
+          />
           <div className="overflow-x-auto">
             <Table className={cn("w-max min-w-full", COL_SEP)}>
               <TableHeader>
@@ -711,6 +1015,39 @@ export function BrochuresPage() {
       />
 
       {pdf && <PdfPreviewDialog b={pdf} onClose={() => setPdf(null)} />}
+
+      {uploadOpen && (
+        <UploadBrochureDialog
+          existing={rows}
+          onClose={() => setUploadOpen(false)}
+          onSave={(fileName, fileSizeMb, devId, projectSel) => {
+            const dev = PROJECT_DEVELOPERS.find((d) => d.id === devId)!
+            const targetId = projectSel.id.startsWith("GRP-") ? projectSel.projectIds[0] : projectSel.id
+            const target = PROJECTS.find((p) => p.id === targetId) ?? PROJECTS[0]
+            const stamp = new Date().toISOString()
+            setRows((prev) => [{
+              id: String(Math.max(...prev.map((x) => Number(x.id))) + 13),
+              fileName,
+              fileSizeMb,
+              developerId: dev.id,
+              developerName: dev.name,
+              developerLogo: dev.logo,
+              projectId: target.isPhase ? target.mainProject!.id : target.id,
+              projectName: target.isPhase ? target.mainProject!.name : target.name,
+              phaseId: target.isPhase ? target.id : null,
+              phaseName: target.isPhase ? target.name : null,
+              extraction: "Not Extracted",
+              floorPlans: { reviewed: 0, total: 0 },
+              renderImages: { reviewed: 0, total: 0 },
+              masterplans: { reviewed: 0, total: 0 },
+              createdAt: stamp,
+              updatedAt: stamp,
+            }, ...prev])
+            toast.success("No duplicates found — brochure uploaded")
+            setUploadOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }
