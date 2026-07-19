@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils"
 import { LinkedPlanCard, type PlanCardData } from "@/components/all-properties-page"
 import { PaymentPlanDrawer } from "@/components/payment-plan-builder"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
-import { TableCard, TableCardHeader, TableFooter, FilterSelect, FiltersDrawer, FilterDrawerField, MultiSortControl, GroupPager, type SortLevel } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableFooter, FilterSelect, FiltersDrawer, FilterDrawerField, MultiSortControl, GroupPager, ProjectTreeSelect, type SortLevel, type ProjectTreeNode } from "@/components/table-kit"
 
 // ── Mock data (deterministic, modeled on the production listing) ───────────────
 type PlanRow = PlanCardData & { phase: string | null; createdIso: string; updatedIso: string }
@@ -104,6 +104,16 @@ const PLANS: PlanRow[] = Array.from({ length: 24 }, (_, i) => {
   }
 })
 
+// Unified project dropdown: mains with their phases nested (synthetic numeric phase ids)
+const phaseKey = (projId: string, phase: string) => `${projId}${phase.replace(/\D/g, "")}`
+const planKey = (p: { projId: string; phase: string | null }) => (p.phase ? phaseKey(p.projId, p.phase) : p.projId)
+const PLAN_TREE: ProjectTreeNode[] = [...new Map(PLANS.map((p) => [p.projId, p])).values()].map((p) => ({
+  id: p.projId, name: p.projName, status: "Active" as const,
+  phases: [...new Set(PLANS.filter((x) => x.projId === p.projId && x.phase).map((x) => x.phase as string))]
+    .sort()
+    .map((ph) => ({ id: phaseKey(p.projId, ph), name: ph, status: "Active" as const })),
+}))
+
 // Multi-level sort fields — % fields parse their numeric value ("—" sorts lowest)
 const SORT_FIELDS = [
   { key: "createdAt", label: "Created at" },
@@ -150,8 +160,7 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
   const [plans, setPlans] = useState<PlanRow[]>(PLANS)
   const [search, setSearch] = useState("")
   const [developerF, setDeveloperF] = useState("")
-  const [projectF, setProjectF] = useState("")
-  const [phaseF, setPhaseF] = useState("")
+  const [projectSels, setProjectSels] = useState<string[]>([])
   const [typeF, setTypeF] = useState("")
   const [frequencyF, setFrequencyF] = useState("")
   const [currencyF, setCurrencyF] = useState("")
@@ -172,16 +181,13 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
   const [pageSize, setPageSize] = useState(20)
 
   const developers = [...new Map(PLANS.map((p) => [p.devId, { value: p.devName, label: p.devName, sublabel: `ID: ${p.devId}` }])).values()]
-  const projects = [...new Map(PLANS.map((p) => [p.projId, { value: p.projName, label: p.projName, sublabel: `ID: ${p.projId}` }])).values()]
-  const phases = [...new Set(PLANS.map((p) => p.phase).filter(Boolean))] as string[]
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     const result = plans.filter((p) => {
       if (q && !p.name.toLowerCase().includes(q) && !p.id.toLowerCase().includes(q)) return false
       if (developerF && p.devName !== developerF) return false
-      if (projectF && p.projName !== projectF) return false
-      if (phaseF && p.phase !== phaseF) return false
+      if (projectSels.length > 0 && !projectSels.includes(planKey(p))) return false
       if (typeF && p.planType !== typeF) return false
       if (frequencyF && p.frequency !== frequencyF) return false
       if (currencyF && p.currency !== currencyF) return false
@@ -202,7 +208,7 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
       sorted.sort((a, b) => b.updatedIso.localeCompare(a.updatedIso)) // default: last updated first
     }
     return sorted
-  }, [plans, search, developerF, projectF, phaseF, typeF, frequencyF, currencyF, offerF, sorts])
+  }, [plans, search, developerF, projectSels, typeF, frequencyF, currencyF, offerF, sorts])
 
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
 
@@ -214,10 +220,10 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
   }, [filtered, groupBy])
 
-  const activeFilterCount = [developerF, projectF, phaseF, typeF, frequencyF, currencyF, offerF].filter(Boolean).length
+  const activeFilterCount = [developerF, typeF, frequencyF, currencyF, offerF].filter(Boolean).length + (projectSels.length > 0 ? 1 : 0)
   const hasFilters = !!search || activeFilterCount > 0
   const clearAll = () => {
-    setSearch(""); setDeveloperF(""); setProjectF(""); setPhaseF(""); setTypeF("")
+    setSearch(""); setDeveloperF(""); setProjectSels([]); setTypeF("")
     setFrequencyF(""); setCurrencyF(""); setOfferF(""); setPage(1)
   }
 
@@ -259,8 +265,7 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
               )}
             </div>
             <FilterSelect label="Developer" value={developerF} options={developers} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="min-w-0 flex-1" />
-            <FilterSelect label="Project" value={projectF} options={projects} onChange={(v) => { setProjectF(v); setPage(1) }} className="min-w-0 flex-1" />
-            <FilterSelect label="Phase" value={phaseF} options={phases} onChange={(v) => { setPhaseF(v); setPage(1) }} className="min-w-0 flex-1" />
+            <ProjectTreeSelect multi projects={PLAN_TREE} values={projectSels} onValuesChange={(v) => { setProjectSels(v); setPage(1) }} className="min-w-0 flex-1" />
             <FilterSelect label="Plan type" value={typeF} options={PLAN_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="min-w-0 flex-1" />
             <FilterSelect label="Frequency" value={frequencyF} options={FREQUENCIES} onChange={(v) => { setFrequencyF(v); setPage(1) }} className="min-w-0 flex-1" />
             <FilterSelect label="Currency" value={currencyF} options={["EGP", "USD"]} onChange={(v) => { setCurrencyF(v); setPage(1) }} className="min-w-0 flex-1" />
@@ -462,10 +467,7 @@ export function PaymentPlansPage({ embedded = false }: { embedded?: boolean } = 
           <FilterSelect label="Developer" value={developerF} options={developers} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-full" />
         </FilterDrawerField>
         <FilterDrawerField label="Project">
-          <FilterSelect label="Project" value={projectF} options={projects} onChange={(v) => { setProjectF(v); setPage(1) }} className="w-full" />
-        </FilterDrawerField>
-        <FilterDrawerField label="Phase">
-          <FilterSelect label="Phase" value={phaseF} options={phases} onChange={(v) => { setPhaseF(v); setPage(1) }} className="w-full" />
+          <ProjectTreeSelect multi projects={PLAN_TREE} values={projectSels} onValuesChange={(v) => { setProjectSels(v); setPage(1) }} className="w-full" />
         </FilterDrawerField>
         <FilterDrawerField label="Plan type">
           <FilterSelect label="Plan type" value={typeF} options={PLAN_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-full" />
