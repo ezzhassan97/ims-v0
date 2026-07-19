@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import {
-  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FloatingBulkBar, BulkBarButton, IdTag, COL_SEP,
+  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FloatingBulkBar, BulkBarButton, MultiSortControl, IdTag, COL_SEP,
+  type SortLevel,
 } from "@/components/table-kit"
 import { ProjectDetails } from "@/components/projects-page"
 import {
@@ -107,16 +108,72 @@ function Tag({ value, cls }: { value: string; cls: string }) {
 const RED_TAG = "bg-red-50 text-red-600 border-red-200"
 const UPLOADED_TAG = "bg-emerald-50 text-emerald-700 border-emerald-200"
 
-/** Organization chip — same brand colours as the developers table (Nawy teal-green, Partners blue). */
-function OrgChip({ org }: { org: ProjOrg }) {
-  const bg = org === "Nawy" ? "#7DCBC1" : "#015C9A"
-  const fg = org === "Nawy" ? "#0D1B2E" : "#ffffff"
-  return <span className="inline-flex items-center whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium" style={{ backgroundColor: bg, color: fg }}>{org}</span>
+/** Organization tag — light tones like the rest of the tag system (Nawy light green, Partners light blue). */
+export function OrgChip({ org }: { org: ProjOrg }) {
+  return (
+    <span className={cn(
+      "inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium",
+      org === "Nawy" ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-blue-200 bg-blue-100 text-blue-700",
+    )}>
+      {org}
+    </span>
+  )
 }
 
-type GroupByKey = "none" | "developer" | "district" | "area" | "listingStatus" | "primaryStatus" | "entryType"
+/** Dependent classification tree: Category → Type → Subtype. */
+const CLASSIFICATION: Record<string, Record<string, string[]>> = {
+  Residential: {
+    Compound: ["Apartments", "Villas", "Mixed Units"],
+    Standalone: ["Apartments", "Villas"],
+    "Coastal Resort": ["Chalets", "Villas", "Mixed Units"],
+  },
+  Commercial: {
+    "Office Park": ["Offices", "Clinics"],
+    Retail: ["Shops", "F&B"],
+  },
+  "Mixed Use": {
+    Compound: ["Mixed Units", "Apartments"],
+    "Coastal Resort": ["Chalets", "Mixed Units"],
+  },
+}
+
+const SORT_FIELDS = [
+  { key: "createdAt", label: "Created at" },
+  { key: "updatedAt", label: "Updated at" },
+  { key: "buildingsCount", label: "Buildings count" },
+  { key: "areaKm2", label: "Area (km²)" },
+  { key: "primaryUnits", label: "Primary units" },
+  { key: "resaleUnits", label: "Resale units" },
+  { key: "nawyNowUnits", label: "Nawy Now units" },
+  { key: "rentalUnits", label: "Rental units" },
+]
+function sortVal(r: ProjectRow, k: string): number {
+  switch (k) {
+    case "createdAt": return new Date(r.createdAt).getTime()
+    case "updatedAt": return new Date(r.updatedAt).getTime()
+    case "buildingsCount": return r.buildingsCount
+    case "areaKm2": return r.areaKm2 ?? -1
+    case "primaryUnits": return r.primaryUnits.total
+    case "resaleUnits": return r.resaleUnits.total
+    case "nawyNowUnits": return r.nawyNowUnits.total
+    case "rentalUnits": return r.rentalUnits.total
+    default: return 0
+  }
+}
+
+function UnitsCell({ u }: { u: { available: number; total: number } }) {
+  if (u.total === 0) return <span className="text-sm text-muted-foreground">—</span>
+  return (
+    <span className="whitespace-nowrap text-sm">
+      <span className="font-semibold text-foreground">{u.available}</span>
+      <span className="text-muted-foreground">/{u.total}</span>
+    </span>
+  )
+}
+
+type GroupByKey = "none" | "mainProject" | "developer" | "district" | "area" | "listingStatus" | "primaryStatus" | "entryType"
 const GROUP_LABEL: Record<GroupByKey, string> = {
-  none: "Group by", developer: "Developer", district: "District", area: "Area",
+  none: "Group by", mainProject: "Main Project", developer: "Developer", district: "District", area: "Area",
   listingStatus: "Listing Status", primaryStatus: "Primary Status", entryType: "Entry Type",
 }
 function groupKeyOf(row: ProjectRow, key: GroupByKey) {
@@ -141,7 +198,14 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const [listingF, setListingF] = useState("")
   const [primaryF, setPrimaryF] = useState("")
   const [entryF, setEntryF] = useState("")
+  const [coordF, setCoordF] = useState("")
+  const [polyF, setPolyF] = useState("")
+  const [listingMpF, setListingMpF] = useState("")
+  const [gisMpF, setGisMpF] = useState("")
+  const [buildingsF, setBuildingsF] = useState("")
+  const [sorts, setSorts] = useState<SortLevel[]>([])
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
+  const [expandedMains, setExpandedMains] = useState<Set<string>>(new Set())
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -153,8 +217,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const [bulkListing, setBulkListing] = useState(false)
   const [drawTarget, setDrawTarget] = useState<ProjectRow | null>(null)
   const [gallery, setGallery] = useState<{ images: string[]; index: number; label: string } | null>(null)
-  const [addOpen, setAddOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [orgDlg, setOrgDlg] = useState<ProjectRow | null>(null)
+  const [bulkClass, setBulkClass] = useState(false)
 
   const toggleGroup = (label: string) =>
     setCollapsedGroups((prev) => { const n = new Set(prev); n.has(label) ? n.delete(label) : n.add(label); return n })
@@ -171,10 +237,12 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
     setRows((rs) => rs.map((x) => (x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id) ? { ...x, listingStatus: next } : x)))
   const applyPrimary = (r: ProjectRow, next: ProjPrimaryStatus) =>
     setRows((rs) => rs.map((x) => (x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id) ? { ...x, primaryStatus: next } : x)))
+  const applyOrgs = (r: ProjectRow, orgs: ProjOrg[]) =>
+    setRows((rs) => rs.map((x) => (x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id) ? { ...x, organizations: orgs } : x)))
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    return rows.filter((r) => {
+    let out = rows.filter((r) => {
       if (needle && !`${r.name} ${r.id}`.toLowerCase().includes(needle)) return false
       if (developerF && r.developer.id !== developerF) return false
       if (districtF && r.district !== districtF) return false
@@ -182,12 +250,28 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       if (listingF && r.listingStatus !== listingF) return false
       if (primaryF && r.primaryStatus !== primaryF) return false
       if (entryF && r.entryType !== entryF) return false
+      if (coordF && (geoOf(r.id)?.pin ? "Active" : "Hidden") !== coordF) return false
+      if (polyF && (geoOf(r.id)?.polygon ? "Active" : "Hidden") !== polyF) return false
+      if (listingMpF && (r.listingMasterplan ? "Uploaded" : "Missing") !== listingMpF) return false
+      if (gisMpF && (r.gisMasterplan ? "Uploaded" : "Missing") !== gisMpF) return false
+      if (buildingsF && (r.buildingsCount > 0 ? "Has buildings" : "No buildings") !== buildingsF) return false
       return true
     })
-  }, [rows, q, developerF, districtF, areaF, listingF, primaryF, entryF])
+    if (sorts.length > 0) {
+      out = [...out].sort((a, b) => {
+        for (const s of sorts) {
+          const d = sortVal(a, s.key) - sortVal(b, s.key)
+          if (d !== 0) return s.dir === "asc" ? d : -d
+        }
+        return 0
+      })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, q, developerF, districtF, areaF, listingF, primaryF, entryF, coordF, polyF, listingMpF, gisMpF, buildingsF, sorts, projGeo])
 
   const groups = useMemo(() => {
-    if (groupBy === "none") return null
+    if (groupBy === "none" || groupBy === "mainProject") return null
     const map = new Map<string, ProjectRow[]>()
     for (const r of filtered) {
       const k = groupKeyOf(r, groupBy)
@@ -205,9 +289,24 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const activeCount = rows.filter((r) => r.listingStatus === "Active").length
   const onSaleCount = rows.filter((r) => r.primaryStatus === "On-Sale").length
 
+  if (creating) {
+    return (
+      <AddProjectPage
+        onBack={() => setCreating(false)}
+        onSave={(row) => {
+          setRows((rs) => [row, ...rs])
+          toast.success(`${row.name} created`)
+          setCreating(false)
+        }}
+      />
+    )
+  }
+
   if (selected) {
     return <ProjectDetails project={selected} onBack={() => setSelected(null)} />
   }
+
+  const treeMode = groupBy === "mainProject"
 
   const renderRow = (r: ProjectRow) => (
     <tr key={r.id} onClick={() => setSelected(r)} className="group cursor-pointer transition-colors hover:bg-muted/40">
@@ -216,9 +315,21 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         <Checkbox checked={selectedIds.has(r.id)} onCheckedChange={() => toggleSelect(r.id)} className="h-4 w-4" />
       </td>
 
-      {/* Project / Phase name + id */}
-      <td className="py-3 pl-5 pr-4">
+      {/* Project / Phase name + id — tree affordances when grouped by Main Project */}
+      <td className={cn("py-3 pr-4", treeMode && r.isPhase ? "pl-10" : "pl-5")}>
         <div className="flex items-center gap-2.5">
+          {treeMode && !r.isPhase && (
+            phasesOf(r).length > 0 ? (
+              <button
+                className="flex-shrink-0 rounded p-0.5 hover:bg-secondary"
+                onClick={(e) => { e.stopPropagation(); setExpandedMains((prev) => { const n = new Set(prev); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n }) }}
+              >
+                <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", !expandedMains.has(r.id) && "-rotate-90")} />
+              </button>
+            ) : (
+              <span className="w-5 flex-shrink-0" />
+            )
+          )}
           <span className={cn("flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border", r.isPhase ? "border-border bg-muted text-muted-foreground" : "border-primary/20 bg-primary/10 text-primary")}>
             {r.isPhase ? <Layers className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
           </span>
@@ -306,6 +417,12 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         )}
       </td>
 
+      {/* Sale-type unit counts: available / total */}
+      <td className="px-4 py-3"><UnitsCell u={r.primaryUnits} /></td>
+      <td className="px-4 py-3"><UnitsCell u={r.resaleUnits} /></td>
+      <td className="px-4 py-3"><UnitsCell u={r.nawyNowUnits} /></td>
+      <td className="px-4 py-3"><UnitsCell u={r.rentalUnits} /></td>
+
       <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{fmt(r.createdAt)}</td>
       <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{fmt(r.updatedAt)}</td>
 
@@ -319,6 +436,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             <DropdownMenuItem onClick={() => setSelected(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setListingDlg(r)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setPrimaryDlg(r)}><TagIcon className="mr-2 h-3.5 w-3.5" />Change Primary Status</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setOrgDlg(r)}><Building2 className="mr-2 h-3.5 w-3.5" />Organizations</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setDrawTarget(r)}><MapIcon className="mr-2 h-3.5 w-3.5" />Draw on Map</DropdownMenuItem>
           </DropdownMenuContent>
@@ -350,7 +468,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           search={q}
           onSearch={(v) => { setQ(v); setPage(1) }}
           searchPlaceholder="Project name or ID"
-          activeFilters={[developerF, districtF, areaF, listingF, primaryF, entryF].filter(Boolean).length}
+          hideAdvanced
+          activeFilters={[developerF, districtF, areaF, listingF, primaryF, entryF, coordF, polyF, listingMpF, gisMpF, buildingsF].filter(Boolean).length}
           filters={
             <>
               {!hideDeveloperFilter && <FilterSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name, sublabel: d.id }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-44" />}
@@ -359,8 +478,14 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               <FilterSelect label="Listing Status" value={listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Primary Status" value={primaryF} options={PRIMARY_STATUSES} onChange={(v) => { setPrimaryF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Entry Type" value={entryF} options={["Automatic", "Manual"]} onChange={(v) => { setEntryF(v); setPage(1) }} className="w-36" />
+              <FilterSelect label="Coordinates" value={coordF} options={["Active", "Hidden"]} onChange={(v) => { setCoordF(v); setPage(1) }} className="w-36" />
+              <FilterSelect label="Polygons" value={polyF} options={["Active", "Hidden"]} onChange={(v) => { setPolyF(v); setPage(1) }} className="w-36" />
+              <FilterSelect label="Listing Masterplan" value={listingMpF} options={["Uploaded", "Missing"]} onChange={(v) => { setListingMpF(v); setPage(1) }} className="w-40" />
+              <FilterSelect label="GIS Masterplan" value={gisMpF} options={["Uploaded", "Missing"]} onChange={(v) => { setGisMpF(v); setPage(1) }} className="w-40" />
+              <FilterSelect label="Buildings" value={buildingsF} options={["Has buildings", "No buildings"]} onChange={(v) => { setBuildingsF(v); setPage(1) }} className="w-40" />
             </>
           }
+          sortControl={<MultiSortControl fields={SORT_FIELDS} sorts={sorts} onChange={setSorts} />}
           groupControl={
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -368,7 +493,17 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {(Object.keys(GROUP_LABEL) as GroupByKey[]).map((k) => (
-                  <DropdownMenuItem key={k} onClick={() => setGroupBy(k)} className="text-sm">{k === "none" ? "No grouping" : GROUP_LABEL[k]}</DropdownMenuItem>
+                  <DropdownMenuItem
+                    key={k}
+                    onClick={() => {
+                      setGroupBy(k)
+                      // Grouping by Main Project starts with every main expanded
+                      if (k === "mainProject") setExpandedMains(new Set(rows.filter((r) => !r.isPhase).map((r) => r.id)))
+                    }}
+                    className="text-sm"
+                  >
+                    {k === "none" ? "No grouping" : GROUP_LABEL[k]}
+                  </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -388,7 +523,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
                 <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setMapOpen(true)}>
                   <MapIcon className="h-3.5 w-3.5" />Map
                 </Button>
-                <Button size="sm" className="h-8 gap-1.5" onClick={() => setAddOpen(true)}>
+                <Button size="sm" className="h-8 gap-1.5" onClick={() => setCreating(true)}>
                   <Plus className="h-3.5 w-3.5" />Add Project
                 </Button>
               </div>
@@ -426,17 +561,28 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
                   <Th>Listing Masterplans</Th>
                   <Th>GIS Masterplan</Th>
                   <Th>Buildings</Th>
+                  <Th>Primary Properties</Th>
+                  <Th>Resale Properties</Th>
+                  <Th>Nawy Now</Th>
+                  <Th>Rentals</Th>
                   <Th>Created At</Th>
                   <Th>Updated At</Th>
                   <th className="sticky right-0 z-10 w-12 border-l border-border bg-muted/60" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {groups ? (
+                {treeMode ? (
+                  filtered.filter((m) => !m.isPhase).map((m) => (
+                    <Fragment key={m.id}>
+                      {renderRow(m)}
+                      {expandedMains.has(m.id) && filtered.filter((p) => p.isPhase && p.mainProject?.id === m.id).map(renderRow)}
+                    </Fragment>
+                  ))
+                ) : groups ? (
                   groups.map((g) => (
                     <Fragment key={g.label}>
                       <tr className="cursor-pointer bg-muted/40 hover:bg-muted/60" onClick={() => toggleGroup(g.label)}>
-                        <td colSpan={26} className="p-0">
+                        <td colSpan={30} className="p-0">
                           <div className="sticky left-0 flex w-max items-center gap-2 px-5 py-2">
                             <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", collapsedGroups.has(g.label) && "-rotate-90")} />
                             <span className="text-sm font-semibold text-foreground">{g.label}</span>
@@ -451,13 +597,17 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
                   pageRows.map(renderRow)
                 )}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={26} className="px-5 py-16 text-center text-sm text-muted-foreground">No projects match your filters.</td></tr>
+                  <tr><td colSpan={30} className="px-5 py-16 text-center text-sm text-muted-foreground">No projects match your filters.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
 
-          {groups ? (
+          {treeMode ? (
+            <div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">
+              {filtered.filter((m) => !m.isPhase).length} main projects · {filtered.filter((m) => m.isPhase).length} phases nested
+            </div>
+          ) : groups ? (
             <div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">{filtered.length} rows in {groups.length} group{groups.length !== 1 ? "s" : ""}</div>
           ) : (
             <TableFooter page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="projects" />
@@ -486,6 +636,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         >
           <BulkBarButton icon={<Download className="h-4 w-4" />} onClick={() => { toast.success(`${selectedIds.size} row${selectedIds.size > 1 ? "s" : ""} exported to CSV`); setSelectedIds(new Set()) }}>Export</BulkBarButton>
           <BulkBarButton icon={<ToggleRight className="h-4 w-4" />} onClick={() => setBulkListing(true)}>Listing Status</BulkBarButton>
+          <BulkBarButton icon={<TagIcon className="h-4 w-4" />} onClick={() => setBulkClass(true)}>Classification</BulkBarButton>
         </FloatingBulkBar>
 
         {listingDlg && (
@@ -554,13 +705,28 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           <FullscreenViewer images={gallery.images} startIndex={gallery.index} onClose={() => setGallery(null)} label={gallery.label} caption="Gallery" />
         )}
 
-        {addOpen && (
-          <AddProjectDialog
-            onClose={() => setAddOpen(false)}
-            onSave={(row) => {
-              setRows((rs) => [row, ...rs])
-              toast.success(`${row.name} created`)
-              setAddOpen(false)
+        {orgDlg && (
+          <OrganizationsDialog
+            r={orgDlg}
+            phases={phasesOf(orgDlg)}
+            onClose={() => setOrgDlg(null)}
+            onConfirm={(orgs) => {
+              applyOrgs(orgDlg, orgs)
+              toast.success(`${orgDlg.name} organizations updated${!orgDlg.isPhase && phasesOf(orgDlg).length ? ` with ${phasesOf(orgDlg).length} phases` : ""}`)
+              setOrgDlg(null)
+            }}
+          />
+        )}
+
+        {bulkClass && (
+          <BulkClassificationDialog
+            count={selectedIds.size}
+            onClose={() => setBulkClass(false)}
+            onConfirm={(category, projectType, projectSubtype) => {
+              setRows((rs) => rs.map((x) => (selectedIds.has(x.id) ? { ...x, category, projectType, projectSubtype } : x)))
+              toast.success(`${selectedIds.size} row${selectedIds.size > 1 ? "s" : ""} reclassified`)
+              setBulkClass(false)
+              setSelectedIds(new Set())
             }}
           />
         )}
@@ -719,7 +885,85 @@ function BulkListingDialog({ count, onClose, onConfirm }: { count: number; onClo
   )
 }
 
-function AddProjectDialog({ onClose, onSave }: { onClose: () => void; onSave: (r: ProjectRow) => void }) {
+/** Organizations picker — cascades from a main project to its phases. */
+function OrganizationsDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (orgs: ProjOrg[]) => void }) {
+  const [orgs, setOrgs] = useState<ProjOrg[]>(r.organizations)
+  const toggle = (o: ProjOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader><DialogTitle>Organizations</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Choose the organizations linked to <span className="font-medium text-foreground">{r.name}</span> <IdTag value={r.id} />:
+        </p>
+        <div className="space-y-2">
+          {(["Nawy", "Partners"] as ProjOrg[]).map((o) => (
+            <label key={o} className={cn(
+              "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
+              orgs.includes(o) ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
+            )}>
+              <Checkbox checked={orgs.includes(o)} onCheckedChange={() => toggle(o)} className="h-4 w-4" />
+              <OrgChip org={o} />
+            </label>
+          ))}
+        </div>
+        {!r.isPhase && phases.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            This is a <span className="font-semibold text-foreground">main project</span> — its {phases.length} phase{phases.length > 1 ? "s" : ""} will get the same organizations.
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={orgs.length === 0} onClick={() => onConfirm(orgs)}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Bulk classification — one action; Type depends on Category, Subtype depends on Type. */
+function BulkClassificationDialog({ count, onClose, onConfirm }: { count: number; onClose: () => void; onConfirm: (category: string, type: string, subtype: string) => void }) {
+  const [category, setCategory] = useState("Residential")
+  const types = Object.keys(CLASSIFICATION[category])
+  const [type, setType] = useState(types[0])
+  const subtypes = CLASSIFICATION[category][type] ?? []
+  const [subtype, setSubtype] = useState(subtypes[0])
+  const pickCategory = (c: string) => {
+    const t = Object.keys(CLASSIFICATION[c])[0]
+    setCategory(c); setType(t); setSubtype(CLASSIFICATION[c][t][0])
+  }
+  const pickType = (t: string) => { setType(t); setSubtype(CLASSIFICATION[category][t][0]) }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader><DialogTitle>Change Classification</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{count}</span> selected row{count > 1 ? "s" : ""} — category, type and subtype are dependent:
+        </p>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Category</div>
+            <FilterSelect label="Category" value={category} options={Object.keys(CLASSIFICATION)} onChange={pickCategory} className="w-full" width="w-full" />
+          </div>
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Type</div>
+            <FilterSelect label="Type" value={type} options={types} onChange={pickType} className="w-full" width="w-full" />
+          </div>
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Subtype</div>
+            <FilterSelect label="Subtype" value={subtype} options={subtypes} onChange={setSubtype} className="w-full" width="w-full" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={() => onConfirm(category, type, subtype)}>Apply to {count}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: ProjectRow) => void }) {
   const [name, setName] = useState("")
   const [devId, setDevId] = useState("")
   const [district, setDistrict] = useState("")
@@ -732,10 +976,18 @@ function AddProjectDialog({ onClose, onSave }: { onClose: () => void; onSave: (r
   const canSave = name.trim() && devId && district && area
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader><DialogTitle>Add Project</DialogTitle></DialogHeader>
-        <div className="space-y-3">
+    <div className="min-h-screen bg-secondary/40">
+      <div className="space-y-4 p-6">
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <button className="hover:text-foreground hover:underline" onClick={onBack}>Projects</button>
+          <ChevronDown className="h-3 w-3 -rotate-90" />
+          <span className="font-medium text-foreground">Add Project</span>
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Add Project</h1>
+          <p className="text-sm text-muted-foreground">Create a new main project — phases can be added from its details page</p>
+        </div>
+        <div className="max-w-3xl space-y-3 rounded-xl border border-border bg-card p-5">
           <div className="space-y-1.5">
             <div className="text-xs font-medium text-foreground">Project name</div>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Marina Heights" className="h-9 text-sm" />
@@ -774,44 +1026,49 @@ function AddProjectDialog({ onClose, onSave }: { onClose: () => void; onSave: (r
               <FilterSelect label="Entry Type" value={entryType} options={["Manual", "Automatic"]} onChange={(v) => setEntryType(v as ProjEntryType)} className="w-full" width="w-full" />
             </div>
           </div>
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <Button variant="outline" size="sm" onClick={onBack}>Cancel</Button>
+            <Button
+              size="sm" disabled={!canSave}
+              onClick={() => {
+                const dev = PROJECT_DEVELOPERS.find((d) => d.id === devId)!
+                const nextNum = Math.max(...PROJECTS.filter((p) => !p.isPhase).map((p) => Number(p.id.slice(4)))) + 1
+                const stamp = new Date().toISOString()
+                const zero = { available: 0, total: 0 }
+                onSave({
+                  id: `PRJ-${String(nextNum).padStart(4, "0")}`,
+                  name: name.trim(),
+                  isPhase: false,
+                  mainProject: null,
+                  developer: dev,
+                  district, area, subarea: subarea || "—",
+                  listingStatus: "Active",
+                  primaryStatus: "Launch",
+                  entryType,
+                  organizations: ["Nawy"],
+                  category, projectType, projectSubtype,
+                  areaKm2: null,
+                  galleryImages: [],
+                  brochureCount: 0,
+                  listingMasterplan: false,
+                  gisMasterplan: false,
+                  buildingsCount: 0,
+                  groupedProps: 0,
+                  detailedProps: 0,
+                  primaryUnits: zero,
+                  resaleUnits: zero,
+                  nawyNowUnits: zero,
+                  rentalUnits: zero,
+                  createdAt: stamp,
+                  updatedAt: stamp,
+                })
+              }}
+            >
+              Create Project
+            </Button>
+          </div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button
-            size="sm" disabled={!canSave}
-            onClick={() => {
-              const dev = PROJECT_DEVELOPERS.find((d) => d.id === devId)!
-              const nextNum = Math.max(...PROJECTS.filter((p) => !p.isPhase).map((p) => Number(p.id.slice(4)))) + 1
-              const stamp = new Date().toISOString()
-              onSave({
-                id: `PRJ-${String(nextNum).padStart(4, "0")}`,
-                name: name.trim(),
-                isPhase: false,
-                mainProject: null,
-                developer: dev,
-                district, area, subarea: subarea || "—",
-                listingStatus: "Active",
-                primaryStatus: "Launch",
-                entryType,
-                organizations: ["Nawy"],
-                category, projectType, projectSubtype,
-                areaKm2: null,
-                galleryImages: [],
-                brochureCount: 0,
-                listingMasterplan: false,
-                gisMasterplan: false,
-                buildingsCount: 0,
-                groupedProps: 0,
-                detailedProps: 0,
-                createdAt: stamp,
-                updatedAt: stamp,
-              })
-            }}
-          >
-            Create Project
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   )
 }

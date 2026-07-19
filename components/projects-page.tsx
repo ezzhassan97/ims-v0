@@ -280,7 +280,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
             {project && <><ChevronRight className="h-3 w-3" /><span className="font-medium text-foreground">{project.name}</span></>}
           </div>
         )}
-        <ProjectHeader />
+        <ProjectHeader project={project} />
 
         <Tabs defaultValue="features" className="w-full">
           {/* Single-row scrollable icon tabs — scales as tabs keep growing */}

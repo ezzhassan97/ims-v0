@@ -46,11 +46,18 @@ function sortVal(d: Developer, key: SortKey): string | number {
   }
 }
 
-/** Organization chip — same line, brand colours (Nawy teal, Partners blue). */
+/** Organization tag — light tones like the rest of the tag system (Nawy light green, Partners light blue). */
 function OrgChip({ org }: { org: string }) {
-  const bg = org === "Nawy" ? "#7DCBC1" : org === "Partners" ? "#015C9A" : "#e5e7eb"
-  const fg = org === "Nawy" ? "#0D1B2E" : "#ffffff"
-  return <span className="inline-flex items-center whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-semibold" style={{ backgroundColor: bg, color: fg }}>{org}</span>
+  return (
+    <span className={cn(
+      "inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium",
+      org === "Nawy" ? "border-emerald-200 bg-emerald-100 text-emerald-700"
+        : org === "Partners" ? "border-blue-200 bg-blue-100 text-blue-700"
+          : "border-border bg-muted text-muted-foreground",
+    )}>
+      {org}
+    </span>
+  )
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]

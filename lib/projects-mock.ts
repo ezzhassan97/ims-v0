@@ -5,6 +5,7 @@ export type ProjListingStatus = "Active" | "Hidden"
 export type ProjPrimaryStatus = "Launch" | "On-Sale" | "On-Hold" | "Sold-Off" | "Archived"
 export type ProjEntryType = "Automatic" | "Manual"
 export type ProjOrg = "Nawy" | "Partners"
+export interface UnitCount { available: number; total: number }
 
 export interface ProjectRow {
   id: string
@@ -32,6 +33,11 @@ export interface ProjectRow {
   /** Property counts impacted by primary-status changes */
   groupedProps: number
   detailedProps: number
+  /** Sale-type unit counts: available / total */
+  primaryUnits: UnitCount
+  resaleUnits: UnitCount
+  nawyNowUnits: UnitCount
+  rentalUnits: UnitCount
   createdAt: string
   updatedAt: string
 }
@@ -104,6 +110,10 @@ function buildRows(): ProjectRow[] {
       buildingsCount: i % 5 === 4 ? 0 : 6 + i * 3,
       groupedProps: 4 + ((i * 3) % 18),
       detailedProps: 30 + ((i * 23) % 160),
+      primaryUnits: { available: 12 + ((i * 7) % 60), total: 40 + ((i * 13) % 120) },
+      resaleUnits: { available: (i * 5) % 25, total: ((i * 5) % 25) + ((i * 9) % 40) },
+      nawyNowUnits: { available: (i * 3) % 12, total: ((i * 3) % 12) + ((i * 5) % 18) },
+      rentalUnits: { available: (i * 2) % 9, total: ((i * 2) % 9) + ((i * 4) % 14) },
       createdAt: isoDate(i * 6, 9),
       updatedAt: isoDate(i * 6 + 3, 14),
     }
@@ -136,6 +146,10 @@ function buildRows(): ProjectRow[] {
         buildingsCount: seed % 4 === 0 ? 0 : 2 + (seed % 9),
         groupedProps: 2 + (seed % 9),
         detailedProps: 12 + ((seed * 13) % 70),
+        primaryUnits: { available: 4 + ((seed * 3) % 30), total: 15 + ((seed * 7) % 60) },
+        resaleUnits: { available: (seed * 2) % 14, total: ((seed * 2) % 14) + (seed % 20) },
+        nawyNowUnits: { available: seed % 8, total: (seed % 8) + ((seed * 3) % 10) },
+        rentalUnits: { available: seed % 6, total: (seed % 6) + ((seed * 2) % 9) },
         createdAt: isoDate(i * 6 + p + 1, 10),
         updatedAt: isoDate(i * 6 + p + 4, 16),
       })
