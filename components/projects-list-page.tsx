@@ -1,9 +1,9 @@
 "use client"
 
-import { Fragment, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
-  AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, GitBranch, MoreHorizontal, Download, Eye, FileText, Globe, Repeat, ToggleRight, Layers, Building2,
-  Group as GroupIcon, MapPin, Plus, Tag as TagIcon, Map as MapIcon, Upload,
+  AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, GitBranch, ImagePlus, Info, MoreHorizontal, Download, Eye, FileText, Globe, Repeat, ToggleRight, Layers, Building2,
+  Group as GroupIcon, MapPin, Plus, Tag as TagIcon, Map as MapIcon, Upload, X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -16,8 +16,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import {
-  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FloatingBulkBar, BulkBarButton, MultiSortControl, ColumnsSheet, IdTag, COL_SEP,
-  type SortLevel,
+  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FiltersDrawer, FilterDrawerField, FloatingBulkBar, BulkBarButton, MultiSortControl, ColumnsSheet, IdTag, COL_SEP, ProjectTreeSelect,
+  type SortLevel, type ProjectTreeSelection,
 } from "@/components/table-kit"
 import { ProjectDetails } from "@/components/projects-page"
 import {
@@ -252,6 +252,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const [sorts, setSorts] = useState<SortLevel[]>([])
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
   const [expandedMains, setExpandedMains] = useState<Set<string>>(new Set())
+  const [showFilters, setShowFilters] = useState(false)
   const [showColumns, setShowColumns] = useState(false)
   const [colOrder, setColOrder] = useState<string[]>(PROJ_COLS.map((c) => c.id))
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set())
@@ -409,6 +410,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           setRows((rs) => [row, ...rs])
           toast.success(`${row.name} created`)
           setCreating(false)
+          setSelected(row) // straight to the details page to complete the rest
         }}
       />
     )
@@ -416,6 +418,14 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
 
   if (selected) {
     return <ProjectDetails project={selected} onBack={() => setSelected(null)} />
+  }
+
+  const activeFilterCount =
+    [listingF, entryF, levelF, coordF, polyF, listingMpF, gisMpF, buildingsF].filter(Boolean).length +
+    [developerF, districtF, areaF, primaryF].filter((a) => a.length > 0).length
+  const clearAllFilters = () => {
+    setDeveloperF([]); setDistrictF([]); setAreaF([]); setListingF(""); setPrimaryF([]); setEntryF("")
+    setLevelF(""); setCoordF(""); setPolyF(""); setListingMpF(""); setGisMpF(""); setBuildingsF(""); setPage(1)
   }
 
   const treeMode = groupBy === "mainProject"
@@ -563,10 +573,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               {r.isPhase ? (
                 <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "parent", targets: [r], ignored: 0 })}><GitBranch className="mr-2 h-3.5 w-3.5" />Change Parent Project</DropdownMenuItem>
               ) : (
-                <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "developer", targets: [r], ignored: 0 })}><Globe className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "developer", targets: [r], ignored: 0 })}><Building2 className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>
               )}
               <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "location", targets: [r], ignored: 0 })}><MapPin className="mr-2 h-3.5 w-3.5" />Change Area</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "orgs", targets: [r], ignored: 0 })}><Building2 className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "orgs", targets: [r], ignored: 0 })}><Globe className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setDrawTarget(r)}><MapIcon className="mr-2 h-3.5 w-3.5" />Draw on Map</DropdownMenuItem>
             </DropdownMenuContent>
@@ -602,8 +612,9 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           onSearch={(v) => { setQ(v); setPage(1) }}
           searchPlaceholder="Project name or ID"
           hideAdvanced
+          onAllFilters={() => setShowFilters(true)}
           onColumns={() => setShowColumns(true)}
-          activeFilters={[listingF, entryF, levelF, coordF, polyF, listingMpF, gisMpF, buildingsF].filter(Boolean).length + [developerF, districtF, areaF, primaryF].filter((a) => a.length > 0).length}
+          activeFilters={activeFilterCount}
           filters={
             <>
               {!hideDeveloperFilter && <FilterMultiSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-44" />}
@@ -795,7 +806,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           {/* Only Export (no cap), Classification (no cap) and Change Organizations (10-row cap) are allowed in bulk */}
           <BulkBarButton icon={<Download className="h-4 w-4" />} onClick={() => { toast.success(`${selectedIds.size} row${selectedIds.size > 1 ? "s" : ""} exported to CSV`); setSelectedIds(new Set()) }}>Export</BulkBarButton>
           <BulkBarButton icon={<TagIcon className="h-4 w-4" />} onClick={() => setBulkClass(true)}>Classification</BulkBarButton>
-          <BulkBarButton icon={<Building2 className="h-4 w-4" />} onClick={bulkGuard(() => openBulkCascade("orgs"))}>Change Organizations</BulkBarButton>
+          <BulkBarButton icon={<Globe className="h-4 w-4" />} onClick={bulkGuard(() => openBulkCascade("orgs"))}>Change Organizations</BulkBarButton>
         </FloatingBulkBar>
 
         {listingDlg && (
@@ -888,6 +899,48 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           frozen={frozenCols}
           onFrozenChange={setFrozenCols}
         />
+
+        {/* All Filters drawer — same filters, order and state as the toolbar */}
+        <FiltersDrawer open={showFilters} onClose={() => setShowFilters(false)} activeCount={activeFilterCount} onClear={clearAllFilters}>
+          {!hideDeveloperFilter && (
+            <FilterDrawerField label="Developer">
+              <FilterMultiSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-full" width="w-full" />
+            </FilterDrawerField>
+          )}
+          <FilterDrawerField label="District">
+            <FilterMultiSelect label="District" value={districtF} options={DISTRICTS} onChange={(v) => { setDistrictF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Area">
+            <FilterMultiSelect label="Area" value={areaF} options={AREAS} onChange={(v) => { setAreaF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Listing Status">
+            <FilterSelect label="Listing Status" value={listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Primary Status">
+            <FilterMultiSelect label="Primary Status" value={primaryF} options={PRIMARY_STATUSES} onChange={(v) => { setPrimaryF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Entry Type">
+            <FilterSelect label="Entry Type" value={entryF} options={["Automatic", "Manual"]} onChange={(v) => { setEntryF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Level">
+            <FilterSelect label="Level" value={levelF} options={["Main Project", "Phase"]} onChange={(v) => { setLevelF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Coordinates">
+            <FilterSelect label="Coordinates" value={coordF} options={["Added", "Missing"]} onChange={(v) => { setCoordF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Polygons">
+            <FilterSelect label="Polygons" value={polyF} options={["Added", "Missing"]} onChange={(v) => { setPolyF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Listing Masterplan">
+            <FilterSelect label="Listing Masterplan" value={listingMpF} options={["Uploaded", "Missing"]} onChange={(v) => { setListingMpF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="GIS Masterplan">
+            <FilterSelect label="GIS Masterplan" value={gisMpF} options={["Uploaded", "Missing"]} onChange={(v) => { setGisMpF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Buildings">
+            <FilterSelect label="Buildings" value={buildingsF} options={["Has buildings", "No buildings"]} onChange={(v) => { setBuildingsF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+        </FiltersDrawer>
 
         {uploadOpen && (
           <BulkUploadDrawer
@@ -1212,17 +1265,151 @@ function BulkClassificationDialog({ count, onClose, onConfirm }: { count: number
   )
 }
 
+/** Location option: areas and subareas mixed in one searchable dropdown, tagged by level. */
+function LocationSelect({ value, onChange }: { value: { level: "Area" | "Subarea"; name: string } | null; onChange: (v: { level: "Area" | "Subarea"; name: string }) => void }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState("")
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setQ("") } }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+  const options = [
+    ...AREAS.map((name) => ({ level: "Area" as const, name })),
+    ...SUBAREAS.map((name) => ({ level: "Subarea" as const, name })),
+  ].filter((o) => o.name.toLowerCase().includes(q.toLowerCase()))
+  return (
+    <div ref={ref} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn("flex h-8 w-full items-center justify-between gap-1.5 rounded-md border border-input bg-white px-2.5 text-sm transition-colors hover:bg-muted/50", value ? "text-foreground" : "text-muted-foreground")}
+      >
+        <span className="flex min-w-0 items-center gap-1.5 truncate text-left">
+          {value ? (
+            <>
+              <span className="truncate">{value.name}</span>
+              <span className={cn("inline-flex flex-shrink-0 items-center rounded border px-1.5 py-px text-[10px] font-medium", value.level === "Area" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>{value.level}</span>
+            </>
+          ) : "Select area or subarea…"}
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-9 z-50 w-full rounded-md border border-border bg-popover p-1 shadow-md">
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search areas & subareas…" className="mb-1 h-7 text-xs" autoFocus />
+          <div className="max-h-56 overflow-y-auto">
+            {options.map((o) => (
+              <button
+                key={`${o.level}:${o.name}`}
+                type="button"
+                onClick={() => { onChange(o); setOpen(false); setQ("") }}
+                className={cn("flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted", value?.name === o.name && value.level === o.level && "bg-primary/5 font-medium")}
+              >
+                <span className="truncate">{o.name}</span>
+                <span className={cn("inline-flex flex-shrink-0 items-center rounded border px-1.5 py-px text-[10px] font-medium", o.level === "Area" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>{o.level}</span>
+              </button>
+            ))}
+            {options.length === 0 && <p className="px-2 py-3 text-center text-xs text-muted-foreground">No matches</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Project creation form — Main Project or Phase (toggle). Only identity fields are
+ * asked for; everything else takes defaults (see the blue note) and is completed
+ * from the details page the user lands on after creation.
+ */
 function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: ProjectRow) => void }) {
-  const [name, setName] = useState("")
+  const [level, setLevel] = useState<"main" | "phase">("main")
+  const [cover, setCover] = useState<string | null>(null)
+  const [nameEn, setNameEn] = useState("")
+  const [nameAr, setNameAr] = useState("")
   const [devId, setDevId] = useState("")
-  const [district, setDistrict] = useState("")
-  const [area, setArea] = useState("")
-  const [subarea, setSubarea] = useState("")
-  const [category, setCategory] = useState("Residential")
-  const [projectType, setProjectType] = useState("Compound")
-  const [projectSubtype, setProjectSubtype] = useState("Apartments")
-  const [entryType, setEntryType] = useState<ProjEntryType>("Manual")
-  const canSave = name.trim() && devId && district && area
+  const [loc, setLoc] = useState<{ level: "Area" | "Subarea"; name: string } | null>(null)
+  const [parentSel, setParentSel] = useState<ProjectTreeSelection>(null)
+  const [category, setCategory] = useState("")
+  const [projectType, setProjectType] = useState("")
+  const [projectSubtype, setProjectSubtype] = useState("")
+  const [construction, setConstruction] = useState("")
+  const [orgs, setOrgs] = useState<ProjOrg[]>([])
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const toggleOrg = (o: ProjOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
+  const pickCategory = (c: string) => {
+    const t = Object.keys(CLASSIFICATION[c] ?? {})[0] ?? ""
+    setCategory(c); setProjectType(t); setProjectSubtype((CLASSIFICATION[c]?.[t] ?? [])[0] ?? "")
+  }
+  const pickType = (t: string) => { setProjectType(t); setProjectSubtype((CLASSIFICATION[category]?.[t] ?? [])[0] ?? "") }
+
+  const mains = PROJECTS.filter((p) => !p.isPhase)
+  const parentRow = parentSel ? mains.find((m) => m.id === parentSel.id) : null
+  const canSave = nameEn.trim() && nameAr.trim() && orgs.length > 0 && (level === "phase" ? !!parentRow : devId && !!loc)
+
+  const create = () => {
+    const stamp = new Date().toISOString()
+    const zero = { available: 0, total: 0 }
+    const base = {
+      listingStatus: "Hidden" as ProjListingStatus,
+      primaryStatus: "On-Sale" as ProjPrimaryStatus,
+      entryType: "Automatic" as ProjEntryType,
+      organizations: orgs,
+      category: category || "—",
+      projectType: projectType || "—",
+      projectSubtype: projectSubtype || "—",
+      constructionStatus: (construction || "Off-plan") as ProjectRow["constructionStatus"],
+      manualRank: null,
+      autoRank: 0,
+      areaKm2: null,
+      galleryImages: cover ? [cover] : [],
+      brochureCount: 0,
+      listingMasterplan: false,
+      gisMasterplan: false,
+      seoDescription: false,
+      buildingsCount: 0,
+      groupedProps: 0,
+      detailedProps: 0,
+      primaryUnits: zero, resaleUnits: zero, nawyNowUnits: zero, rentalUnits: zero,
+      createdAt: stamp,
+      updatedAt: stamp,
+    }
+    if (level === "phase" && parentRow) {
+      const n = PROJECTS.filter((p) => p.isPhase && p.mainProject?.id === parentRow.id).length + 1
+      onSave({
+        ...base,
+        id: `${parentRow.id}-P${n}`,
+        name: nameEn.trim(),
+        isPhase: true,
+        mainProject: { id: parentRow.id, name: parentRow.name },
+        developer: parentRow.developer,
+        district: parentRow.district, area: parentRow.area, subarea: parentRow.subarea,
+      })
+      return
+    }
+    const dev = PROJECT_DEVELOPERS.find((d) => d.id === devId)!
+    // Mock geo mapping: subareas pair with areas/districts by index
+    const idx = loc!.level === "Area" ? AREAS.indexOf(loc!.name) : SUBAREAS.indexOf(loc!.name)
+    const nextNum = Math.max(...mains.map((p) => Number(p.id.slice(4)))) + 1
+    onSave({
+      ...base,
+      id: `PRJ-${String(nextNum).padStart(4, "0")}`,
+      name: nameEn.trim(),
+      isPhase: false,
+      mainProject: null,
+      developer: dev,
+      district: DISTRICTS[idx] ?? DISTRICTS[0],
+      area: loc!.level === "Area" ? loc!.name : AREAS[idx] ?? AREAS[0],
+      subarea: loc!.level === "Subarea" ? loc!.name : "—",
+    })
+  }
+
+  const req = (label: string) => (
+    <div className="text-xs font-medium text-foreground">{label}<span className="ml-0.5 text-red-500">*</span></div>
+  )
 
   return (
     <div className="min-h-screen bg-secondary/40">
@@ -1232,93 +1419,131 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
           <ChevronDown className="h-3 w-3 -rotate-90" />
           <span className="font-medium text-foreground">Add Project</span>
         </div>
-        <div>
+        <div className="mx-auto w-full max-w-4xl">
           <h1 className="text-2xl font-bold text-foreground">Add Project</h1>
-          <p className="text-sm text-muted-foreground">Create a new main project — phases can be added from its details page</p>
+          <p className="text-sm text-muted-foreground">Create a new main project or a phase under an existing project</p>
         </div>
-        <div className="max-w-3xl space-y-3 rounded-xl border border-border bg-card p-5">
-          <div className="space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Project name</div>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Marina Heights" className="h-9 text-sm" />
+        <div className="mx-auto w-full max-w-4xl space-y-4 rounded-xl border border-border bg-card p-6">
+          {/* Level toggle */}
+          <div className="flex gap-2">
+            {([
+              { key: "main", label: "Main Project", icon: Building2 },
+              { key: "phase", label: "Phase", icon: Layers },
+            ] as const).map(({ key, label, icon: Icon }) => (
+              <button
+                key={key} type="button" onClick={() => setLevel(key)}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-2 rounded-lg border py-2.5 text-sm font-medium transition-colors",
+                  level === key ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/40" : "border-border text-muted-foreground hover:border-muted-foreground/40",
+                )}
+              >
+                <Icon className="h-4 w-4" />{label}
+              </button>
+            ))}
           </div>
-          <div className="grid grid-cols-2 gap-3">
+
+          {/* Cover image — optional */}
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Cover Image <span className="font-normal text-muted-foreground">(optional)</span></div>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setCover(URL.createObjectURL(f)) }} />
+            {cover ? (
+              <div className="relative w-fit">
+                <img src={cover} alt="Cover" className="h-28 w-44 rounded-lg border border-border object-cover" />
+                <button type="button" onClick={() => setCover(null)} className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:text-red-600">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => fileRef.current?.click()} className="flex h-28 w-44 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-muted-foreground transition-colors hover:border-muted-foreground/50 hover:text-foreground">
+                <ImagePlus className="h-5 w-5" />
+                <span className="text-[11px]">Upload cover</span>
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <div className="text-xs font-medium text-foreground">Developer</div>
-              <FilterSelect label="Select developer…" value={devId} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={setDevId} searchable className="w-full" width="w-full" />
+              {req("Project Name En")}
+              <Input value={nameEn} onChange={(e) => setNameEn(e.target.value)} placeholder="e.g. Marina Heights" className="h-9 text-sm" />
             </div>
             <div className="space-y-1.5">
-              <div className="text-xs font-medium text-foreground">District</div>
-              <FilterSelect label="Select district…" value={district} options={DISTRICTS} onChange={setDistrict} className="w-full" width="w-full" />
+              {req("Project Name Ar")}
+              <Input value={nameAr} onChange={(e) => setNameAr(e.target.value)} dir="rtl" placeholder="الاسم بالعربية" className="h-9 text-sm" />
             </div>
-            <div className="space-y-1.5">
-              <div className="text-xs font-medium text-foreground">Area</div>
-              <FilterSelect label="Select area…" value={area} options={AREAS} onChange={setArea} className="w-full" width="w-full" />
-            </div>
-            <div className="space-y-1.5">
-              <div className="text-xs font-medium text-foreground">Subarea</div>
-              <FilterSelect label="Select subarea…" value={subarea} options={SUBAREAS} onChange={setSubarea} className="w-full" width="w-full" />
-            </div>
+
+            {level === "main" ? (
+              <>
+                <div className="space-y-1.5">
+                  {req("Developer")}
+                  <FilterSelect label="Select developer…" value={devId} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={setDevId} searchable className="w-full" width="w-full" />
+                </div>
+                <div className="space-y-1.5">
+                  {req("Location")}
+                  <LocationSelect value={loc} onChange={setLoc} />
+                  <p className="text-[11px] text-muted-foreground">District is deduced from the selected area</p>
+                </div>
+              </>
+            ) : (
+              <div className="col-span-2 space-y-1.5">
+                {req("Parent Project")}
+                <ProjectTreeSelect
+                  label="Select parent project…"
+                  projects={mains.map((m) => ({ id: m.id, name: m.name, status: m.listingStatus, phases: [] }))}
+                  value={parentSel}
+                  onChange={setParentSel}
+                  className="w-full"
+                />
+                <p className="text-[11px] text-muted-foreground">Developer and location are inherited from the parent project</p>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <div className="text-xs font-medium text-foreground">Category</div>
-              <FilterSelect label="Category" value={category} options={["Residential", "Commercial", "Mixed Use"]} onChange={setCategory} className="w-full" width="w-full" />
+              <FilterSelect label="Select category…" value={category} options={Object.keys(CLASSIFICATION)} onChange={pickCategory} className="w-full" width="w-full" />
             </div>
             <div className="space-y-1.5">
               <div className="text-xs font-medium text-foreground">Type</div>
-              <FilterSelect label="Type" value={projectType} options={["Compound", "Standalone", "Coastal Resort"]} onChange={setProjectType} className="w-full" width="w-full" />
+              <FilterSelect label="Select type…" value={projectType} options={Object.keys(CLASSIFICATION[category] ?? {})} onChange={pickType} className="w-full" width="w-full" />
             </div>
             <div className="space-y-1.5">
               <div className="text-xs font-medium text-foreground">Subtype</div>
-              <FilterSelect label="Subtype" value={projectSubtype} options={["Apartments", "Villas", "Mixed Units"]} onChange={setProjectSubtype} className="w-full" width="w-full" />
+              <FilterSelect label="Select subtype…" value={projectSubtype} options={CLASSIFICATION[category]?.[projectType] ?? []} onChange={setProjectSubtype} className="w-full" width="w-full" />
             </div>
             <div className="space-y-1.5">
-              <div className="text-xs font-medium text-foreground">Entry Type</div>
-              <FilterSelect label="Entry Type" value={entryType} options={["Manual", "Automatic"]} onChange={(v) => setEntryType(v as ProjEntryType)} className="w-full" width="w-full" />
+              <div className="text-xs font-medium text-foreground">Construction Status</div>
+              <FilterSelect label="Select status…" value={construction} options={["Off-plan", "Under Construction", "Completed"]} onChange={setConstruction} className="w-full" width="w-full" />
+            </div>
+
+            <div className="col-span-2 space-y-1.5">
+              {req("Organizations")}
+              <div className="flex gap-2">
+                {(["Nawy", "Partners"] as ProjOrg[]).map((o) => (
+                  <label key={o} className={cn(
+                    "flex flex-1 cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
+                    orgs.includes(o) ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
+                  )}>
+                    <Checkbox checked={orgs.includes(o)} onCheckedChange={() => toggleOrg(o)} className="h-4 w-4" />
+                    <OrgChip org={o} />
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
+
+          {/* Everything else takes defaults — completed later from the details page */}
+          <div className="flex gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
+            <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+            <span>
+              <span className="font-semibold">Entry Type</span> will be <span className="font-semibold">Automatic</span> (assuming properties data comes as sheets),{" "}
+              <span className="font-semibold">Listing Status</span> will be <span className="font-semibold">Hidden</span>,{" "}
+              <span className="font-semibold">Primary Status</span> will be <span className="font-semibold">On-Sale</span>, and the map location can be added later —
+              after creation you land on the project details page to change or add anything.
+            </span>
+          </div>
+
           <div className="flex justify-end gap-2 border-t border-border pt-4">
             <Button variant="outline" size="sm" onClick={onBack}>Cancel</Button>
-            <Button
-              size="sm" disabled={!canSave}
-              onClick={() => {
-                const dev = PROJECT_DEVELOPERS.find((d) => d.id === devId)!
-                const nextNum = Math.max(...PROJECTS.filter((p) => !p.isPhase).map((p) => Number(p.id.slice(4)))) + 1
-                const stamp = new Date().toISOString()
-                const zero = { available: 0, total: 0 }
-                onSave({
-                  id: `PRJ-${String(nextNum).padStart(4, "0")}`,
-                  name: name.trim(),
-                  isPhase: false,
-                  mainProject: null,
-                  developer: dev,
-                  district, area, subarea: subarea || "—",
-                  listingStatus: "Active",
-                  primaryStatus: "Launch",
-                  entryType,
-                  organizations: ["Nawy"],
-                  category, projectType, projectSubtype,
-                  constructionStatus: "Off-plan",
-                  manualRank: null,
-                  autoRank: 0,
-                  areaKm2: null,
-                  galleryImages: [],
-                  brochureCount: 0,
-                  listingMasterplan: false,
-                  gisMasterplan: false,
-                  seoDescription: false,
-                  buildingsCount: 0,
-                  groupedProps: 0,
-                  detailedProps: 0,
-                  primaryUnits: zero,
-                  resaleUnits: zero,
-                  nawyNowUnits: zero,
-                  rentalUnits: zero,
-                  createdAt: stamp,
-                  updatedAt: stamp,
-                })
-              }}
-            >
-              Create Project
-            </Button>
+            <Button size="sm" disabled={!canSave} onClick={create}>Create {level === "phase" ? "Phase" : "Project"}</Button>
           </div>
         </div>
       </div>

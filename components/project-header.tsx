@@ -210,8 +210,9 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
     <div className="rounded-xl border border-border bg-card">
       {/* View-only header bar */}
       <div className="flex flex-wrap items-center gap-3 p-4">
-        <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
-          {p.isPhase ? <Layers className="h-5 w-5" /> : <Building2 className="h-5 w-5" />}
+        {/* Developer profile avatar (initials logo), not a generic icon */}
+        <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-sm font-bold text-primary">
+          {p.developer?.logo ?? (p.isPhase ? <Layers className="h-5 w-5" /> : <Building2 className="h-5 w-5" />)}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -271,10 +272,10 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
             {p.isPhase ? (
               <DropdownMenuItem onClick={() => setCascade("parent")}><GitBranch className="mr-2 h-3.5 w-3.5" />Change Parent Project</DropdownMenuItem>
             ) : (
-              <DropdownMenuItem onClick={() => setCascade("developer")}><Globe className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setCascade("developer")}><Building2 className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={() => setCascade("location")}><MapPin className="mr-2 h-3.5 w-3.5" />Change Area</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setCascade("orgs")}><Building2 className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setCascade("orgs")}><Globe className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setDrawOpen(true)}><MapIcon className="mr-2 h-3.5 w-3.5" />Draw on Map</DropdownMenuItem>
           </DropdownMenuContent>

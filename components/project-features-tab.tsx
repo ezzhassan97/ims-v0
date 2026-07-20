@@ -1,12 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { Landmark, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react"
+import { Check, Landmark, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { TableCard, TableCardHeader, FilterMultiSelect, FilterSelect, IdTag } from "@/components/table-kit"
-import { cn } from "@/lib/utils"
+import { TableCard, TableCardHeader, FilterMultiSelect, FilterSelect } from "@/components/table-kit"
 import { toast } from "sonner"
 
 const AMENITY_OPTIONS = ["Swimming Pool", "Gym", "Clubhouse", "Kids Area", "Cycling Lanes", "Sports Courts", "Spa", "Commercial Strip", "Central Park", "Lagoon"]
@@ -41,82 +39,89 @@ function ChipList({ values, onRemove }: { values: string[]; onRemove: (v: string
   )
 }
 
-function LandmarkDialog({ initial, onClose, onSave }: { initial?: LandmarkRow; onClose: () => void; onSave: (l: Omit<LandmarkRow, "id">) => void }) {
-  const [nameEn, setNameEn] = useState(initial?.nameEn ?? "")
-  const [nameAr, setNameAr] = useState(initial?.nameAr ?? "")
-  const [km, setKm] = useState(initial?.km ?? "")
-  const [min, setMin] = useState(initial?.min ?? "")
+/** Save (✓) / cancel (✕) pair for inline edit rows. */
+function InlineActions({ canSave, onSave, onCancel }: { canSave: boolean; onSave: () => void; onCancel: () => void }) {
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader><DialogTitle>{initial ? "Edit Landmark" : "Add Landmark"}</DialogTitle></DialogHeader>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2 space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Name En</div>
-            <Input value={nameEn} onChange={(e) => setNameEn(e.target.value)} placeholder="e.g. Cairo International Airport" className="h-9 text-sm" />
-          </div>
-          <div className="col-span-2 space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Name Ar</div>
-            <Input value={nameAr} onChange={(e) => setNameAr(e.target.value)} dir="rtl" placeholder="الاسم بالعربية" className="h-9 text-sm" />
-          </div>
-          <div className="space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Travelling Distance (km)</div>
-            <Input value={km} onChange={(e) => setKm(e.target.value)} placeholder="e.g. 12" className="h-9 text-sm" />
-          </div>
-          <div className="space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Travelling Time (min)</div>
-            <Input value={min} onChange={(e) => setMin(e.target.value)} placeholder="e.g. 15" className="h-9 text-sm" />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={!nameEn.trim() || !km.trim() || !min.trim()} onClick={() => onSave({ nameEn: nameEn.trim(), nameAr: nameAr.trim(), km: km.trim(), min: min.trim() })}>
-            {initial ? "Save Changes" : "Add Landmark"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <div className="flex flex-shrink-0 items-center gap-0.5">
+      <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600 hover:text-emerald-700 disabled:text-muted-foreground" disabled={!canSave} onClick={onSave}>
+        <Check className="h-4 w-4" />
+      </Button>
+      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={onCancel}>
+        <X className="h-4 w-4" />
+      </Button>
+    </div>
   )
 }
 
-function OfferingDialog({ initial, usedTypes, onClose, onSave }: { initial?: OfferingRow; usedTypes: string[]; onClose: () => void; onSave: (o: Omit<OfferingRow, "id">) => void }) {
-  const [type, setType] = useState(initial?.type ?? "")
-  const [count, setCount] = useState(initial?.count ?? "")
-  // A property type can only be offered once — exclude the ones already used (keep the one being edited)
-  const options = PROPERTY_TYPES.filter((t) => t === initial?.type || !usedTypes.includes(t))
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader><DialogTitle>{initial ? "Edit Offering" : "Add Offering"}</DialogTitle></DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Property Type</div>
-            <FilterSelect label="Select property type…" value={type} options={options} onChange={setType} className="w-full" width="w-full" />
-          </div>
-          <div className="space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Count</div>
-            <Input value={count} onChange={(e) => setCount(e.target.value)} placeholder="e.g. 120" className="h-9 text-sm" />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={!type || !count.trim()} onClick={() => onSave({ type, count: count.trim() })}>
-            {initial ? "Save Changes" : "Add Offering"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-/** Features tab: amenities & services multi-selects, landmarks list, property offerings. */
+/** Features tab: amenities & services multi-selects, landmarks list, property offerings — lists edit inline, no popups. */
 export function ProjectFeaturesTab() {
   const [amenities, setAmenities] = useState<string[]>(["Swimming Pool", "Gym", "Clubhouse"])
   const [services, setServices] = useState<string[]>(["Security 24/7", "Maintenance"])
   const [landmarks, setLandmarks] = useState<LandmarkRow[]>(LANDMARKS0)
   const [offerings, setOfferings] = useState<OfferingRow[]>(OFFERINGS0)
-  const [landmarkDlg, setLandmarkDlg] = useState<{ initial?: LandmarkRow } | null>(null)
-  const [offeringDlg, setOfferingDlg] = useState<{ initial?: OfferingRow } | null>(null)
+
+  // Inline landmark editing — "new" while adding, a row id while editing
+  const [editLm, setEditLm] = useState<string | null>(null)
+  const [lmDraft, setLmDraft] = useState<Omit<LandmarkRow, "id">>({ nameEn: "", nameAr: "", km: "", min: "" })
+  const lmSet = (k: keyof typeof lmDraft) => (v: string) => setLmDraft((d) => ({ ...d, [k]: v }))
+  const lmValid = lmDraft.nameEn.trim() !== "" && lmDraft.km.trim() !== "" && lmDraft.min.trim() !== ""
+  const startLm = (row?: LandmarkRow) => {
+    setLmDraft(row ? { nameEn: row.nameEn, nameAr: row.nameAr, km: row.km, min: row.min } : { nameEn: "", nameAr: "", km: "", min: "" })
+    setEditLm(row?.id ?? "new")
+  }
+  const saveLm = () => {
+    const d = { nameEn: lmDraft.nameEn.trim(), nameAr: lmDraft.nameAr.trim(), km: lmDraft.km.trim(), min: lmDraft.min.trim() }
+    if (editLm === "new") {
+      setLandmarks((prev) => [...prev, { id: String(9100 + Math.max(0, ...prev.map((x) => Number(x.id) - 9100)) + 1), ...d }])
+      toast.success(`${d.nameEn} added`)
+    } else {
+      setLandmarks((prev) => prev.map((x) => (x.id === editLm ? { ...x, ...d } : x)))
+      toast.success(`${d.nameEn} updated`)
+    }
+    setEditLm(null)
+  }
+
+  // Inline offering editing
+  const [editOf, setEditOf] = useState<string | null>(null)
+  const [ofDraft, setOfDraft] = useState<Omit<OfferingRow, "id">>({ type: "", count: "" })
+  const usedTypes = offerings.filter((o) => o.id !== editOf).map((o) => o.type)
+  // A property type can only be offered once — exclude the ones already used
+  const typeOptions = PROPERTY_TYPES.filter((t) => !usedTypes.includes(t))
+  const ofValid = ofDraft.type !== "" && ofDraft.count.trim() !== ""
+  const startOf = (row?: OfferingRow) => {
+    setOfDraft(row ? { type: row.type, count: row.count } : { type: "", count: "" })
+    setEditOf(row?.id ?? "new")
+  }
+  const saveOf = () => {
+    const d = { type: ofDraft.type, count: ofDraft.count.trim() }
+    if (editOf === "new") {
+      setOfferings((prev) => [...prev, { id: String(9200 + Math.max(0, ...prev.map((x) => Number(x.id) - 9200)) + 1), ...d }])
+      toast.success(`${d.type} offering added`)
+    } else {
+      setOfferings((prev) => prev.map((x) => (x.id === editOf ? { ...x, ...d } : x)))
+      toast.success(`${d.type} offering updated`)
+    }
+    setEditOf(null)
+  }
+
+  const lmEditRow = (
+    <div className="flex items-center gap-2 bg-primary/5 px-5 py-2.5">
+      <Input value={lmDraft.nameEn} onChange={(e) => lmSet("nameEn")(e.target.value)} placeholder="Name En" className="h-8 flex-1 text-sm" autoFocus />
+      <Input value={lmDraft.nameAr} onChange={(e) => lmSet("nameAr")(e.target.value)} dir="rtl" placeholder="الاسم بالعربية" className="h-8 flex-1 text-sm" />
+      <Input value={lmDraft.km} onChange={(e) => lmSet("km")(e.target.value)} placeholder="km" className="h-8 w-20 text-sm" />
+      <Input value={lmDraft.min} onChange={(e) => lmSet("min")(e.target.value)} placeholder="min" className="h-8 w-20 text-sm" />
+      <InlineActions canSave={lmValid} onSave={saveLm} onCancel={() => setEditLm(null)} />
+    </div>
+  )
+
+  const ofEditRow = (
+    <div className="flex items-center gap-2 bg-primary/5 px-5 py-2.5">
+      <FilterSelect label="Select property type…" value={ofDraft.type} options={typeOptions} onChange={(v) => setOfDraft((d) => ({ ...d, type: v }))} className="w-56" width="w-56" />
+      <Input value={ofDraft.count} onChange={(e) => setOfDraft((d) => ({ ...d, count: e.target.value }))} placeholder="Count" className="h-8 w-28 text-sm" />
+      <span className="flex-1" />
+      <InlineActions canSave={ofValid} onSave={saveOf} onCancel={() => setEditOf(null)} />
+    </div>
+  )
 
   return (
     <div className="space-y-4">
@@ -137,101 +142,77 @@ export function ProjectFeaturesTab() {
         </div>
       </TableCard>
 
-      {/* Landmarks */}
+      {/* Landmarks — inline add/edit */}
       <TableCard>
         <TableCardHeader
           title="Landmarks"
           count={landmarks.length}
-          cta={<Button size="sm" className="h-8 gap-1.5" onClick={() => setLandmarkDlg({})}><Plus className="h-3.5 w-3.5" />Add Landmark</Button>}
+          cta={<Button size="sm" className="h-8 gap-1.5" disabled={editLm === "new"} onClick={() => startLm()}><Plus className="h-3.5 w-3.5" />Add Landmark</Button>}
         />
-        {landmarks.length === 0 ? (
+        {landmarks.length === 0 && editLm !== "new" ? (
           <p className="flex items-center justify-center gap-1.5 py-10 text-sm text-muted-foreground"><Landmark className="h-4 w-4" />No landmarks added yet</p>
         ) : (
           <div className="divide-y divide-border">
-            {landmarks.map((l) => (
-              <div key={l.id} className="flex items-center gap-3 px-5 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">{l.nameEn}</p>
-                  <p className="truncate text-xs text-muted-foreground">{l.nameAr || "—"}</p>
+            {landmarks.map((l) =>
+              editLm === l.id ? (
+                <div key={l.id}>{lmEditRow}</div>
+              ) : (
+                <div key={l.id} className="flex items-center gap-3 px-5 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{l.nameEn}</p>
+                    <p className="truncate text-xs text-muted-foreground">{l.nameAr || "—"}</p>
+                  </div>
+                  <span className="whitespace-nowrap text-sm text-muted-foreground">{l.km} km</span>
+                  <span className="whitespace-nowrap text-sm text-muted-foreground">{l.min} min</span>
+                  <div className="flex flex-shrink-0 items-center gap-0.5">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => startLm(l)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => { setLandmarks((prev) => prev.filter((x) => x.id !== l.id)); toast.success(`${l.nameEn} removed`) }}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
-                <span className="whitespace-nowrap text-sm text-muted-foreground">{l.km} km</span>
-                <span className="whitespace-nowrap text-sm text-muted-foreground">{l.min} min</span>
-                <div className="flex flex-shrink-0 items-center gap-0.5">
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setLandmarkDlg({ initial: l })}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => { setLandmarks((prev) => prev.filter((x) => x.id !== l.id)); toast.success(`${l.nameEn} removed`) }}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            ))}
+              ),
+            )}
+            {editLm === "new" && lmEditRow}
           </div>
         )}
       </TableCard>
 
-      {/* Property offerings */}
+      {/* Property offerings — inline add/edit, a type can only be offered once */}
       <TableCard>
         <TableCardHeader
           title="Property Offerings"
           count={offerings.length}
-          cta={<Button size="sm" className="h-8 gap-1.5" onClick={() => setOfferingDlg({})}><Plus className="h-3.5 w-3.5" />Add Offering</Button>}
+          cta={<Button size="sm" className="h-8 gap-1.5" disabled={editOf === "new"} onClick={() => startOf()}><Plus className="h-3.5 w-3.5" />Add Offering</Button>}
         />
-        {offerings.length === 0 ? (
+        {offerings.length === 0 && editOf !== "new" ? (
           <p className="py-10 text-center text-sm text-muted-foreground">No property offerings yet</p>
         ) : (
           <div className="divide-y divide-border">
-            {offerings.map((o) => (
-              <div key={o.id} className="flex items-center gap-3 px-5 py-3">
-                <span className="inline-flex items-center whitespace-nowrap rounded-md border border-purple-200 bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">{o.type}</span>
-                <span className="flex-1 text-sm text-foreground"><span className="font-semibold">{o.count}</span> <span className="text-muted-foreground">units</span></span>
-                <div className="flex flex-shrink-0 items-center gap-0.5">
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setOfferingDlg({ initial: o })}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => { setOfferings((prev) => prev.filter((x) => x.id !== o.id)); toast.success(`${o.type} offering removed`) }}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+            {offerings.map((o) =>
+              editOf === o.id ? (
+                <div key={o.id}>{ofEditRow}</div>
+              ) : (
+                <div key={o.id} className="flex items-center gap-3 px-5 py-3">
+                  <span className="inline-flex items-center whitespace-nowrap rounded-md border border-purple-200 bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">{o.type}</span>
+                  <span className="flex-1 text-sm text-foreground"><span className="font-semibold">{o.count}</span> <span className="text-muted-foreground">units</span></span>
+                  <div className="flex flex-shrink-0 items-center gap-0.5">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => startOf(o)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => { setOfferings((prev) => prev.filter((x) => x.id !== o.id)); toast.success(`${o.type} offering removed`) }}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ),
+            )}
+            {editOf === "new" && ofEditRow}
           </div>
         )}
       </TableCard>
-
-      {landmarkDlg && (
-        <LandmarkDialog
-          initial={landmarkDlg.initial}
-          onClose={() => setLandmarkDlg(null)}
-          onSave={(l) => {
-            if (landmarkDlg.initial) {
-              setLandmarks((prev) => prev.map((x) => (x.id === landmarkDlg.initial!.id ? { ...x, ...l } : x)))
-              toast.success(`${l.nameEn} updated`)
-            } else {
-              setLandmarks((prev) => [...prev, { id: String(9100 + prev.length + Math.max(...prev.map((x) => Number(x.id) - 9100), 0) + 1), ...l }])
-              toast.success(`${l.nameEn} added`)
-            }
-            setLandmarkDlg(null)
-          }}
-        />
-      )}
-      {offeringDlg && (
-        <OfferingDialog
-          initial={offeringDlg.initial}
-          usedTypes={offerings.map((o) => o.type)}
-          onClose={() => setOfferingDlg(null)}
-          onSave={(o) => {
-            if (offeringDlg.initial) {
-              setOfferings((prev) => prev.map((x) => (x.id === offeringDlg.initial!.id ? { ...x, ...o } : x)))
-              toast.success(`${o.type} offering updated`)
-            } else {
-              setOfferings((prev) => [...prev, { id: String(9200 + prev.length + Math.max(...prev.map((x) => Number(x.id) - 9200), 0) + 1), ...o }])
-              toast.success(`${o.type} offering added`)
-            }
-            setOfferingDlg(null)
-          }}
-        />
-      )}
     </div>
   )
 }

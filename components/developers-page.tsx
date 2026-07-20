@@ -125,12 +125,13 @@ export function DevelopersPage() {
   const [statusF, setStatusF] = useState<string[]>([])
   const [priorityF, setPriorityF] = useState<string[]>([])
   const [orgF, setOrgF] = useState<string[]>([])
+  const [waF, setWaF] = useState("")
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   // Per-group pagination — real data can put hundreds of rows in one group
   const GROUP_PAGE_SIZE = 10
   const [groupPages, setGroupPages] = useState<Record<string, number>>({})
-  useEffect(() => { setGroupPages({}) }, [groupBy, q, statusF, priorityF, orgF])
+  useEffect(() => { setGroupPages({}) }, [groupBy, q, statusF, priorityF, orgF, waF])
   const [sorts, setSorts] = useState<{ key: SortKey; dir: "asc" | "desc" }[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const lastClickedRef = useRef<number | null>(null)
@@ -153,7 +154,7 @@ export function DevelopersPage() {
     }
     return left
   }
-  const clearAllFilters = () => { setQ(""); setStatusF([]); setPriorityF([]); setOrgF([]); setPage(1) }
+  const clearAllFilters = () => { setQ(""); setStatusF([]); setPriorityF([]); setOrgF([]); setWaF(""); setPage(1) }
 
   const toggleGroup = (label: string) =>
     setCollapsedGroups((prev) => { const n = new Set(prev); n.has(label) ? n.delete(label) : n.add(label); return n })
@@ -165,9 +166,10 @@ export function DevelopersPage() {
       if (statusF.length && !statusF.includes(d.listingStatus)) return false
       if (priorityF.length && !priorityF.includes(d.priority)) return false
       if (orgF.length && !orgF.some((o) => d.organizations.includes(o as never))) return false
+      if (waF && (d.whatsappGroup ? "Linked" : "Not Linked") !== waF) return false
       return true
     })
-  }, [rows, q, statusF, priorityF, orgF])
+  }, [rows, q, statusF, priorityF, orgF, waF])
 
   const sorted = useMemo(() => {
     if (!sorts.length) return filtered
@@ -318,7 +320,7 @@ export function DevelopersPage() {
           search={q}
           onSearch={(v) => { setQ(v); setPage(1) }}
           searchPlaceholder="Developer Name or ID"
-          activeFilters={statusF.length + priorityF.length + orgF.length}
+          activeFilters={statusF.length + priorityF.length + orgF.length + (waF ? 1 : 0)}
           hideAdvanced
           onAllFilters={() => setShowAllFilters(true)}
           onColumns={() => setShowColumnsSheet(true)}
@@ -327,6 +329,7 @@ export function DevelopersPage() {
               <FilterMultiSelect label="Status" tone="danger" value={statusF} options={["Active", "Hidden"]} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-36" />
               <FilterMultiSelect label="Priority" tone="danger" value={priorityF} options={PRIORITIES} onChange={(v) => { setPriorityF(v); setPage(1) }} className="w-36" />
               <FilterMultiSelect label="Organizations" tone="danger" value={orgF} options={["Nawy", "Partners"]} onChange={(v) => { setOrgF(v); setPage(1) }} className="w-44" />
+              <FilterSelect label="WhatsApp Groups" value={waF} options={["Linked", "Not Linked"]} onChange={(v) => { setWaF(v); setPage(1) }} className="w-44" />
             </>
           }
           sortControl={<DevSortControl sorts={sorts} setSorts={setSorts} />}
@@ -409,7 +412,7 @@ export function DevelopersPage() {
         <FiltersDrawer
           open={showAllFilters}
           onClose={() => setShowAllFilters(false)}
-          activeCount={statusF.length + priorityF.length + orgF.length}
+          activeCount={statusF.length + priorityF.length + orgF.length + (waF ? 1 : 0)}
           onClear={clearAllFilters}
         >
           <FilterDrawerField label="Status">
@@ -420,6 +423,9 @@ export function DevelopersPage() {
           </FilterDrawerField>
           <FilterDrawerField label="Organizations">
             <FilterMultiSelect label="Organizations" tone="danger" value={orgF} options={["Nawy", "Partners"]} onChange={(v) => { setOrgF(v); setPage(1) }} className="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="WhatsApp Groups">
+            <FilterSelect label="WhatsApp Groups" value={waF} options={["Linked", "Not Linked"]} onChange={(v) => { setWaF(v); setPage(1) }} className="w-full" width="w-full" />
           </FilterDrawerField>
         </FiltersDrawer>
 
