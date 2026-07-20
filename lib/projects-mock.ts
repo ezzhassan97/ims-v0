@@ -29,6 +29,7 @@ export interface ProjectRow {
   brochureCount: number
   listingMasterplan: boolean
   gisMasterplan: boolean
+  seoDescription: boolean
   buildingsCount: number
   /** Property counts impacted by primary-status changes */
   groupedProps: number
@@ -107,6 +108,7 @@ function buildRows(): ProjectRow[] {
       brochureCount: i % 3 === 2 ? 0 : (i % 4) + 1,
       listingMasterplan: i % 3 !== 1,
       gisMasterplan: i % 2 === 0,
+      seoDescription: i % 3 !== 2,
       buildingsCount: i % 5 === 4 ? 0 : 6 + i * 3,
       groupedProps: 4 + ((i * 3) % 18),
       detailedProps: 30 + ((i * 23) % 160),
@@ -143,6 +145,7 @@ function buildRows(): ProjectRow[] {
         brochureCount: seed % 4 === 1 ? 0 : seed % 3,
         listingMasterplan: seed % 4 !== 2,
         gisMasterplan: seed % 3 !== 1,
+        seoDescription: seed % 3 !== 0,
         buildingsCount: seed % 4 === 0 ? 0 : 2 + (seed % 9),
         groupedProps: 2 + (seed % 9),
         detailedProps: 12 + ((seed * 13) % 70),

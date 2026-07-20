@@ -1,11 +1,12 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { AlertTriangle, Check, Hand, MapPin, Minus, PenLine, Plus, Search, Trash2, X } from "lucide-react"
+import { AlertTriangle, Check, Filter, Hand, MapPin, Minus, PenLine, Plus, Search, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Switch } from "@/components/ui/switch"
 import { IdTag } from "@/components/table-kit"
 import { cn } from "@/lib/utils"
@@ -15,7 +16,16 @@ import { toast } from "sonner"
 export interface Pt { x: number; y: number }
 export type GeoLevel = "District" | "Area" | "Subarea" | "Project" | "Phase"
 /** Flattened geo entity handed to the global map. */
-export interface GeoRef { id: string; name: string; level: GeoLevel; status: "Active" | "Hidden"; pin: Pt | null; polygon: Pt[] | null }
+export interface GeoRef {
+  id: string
+  name: string
+  level: GeoLevel
+  status: "Active" | "Hidden"
+  /** Optional subtitle shown on Not-Drawn cards (e.g. the developer name). */
+  sub?: string
+  pin: Pt | null
+  polygon: Pt[] | null
+}
 export interface MapLocation { id: string; name: string; kind: string; center: Pt }
 
 export const LEVEL_COLOR: Record<GeoLevel, string> = { District: "#2563eb", Area: "#059669", Subarea: "#d97706", Project: "#7c3aed", Phase: "#0891b2" }
@@ -410,6 +420,7 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
   const [layers, setLayers] = useState<Record<GeoLevel, boolean>>({ District: true, Area: true, Subarea: true, Project: true, Phase: true })
   const [undrawnTab, setUndrawnTab] = useState<GeoLevel>(levels[0])
   const [undrawnQ, setUndrawnQ] = useState("")
+  const [undrawnStatusF, setUndrawnStatusF] = useState<"all" | "Active" | "Hidden">("all")
   const [selKey, setSelKey] = useState<string | null>(null)
   const [editGeo, setEditGeo] = useState(false)
   const [drawMode, setDrawMode] = useState<"pin" | "poly" | null>(null)
@@ -421,7 +432,9 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
   const sel = selKey ? list.find((g) => keyOf(g) === selKey) ?? null : null
   const LABEL_MIN: Record<GeoLevel, number> = { District: 0, Area: 1.4, Subarea: 2.6, Project: 0, Phase: 1.4 }
   const undrawnOf = (lvl: GeoLevel) => list.filter((g) => g.level === lvl && (!g.pin || !g.polygon))
-  const undrawnVisible = undrawnOf(undrawnTab).filter((g) => !undrawnQ.trim() || fuzzyMatch(undrawnQ, g.name) || fuzzyMatch(undrawnQ, g.id))
+  const undrawnVisible = undrawnOf(undrawnTab)
+    .filter((g) => undrawnStatusF === "all" || g.status === undrawnStatusF)
+    .filter((g) => !undrawnQ.trim() || fuzzyMatch(undrawnQ, g.name) || fuzzyMatch(undrawnQ, g.id))
 
   const zoomBy = (f: number) => setView((v) => ({ ...v, zoom: Math.min(8, Math.max(0.75, v.zoom * f)) }))
   const stopDrawing = () => { setDrawMode(null); setDraft(null) }
@@ -661,9 +674,28 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                     </button>
                   ))}
                 </div>
-                <div className="relative mt-2">
-                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input value={undrawnQ} onChange={(e) => setUndrawnQ(e.target.value)} placeholder={`Search ${undrawnTab.toLowerCase()}s by name or ID`} className="h-8 pl-8 text-sm" />
+                <div className="mt-2 flex items-center gap-1.5">
+                  <div className="relative min-w-0 flex-1">
+                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input value={undrawnQ} onChange={(e) => setUndrawnQ(e.target.value)} placeholder={`Search ${undrawnTab.toLowerCase()}s by name or ID`} className="h-8 pl-8 text-sm" />
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="icon"
+                        className={cn("h-8 w-8 flex-shrink-0", undrawnStatusF !== "all" && "border-primary/50 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary")}
+                        title="Filter by listing status">
+                        <Filter className="h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {(["all", "Active", "Hidden"] as const).map((s) => (
+                        <DropdownMenuItem key={s} className="text-sm" onClick={() => setUndrawnStatusF(s)}>
+                          <Check className={cn("mr-1.5 h-3.5 w-3.5", undrawnStatusF === s ? "opacity-100" : "opacity-0")} />
+                          {s === "all" ? "All statuses" : s}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
                 <div className="mt-2 min-h-0 flex-1 space-y-1.5 overflow-y-auto">
                   {undrawnVisible.map((g) => (
@@ -674,6 +706,15 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate text-sm font-medium text-foreground">{g.name}</span>
                         <IdTag value={g.id} />
+                      </div>
+                      <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+                        <span className={cn(
+                          "flex-shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none",
+                          g.status === "Active" ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-700",
+                        )}>
+                          {g.status}
+                        </span>
+                        {g.sub && <span className="truncate text-[11px] text-muted-foreground">{g.sub}</span>}
                       </div>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {!g.pin && <span className="rounded-md border border-red-200 bg-red-100 px-1.5 py-0.5 text-[10px] font-medium leading-none text-red-700">Missing Pin</span>}

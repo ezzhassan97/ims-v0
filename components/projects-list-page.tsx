@@ -2,8 +2,8 @@
 
 import { Fragment, useMemo, useState } from "react"
 import {
-  ArrowRight, Check, ChevronDown, MoreHorizontal, Download, Eye, FileText, Globe, ToggleRight, Layers, Building2,
-  Group as GroupIcon, Image as ImageIcon, MapPin, Plus, Tag as TagIcon, Map as MapIcon, Upload,
+  AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, MoreHorizontal, Download, Eye, FileText, Globe, ToggleRight, Layers, Building2,
+  Group as GroupIcon, MapPin, Plus, Tag as TagIcon, Map as MapIcon, Upload,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import {
-  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FloatingBulkBar, BulkBarButton, MultiSortControl, IdTag, COL_SEP,
+  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FloatingBulkBar, BulkBarButton, MultiSortControl, ColumnsSheet, IdTag, COL_SEP,
   type SortLevel,
 } from "@/components/table-kit"
 import { ProjectDetails } from "@/components/projects-page"
@@ -38,7 +38,7 @@ const PROJECT_GEO0: GeoRef[] = PROJECTS.map((p) => {
   const cy = 180 + Math.floor(mi / 4) * 175 + ((mi * 53) % 50)
   if (!p.isPhase) {
     return {
-      id: p.id, name: p.name, level: "Project" as const, status: p.listingStatus,
+      id: p.id, name: p.name, level: "Project" as const, status: p.listingStatus, sub: p.developer.name,
       pin: mi % 4 === 3 ? null : { x: cx, y: cy },
       polygon: mi % 3 === 2 ? null : blobPolygon(cx, cy, 46),
     }
@@ -48,7 +48,7 @@ const PROJECT_GEO0: GeoRef[] = PROJECTS.map((p) => {
   const px = cx - 25 + (pi % 3) * 26
   const py = cy - 18 + Math.floor(pi / 3) * 24
   return {
-    id: p.id, name: p.name, level: "Phase" as const, status: p.listingStatus,
+    id: p.id, name: p.name, level: "Phase" as const, status: p.listingStatus, sub: p.developer.name,
     pin: pi % 3 === 1 ? null : { x: px, y: py },
     polygon: pi % 2 === 1 ? null : blobPolygon(px, py, 14),
   }
@@ -167,9 +167,42 @@ function UnitsCell({ u }: { u: { available: number; total: number } }) {
     <span className="whitespace-nowrap text-sm">
       <span className="font-semibold text-foreground">{u.available}</span>
       <span className="text-muted-foreground">/{u.total}</span>
+      <span className="ml-1 text-[10px] text-muted-foreground">Listed / Total</span>
     </span>
   )
 }
+
+/** Column definitions for the shared ColumnsSheet (order / hide / freeze). */
+const PROJ_COLS = [
+  { id: "name", label: "Project / Phase Name", width: 240 },
+  { id: "mainProject", label: "Main Project", width: 180 },
+  { id: "developer", label: "Developer", width: 200 },
+  { id: "district", label: "District", width: 140 },
+  { id: "area", label: "Area", width: 140 },
+  { id: "subarea", label: "Subarea", width: 160 },
+  { id: "listingStatus", label: "Listing Status", width: 130 },
+  { id: "primaryStatus", label: "Primary Status", width: 130 },
+  { id: "entryType", label: "Entry Type", width: 120 },
+  { id: "organizations", label: "Organizations", width: 150 },
+  { id: "category", label: "Category", width: 130 },
+  { id: "projectType", label: "Type", width: 130 },
+  { id: "projectSubtype", label: "Subtype", width: 130 },
+  { id: "areaKm2", label: "Area (km²)", width: 110 },
+  { id: "brochures", label: "Brochures", width: 130 },
+  { id: "coordinates", label: "Coordinates", width: 120 },
+  { id: "polygons", label: "Map Polygons", width: 130 },
+  { id: "listingMp", label: "Listing Masterplans", width: 150 },
+  { id: "gisMp", label: "GIS Masterplan", width: 140 },
+  { id: "buildingsCount", label: "Buildings", width: 130 },
+  { id: "primaryUnits", label: "Primary Properties", width: 170 },
+  { id: "resaleUnits", label: "Resale Properties", width: 170 },
+  { id: "nawyNowUnits", label: "Nawy Now", width: 160 },
+  { id: "rentalUnits", label: "Rentals", width: 160 },
+  { id: "createdAt", label: "Created At", width: 170 },
+  { id: "updatedAt", label: "Updated At", width: 170 },
+]
+/** Header-click sortable columns — the same fields as the multi-sort control. */
+const SORTABLE_COLS = new Set(SORT_FIELDS.map((f) => f.key))
 
 type GroupByKey = "none" | "mainProject" | "developer" | "district" | "area" | "listingStatus" | "primaryStatus" | "entryType"
 const GROUP_LABEL: Record<GroupByKey, string> = {
@@ -192,11 +225,11 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const [rows, setRows] = useState<ProjectRow[]>(rowsProp ?? PROJECTS)
   const [selected, setSelected] = useState<ProjectRow | null>(null)
   const [q, setQ] = useState("")
-  const [developerF, setDeveloperF] = useState("")
-  const [districtF, setDistrictF] = useState("")
-  const [areaF, setAreaF] = useState("")
+  const [developerF, setDeveloperF] = useState<string[]>([])
+  const [districtF, setDistrictF] = useState<string[]>([])
+  const [areaF, setAreaF] = useState<string[]>([])
   const [listingF, setListingF] = useState("")
-  const [primaryF, setPrimaryF] = useState("")
+  const [primaryF, setPrimaryF] = useState<string[]>([])
   const [entryF, setEntryF] = useState("")
   const [levelF, setLevelF] = useState("")
   const [coordF, setCoordF] = useState("")
@@ -207,6 +240,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const [sorts, setSorts] = useState<SortLevel[]>([])
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
   const [expandedMains, setExpandedMains] = useState<Set<string>>(new Set())
+  const [showColumns, setShowColumns] = useState(false)
+  const [colOrder, setColOrder] = useState<string[]>(PROJ_COLS.map((c) => c.id))
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set())
+  const [frozenCols, setFrozenCols] = useState<Set<string>>(new Set())
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -240,19 +277,57 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const applyOrgs = (r: ProjectRow, orgs: ProjOrg[]) =>
     setRows((rs) => rs.map((x) => (x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id) ? { ...x, organizations: orgs } : x)))
 
+  const visibleCols = colOrder.filter((id) => !hiddenCols.has(id)).map((id) => PROJ_COLS.find((c) => c.id === id)!).filter(Boolean)
+  // Sticky-left offset for a frozen column = checkbox column (40px) + preceding frozen widths
+  const frozenLeft = (colId: string) => {
+    let left = 40
+    for (const c of visibleCols) {
+      if (c.id === colId) break
+      if (frozenCols.has(c.id)) left += c.width
+    }
+    return left
+  }
+  const cycleHeaderSort = (key: string) =>
+    setSorts((prev) => {
+      const cur = prev.length === 1 && prev[0].key === key ? prev[0] : null
+      if (!cur) return [{ key, dir: "asc" }]
+      return cur.dir === "asc" ? [{ key, dir: "desc" }] : []
+    })
+
+  /** When grouped by Main Project, main rows aggregate their phases' numeric columns. */
+  const aggOf = (m: ProjectRow): ProjectRow => {
+    const phs = phasesOf(m)
+    if (phs.length === 0) return m
+    const sumUnits = (k: "primaryUnits" | "resaleUnits" | "nawyNowUnits" | "rentalUnits") => ({
+      available: m[k].available + phs.reduce((s, p) => s + p[k].available, 0),
+      total: m[k].total + phs.reduce((s, p) => s + p[k].total, 0),
+    })
+    const kmVals = [m.areaKm2, ...phs.map((p) => p.areaKm2)].filter((x): x is number => x != null)
+    return {
+      ...m,
+      areaKm2: kmVals.length ? Number(kmVals.reduce((s, x) => s + x, 0).toFixed(2)) : null,
+      brochureCount: m.brochureCount + phs.reduce((s, p) => s + p.brochureCount, 0),
+      buildingsCount: m.buildingsCount + phs.reduce((s, p) => s + p.buildingsCount, 0),
+      primaryUnits: sumUnits("primaryUnits"),
+      resaleUnits: sumUnits("resaleUnits"),
+      nawyNowUnits: sumUnits("nawyNowUnits"),
+      rentalUnits: sumUnits("rentalUnits"),
+    }
+  }
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
     let out = rows.filter((r) => {
       if (needle && !`${r.name} ${r.id}`.toLowerCase().includes(needle)) return false
-      if (developerF && r.developer.id !== developerF) return false
-      if (districtF && r.district !== districtF) return false
-      if (areaF && r.area !== areaF) return false
+      if (developerF.length > 0 && !developerF.includes(r.developer.id)) return false
+      if (districtF.length > 0 && !districtF.includes(r.district)) return false
+      if (areaF.length > 0 && !areaF.includes(r.area)) return false
       if (listingF && r.listingStatus !== listingF) return false
-      if (primaryF && r.primaryStatus !== primaryF) return false
+      if (primaryF.length > 0 && !primaryF.includes(r.primaryStatus)) return false
       if (entryF && r.entryType !== entryF) return false
       if (levelF && (r.isPhase ? "Phase" : "Main Project") !== levelF) return false
-      if (coordF && (geoOf(r.id)?.pin ? "Active" : "Hidden") !== coordF) return false
-      if (polyF && (geoOf(r.id)?.polygon ? "Active" : "Hidden") !== polyF) return false
+      if (coordF && (geoOf(r.id)?.pin ? "Uploaded" : "Missing") !== coordF) return false
+      if (polyF && (geoOf(r.id)?.polygon ? "Uploaded" : "Missing") !== polyF) return false
       if (listingMpF && (r.listingMasterplan ? "Uploaded" : "Missing") !== listingMpF) return false
       if (gisMpF && (r.gisMasterplan ? "Uploaded" : "Missing") !== gisMpF) return false
       if (buildingsF && (r.buildingsCount > 0 ? "Has buildings" : "No buildings") !== buildingsF) return false
@@ -308,126 +383,131 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
 
   const treeMode = groupBy === "mainProject"
 
-  const renderRow = (r: ProjectRow) => (
-    <tr key={r.id} onClick={() => setSelected(r)} className="group cursor-pointer transition-colors hover:bg-muted/40">
-      {/* Select */}
-      <td className="w-10 py-3 pl-4 pr-0" onClick={(e) => e.stopPropagation()}>
-        <Checkbox checked={selectedIds.has(r.id)} onCheckedChange={() => toggleSelect(r.id)} className="h-4 w-4" />
-      </td>
-
-      {/* Project / Phase name + id — tree affordances when grouped by Main Project */}
-      <td className={cn("py-3 pr-4", treeMode && r.isPhase ? "pl-10" : "pl-5")}>
-        <div className="flex items-center gap-2.5">
-          {treeMode && !r.isPhase && (
-            phasesOf(r).length > 0 ? (
-              <button
-                className="flex-shrink-0 rounded p-0.5 hover:bg-secondary"
-                onClick={(e) => { e.stopPropagation(); setExpandedMains((prev) => { const n = new Set(prev); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n }) }}
-              >
-                <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", !expandedMains.has(r.id) && "-rotate-90")} />
-              </button>
-            ) : (
-              <span className="w-5 flex-shrink-0" />
-            )
-          )}
-          <span className={cn("flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border", r.isPhase ? "border-border bg-muted text-muted-foreground" : "border-primary/20 bg-primary/10 text-primary")}>
-            {r.isPhase ? <Layers className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
-          </span>
-          <div className="min-w-0">
-            <p className="truncate font-medium text-foreground">{r.name}</p>
-            <IdTag value={r.id} />
+  // d = display row: when grouped by Main Project, mains aggregate their phases' numeric columns
+  const cellContent = (colId: string, r: ProjectRow, d: ProjectRow) => {
+    switch (colId) {
+      case "name":
+        return (
+          <div className="flex items-center gap-2.5">
+            {treeMode && !r.isPhase && (
+              phasesOf(r).length > 0 ? (
+                <button
+                  className="flex-shrink-0 rounded p-0.5 hover:bg-secondary"
+                  onClick={(e) => { e.stopPropagation(); setExpandedMains((prev) => { const n = new Set(prev); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n }) }}
+                >
+                  <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", !expandedMains.has(r.id) && "-rotate-90")} />
+                </button>
+              ) : (
+                <span className="w-5 flex-shrink-0" />
+              )
+            )}
+            <span className={cn("flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border", r.isPhase ? "border-border bg-muted text-muted-foreground" : "border-primary/20 bg-primary/10 text-primary")}>
+              {r.isPhase ? <Layers className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate font-medium text-foreground">{r.name}</p>
+              <IdTag value={r.id} />
+            </div>
           </div>
-        </div>
-      </td>
-
-      {/* Main Project */}
-      <td className="px-4 py-3">
-        {r.mainProject ? (
+        )
+      case "mainProject":
+        return r.mainProject ? (
           <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
             <a href={`/projects/${r.mainProject.id}`} target="_blank" rel="noopener noreferrer" className="block truncate font-medium text-primary hover:underline">{r.mainProject.name}</a>
             <IdTag value={r.mainProject.id} />
           </div>
         ) : (
           <span className="inline-flex items-center rounded-md border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Main Project</span>
-        )}
-      </td>
-
-      {/* Developer */}
-      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">{r.developer.logo}</span>
-          <div className="min-w-0">
-            <a href={`/developers/${r.developer.id}`} target="_blank" rel="noopener noreferrer" className="block truncate font-medium text-primary hover:underline">{r.developer.name}</a>
-            <IdTag value={r.developer.id} />
+        )
+      case "developer":
+        return (
+          <div className="flex items-center gap-2.5" onClick={(e) => e.stopPropagation()}>
+            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">{r.developer.logo}</span>
+            <div className="min-w-0">
+              <a href={`/developers/${r.developer.id}`} target="_blank" rel="noopener noreferrer" className="block truncate font-medium text-primary hover:underline">{r.developer.name}</a>
+              <IdTag value={r.developer.id} />
+            </div>
           </div>
-        </div>
-      </td>
+        )
+      case "district": return <ColorTag value={r.district} />
+      case "area": return <ColorTag value={r.area} />
+      case "subarea": return <ColorTag value={r.subarea} />
+      case "listingStatus": return <Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} />
+      case "primaryStatus": return <Tag value={r.primaryStatus} cls={PRIMARY_COLORS[r.primaryStatus]} />
+      case "entryType": return <Tag value={r.entryType} cls={ENTRY_COLORS[r.entryType]} />
+      case "organizations": return <div className="flex gap-1">{r.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
+      case "category": return <ColorTag value={r.category} />
+      case "projectType": return <ColorTag value={r.projectType} />
+      case "projectSubtype": return <ColorTag value={r.projectSubtype} />
+      case "areaKm2": return <span className="whitespace-nowrap text-sm text-muted-foreground">{d.areaKm2 == null ? "—" : `${d.areaKm2} km²`}</span>
+      case "brochures":
+        return d.brochureCount === 0
+          ? <Tag value="No brochures" cls={RED_TAG} />
+          : <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground"><FileText className="h-3.5 w-3.5 text-muted-foreground" />{d.brochureCount}</span>
+      case "coordinates": return <Tag value={geoOf(r.id)?.pin ? "Active" : "Hidden"} cls={LISTING_COLORS[geoOf(r.id)?.pin ? "Active" : "Hidden"]} />
+      case "polygons": return <Tag value={geoOf(r.id)?.polygon ? "Active" : "Hidden"} cls={LISTING_COLORS[geoOf(r.id)?.polygon ? "Active" : "Hidden"]} />
+      case "listingMp": return <Tag value={r.listingMasterplan ? "Uploaded" : "Missing"} cls={r.listingMasterplan ? UPLOADED_TAG : RED_TAG} />
+      case "gisMp": return <Tag value={r.gisMasterplan ? "Uploaded" : "Missing"} cls={r.gisMasterplan ? UPLOADED_TAG : RED_TAG} />
+      case "buildingsCount":
+        return d.buildingsCount === 0
+          ? <Tag value="No buildings" cls={RED_TAG} />
+          : <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground"><Building2 className="h-3.5 w-3.5 text-muted-foreground" />{d.buildingsCount}</span>
+      case "primaryUnits": return <UnitsCell u={d.primaryUnits} />
+      case "resaleUnits": return <UnitsCell u={d.resaleUnits} />
+      case "nawyNowUnits": return <UnitsCell u={d.nawyNowUnits} />
+      case "rentalUnits": return <UnitsCell u={d.rentalUnits} />
+      case "createdAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{fmt(r.createdAt)}</span>
+      case "updatedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{fmt(r.updatedAt)}</span>
+      default: return null
+    }
+  }
 
-      <td className="px-4 py-3"><ColorTag value={r.district} /></td>
-      <td className="px-4 py-3"><ColorTag value={r.area} /></td>
-      <td className="px-4 py-3"><ColorTag value={r.subarea} /></td>
-      <td className="px-4 py-3"><Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} /></td>
-      <td className="px-4 py-3"><Tag value={r.primaryStatus} cls={PRIMARY_COLORS[r.primaryStatus]} /></td>
-      <td className="px-4 py-3"><Tag value={r.entryType} cls={ENTRY_COLORS[r.entryType]} /></td>
-
-      {/* Organizations */}
-      <td className="px-4 py-3"><div className="flex gap-1">{r.organizations.map((o) => <OrgChip key={o} org={o} />)}</div></td>
-      <td className="px-4 py-3"><ColorTag value={r.category} /></td>
-      <td className="px-4 py-3"><ColorTag value={r.projectType} /></td>
-      <td className="px-4 py-3"><ColorTag value={r.projectSubtype} /></td>
-      <td className="whitespace-nowrap px-4 py-3 text-sm text-muted-foreground">{r.areaKm2 == null ? "—" : `${r.areaKm2} km²`}</td>
-
-      {/* Brochures */}
-      <td className="px-4 py-3">
-        {r.brochureCount === 0 ? (
-          <Tag value="No brochures" cls={RED_TAG} />
-        ) : (
-          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground"><FileText className="h-3.5 w-3.5 text-muted-foreground" />{r.brochureCount}</span>
+  const renderRow = (r: ProjectRow) => {
+    const d = treeMode && !r.isPhase ? aggOf(r) : r
+    return (
+      <tr
+        key={r.id}
+        onClick={() => setSelected(r)}
+        className={cn(
+          "group cursor-pointer transition-colors hover:bg-muted/40",
+          treeMode && r.isPhase && "bg-muted/20",
+          treeMode && !r.isPhase && expandedMains.has(r.id) && "bg-primary/5",
         )}
-      </td>
-
-      {/* Geometry state comes from the live map data */}
-      <td className="px-4 py-3"><Tag value={geoOf(r.id)?.pin ? "Active" : "Hidden"} cls={LISTING_COLORS[geoOf(r.id)?.pin ? "Active" : "Hidden"]} /></td>
-      <td className="px-4 py-3"><Tag value={geoOf(r.id)?.polygon ? "Active" : "Hidden"} cls={LISTING_COLORS[geoOf(r.id)?.polygon ? "Active" : "Hidden"]} /></td>
-      <td className="px-4 py-3"><Tag value={r.listingMasterplan ? "Uploaded" : "Missing"} cls={r.listingMasterplan ? UPLOADED_TAG : RED_TAG} /></td>
-      <td className="px-4 py-3"><Tag value={r.gisMasterplan ? "Uploaded" : "Missing"} cls={r.gisMasterplan ? UPLOADED_TAG : RED_TAG} /></td>
-
-      {/* Buildings */}
-      <td className="px-4 py-3">
-        {r.buildingsCount === 0 ? (
-          <Tag value="No buildings" cls={RED_TAG} />
-        ) : (
-          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground"><Building2 className="h-3.5 w-3.5 text-muted-foreground" />{r.buildingsCount}</span>
-        )}
-      </td>
-
-      {/* Sale-type unit counts: available / total */}
-      <td className="px-4 py-3"><UnitsCell u={r.primaryUnits} /></td>
-      <td className="px-4 py-3"><UnitsCell u={r.resaleUnits} /></td>
-      <td className="px-4 py-3"><UnitsCell u={r.nawyNowUnits} /></td>
-      <td className="px-4 py-3"><UnitsCell u={r.rentalUnits} /></td>
-
-      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{fmt(r.createdAt)}</td>
-      <td className="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{fmt(r.updatedAt)}</td>
-
-      {/* Action — frozen right */}
-      <td className="sticky right-0 z-10 w-12 border-l border-border bg-card p-0 transition-colors group-hover:bg-muted/40" onClick={(e) => e.stopPropagation()}>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex h-full w-12 items-center justify-center text-muted-foreground hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuItem onClick={() => setSelected(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setListingDlg(r)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setPrimaryDlg(r)}><TagIcon className="mr-2 h-3.5 w-3.5" />Change Primary Status</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setOrgDlg(r)}><Building2 className="mr-2 h-3.5 w-3.5" />Organizations</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setDrawTarget(r)}><MapIcon className="mr-2 h-3.5 w-3.5" />Draw on Map</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </td>
-    </tr>
-  )
+      >
+        <td className="w-10 py-3 pl-4 pr-0" onClick={(e) => e.stopPropagation()}>
+          <Checkbox checked={selectedIds.has(r.id)} onCheckedChange={() => toggleSelect(r.id)} className="h-4 w-4" />
+        </td>
+        {visibleCols.map((c) => (
+          <td
+            key={c.id}
+            className={cn(
+              c.id === "name" ? cn("py-3 pr-4", treeMode && r.isPhase ? "pl-10" : "pl-5") : "px-4 py-3",
+              frozenCols.has(c.id) && "sticky z-10 bg-card",
+            )}
+            style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
+          >
+            {cellContent(c.id, r, d)}
+          </td>
+        ))}
+        {/* Action — frozen right */}
+        <td className="sticky right-0 z-10 w-12 border-l border-border bg-card p-0 transition-colors group-hover:bg-muted/40" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex h-full w-12 items-center justify-center text-muted-foreground hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem onClick={() => setSelected(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setListingDlg(r)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setPrimaryDlg(r)}><TagIcon className="mr-2 h-3.5 w-3.5" />Change Primary Status</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setOrgDlg(r)}><Building2 className="mr-2 h-3.5 w-3.5" />Organizations</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setDrawTarget(r)}><MapIcon className="mr-2 h-3.5 w-3.5" />Draw on Map</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </td>
+      </tr>
+    )
+  }
 
   return (
     <div className={embedded ? "" : "min-h-screen bg-secondary/40"}>
@@ -446,7 +526,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           <CoverageCard icon={<Globe className="h-4 w-4 text-emerald-600" />} label="GIS Masterplan" covered={covered((r) => r.gisMasterplan)} total={filtered.length} />
           <CoverageCard icon={<Building2 className="h-4 w-4 text-amber-500" />} label="Buildings" covered={covered((r) => r.buildingsCount > 0)} total={filtered.length} />
           <CoverageCard icon={<FileText className="h-4 w-4 text-purple-600" />} label="Brochures" covered={covered((r) => r.brochureCount > 0)} total={filtered.length} />
-          <CoverageCard icon={<ImageIcon className="h-4 w-4 text-rose-500" />} label="Gallery Images" covered={covered((r) => r.galleryImages.length > 0)} total={filtered.length} />
+          <CoverageCard icon={<AlignLeft className="h-4 w-4 text-rose-500" />} label="SEO Description" covered={covered((r) => r.seoDescription)} total={filtered.length} />
         </div>
 
         {/* Search + filters + controls */}
@@ -455,18 +535,19 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           onSearch={(v) => { setQ(v); setPage(1) }}
           searchPlaceholder="Project name or ID"
           hideAdvanced
-          activeFilters={[developerF, districtF, areaF, listingF, primaryF, entryF, levelF, coordF, polyF, listingMpF, gisMpF, buildingsF].filter(Boolean).length}
+          onColumns={() => setShowColumns(true)}
+          activeFilters={[listingF, entryF, levelF, coordF, polyF, listingMpF, gisMpF, buildingsF].filter(Boolean).length + [developerF, districtF, areaF, primaryF].filter((a) => a.length > 0).length}
           filters={
             <>
-              {!hideDeveloperFilter && <FilterSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name, sublabel: d.id }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-44" />}
-              <FilterSelect label="District" value={districtF} options={DISTRICTS} onChange={(v) => { setDistrictF(v); setPage(1) }} className="w-40" />
-              <FilterSelect label="Area" value={areaF} options={AREAS} onChange={(v) => { setAreaF(v); setPage(1) }} className="w-40" />
+              {!hideDeveloperFilter && <FilterMultiSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-44" />}
+              <FilterMultiSelect label="District" value={districtF} options={DISTRICTS} onChange={(v) => { setDistrictF(v); setPage(1) }} className="w-40" />
+              <FilterMultiSelect label="Area" value={areaF} options={AREAS} onChange={(v) => { setAreaF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Listing Status" value={listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v); setPage(1) }} className="w-40" />
-              <FilterSelect label="Primary Status" value={primaryF} options={PRIMARY_STATUSES} onChange={(v) => { setPrimaryF(v); setPage(1) }} className="w-40" />
+              <FilterMultiSelect label="Primary Status" value={primaryF} options={PRIMARY_STATUSES} onChange={(v) => { setPrimaryF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Entry Type" value={entryF} options={["Automatic", "Manual"]} onChange={(v) => { setEntryF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Level" value={levelF} options={["Main Project", "Phase"]} onChange={(v) => { setLevelF(v); setPage(1) }} className="w-36" />
-              <FilterSelect label="Coordinates" value={coordF} options={["Active", "Hidden"]} onChange={(v) => { setCoordF(v); setPage(1) }} className="w-36" />
-              <FilterSelect label="Polygons" value={polyF} options={["Active", "Hidden"]} onChange={(v) => { setPolyF(v); setPage(1) }} className="w-36" />
+              <FilterSelect label="Coordinates" value={coordF} options={["Uploaded", "Missing"]} onChange={(v) => { setCoordF(v); setPage(1) }} className="w-36" />
+              <FilterSelect label="Polygons" value={polyF} options={["Uploaded", "Missing"]} onChange={(v) => { setPolyF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Listing Masterplan" value={listingMpF} options={["Uploaded", "Missing"]} onChange={(v) => { setListingMpF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="GIS Masterplan" value={gisMpF} options={["Uploaded", "Missing"]} onChange={(v) => { setGisMpF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Buildings" value={buildingsF} options={["Has buildings", "No buildings"]} onChange={(v) => { setBuildingsF(v); setPage(1) }} className="w-40" />
@@ -533,48 +614,53 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
                       onCheckedChange={(v) => setSelectedIds(v ? new Set(filtered.map((r) => r.id)) : new Set())}
                     />
                   </th>
-                  <Th className="pl-5">Project / Phase Name</Th>
-                  <Th>Main Project</Th>
-                  <Th>Developer</Th>
-                  <Th>District</Th>
-                  <Th>Area</Th>
-                  <Th>Subarea</Th>
-                  <Th>Listing Status</Th>
-                  <Th>Primary Status</Th>
-                  <Th>Entry Type</Th>
-                  <Th>Organizations</Th>
-                  <Th>Category</Th>
-                  <Th>Type</Th>
-                  <Th>Subtype</Th>
-                  <Th>Area (km²)</Th>
-                  <Th>Brochures</Th>
-                  <Th>Coordinates</Th>
-                  <Th>Map Polygons</Th>
-                  <Th>Listing Masterplans</Th>
-                  <Th>GIS Masterplan</Th>
-                  <Th>Buildings</Th>
-                  <Th>Primary Properties</Th>
-                  <Th>Resale Properties</Th>
-                  <Th>Nawy Now</Th>
-                  <Th>Rentals</Th>
-                  <Th>Created At</Th>
-                  <Th>Updated At</Th>
+                  {visibleCols.map((c) => {
+                    const s = sorts.find((x) => x.key === c.id)
+                    return (
+                      <th
+                        key={c.id}
+                        className={cn("whitespace-nowrap px-4 py-3 text-left", c.id === "name" && "pl-5", frozenCols.has(c.id) && "sticky z-20 bg-muted/60")}
+                        style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
+                      >
+                        {SORTABLE_COLS.has(c.id) ? (
+                          <button onClick={() => cycleHeaderSort(c.id)} className="inline-flex items-center gap-1 uppercase hover:text-foreground">
+                            {c.label}
+                            {s ? (s.dir === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                          </button>
+                        ) : c.label}
+                      </th>
+                    )
+                  })}
                   <th className="sticky right-0 z-10 w-12 border-l border-border bg-muted/60" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {treeMode ? (
-                  filtered.filter((m) => !m.isPhase).map((m) => (
-                    <Fragment key={m.id}>
-                      {renderRow(m)}
-                      {expandedMains.has(m.id) && filtered.filter((p) => p.isPhase && p.mainProject?.id === m.id).map(renderRow)}
-                    </Fragment>
-                  ))
+                  filtered.filter((m) => !m.isPhase).map((m) => {
+                    const phs = filtered.filter((p) => p.isPhase && p.mainProject?.id === m.id)
+                    const open = expandedMains.has(m.id)
+                    return (
+                      <Fragment key={m.id}>
+                        {renderRow(m)}
+                        {open && phs.length > 0 && (
+                          <tr className="bg-primary/5">
+                            <td className="w-10 p-0" />
+                            <td colSpan={visibleCols.length + 1} className="py-1.5 pl-6">
+                              <span className="border-l-2 border-primary pl-2 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                                {phs.length} nested row{phs.length !== 1 ? "s" : ""}
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+                        {open && phs.map(renderRow)}
+                      </Fragment>
+                    )
+                  })
                 ) : groups ? (
                   groups.map((g) => (
                     <Fragment key={g.label}>
                       <tr className="cursor-pointer bg-muted/40 hover:bg-muted/60" onClick={() => toggleGroup(g.label)}>
-                        <td colSpan={29} className="p-0">
+                        <td colSpan={visibleCols.length + 2} className="p-0">
                           <div className="sticky left-0 flex w-max items-center gap-2 px-5 py-2">
                             <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", collapsedGroups.has(g.label) && "-rotate-90")} />
                             <span className="text-sm font-semibold text-foreground">{g.label}</span>
@@ -589,7 +675,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
                   pageRows.map(renderRow)
                 )}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={29} className="px-5 py-16 text-center text-sm text-muted-foreground">No projects match your filters.</td></tr>
+                  <tr><td colSpan={visibleCols.length + 2} className="px-5 py-16 text-center text-sm text-muted-foreground">No projects match your filters.</td></tr>
                 )}
               </tbody>
             </table>
@@ -686,7 +772,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             onSave={(pin, polygon) => {
               setProjGeo((prev) => prev.some((x) => x.id === drawTarget.id)
                 ? prev.map((x) => (x.id === drawTarget.id ? { ...x, pin, polygon } : x))
-                : [...prev, { id: drawTarget.id, name: drawTarget.name, level: drawTarget.isPhase ? "Phase" as const : "Project" as const, status: drawTarget.listingStatus, pin, polygon }])
+                : [...prev, { id: drawTarget.id, name: drawTarget.name, level: drawTarget.isPhase ? "Phase" as const : "Project" as const, status: drawTarget.listingStatus, sub: drawTarget.developer.name, pin, polygon }])
               setDrawTarget(null)
               toast.success("Map geometry saved")
             }}
@@ -718,6 +804,18 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             }}
           />
         )}
+
+        <ColumnsSheet
+          open={showColumns}
+          onClose={() => setShowColumns(false)}
+          columns={PROJ_COLS}
+          order={colOrder}
+          onOrderChange={setColOrder}
+          hidden={hiddenCols}
+          onHiddenChange={setHiddenCols}
+          frozen={frozenCols}
+          onFrozenChange={setFrozenCols}
+        />
 
         {uploadOpen && (
           <BulkUploadDrawer

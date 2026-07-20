@@ -637,6 +637,7 @@ export function MultiSortControl({ fields, sorts, onChange }: {
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const dragIdx = useRef<number | null>(null)
   useEffect(() => {
     function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
     document.addEventListener("mousedown", handler)
@@ -657,7 +658,22 @@ export function MultiSortControl({ fields, sorts, onChange }: {
           <p className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Multi-level sort</p>
           {sorts.length === 0 && <p className="px-3 py-1.5 text-xs text-muted-foreground">No sort applied — add a level below.</p>}
           {sorts.map((s, i) => (
-            <div key={s.key} className="flex items-center gap-2 px-3 py-1.5">
+            <div
+              key={s.key}
+              className="flex cursor-grab items-center gap-2 px-3 py-1.5 active:cursor-grabbing"
+              draggable
+              onDragStart={() => { dragIdx.current = i }}
+              onDragOver={(e) => {
+                e.preventDefault()
+                if (dragIdx.current === null || dragIdx.current === i) return
+                const arr = [...sorts]
+                arr.splice(i, 0, ...arr.splice(dragIdx.current, 1))
+                dragIdx.current = i
+                onChange(arr)
+              }}
+              onDragEnd={() => { dragIdx.current = null }}
+            >
+              <GripVertical className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/60" />
               <span className="w-4 text-[11px] text-muted-foreground">{i + 1}.</span>
               <span className="flex-1 text-sm">{fields.find((f) => f.key === s.key)?.label ?? s.key}</span>
               <button onClick={() => onChange(sorts.map((x, j) => (j === i ? { ...x, dir: "asc" } : x)))} className={cn("rounded p-1", s.dir === "asc" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted")} title="Ascending"><ArrowUp className="h-3.5 w-3.5" /></button>
