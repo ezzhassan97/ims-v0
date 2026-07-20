@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Check, Landmark, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react"
+import { Check, ConciergeBell, Dumbbell, Landmark, Pencil, Plus, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { TableCard, TableCardHeader, FilterMultiSelect, FilterSelect } from "@/components/table-kit"
@@ -130,12 +130,12 @@ export function ProjectFeaturesTab() {
         <TableCardHeader title="Amenities & Services" />
         <div className="grid gap-6 p-5 sm:grid-cols-2">
           <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-foreground"><Sparkles className="h-3.5 w-3.5 text-muted-foreground" />Amenities</div>
+            <div className="flex items-center gap-1.5 text-xs font-medium text-foreground"><Dumbbell className="h-3.5 w-3.5 text-muted-foreground" />Amenities</div>
             <FilterMultiSelect label="Select amenities" options={AMENITY_OPTIONS} value={amenities} onChange={setAmenities} className="w-full" width="w-full" />
             <ChipList values={amenities} onRemove={(v) => setAmenities((prev) => prev.filter((x) => x !== v))} />
           </div>
           <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-foreground"><Sparkles className="h-3.5 w-3.5 text-muted-foreground" />Services</div>
+            <div className="flex items-center gap-1.5 text-xs font-medium text-foreground"><ConciergeBell className="h-3.5 w-3.5 text-muted-foreground" />Services</div>
             <FilterMultiSelect label="Select services" options={SERVICE_OPTIONS} value={services} onChange={setServices} className="w-full" width="w-full" />
             <ChipList values={services} onRemove={(v) => setServices((prev) => prev.filter((x) => x !== v))} />
           </div>
@@ -180,8 +180,9 @@ export function ProjectFeaturesTab() {
         )}
       </TableCard>
 
-      {/* Property offerings — inline add/edit, a type can only be offered once */}
-      <TableCard>
+      {/* Property offerings — inline add/edit, a type can only be offered once.
+          overflow-visible while editing so the type dropdown isn't clipped by the card. */}
+      <TableCard className={editOf ? "overflow-visible" : undefined}>
         <TableCardHeader
           title="Property Offerings"
           count={offerings.length}

@@ -767,7 +767,8 @@ function ContactsTab() {
   )
 }
 
-interface Faq { id: string; active: boolean; questionEn: string; answerEn: string; questionAr: string; answerAr: string }
+/** An FAQ belongs to ONE language — English and Arabic are separate pools, not paired translations. */
+interface Faq { id: string; active: boolean; lang: "en" | "ar"; question: string; answer: string }
 let faqCounter = 100
 
 function LangToggle({ lang, onChange }: { lang: "en" | "ar"; onChange: (l: "en" | "ar") => void }) {
@@ -779,20 +780,30 @@ function LangToggle({ lang, onChange }: { lang: "en" | "ar"; onChange: (l: "en" 
   )
 }
 
-/** Shared FAQs manager (developer details, areas page). */
+/** Shared FAQs manager (developer details, projects, areas). Each language is its own pool. */
 export function FaqsTab({ entityName }: { entityName: string }) {
   const [lang, setLang] = useState<"en" | "ar">("en")
   const [faqs, setFaqs] = useState<Faq[]>([
-    { id: "faq-1", active: true, questionEn: `Where are ${entityName}'s projects located?`, answerEn: "Across New Cairo, Sheikh Zayed, the North Coast, and 6th of October.", questionAr: "أين تقع مشروعات المطور؟", answerAr: "في القاهرة الجديدة والشيخ زايد والساحل الشمالي و6 أكتوبر." },
-    { id: "faq-2", active: true, questionEn: "What payment plans are available?", answerEn: "Flexible plans from 5% down payment and up to 12 years of installments.", questionAr: "ما أنظمة السداد المتاحة؟", answerAr: "أنظمة مرنة تبدأ من 5% مقدم وحتى 12 سنة أقساط." },
-    { id: "faq-3", active: false, questionEn: "Is delivery on schedule?", answerEn: "Projects follow the announced delivery timelines with periodic updates.", questionAr: "هل التسليم في الموعد؟", answerAr: "تلتزم المشروعات بمواعيد التسليم المعلنة مع تحديثات دورية." },
+    { id: "faq-1", active: true, lang: "en", question: `Where are ${entityName}'s projects located?`, answer: "Across New Cairo, Sheikh Zayed, the North Coast, and 6th of October." },
+    { id: "faq-2", active: true, lang: "en", question: "What payment plans are available?", answer: "Flexible plans from 5% down payment and up to 12 years of installments." },
+    { id: "faq-3", active: false, lang: "en", question: "Is delivery on schedule?", answer: "Projects follow the announced delivery timelines with periodic updates." },
+    { id: "faq-4", active: true, lang: "ar", question: "ما أنظمة السداد المتاحة؟", answer: "أنظمة مرنة تبدأ من 5% مقدم وحتى 12 سنة أقساط." },
+    { id: "faq-5", active: true, lang: "ar", question: "أين تقع المشروعات؟", answer: "في القاهرة الجديدة والشيخ زايد والساحل الشمالي و6 أكتوبر." },
   ])
   const [editing, setEditing] = useState<Faq | null>(null)
   const [creating, setCreating] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const isAr = lang === "ar"
+  const pool = faqs.filter((f) => f.lang === lang)
 
-  const move = (from: number, to: number) => setFaqs((fs) => { const n = [...fs]; const [m] = n.splice(from, 1); n.splice(to, 0, m); return n })
+  // Reorder within the current language pool (positions map back to the master list)
+  const move = (from: number, to: number) =>
+    setFaqs((fs) => {
+      const ids = fs.filter((f) => f.lang === lang).map((f) => f.id)
+      const fromIdx = fs.findIndex((f) => f.id === ids[from])
+      const toIdx = fs.findIndex((f) => f.id === ids[to])
+      const n = [...fs]; const [m] = n.splice(fromIdx, 1); n.splice(toIdx, 0, m); return n
+    })
   const toggleActive = (id: string) => setFaqs((fs) => fs.map((f) => (f.id === id ? { ...f, active: !f.active } : f)))
   const remove = (id: string) => setFaqs((fs) => fs.filter((f) => f.id !== id))
   const save = (faq: Faq) => setFaqs((fs) => (fs.some((f) => f.id === faq.id) ? fs.map((f) => (f.id === faq.id ? faq : f)) : [...fs, faq]))
@@ -800,7 +811,7 @@ export function FaqsTab({ entityName }: { entityName: string }) {
   return (
     <TabCard>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <div><h3 className="text-sm font-semibold">FAQs</h3><p className="text-xs text-muted-foreground">Manage developer FAQs by language</p></div>
+        <div><h3 className="text-sm font-semibold">FAQs</h3><p className="text-xs text-muted-foreground">English and Arabic FAQs are separate pools — switch the language to manage each</p></div>
         <div className="flex items-center gap-2">
           <LangToggle lang={lang} onChange={setLang} />
           <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}><Plus className="h-4 w-4" />Add FAQ</Button>
@@ -808,7 +819,7 @@ export function FaqsTab({ entityName }: { entityName: string }) {
       </div>
 
       <div className="space-y-2.5">
-        {faqs.map((f, i) => (
+        {pool.map((f, i) => (
           <div
             key={f.id}
             draggable
@@ -822,6 +833,7 @@ export function FaqsTab({ entityName }: { entityName: string }) {
                 <GripVertical className="h-4 w-4 cursor-grab text-muted-foreground active:cursor-grabbing" />
                 <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">#{i + 1}</span>
                 <StoryBadge value={f.active ? "Active" : "Hidden"} />
+                <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">{f.lang}</span>
               </div>
               <div className="flex items-center gap-1">
                 <Switch checked={f.active} onCheckedChange={() => toggleActive(f.id)} />
@@ -829,32 +841,28 @@ export function FaqsTab({ entityName }: { entityName: string }) {
                 <IconBtn title="Delete" onClick={() => remove(f.id)}><Trash2 className="h-4 w-4" /></IconBtn>
               </div>
             </div>
-            <p dir={isAr ? "rtl" : undefined} className={cn("mt-2 text-sm font-semibold text-foreground", isAr && "text-right")}>{(isAr ? f.questionAr : f.questionEn) || "—"}</p>
-            <div dir={isAr ? "rtl" : undefined} className={cn("mt-1.5 rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground", isAr && "text-right")}>{(isAr ? f.answerAr : f.answerEn) || "—"}</div>
+            <p dir={isAr ? "rtl" : undefined} className={cn("mt-2 text-sm font-semibold text-foreground", isAr && "text-right")}>{f.question}</p>
+            <div dir={isAr ? "rtl" : undefined} className={cn("mt-1.5 rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground", isAr && "text-right")}>{f.answer}</div>
           </div>
         ))}
-        {faqs.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">No FAQs yet — click "Add FAQ" to create one.</p>}
+        {pool.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">No {isAr ? "Arabic" : "English"} FAQs yet — click "Add FAQ" to create one.</p>}
       </div>
 
       {(creating || editing) && (
-        <FaqModal faq={editing} lang={lang} onLang={setLang} onClose={() => { setCreating(false); setEditing(null) }} onSave={(f) => { save(f); setCreating(false); setEditing(null) }} />
+        <FaqModal faq={editing} defaultLang={lang} onClose={() => { setCreating(false); setEditing(null) }} onSave={(f) => { save(f); setCreating(false); setEditing(null) }} />
       )}
     </TabCard>
   )
 }
 
-function FaqModal({ faq, lang, onLang, onClose, onSave }: { faq: Faq | null; lang: "en" | "ar"; onLang: (l: "en" | "ar") => void; onClose: () => void; onSave: (f: Faq) => void }) {
+function FaqModal({ faq, defaultLang, onClose, onSave }: { faq: Faq | null; defaultLang: "en" | "ar"; onClose: () => void; onSave: (f: Faq) => void }) {
+  // The FAQ's own language — switchable while creating AND while editing
+  const [lang, setLang] = useState<"en" | "ar">(faq?.lang ?? defaultLang)
   const [active, setActive] = useState(faq?.active ?? true)
-  const [qEn, setQEn] = useState(faq?.questionEn ?? "")
-  const [aEn, setAEn] = useState(faq?.answerEn ?? "")
-  const [qAr, setQAr] = useState(faq?.questionAr ?? "")
-  const [aAr, setAAr] = useState(faq?.answerAr ?? "")
+  const [q, setQ] = useState(faq?.question ?? "")
+  const [a, setA] = useState(faq?.answer ?? "")
   const isAr = lang === "ar"
-  const q = isAr ? qAr : qEn
-  const a = isAr ? aAr : aEn
-  const setQ = isAr ? setQAr : setQEn
-  const setA = isAr ? setAAr : setAEn
-  const canSave = (qEn.trim() && aEn.trim()) || (qAr.trim() && aAr.trim())
+  const canSave = q.trim() && a.trim()
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-6" onClick={onClose}>
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -865,7 +873,7 @@ function FaqModal({ faq, lang, onLang, onClose, onSave }: { faq: Faq | null; lan
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-muted-foreground">Language</p>
-            <LangToggle lang={lang} onChange={onLang} />
+            <LangToggle lang={lang} onChange={setLang} />
           </div>
           <label className="flex items-center gap-2"><Switch checked={active} onCheckedChange={setActive} /><span className="text-sm">Active</span></label>
           <div>
@@ -879,7 +887,7 @@ function FaqModal({ faq, lang, onLang, onClose, onSave }: { faq: Faq | null; lan
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={!canSave} onClick={() => onSave({ id: faq?.id ?? `faq-${++faqCounter}`, active, questionEn: qEn, answerEn: aEn, questionAr: qAr, answerAr: aAr })}>{faq ? "Save" : "Add FAQ"}</Button>
+          <Button size="sm" disabled={!canSave} onClick={() => onSave({ id: faq?.id ?? `faq-${++faqCounter}`, active, lang, question: q.trim(), answer: a.trim() })}>{faq ? "Save" : "Add FAQ"}</Button>
         </div>
       </div>
     </div>

@@ -931,3 +931,150 @@ export function GroupPager({ total, page, pageSize, onPage }: { total: number; p
     </span>
   )
 }
+
+// ── Shared rich dropdowns — grouped Areas (area → subareas) and Developers ────
+export type AreaPick = { level: "Area" | "Subarea"; id: string; name: string; parent?: string }
+
+const LEVEL_TAG = {
+  Area: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  Subarea: "border-amber-200 bg-amber-50 text-amber-700",
+}
+
+/**
+ * Canonical area dropdown used across the system: areas group their subareas
+ * (indented), every row shows its ID, subareas caption their parent area.
+ */
+export function AreaTreeSelect({ tree, value, onChange, className, placeholder = "Select area or subarea…" }: {
+  tree: { id: string; name: string; subareas: { id: string; name: string }[] }[]
+  value: AreaPick | null
+  onChange: (v: AreaPick) => void
+  className?: string
+  placeholder?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState("")
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setQ("") } }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+  const needle = q.trim().toLowerCase()
+  const groups = tree
+    .map((a) => ({ ...a, subareas: a.subareas.filter((s) => !needle || s.name.toLowerCase().includes(needle)) }))
+    .filter((a) => !needle || a.name.toLowerCase().includes(needle) || a.subareas.length > 0)
+  const pick = (v: AreaPick) => { onChange(v); setOpen(false); setQ("") }
+  return (
+    <div ref={ref} className={cn("relative w-full", className)}>
+      <button
+        type="button" onClick={() => setOpen((o) => !o)}
+        className={cn("flex h-8 w-full items-center justify-between gap-1.5 rounded-md border border-input bg-white px-2.5 text-sm transition-colors hover:bg-muted/50", value ? "text-foreground" : "text-muted-foreground")}
+      >
+        <span className="flex min-w-0 items-center gap-1.5 truncate text-left">
+          {value ? (
+            <>
+              <span className="truncate">{value.name}</span>
+              <span className={cn("inline-flex flex-shrink-0 items-center rounded border px-1.5 py-px text-[10px] font-medium", LEVEL_TAG[value.level])}>{value.level}</span>
+            </>
+          ) : placeholder}
+        </span>
+        <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-9 z-50 w-full rounded-md border border-border bg-popover p-1 shadow-md">
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search areas & subareas…" className="mb-1 h-7 text-xs" autoFocus />
+          <div className="max-h-64 overflow-y-auto">
+            {groups.map((a) => (
+              <div key={a.id}>
+                <button
+                  type="button" onClick={() => pick({ level: "Area", id: a.id, name: a.name })}
+                  className={cn("flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left hover:bg-muted", value?.id === a.id && "bg-primary/5")}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-foreground">{a.name}</span>
+                    <IdTag value={a.id} />
+                  </span>
+                  <span className={cn("inline-flex flex-shrink-0 items-center rounded border px-1.5 py-px text-[10px] font-medium", LEVEL_TAG.Area)}>Area</span>
+                </button>
+                {a.subareas.map((s) => (
+                  <button
+                    key={s.id} type="button" onClick={() => pick({ level: "Subarea", id: s.id, name: s.name, parent: a.name })}
+                    className={cn("flex w-full items-center justify-between gap-2 rounded py-1.5 pl-7 pr-2 text-left hover:bg-muted", value?.id === s.id && "bg-primary/5")}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm text-foreground">{s.name}</span>
+                      <span className="flex items-center gap-1.5">
+                        <IdTag value={s.id} />
+                        <span className="text-[10px] text-muted-foreground">· {a.name}</span>
+                      </span>
+                    </span>
+                    <span className={cn("inline-flex flex-shrink-0 items-center rounded border px-1.5 py-px text-[10px] font-medium", LEVEL_TAG.Subarea)}>Subarea</span>
+                  </button>
+                ))}
+              </div>
+            ))}
+            {groups.length === 0 && <p className="px-2 py-3 text-center text-xs text-muted-foreground">No matches</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Canonical developer dropdown: name + listing-status tag, ID captioned below. */
+export function DeveloperSelect({ developers, value, onChange, className, placeholder = "Select developer…" }: {
+  developers: { id: string; name: string; status?: "Active" | "Hidden" }[]
+  value: string
+  onChange: (id: string) => void
+  className?: string
+  placeholder?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState("")
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setQ("") } }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+  const selected = developers.find((d) => d.id === value)
+  const list = developers.filter((d) => !q.trim() || `${d.name} ${d.id}`.toLowerCase().includes(q.trim().toLowerCase()))
+  return (
+    <div ref={ref} className={cn("relative w-full", className)}>
+      <button
+        type="button" onClick={() => setOpen((o) => !o)}
+        className={cn("flex h-8 w-full items-center justify-between gap-1.5 rounded-md border border-input bg-white px-2.5 text-sm transition-colors hover:bg-muted/50", selected ? "text-foreground" : "text-muted-foreground")}
+      >
+        <span className="truncate text-left">{selected?.name ?? placeholder}</span>
+        <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-9 z-50 w-full rounded-md border border-border bg-popover p-1 shadow-md">
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search developers…" className="mb-1 h-7 text-xs" autoFocus />
+          <div className="max-h-64 overflow-y-auto">
+            {list.map((d) => (
+              <button
+                key={d.id} type="button" onClick={() => { onChange(d.id); setOpen(false); setQ("") }}
+                className={cn("flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left hover:bg-muted", value === d.id && "bg-primary/5")}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-foreground">{d.name}</span>
+                  <IdTag value={d.id} />
+                </span>
+                {d.status && (
+                  <span className={cn(
+                    "inline-flex flex-shrink-0 items-center rounded border px-1.5 py-px text-[10px] font-medium",
+                    d.status === "Active" ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-700",
+                  )}>
+                    {d.status}
+                  </span>
+                )}
+              </button>
+            ))}
+            {list.length === 0 && <p className="px-2 py-3 text-center text-xs text-muted-foreground">No matches</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

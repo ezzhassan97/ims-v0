@@ -49,17 +49,24 @@ export interface ProjectRow {
 }
 
 const DEVELOPERS = [
-  { id: "DEV-001", name: "Palm Hills", logo: "PH" },
-  { id: "DEV-002", name: "SODIC", logo: "SO" },
-  { id: "DEV-003", name: "Mountain View", logo: "MV" },
-  { id: "DEV-004", name: "Emaar Misr", logo: "EM" },
-  { id: "DEV-005", name: "Ora Developers", logo: "OR" },
-  { id: "DEV-006", name: "Tatweer Misr", logo: "TM" },
+  { id: "DEV-001", name: "Palm Hills", logo: "PH", status: "Active" as const },
+  { id: "DEV-002", name: "SODIC", logo: "SO", status: "Active" as const },
+  { id: "DEV-003", name: "Mountain View", logo: "MV", status: "Active" as const },
+  { id: "DEV-004", name: "Emaar Misr", logo: "EM", status: "Hidden" as const },
+  { id: "DEV-005", name: "Ora Developers", logo: "OR", status: "Active" as const },
+  { id: "DEV-006", name: "Tatweer Misr", logo: "TM", status: "Hidden" as const },
 ]
 
 export const AREAS = ["New Cairo", "6th of October", "North Coast", "Sheikh Zayed", "New Capital", "Mostakbal City"]
 export const DISTRICTS = ["5th Settlement", "Sodic West", "Ras El Hekma", "R7", "Downtown", "1st Settlement"]
 export const SUBAREAS = ["Golden Square", "Bloomfields", "West Somid", "El Hekma Bay", "R7 Central", "Waslet Dahshour"]
+
+/** Areas with their subareas nested — feeds the shared grouped area dropdown (AreaTreeSelect). */
+export const AREA_TREE = AREAS.map((name, i) => ({
+  id: `AREA-${String(i + 1).padStart(3, "0")}`,
+  name,
+  subareas: [{ id: `SUB-${String(i + 1).padStart(3, "0")}`, name: SUBAREAS[i] }],
+}))
 
 const PRIMARY: ProjPrimaryStatus[] = ["Launch", "On-Sale", "On-Hold", "Sold-Off", "Archived"]
 

@@ -16,12 +16,12 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import {
-  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FiltersDrawer, FilterDrawerField, FloatingBulkBar, BulkBarButton, MultiSortControl, ColumnsSheet, IdTag, COL_SEP, ProjectTreeSelect,
-  type SortLevel, type ProjectTreeSelection,
+  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FiltersDrawer, FilterDrawerField, FloatingBulkBar, BulkBarButton, MultiSortControl, ColumnsSheet, IdTag, COL_SEP, ProjectTreeSelect, AreaTreeSelect, DeveloperSelect,
+  type SortLevel, type ProjectTreeSelection, type AreaPick,
 } from "@/components/table-kit"
 import { ProjectDetails } from "@/components/projects-page"
 import {
-  PROJECTS, PROJECT_DEVELOPERS, AREAS, DISTRICTS, SUBAREAS,
+  PROJECTS, PROJECT_DEVELOPERS, AREAS, DISTRICTS, SUBAREAS, AREA_TREE,
   type ProjectRow, type ProjListingStatus, type ProjPrimaryStatus, type ProjEntryType, type ProjOrg,
 } from "@/lib/projects-mock"
 import { GlobalMapDialog, MapDrawDialog, blobPolygon, centroid, LEVEL_COLOR, type GeoRef, type MapLocation } from "@/components/area-map"
@@ -82,7 +82,7 @@ function tagColor(s: string) {
   for (const c of s) h = (h + c.charCodeAt(0)) % TAG_COLORS.length
   return TAG_COLORS[h]
 }
-function ColorTag({ value }: { value: string }) {
+export function ColorTag({ value }: { value: string }) {
   return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", tagColor(value))}>{value}</span>
 }
 
@@ -1087,7 +1087,8 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   onConfirm: (value: string | ProjOrg[]) => void
 }) {
   const [devId, setDevId] = useState(targets[0]?.developer.id ?? "")
-  const [area, setArea] = useState(targets[0]?.area ?? "")
+  const initialArea = AREA_TREE.find((a) => a.name === targets[0]?.area)
+  const [areaPick, setAreaPick] = useState<AreaPick | null>(initialArea ? { level: "Area", id: initialArea.id, name: initialArea.name } : null)
   const [orgs, setOrgs] = useState<ProjOrg[]>(targets[0]?.organizations ?? ["Nawy"])
   const [entryVal, setEntryVal] = useState<ProjEntryType>(targets[0]?.entryType === "Automatic" ? "Manual" : "Automatic")
   const [parentId, setParentId] = useState(targets[0]?.mainProject?.id ?? "")
@@ -1102,7 +1103,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
     : "Change Organizations"
   const canSave =
     kind === "developer" ? !!devId
-    : kind === "location" ? !!area
+    : kind === "location" ? !!areaPick
     : kind === "entry" ? entryVal !== targets[0]?.entryType
     : kind === "parent" ? !!parentId && parentId !== targets[0]?.mainProject?.id
     : orgs.length > 0
@@ -1169,13 +1170,13 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
         {kind === "developer" && (
           <div className="space-y-1.5">
             <div className="text-xs font-medium text-foreground">Developer</div>
-            <FilterSelect label="Select developer…" value={devId} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={setDevId} searchable className="w-full" width="w-full" />
+            <DeveloperSelect developers={PROJECT_DEVELOPERS} value={devId} onChange={setDevId} />
           </div>
         )}
         {kind === "location" && (
           <div className="space-y-1.5">
             <div className="text-xs font-medium text-foreground">Area</div>
-            <FilterSelect label="Select area…" value={area} options={AREAS} onChange={setArea} className="w-full" width="w-full" />
+            <AreaTreeSelect tree={AREA_TREE} value={areaPick} onChange={setAreaPick} />
           </div>
         )}
         {kind === "orgs" && (
@@ -1213,7 +1214,14 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
           <Button
             size="sm" disabled={!canSave}
-            onClick={() => onConfirm(kind === "developer" ? devId : kind === "location" ? area : kind === "entry" ? entryVal : kind === "parent" ? parentId : orgs)}
+            onClick={() => onConfirm(
+              kind === "developer" ? devId
+              // Picking a subarea still cascades its parent area
+              : kind === "location" ? (areaPick!.level === "Area" ? areaPick!.name : areaPick!.parent!)
+              : kind === "entry" ? entryVal
+              : kind === "parent" ? parentId
+              : orgs,
+            )}
           >
             Apply to {targets.length} project{targets.length > 1 ? "s" : ""}
           </Button>
@@ -1265,60 +1273,6 @@ function BulkClassificationDialog({ count, onClose, onConfirm }: { count: number
   )
 }
 
-/** Location option: areas and subareas mixed in one searchable dropdown, tagged by level. */
-function LocationSelect({ value, onChange }: { value: { level: "Area" | "Subarea"; name: string } | null; onChange: (v: { level: "Area" | "Subarea"; name: string }) => void }) {
-  const [open, setOpen] = useState(false)
-  const [q, setQ] = useState("")
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setQ("") } }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [])
-  const options = [
-    ...AREAS.map((name) => ({ level: "Area" as const, name })),
-    ...SUBAREAS.map((name) => ({ level: "Subarea" as const, name })),
-  ].filter((o) => o.name.toLowerCase().includes(q.toLowerCase()))
-  return (
-    <div ref={ref} className="relative w-full">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className={cn("flex h-8 w-full items-center justify-between gap-1.5 rounded-md border border-input bg-white px-2.5 text-sm transition-colors hover:bg-muted/50", value ? "text-foreground" : "text-muted-foreground")}
-      >
-        <span className="flex min-w-0 items-center gap-1.5 truncate text-left">
-          {value ? (
-            <>
-              <span className="truncate">{value.name}</span>
-              <span className={cn("inline-flex flex-shrink-0 items-center rounded border px-1.5 py-px text-[10px] font-medium", value.level === "Area" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>{value.level}</span>
-            </>
-          ) : "Select area or subarea…"}
-        </span>
-        <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-      </button>
-      {open && (
-        <div className="absolute left-0 top-9 z-50 w-full rounded-md border border-border bg-popover p-1 shadow-md">
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search areas & subareas…" className="mb-1 h-7 text-xs" autoFocus />
-          <div className="max-h-56 overflow-y-auto">
-            {options.map((o) => (
-              <button
-                key={`${o.level}:${o.name}`}
-                type="button"
-                onClick={() => { onChange(o); setOpen(false); setQ("") }}
-                className={cn("flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted", value?.name === o.name && value.level === o.level && "bg-primary/5 font-medium")}
-              >
-                <span className="truncate">{o.name}</span>
-                <span className={cn("inline-flex flex-shrink-0 items-center rounded border px-1.5 py-px text-[10px] font-medium", o.level === "Area" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>{o.level}</span>
-              </button>
-            ))}
-            {options.length === 0 && <p className="px-2 py-3 text-center text-xs text-muted-foreground">No matches</p>}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 /**
  * Project creation form — Main Project or Phase (toggle). Only identity fields are
  * asked for; everything else takes defaults (see the blue note) and is completed
@@ -1330,7 +1284,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
   const [nameEn, setNameEn] = useState("")
   const [nameAr, setNameAr] = useState("")
   const [devId, setDevId] = useState("")
-  const [loc, setLoc] = useState<{ level: "Area" | "Subarea"; name: string } | null>(null)
+  const [loc, setLoc] = useState<AreaPick | null>(null)
   const [parentSel, setParentSel] = useState<ProjectTreeSelection>(null)
   const [category, setCategory] = useState("")
   const [projectType, setProjectType] = useState("")
@@ -1391,8 +1345,9 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
       return
     }
     const dev = PROJECT_DEVELOPERS.find((d) => d.id === devId)!
-    // Mock geo mapping: subareas pair with areas/districts by index
-    const idx = loc!.level === "Area" ? AREAS.indexOf(loc!.name) : SUBAREAS.indexOf(loc!.name)
+    // District is deduced from the (parent) area — mock pairs them by index
+    const areaName = loc!.level === "Area" ? loc!.name : loc!.parent!
+    const idx = AREAS.indexOf(areaName)
     const nextNum = Math.max(...mains.map((p) => Number(p.id.slice(4)))) + 1
     onSave({
       ...base,
@@ -1402,7 +1357,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
       mainProject: null,
       developer: dev,
       district: DISTRICTS[idx] ?? DISTRICTS[0],
-      area: loc!.level === "Area" ? loc!.name : AREAS[idx] ?? AREAS[0],
+      area: areaName,
       subarea: loc!.level === "Subarea" ? loc!.name : "—",
     })
   }
@@ -1446,15 +1401,16 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
           <div className="space-y-1.5">
             <div className="text-xs font-medium text-foreground">Cover Image <span className="font-normal text-muted-foreground">(optional)</span></div>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setCover(URL.createObjectURL(f)) }} />
+            {/* Banner-sized cover, full card width */}
             {cover ? (
-              <div className="relative w-fit">
-                <img src={cover} alt="Cover" className="h-28 w-44 rounded-lg border border-border object-cover" />
+              <div className="relative w-full">
+                <img src={cover} alt="Cover" className="h-40 w-full rounded-lg border border-border object-cover" />
                 <button type="button" onClick={() => setCover(null)} className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:text-red-600">
                   <X className="h-3 w-3" />
                 </button>
               </div>
             ) : (
-              <button type="button" onClick={() => fileRef.current?.click()} className="flex h-28 w-44 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-muted-foreground transition-colors hover:border-muted-foreground/50 hover:text-foreground">
+              <button type="button" onClick={() => fileRef.current?.click()} className="flex h-40 w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-muted-foreground transition-colors hover:border-muted-foreground/50 hover:text-foreground">
                 <ImagePlus className="h-5 w-5" />
                 <span className="text-[11px]">Upload cover</span>
               </button>
@@ -1475,11 +1431,11 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
               <>
                 <div className="space-y-1.5">
                   {req("Developer")}
-                  <FilterSelect label="Select developer…" value={devId} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={setDevId} searchable className="w-full" width="w-full" />
+                  <DeveloperSelect developers={PROJECT_DEVELOPERS} value={devId} onChange={setDevId} />
                 </div>
                 <div className="space-y-1.5">
                   {req("Location")}
-                  <LocationSelect value={loc} onChange={setLoc} />
+                  <AreaTreeSelect tree={AREA_TREE} value={loc} onChange={setLoc} />
                   <p className="text-[11px] text-muted-foreground">District is deduced from the selected area</p>
                 </div>
               </>

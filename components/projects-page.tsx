@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import {
-  Home, ChevronRight, Sparkles, Globe, HelpCircle, Rocket, Layers, CreditCard,
+  Home, ChevronRight, ClipboardList, Sparkles, Globe, HelpCircle, Rocket, Layers, CreditCard,
   Image as ImageIcon, Images, LayoutTemplate, Building2, Map, Trees, Building as BuildingIcon, HardHat,
   Database, Paperclip, ScrollText,
 } from "lucide-react"
@@ -288,7 +288,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
           <TabStrip>
             <TabsList className="w-max">
               {[
-                { value: "features", label: "Features", icon: Sparkles },
+                { value: "features", label: "Features", icon: ClipboardList },
                 { value: "seo", label: "SEO", icon: Globe },
                 { value: "faqs", label: "FAQs", icon: HelpCircle },
                 { value: "launches", label: "Launches", icon: Rocket },

@@ -23,6 +23,7 @@ import { MasterplansPage } from "@/components/masterplans-page"
 import { BrochuresPage } from "@/components/brochures-page"
 import { FloorPlansPage } from "@/components/floor-plans-page"
 import { PropertiesConfigurationsPage } from "@/components/properties-configurations-page"
+import { IngestionEntriesPage } from "@/components/ingestion-entries-page"
 import { GroupedPropertyDetails, type GroupDetailPayload } from "@/components/grouped-properties-page"
 import { CreatePropertyPage } from "@/components/create-property-page"
 import type { Variation } from "@/components/additional-info-tab"
@@ -74,6 +75,11 @@ export function AppShell() {
         return <BrochuresPage />
       case "Floor Plans":
         return <FloorPlansPage />
+      // key: both pages render the same component — without it React keeps one instance and leaks filter state across them
+      case "Automatic Sheets Entries":
+        return <IngestionEntriesPage key="sheets" mode="sheets" />
+      case "Manual Grouped Entries":
+        return <IngestionEntriesPage key="manual" mode="manual" />
       case "Properties Configurations":
         return <PropertiesConfigurationsPage />
       case "Validation Rules":
