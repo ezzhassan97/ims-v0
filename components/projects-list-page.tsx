@@ -49,6 +49,7 @@ const PROJECT_GEO0: GeoRef[] = PROJECTS.map((p) => {
   const py = cy - 18 + Math.floor(pi / 3) * 24
   return {
     id: p.id, name: p.name, level: "Phase" as const, status: p.listingStatus, sub: p.developer.name,
+    parentId: mainId, parent: p.mainProject!.name,
     pin: pi % 3 === 1 ? null : { x: px, y: py },
     polygon: pi % 2 === 1 ? null : blobPolygon(px, py, 14),
   }
@@ -645,10 +646,13 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
                         {open && phs.length > 0 && (
                           <tr className="bg-primary/5">
                             <td className="w-10 p-0" />
-                            <td colSpan={visibleCols.length + 1} className="py-1.5 pl-6">
-                              <span className="border-l-2 border-primary pl-2 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                                {phs.length} nested row{phs.length !== 1 ? "s" : ""}
-                              </span>
+                            <td colSpan={visibleCols.length + 1} className="p-0">
+                              {/* sticky-left so the separator stays put on horizontal scroll */}
+                              <div className="sticky left-10 w-max py-1.5 pl-6 pr-4">
+                                <span className="border-l-2 border-primary pl-2 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                                  {phs.length} Phases and Subprojects
+                                </span>
+                              </div>
                             </td>
                           </tr>
                         )}
@@ -772,7 +776,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             onSave={(pin, polygon) => {
               setProjGeo((prev) => prev.some((x) => x.id === drawTarget.id)
                 ? prev.map((x) => (x.id === drawTarget.id ? { ...x, pin, polygon } : x))
-                : [...prev, { id: drawTarget.id, name: drawTarget.name, level: drawTarget.isPhase ? "Phase" as const : "Project" as const, status: drawTarget.listingStatus, sub: drawTarget.developer.name, pin, polygon }])
+                : [...prev, { id: drawTarget.id, name: drawTarget.name, level: drawTarget.isPhase ? "Phase" as const : "Project" as const, status: drawTarget.listingStatus, sub: drawTarget.developer.name, parentId: drawTarget.mainProject?.id, parent: drawTarget.mainProject?.name, pin, polygon }])
               setDrawTarget(null)
               toast.success("Map geometry saved")
             }}

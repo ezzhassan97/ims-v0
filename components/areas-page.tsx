@@ -750,8 +750,8 @@ export function AreasPage() {
         <GlobalMapDialog
           entities={[
             ...districts.map((d) => ({ id: d.id, name: d.nameEn, level: "District" as GeoLevel, status: d.status, pin: d.pin, polygon: d.polygon })),
-            ...areas.map((a) => ({ id: a.id, name: a.nameEn, level: "Area" as GeoLevel, status: a.status, pin: a.pin, polygon: a.polygon })),
-            ...subareas.map((s) => ({ id: s.id, name: s.nameEn, level: "Subarea" as GeoLevel, status: s.status, pin: s.pin, polygon: s.polygon })),
+            ...areas.map((a) => ({ id: a.id, name: a.nameEn, level: "Area" as GeoLevel, status: a.status, parentId: a.districtId, parent: districts.find((d) => d.id === a.districtId)?.nameEn, pin: a.pin, polygon: a.polygon })),
+            ...subareas.map((s) => ({ id: s.id, name: s.nameEn, level: "Subarea" as GeoLevel, status: s.status, parentId: s.areaId, parent: areas.find((a) => a.id === s.areaId)?.nameEn, pin: s.pin, polygon: s.polygon })),
           ]}
           locations={locations}
           onClose={() => setMapOpen(false)}

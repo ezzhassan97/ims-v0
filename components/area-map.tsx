@@ -23,6 +23,9 @@ export interface GeoRef {
   status: "Active" | "Hidden"
   /** Optional subtitle shown on Not-Drawn cards (e.g. the developer name). */
   sub?: string
+  /** Parent entity (e.g. a phase's main project) — used for containment validation and card captions. */
+  parentId?: string
+  parent?: string
   pin: Pt | null
   polygon: Pt[] | null
 }
@@ -289,6 +292,11 @@ export function MapDrawDialog({ name, level, entityId, pin: pin0, polygon: polyg
       setError(`The ${level.toLowerCase()} pin must be inside its polygon — move the pin inside the drawn boundary, then save.`)
       return
     }
+    // Containment: a phase/child pin must sit inside its parent's polygon (the dashed backdrop)
+    if (pin && backdrop.length > 0 && backdrop[0].pts.length >= 3 && !pointInPolygon(pin, backdrop[0].pts)) {
+      setError(`The ${level.toLowerCase()} pin must be inside the parent polygon (dashed boundary) — move it inside, then save.`)
+      return
+    }
     onSave(pin, poly)
   }
 
@@ -422,7 +430,7 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
   const [undrawnQ, setUndrawnQ] = useState("")
   const [undrawnStatusF, setUndrawnStatusF] = useState<"all" | "Active" | "Hidden">("all")
   const [selKey, setSelKey] = useState<string | null>(null)
-  const [editGeo, setEditGeo] = useState(false)
+  const [saveErrors, setSaveErrors] = useState<string[]>([])
   const [drawMode, setDrawMode] = useState<"pin" | "poly" | null>(null)
   const [draft, setDraft] = useState<Pt[] | null>(null)
   const [view, setView] = useState<MapView>({ cx: 500, cy: 350, zoom: 0.95 })
@@ -430,6 +438,23 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
 
   const keyOf = (g: GeoRef) => `${g.level}:${g.id}`
   const sel = selKey ? list.find((g) => keyOf(g) === selKey) ?? null : null
+  useEffect(() => { setSaveErrors([]) }, [list])
+
+  const trySaveAll = (): boolean => {
+    const violations: string[] = []
+    for (const g of list) {
+      if (g.pin && g.polygon && g.polygon.length >= 3 && !pointInPolygon(g.pin, g.polygon))
+        violations.push(`${g.name}: pin is outside its polygon`)
+      if (g.pin && g.parentId) {
+        const par = list.find((x) => x.id === g.parentId && x.polygon && x.polygon.length >= 3)
+        if (par && !pointInPolygon(g.pin, par.polygon!)) violations.push(`${g.name}: pin is outside ${par.name}'s polygon`)
+      }
+    }
+    if (violations.length > 0) { setSaveErrors(violations); return false }
+    setSaveErrors([])
+    onSave(list)
+    return true
+  }
   const LABEL_MIN: Record<GeoLevel, number> = { District: 0, Area: 1.4, Subarea: 2.6, Project: 0, Phase: 1.4 }
   const undrawnOf = (lvl: GeoLevel) => list.filter((g) => g.level === lvl && (!g.pin || !g.polygon))
   const undrawnVisible = undrawnOf(undrawnTab)
@@ -496,8 +521,8 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                   return (
                     <g key={keyOf(g)}>
                       <polygon
-                        points={ptsStr(g.polygon!)} fill={c} fillOpacity={isSel ? 0.35 : 0.15} stroke={c}
-                        strokeWidth={(isSel ? 2.6 : 1.4) / view.zoom} style={{ cursor: drawMode ? "crosshair" : "pointer" }}
+                        points={ptsStr(g.polygon!)} fill={c} fillOpacity={isSel ? 0.2 : 0.08} stroke={c}
+                        strokeWidth={(isSel ? 1.6 : 0.9) / view.zoom} style={{ cursor: drawMode ? "crosshair" : "pointer" }}
                         onPointerDown={() => { if (drawMode) return; setSelKey(keyOf(g)) }}
                       />
                       {view.zoom >= LABEL_MIN[lvl] && (
@@ -506,7 +531,8 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                           {g.name}
                         </text>
                       )}
-                      {isSel && editGeo && g.polygon!.map((p, i) => (
+                      {/* Clicking a polygon selects it and makes it immediately editable */}
+                      {isSel && g.polygon!.map((p, i) => (
                         <circle key={i} cx={p.x} cy={p.y} r={5 / view.zoom} fill="#fff" stroke={c} strokeWidth={2 / view.zoom}
                           style={{ cursor: "move" }} onPointerDown={() => { dragRef.current = { t: "v", i, key: keyOf(g) } }} />
                       ))}
@@ -518,8 +544,8 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                 list.filter((g) => g.level === lvl && g.pin).map((g) => (
                   <PinMarker
                     key={keyOf(g)} pt={g.pin!} color={LEVEL_COLOR[lvl]} zoom={view.zoom}
-                    cursor={drawMode ? "crosshair" : editGeo && keyOf(g) === selKey ? "move" : "pointer"}
-                    onPointerDown={() => { if (drawMode) return; setSelKey(keyOf(g)); if (editGeo) dragRef.current = { t: "pin", key: keyOf(g) } }}
+                    cursor={drawMode ? "crosshair" : keyOf(g) === selKey ? "move" : "pointer"}
+                    onPointerDown={() => { if (drawMode) return; setSelKey(keyOf(g)); dragRef.current = { t: "pin", key: keyOf(g) } }}
                   />
                 )),
               )}
@@ -571,7 +597,7 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                     )}>
                       {sel.status}
                     </span>
-                    <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => { setSelKey(null); setEditGeo(false); stopDrawing() }}>
+                    <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => { setSelKey(null); stopDrawing() }}>
                       <X className="h-4 w-4" />
                     </button>
                   </div>
@@ -592,13 +618,9 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                   </p>
                 </div>
 
-                <div className="flex items-center justify-between rounded-lg border border-border p-2.5">
-                  <div>
-                    <div className="text-sm font-medium text-foreground">Edit geometry</div>
-                    <div className="text-[11px] text-muted-foreground">Drag the pin & vertices on the map</div>
-                  </div>
-                  <Switch checked={editGeo} onCheckedChange={setEditGeo} />
-                </div>
+                <p className="rounded-lg border border-border bg-muted/40 p-2.5 text-[11px] leading-4 text-muted-foreground">
+                  This record is editable — drag the pin or any polygon vertex on the map to reshape it, then Save Changes.
+                </p>
 
                 <div className="flex gap-2">
                   {sel.pin ? (
@@ -703,19 +725,21 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                       key={keyOf(g)} onClick={() => setSelKey(keyOf(g))}
                       className="cursor-pointer rounded-lg border border-border bg-card p-2 text-left transition-colors hover:border-muted-foreground/40"
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-medium text-foreground">{g.name}</span>
-                        <IdTag value={g.id} />
-                      </div>
-                      <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="min-w-0 truncate text-sm font-medium text-foreground">{g.name}</span>
                         <span className={cn(
                           "flex-shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none",
                           g.status === "Active" ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-700",
                         )}>
                           {g.status}
                         </span>
-                        {g.sub && <span className="truncate text-[11px] text-muted-foreground">{g.sub}</span>}
                       </div>
+                      <IdTag value={g.id} className="mt-0.5" />
+                      {(g.parent || g.sub) && (
+                        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                          {[g.parent, g.sub].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
                       <div className="mt-1 flex flex-wrap gap-1">
                         {!g.pin && <span className="rounded-md border border-red-200 bg-red-100 px-1.5 py-0.5 text-[10px] font-medium leading-none text-red-700">Missing Pin</span>}
                         {!g.polygon && <span className="rounded-md border border-red-200 bg-red-100 px-1.5 py-0.5 text-[10px] font-medium leading-none text-red-700">Missing Polygon</span>}
@@ -733,16 +757,25 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
               </div>
             )}
 
-            <div className="flex gap-2 border-t border-border p-3">
-              {/* Cancel = back to the Not Drawn list; the dialog closes via the top-right X */}
-              <Button variant="outline" size="sm" className="flex-1" disabled={!sel && !drawMode}
-                onClick={() => { setSelKey(null); setEditGeo(false); stopDrawing() }}>
-                Cancel
-              </Button>
-              <Button size="sm" className="flex-1" disabled={!dirty}
-                onClick={() => { onSave(list); setBaseline(list); setSelKey(null); setEditGeo(false); stopDrawing() }}>
-                Save Changes
-              </Button>
+            <div className="border-t border-border p-3">
+              {saveErrors.length > 0 && (
+                <div className="mb-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-[11px] leading-4 text-red-700">
+                  <p className="mb-1 flex items-center gap-1 font-semibold"><AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />Fix before saving:</p>
+                  {saveErrors.slice(0, 4).map((e) => <p key={e}>• {e}</p>)}
+                  {saveErrors.length > 4 && <p>… +{saveErrors.length - 4} more</p>}
+                </div>
+              )}
+              <div className="flex gap-2">
+                {/* Cancel = back to the Not Drawn list; the dialog closes via the top-right X */}
+                <Button variant="outline" size="sm" className="flex-1" disabled={!sel && !drawMode}
+                  onClick={() => { setSelKey(null); stopDrawing() }}>
+                  Cancel
+                </Button>
+                <Button size="sm" className="flex-1" disabled={!dirty}
+                  onClick={() => { if (trySaveAll()) { setBaseline(list); setSelKey(null); stopDrawing() } }}>
+                  Save Changes
+                </Button>
+              </div>
             </div>
           </div>
         </div>
