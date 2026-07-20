@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react"
 import {
-  AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, MoreHorizontal, Download, Eye, FileText, Globe, ToggleRight, Layers, Building2,
+  AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, MoreHorizontal, Download, Eye, FileText, Globe, ToggleRight, Layers, Building2,
   Group as GroupIcon, MapPin, Plus, Tag as TagIcon, Map as MapIcon, Upload,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -383,6 +383,14 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   }
 
   const treeMode = groupBy === "mainProject"
+  const expandAllGroups = () => {
+    if (treeMode) setExpandedMains(new Set(filtered.filter((r) => !r.isPhase).map((r) => r.id)))
+    else setCollapsedGroups(new Set())
+  }
+  const collapseAllGroups = () => {
+    if (treeMode) setExpandedMains(new Set())
+    else setCollapsedGroups(new Set((groups ?? []).map((g) => g.label)))
+  }
 
   // d = display row: when grouped by Main Project, mains aggregate their phases' numeric columns
   const cellContent = (colId: string, r: ProjectRow, d: ProjectRow) => {
@@ -588,6 +596,16 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               <>
                 <span className="ml-1 text-sm font-semibold text-foreground">Phases</span>
                 <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{phaseCount.toLocaleString()}</span>
+                {groupBy !== "none" && (
+                  <div className="ml-2 flex items-center gap-1">
+                    <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={expandAllGroups}>
+                      <ChevronsUpDown className="h-3.5 w-3.5" />Expand all
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={collapseAllGroups}>
+                      <ChevronsDownUp className="h-3.5 w-3.5" />Collapse all
+                    </Button>
+                  </div>
+                )}
               </>
             }
             cta={!embedded ? (
