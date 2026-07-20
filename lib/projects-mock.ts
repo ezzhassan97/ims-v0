@@ -5,6 +5,7 @@ export type ProjListingStatus = "Active" | "Hidden"
 export type ProjPrimaryStatus = "Launch" | "On-Sale" | "On-Hold" | "Sold-Off" | "Archived"
 export type ProjEntryType = "Automatic" | "Manual"
 export type ProjOrg = "Nawy" | "Partners"
+export type ProjConstructionStatus = "Off-plan" | "Under Construction" | "Completed"
 export interface UnitCount { available: number; total: number }
 
 export interface ProjectRow {
@@ -23,6 +24,10 @@ export interface ProjectRow {
   category: string
   projectType: string
   projectSubtype: string
+  constructionStatus: ProjConstructionStatus
+  /** Ranks — manual is user-set (null when unset), automatic is system-computed */
+  manualRank: number | null
+  autoRank: number
   /** Land area in km² — null when unknown */
   areaKm2: number | null
   galleryImages: string[]
@@ -58,6 +63,7 @@ export const SUBAREAS = ["Golden Square", "Bloomfields", "West Somid", "El Hekma
 
 const PRIMARY: ProjPrimaryStatus[] = ["Launch", "On-Sale", "On-Hold", "Sold-Off", "Archived"]
 
+const CONSTRUCTION: ProjConstructionStatus[] = ["Off-plan", "Under Construction", "Completed"]
 const CATEGORIES = ["Residential", "Commercial", "Mixed Use"]
 const PROJECT_TYPES = ["Compound", "Standalone", "Coastal Resort"]
 const PROJECT_SUBTYPES = ["Apartments", "Villas", "Mixed Units"]
@@ -103,6 +109,9 @@ function buildRows(): ProjectRow[] {
       category: CATEGORIES[i % CATEGORIES.length],
       projectType: PROJECT_TYPES[i % PROJECT_TYPES.length],
       projectSubtype: PROJECT_SUBTYPES[(i + 1) % PROJECT_SUBTYPES.length],
+      constructionStatus: CONSTRUCTION[i % 3],
+      manualRank: i % 3 === 0 ? null : i + 1,
+      autoRank: ((i * 7) % 20) + 1,
       areaKm2: i % 4 === 3 ? null : Number((0.6 + i * 0.45).toFixed(1)),
       galleryImages: GALLERY_POOL.slice(0, i % 4),
       brochureCount: i % 3 === 2 ? 0 : (i % 4) + 1,
@@ -140,6 +149,9 @@ function buildRows(): ProjectRow[] {
         category: CATEGORIES[i % CATEGORIES.length],
         projectType: PROJECT_TYPES[i % PROJECT_TYPES.length],
         projectSubtype: PROJECT_SUBTYPES[seed % PROJECT_SUBTYPES.length],
+        constructionStatus: CONSTRUCTION[seed % 3],
+        manualRank: seed % 4 === 0 ? null : (seed % 15) + 1,
+        autoRank: (seed % 20) + 1,
         areaKm2: seed % 3 === 0 ? null : Number((0.2 + p * 0.15 + (i % 3) * 0.1).toFixed(2)),
         galleryImages: GALLERY_POOL.slice(0, seed % 4),
         brochureCount: seed % 4 === 1 ? 0 : seed % 3,

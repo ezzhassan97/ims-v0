@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react"
 import {
-  AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, MoreHorizontal, Download, Eye, FileText, Globe, ToggleRight, Layers, Building2,
+  AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, GitBranch, MoreHorizontal, Download, Eye, FileText, Globe, Repeat, ToggleRight, Layers, Building2,
   Group as GroupIcon, MapPin, Plus, Tag as TagIcon, Map as MapIcon, Upload,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -60,7 +60,7 @@ const PRIMARY_STATUSES: ProjPrimaryStatus[] = ["Launch", "On-Sale", "On-Hold", "
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 // UTC getters (the mock stores UTC ISO strings) so SSR and client render identically — no hydration mismatch.
-function fmt(iso: string) {
+export function fmtDateTime(iso: string) {
   const d = new Date(iso)
   const h = d.getUTCHours(); const ap = h < 12 ? "am" : "pm"; const h12 = h % 12 || 12
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${h12}:${String(d.getUTCMinutes()).padStart(2, "0")} ${ap}`
@@ -108,6 +108,9 @@ function Tag({ value, cls }: { value: string; cls: string }) {
 
 const RED_TAG = "bg-red-50 text-red-600 border-red-200"
 const UPLOADED_TAG = "bg-emerald-50 text-emerald-700 border-emerald-200"
+// Coordinates / polygon presence — same tags in the table columns and the details header
+const ADDED_TAG = "bg-emerald-100 text-emerald-700 border-emerald-200"
+const MISSING_TAG = "bg-red-100 text-red-700 border-red-200"
 
 /** Organization tag — light tones like the rest of the tag system (Nawy light green, Partners light blue). */
 export function OrgChip({ org }: { org: ProjOrg }) {
@@ -121,10 +124,10 @@ export function OrgChip({ org }: { org: ProjOrg }) {
   )
 }
 
-export type CascadeKind = "developer" | "location" | "orgs"
+export type CascadeKind = "developer" | "location" | "orgs" | "entry" | "parent"
 
 /** Dependent classification tree: Category → Type → Subtype. */
-const CLASSIFICATION: Record<string, Record<string, string[]>> = {
+export const CLASSIFICATION: Record<string, Record<string, string[]>> = {
   Residential: {
     Compound: ["Apartments", "Villas", "Mixed Units"],
     Standalone: ["Apartments", "Villas"],
@@ -149,6 +152,8 @@ const SORT_FIELDS = [
   { key: "resaleUnits", label: "Resale units" },
   { key: "nawyNowUnits", label: "Nawy Now units" },
   { key: "rentalUnits", label: "Rental units" },
+  { key: "manualRank", label: "Manual rank" },
+  { key: "autoRank", label: "Automatic rank" },
 ]
 function sortVal(r: ProjectRow, k: string): number {
   switch (k) {
@@ -160,6 +165,8 @@ function sortVal(r: ProjectRow, k: string): number {
     case "resaleUnits": return r.resaleUnits.total
     case "nawyNowUnits": return r.nawyNowUnits.total
     case "rentalUnits": return r.rentalUnits.total
+    case "manualRank": return r.manualRank ?? -1
+    case "autoRank": return r.autoRank
     default: return 0
   }
 }
@@ -201,6 +208,8 @@ const PROJ_COLS = [
   { id: "resaleUnits", label: "Resale Properties", width: 170 },
   { id: "nawyNowUnits", label: "Nawy Now", width: 160 },
   { id: "rentalUnits", label: "Rentals", width: 160 },
+  { id: "manualRank", label: "Manual Rank", width: 130 },
+  { id: "autoRank", label: "Automatic Rank", width: 150 },
   { id: "createdAt", label: "Created At", width: 170 },
   { id: "updatedAt", label: "Updated At", width: 170 },
 ]
@@ -255,7 +264,6 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [listingDlg, setListingDlg] = useState<ProjectRow | null>(null)
   const [primaryDlg, setPrimaryDlg] = useState<ProjectRow | null>(null)
-  const [bulkListing, setBulkListing] = useState(false)
   const [drawTarget, setDrawTarget] = useState<ProjectRow | null>(null)
   const [creating, setCreating] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -277,21 +285,26 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
     setRows((rs) => rs.map((x) => (x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id) ? { ...x, listingStatus: next } : x)))
   const applyPrimary = (r: ProjectRow, next: ProjPrimaryStatus) =>
     setRows((rs) => rs.map((x) => (x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id) ? { ...x, primaryStatus: next } : x)))
-  /** Developer / location / organizations changes hit the target mains AND every phase under them. */
+  /** Cascading changes: main-project targets cascade to every phase under them; phase targets change only themselves. */
   const applyCascade = (kind: CascadeKind, targets: ProjectRow[], value: string | ProjOrg[]) => {
     const targetIds = new Set(targets.map((t) => t.id))
-    setRows((rs) => rs.map((x) => {
-      const hit = targetIds.has(x.id) || (x.isPhase && !!x.mainProject && targetIds.has(x.mainProject.id))
-      if (!hit) return x
-      if (kind === "developer") { const dev = PROJECT_DEVELOPERS.find((d) => d.id === value)!; return { ...x, developer: dev } }
-      if (kind === "location") return { ...x, area: value as string }
-      return { ...x, organizations: value as ProjOrg[] }
-    }))
+    setRows((rs) => {
+      const parent = kind === "parent" ? rs.find((y) => y.id === value) : null
+      return rs.map((x) => {
+        const hit = targetIds.has(x.id) || (x.isPhase && !!x.mainProject && targetIds.has(x.mainProject.id))
+        if (!hit) return x
+        if (kind === "developer") { const dev = PROJECT_DEVELOPERS.find((d) => d.id === value)!; return { ...x, developer: dev } }
+        if (kind === "location") return { ...x, area: value as string }
+        if (kind === "entry") return { ...x, entryType: value as ProjEntryType }
+        if (kind === "parent") return parent ? { ...x, mainProject: { id: parent.id, name: parent.name } } : x
+        return { ...x, organizations: value as ProjOrg[] }
+      })
+    })
   }
   const BULK_CAP = 10
-  /** All bulk actions except Export are limited to 10 selected rows. */
+  /** Change Organizations is the only capped bulk action (10 rows); Export & Classification are unlimited. */
   const bulkGuard = (fn: () => void) => () => {
-    if (selectedIds.size > BULK_CAP) { toast.error(`Bulk actions are limited to ${BULK_CAP} selected rows — Export is the only exception`); return }
+    if (selectedIds.size > BULK_CAP) { toast.error(`Change Organizations is limited to ${BULK_CAP} selected rows`); return }
     fn()
   }
   const openBulkCascade = (kind: CascadeKind) => {
@@ -350,8 +363,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       if (primaryF.length > 0 && !primaryF.includes(r.primaryStatus)) return false
       if (entryF && r.entryType !== entryF) return false
       if (levelF && (r.isPhase ? "Phase" : "Main Project") !== levelF) return false
-      if (coordF && (geoOf(r.id)?.pin ? "Uploaded" : "Missing") !== coordF) return false
-      if (polyF && (geoOf(r.id)?.polygon ? "Uploaded" : "Missing") !== polyF) return false
+      if (coordF && (geoOf(r.id)?.pin ? "Added" : "Missing") !== coordF) return false
+      if (polyF && (geoOf(r.id)?.polygon ? "Added" : "Missing") !== polyF) return false
       if (listingMpF && (r.listingMasterplan ? "Uploaded" : "Missing") !== listingMpF) return false
       if (gisMpF && (r.gisMasterplan ? "Uploaded" : "Missing") !== gisMpF) return false
       if (buildingsF && (r.buildingsCount > 0 ? "Has buildings" : "No buildings") !== buildingsF) return false
@@ -406,6 +419,16 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   }
 
   const treeMode = groupBy === "mainProject"
+  // Header checkbox scope = the rows currently rendered (page in flat mode, all groups otherwise).
+  // Selecting the whole result set lives in the bulk bar's "Select all".
+  const renderedRows = treeMode || groups ? filtered : pageRows
+  const allPageSelected = renderedRows.length > 0 && renderedRows.every((r) => selectedIds.has(r.id))
+  const togglePageSelect = (v: boolean) =>
+    setSelectedIds((prev) => {
+      const n = new Set(prev)
+      renderedRows.forEach((r) => (v ? n.add(r.id) : n.delete(r.id)))
+      return n
+    })
   const expandAllGroups = () => {
     if (treeMode) setExpandedMains(new Set(filtered.filter((r) => !r.isPhase).map((r) => r.id)))
     else setCollapsedGroups(new Set())
@@ -476,8 +499,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         return d.brochureCount === 0
           ? <Tag value="No brochures" cls={RED_TAG} />
           : <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground"><FileText className="h-3.5 w-3.5 text-muted-foreground" />{d.brochureCount}</span>
-      case "coordinates": return <Tag value={geoOf(r.id)?.pin ? "Active" : "Hidden"} cls={LISTING_COLORS[geoOf(r.id)?.pin ? "Active" : "Hidden"]} />
-      case "polygons": return <Tag value={geoOf(r.id)?.polygon ? "Active" : "Hidden"} cls={LISTING_COLORS[geoOf(r.id)?.polygon ? "Active" : "Hidden"]} />
+      case "coordinates": return <Tag value={geoOf(r.id)?.pin ? "Added" : "Missing"} cls={geoOf(r.id)?.pin ? ADDED_TAG : MISSING_TAG} />
+      case "polygons": return <Tag value={geoOf(r.id)?.polygon ? "Added" : "Missing"} cls={geoOf(r.id)?.polygon ? ADDED_TAG : MISSING_TAG} />
       case "listingMp": return <Tag value={r.listingMasterplan ? "Uploaded" : "Missing"} cls={r.listingMasterplan ? UPLOADED_TAG : RED_TAG} />
       case "gisMp": return <Tag value={r.gisMasterplan ? "Uploaded" : "Missing"} cls={r.gisMasterplan ? UPLOADED_TAG : RED_TAG} />
       case "buildingsCount":
@@ -488,8 +511,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       case "resaleUnits": return <UnitsCell u={d.resaleUnits} />
       case "nawyNowUnits": return <UnitsCell u={d.nawyNowUnits} />
       case "rentalUnits": return <UnitsCell u={d.rentalUnits} />
-      case "createdAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{fmt(r.createdAt)}</span>
-      case "updatedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{fmt(r.updatedAt)}</span>
+      case "manualRank": return <span className="text-sm text-muted-foreground">{r.manualRank == null ? "—" : r.manualRank}</span>
+      case "autoRank": return <span className="text-sm text-muted-foreground">{r.autoRank}</span>
+      case "createdAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtDateTime(r.createdAt)}</span>
+      case "updatedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtDateTime(r.updatedAt)}</span>
       default: return null
     }
   }
@@ -506,7 +531,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           treeMode && !r.isPhase && expandedMains.has(r.id) && "bg-primary/5",
         )}
       >
-        <td className="w-10 py-3 pl-4 pr-0" onClick={(e) => e.stopPropagation()}>
+        {/* Selection checkbox — frozen left, matching the frozen-column offsets (they start at 40px) */}
+        <td className="sticky left-0 z-10 w-10 bg-card py-3 pl-4 pr-0" onClick={(e) => e.stopPropagation()}>
           <Checkbox checked={selectedIds.has(r.id)} onCheckedChange={() => toggleSelect(r.id)} className="h-4 w-4" />
         </td>
         {visibleCols.map((c) => (
@@ -527,14 +553,20 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             <DropdownMenuTrigger asChild>
               <button className="flex h-full w-12 items-center justify-center text-muted-foreground hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem onClick={() => setSelected(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "entry", targets: [r], ignored: 0 })}><Repeat className="mr-2 h-3.5 w-3.5" />Change Entry Type</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setListingDlg(r)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setPrimaryDlg(r)}><TagIcon className="mr-2 h-3.5 w-3.5" />Change Primary Status</DropdownMenuItem>
-              {/* Cascading changes are only available from the main project */}
-              {!r.isPhase && <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "orgs", targets: [r], ignored: 0 })}><Building2 className="mr-2 h-3.5 w-3.5" />Organizations</DropdownMenuItem>}
-              {!r.isPhase && <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "developer", targets: [r], ignored: 0 })}><Globe className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>}
-              {!r.isPhase && <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "location", targets: [r], ignored: 0 })}><MapPin className="mr-2 h-3.5 w-3.5" />Change Location</DropdownMenuItem>}
+              <DropdownMenuSeparator />
+              {r.isPhase ? (
+                <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "parent", targets: [r], ignored: 0 })}><GitBranch className="mr-2 h-3.5 w-3.5" />Change Parent Project</DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "developer", targets: [r], ignored: 0 })}><Globe className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "location", targets: [r], ignored: 0 })}><MapPin className="mr-2 h-3.5 w-3.5" />Change Area</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "orgs", targets: [r], ignored: 0 })}><Building2 className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setDrawTarget(r)}><MapIcon className="mr-2 h-3.5 w-3.5" />Draw on Map</DropdownMenuItem>
             </DropdownMenuContent>
@@ -581,8 +613,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               <FilterMultiSelect label="Primary Status" value={primaryF} options={PRIMARY_STATUSES} onChange={(v) => { setPrimaryF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Entry Type" value={entryF} options={["Automatic", "Manual"]} onChange={(v) => { setEntryF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Level" value={levelF} options={["Main Project", "Phase"]} onChange={(v) => { setLevelF(v); setPage(1) }} className="w-36" />
-              <FilterSelect label="Coordinates" value={coordF} options={["Uploaded", "Missing"]} onChange={(v) => { setCoordF(v); setPage(1) }} className="w-36" />
-              <FilterSelect label="Polygons" value={polyF} options={["Uploaded", "Missing"]} onChange={(v) => { setPolyF(v); setPage(1) }} className="w-36" />
+              <FilterSelect label="Coordinates" value={coordF} options={["Added", "Missing"]} onChange={(v) => { setCoordF(v); setPage(1) }} className="w-36" />
+              <FilterSelect label="Polygons" value={polyF} options={["Added", "Missing"]} onChange={(v) => { setPolyF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Listing Masterplan" value={listingMpF} options={["Uploaded", "Missing"]} onChange={(v) => { setListingMpF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="GIS Masterplan" value={gisMpF} options={["Uploaded", "Missing"]} onChange={(v) => { setGisMpF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Buildings" value={buildingsF} options={["Has buildings", "No buildings"]} onChange={(v) => { setBuildingsF(v); setPage(1) }} className="w-40" />
@@ -652,11 +684,11 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             <table className={cn("w-max text-sm", COL_SEP)}>
               <thead className="border-b border-border bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="w-10 py-3 pl-4 pr-0">
+                  <th className="sticky left-0 z-20 w-10 bg-muted/60 py-3 pl-4 pr-0">
                     <Checkbox
                       className="h-4 w-4"
-                      checked={filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id))}
-                      onCheckedChange={(v) => setSelectedIds(v ? new Set(filtered.map((r) => r.id)) : new Set())}
+                      checked={allPageSelected}
+                      onCheckedChange={(v) => togglePageSelect(!!v)}
                     />
                   </th>
                   {visibleCols.map((c) => {
@@ -760,12 +792,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           onSelectAll={() => setSelectedIds(new Set(filtered.map((r) => r.id)))}
           onClear={() => setSelectedIds(new Set())}
         >
+          {/* Only Export (no cap), Classification (no cap) and Change Organizations (10-row cap) are allowed in bulk */}
           <BulkBarButton icon={<Download className="h-4 w-4" />} onClick={() => { toast.success(`${selectedIds.size} row${selectedIds.size > 1 ? "s" : ""} exported to CSV`); setSelectedIds(new Set()) }}>Export</BulkBarButton>
-          <BulkBarButton icon={<ToggleRight className="h-4 w-4" />} onClick={bulkGuard(() => setBulkListing(true))}>Listing Status</BulkBarButton>
-          <BulkBarButton icon={<TagIcon className="h-4 w-4" />} onClick={bulkGuard(() => setBulkClass(true))}>Classification</BulkBarButton>
-          <BulkBarButton icon={<Globe className="h-4 w-4" />} onClick={bulkGuard(() => openBulkCascade("developer"))}>Developer</BulkBarButton>
-          <BulkBarButton icon={<MapPin className="h-4 w-4" />} onClick={bulkGuard(() => openBulkCascade("location"))}>Location</BulkBarButton>
-          <BulkBarButton icon={<Building2 className="h-4 w-4" />} onClick={bulkGuard(() => openBulkCascade("orgs"))}>Organizations</BulkBarButton>
+          <BulkBarButton icon={<TagIcon className="h-4 w-4" />} onClick={() => setBulkClass(true)}>Classification</BulkBarButton>
+          <BulkBarButton icon={<Building2 className="h-4 w-4" />} onClick={bulkGuard(() => openBulkCascade("orgs"))}>Change Organizations</BulkBarButton>
         </FloatingBulkBar>
 
         {listingDlg && (
@@ -791,19 +821,6 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               applyPrimary(primaryDlg, next)
               toast.success(`${primaryDlg.name} set to ${next}${!primaryDlg.isPhase && phasesOf(primaryDlg).length ? ` with ${phasesOf(primaryDlg).length} phases` : ""}`)
               setPrimaryDlg(null)
-            }}
-          />
-        )}
-
-        {bulkListing && (
-          <BulkListingDialog
-            count={selectedIds.size}
-            onClose={() => setBulkListing(false)}
-            onConfirm={(next) => {
-              setRows((rs) => rs.map((x) => (selectedIds.has(x.id) ? { ...x, listingStatus: next } : x)))
-              toast.success(`${selectedIds.size} row${selectedIds.size > 1 ? "s" : ""} set to ${next}`)
-              setBulkListing(false)
-              setSelectedIds(new Set())
             }}
           />
         )}
@@ -839,7 +856,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             onClose={() => setCascadeDlg(null)}
             onConfirm={(value) => {
               applyCascade(cascadeDlg.kind, cascadeDlg.targets, value)
-              toast.success(`${cascadeDlg.targets.length} main project${cascadeDlg.targets.length > 1 ? "s" : ""} updated with their phases`)
+              const t = cascadeDlg.targets
+              toast.success(t.length === 1 && t[0].isPhase ? `${t[0].name} updated` : `${t.length} main project${t.length > 1 ? "s" : ""} updated with their phases`)
               setCascadeDlg(null)
               setSelectedIds(new Set())
             }}
@@ -1002,40 +1020,9 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   )
 }
 
-function BulkListingDialog({ count, onClose, onConfirm }: { count: number; onClose: () => void; onConfirm: (s: ProjListingStatus) => void }) {
-  const [next, setNext] = useState<ProjListingStatus>("Active")
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader><DialogTitle>Bulk Change Listing Status</DialogTitle></DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">{count}</span> selected project{count > 1 ? "s / phases" : ""} will be set to:
-        </p>
-        <div className="flex gap-2">
-          {(["Active", "Hidden"] as ProjListingStatus[]).map((s) => (
-            <button
-              key={s} type="button" onClick={() => setNext(s)}
-              className={cn(
-                "flex flex-1 items-center justify-center rounded-lg border py-2 transition-colors",
-                next === s ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
-              )}
-            >
-              <Tag value={s} cls={LISTING_COLORS[s]} />
-            </button>
-          ))}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={() => onConfirm(next)}>Apply to {count}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 /**
- * Cascading change (Developer / Location / Organizations) — main projects only.
- * The change also applies to every phase under the targets; the phases are
+ * Cascading change (Entry Type / Developer / Parent Project / Area / Organizations).
+ * Main-project targets also apply to every phase under them; the phases are
  * listed read-only. In bulk mode, selected phases are ignored with a note.
  */
 export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, onConfirm }: {
@@ -1049,12 +1036,33 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   const [devId, setDevId] = useState(targets[0]?.developer.id ?? "")
   const [area, setArea] = useState(targets[0]?.area ?? "")
   const [orgs, setOrgs] = useState<ProjOrg[]>(targets[0]?.organizations ?? ["Nawy"])
+  const [entryVal, setEntryVal] = useState<ProjEntryType>(targets[0]?.entryType === "Automatic" ? "Manual" : "Automatic")
+  const [parentId, setParentId] = useState(targets[0]?.mainProject?.id ?? "")
   const toggleOrg = (o: ProjOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
   const impacted = allRows.filter((x) => x.isPhase && targets.some((t) => t.id === x.mainProject?.id))
-  const title = kind === "developer" ? "Change Developer" : kind === "location" ? "Change Location" : "Organizations"
-  const canSave = kind === "developer" ? !!devId : kind === "location" ? !!area : orgs.length > 0
+  const singlePhase = targets.length === 1 && targets[0].isPhase
+  const title =
+    kind === "developer" ? "Change Developer"
+    : kind === "location" ? "Change Area"
+    : kind === "entry" ? "Change Entry Type"
+    : kind === "parent" ? "Change Parent Project"
+    : "Change Organizations"
+  const canSave =
+    kind === "developer" ? !!devId
+    : kind === "location" ? !!area
+    : kind === "entry" ? entryVal !== targets[0]?.entryType
+    : kind === "parent" ? !!parentId && parentId !== targets[0]?.mainProject?.id
+    : orgs.length > 0
   const phaseCurrent = (p: ProjectRow) =>
-    kind === "developer" ? p.developer.name : kind === "location" ? p.area : p.organizations.join(", ")
+    kind === "developer" ? p.developer.name
+    : kind === "location" ? p.area
+    : kind === "entry" ? p.entryType
+    : kind === "parent" ? p.mainProject?.name ?? "—"
+    : p.organizations.join(", ")
+  // Entry-type changes also touch every property under the impacted projects
+  const propRows = [...targets, ...impacted]
+  const grouped = propRows.reduce((s, x) => s + x.groupedProps, 0)
+  const detailed = propRows.reduce((s, x) => s + x.detailedProps, 0)
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -1063,7 +1071,8 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
         <p className="text-sm text-muted-foreground">
           {targets.length === 1 ? (
             <>
-              <span className="font-medium text-foreground">{targets[0].name}</span> <IdTag value={targets[0].id} /> and the phases under it will get the same change.
+              <span className="font-medium text-foreground">{targets[0].name}</span> <IdTag value={targets[0].id} />{" "}
+              {singlePhase ? "will get this change." : "and the phases under it will get the same change."}
             </>
           ) : (
             <>
@@ -1077,6 +1086,33 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           </div>
         )}
 
+        {kind === "entry" && (
+          <>
+            <div className="flex gap-2">
+              {(["Automatic", "Manual"] as ProjEntryType[]).map((s) => (
+                <button
+                  key={s} type="button" onClick={() => setEntryVal(s)}
+                  className={cn(
+                    "flex flex-1 items-center justify-center rounded-lg border py-2 transition-colors",
+                    entryVal === s ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+                  )}
+                >
+                  <Tag value={s} cls={ENTRY_COLORS[s]} />
+                </button>
+              ))}
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
+              This change also impacts <span className="font-semibold">{grouped}</span> grouped properties and{" "}
+              <span className="font-semibold">{detailed}</span> detailed properties under {targets.length === 1 ? "this project" : "these projects"}{impacted.length > 0 ? " and their phases" : ""}.
+            </div>
+          </>
+        )}
+        {kind === "parent" && (
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Parent Project</div>
+            <FilterSelect label="Select main project…" value={parentId} options={allRows.filter((x) => !x.isPhase).map((x) => ({ value: x.id, label: x.name }))} onChange={setParentId} searchable className="w-full" width="w-full" />
+          </div>
+        )}
         {kind === "developer" && (
           <div className="space-y-1.5">
             <div className="text-xs font-medium text-foreground">Developer</div>
@@ -1122,7 +1158,10 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={!canSave} onClick={() => onConfirm(kind === "developer" ? devId : kind === "location" ? area : orgs)}>
+          <Button
+            size="sm" disabled={!canSave}
+            onClick={() => onConfirm(kind === "developer" ? devId : kind === "location" ? area : kind === "entry" ? entryVal : kind === "parent" ? parentId : orgs)}
+          >
             Apply to {targets.length} project{targets.length > 1 ? "s" : ""}
           </Button>
         </DialogFooter>
@@ -1257,11 +1296,15 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
                   entryType,
                   organizations: ["Nawy"],
                   category, projectType, projectSubtype,
+                  constructionStatus: "Off-plan",
+                  manualRank: null,
+                  autoRank: 0,
                   areaKm2: null,
                   galleryImages: [],
                   brochureCount: 0,
                   listingMasterplan: false,
                   gisMasterplan: false,
+                  seoDescription: false,
                   buildingsCount: 0,
                   groupedProps: 0,
                   detailedProps: 0,

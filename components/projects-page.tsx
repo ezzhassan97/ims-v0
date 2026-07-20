@@ -3,7 +3,7 @@
 import { useState } from "react"
 import {
   Home, ChevronRight, Sparkles, Globe, HelpCircle, Rocket, Layers, CreditCard,
-  Image as ImageIcon, LayoutTemplate, Building2, Map, Trees, Building as BuildingIcon, HardHat,
+  Image as ImageIcon, Images, LayoutTemplate, Building2, Map, Trees, Building as BuildingIcon, HardHat,
   Database, Paperclip, ScrollText,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -294,6 +294,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
                 { value: "launches", label: "Launches", icon: Rocket },
                 // Phases only exist under a main project
                 ...(project?.isPhase ? [] : [{ value: "phases", label: "Phases", icon: Layers }]),
+                { value: "project-gallery", label: "Project Gallery", icon: Images },
                 { value: "payment-plans", label: "Payment Plans", icon: CreditCard },
                 { value: "render-images", label: "Render Images", icon: ImageIcon },
                 { value: "floor-plans", label: "Floor Plans", icon: LayoutTemplate },
@@ -319,7 +320,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
             <ProjectFeaturesTab />
           </TabsContent>
 
-          {["phases", "floor-plans", "ingestion-entries", "attachments", "audit-logs"].map((value) => (
+          {["phases", "project-gallery", "floor-plans", "ingestion-entries", "attachments", "audit-logs"].map((value) => (
             <TabsContent key={value} value={value} className="mt-4">
               <ComingSoon pageName={value === "seo" ? "SEO" : value.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ")} />
             </TabsContent>
