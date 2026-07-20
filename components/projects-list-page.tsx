@@ -121,6 +121,8 @@ export function OrgChip({ org }: { org: ProjOrg }) {
   )
 }
 
+export type CascadeKind = "developer" | "location" | "orgs"
+
 /** Dependent classification tree: Category → Type → Subtype. */
 const CLASSIFICATION: Record<string, Record<string, string[]>> = {
   Residential: {
@@ -257,7 +259,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const [drawTarget, setDrawTarget] = useState<ProjectRow | null>(null)
   const [creating, setCreating] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
-  const [orgDlg, setOrgDlg] = useState<ProjectRow | null>(null)
+  const [cascadeDlg, setCascadeDlg] = useState<{ kind: CascadeKind; targets: ProjectRow[]; ignored: number } | null>(null)
   const [bulkClass, setBulkClass] = useState(false)
 
   const toggleGroup = (label: string) =>
@@ -275,8 +277,29 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
     setRows((rs) => rs.map((x) => (x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id) ? { ...x, listingStatus: next } : x)))
   const applyPrimary = (r: ProjectRow, next: ProjPrimaryStatus) =>
     setRows((rs) => rs.map((x) => (x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id) ? { ...x, primaryStatus: next } : x)))
-  const applyOrgs = (r: ProjectRow, orgs: ProjOrg[]) =>
-    setRows((rs) => rs.map((x) => (x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id) ? { ...x, organizations: orgs } : x)))
+  /** Developer / location / organizations changes hit the target mains AND every phase under them. */
+  const applyCascade = (kind: CascadeKind, targets: ProjectRow[], value: string | ProjOrg[]) => {
+    const targetIds = new Set(targets.map((t) => t.id))
+    setRows((rs) => rs.map((x) => {
+      const hit = targetIds.has(x.id) || (x.isPhase && !!x.mainProject && targetIds.has(x.mainProject.id))
+      if (!hit) return x
+      if (kind === "developer") { const dev = PROJECT_DEVELOPERS.find((d) => d.id === value)!; return { ...x, developer: dev } }
+      if (kind === "location") return { ...x, area: value as string }
+      return { ...x, organizations: value as ProjOrg[] }
+    }))
+  }
+  const BULK_CAP = 10
+  /** All bulk actions except Export are limited to 10 selected rows. */
+  const bulkGuard = (fn: () => void) => () => {
+    if (selectedIds.size > BULK_CAP) { toast.error(`Bulk actions are limited to ${BULK_CAP} selected rows — Export is the only exception`); return }
+    fn()
+  }
+  const openBulkCascade = (kind: CascadeKind) => {
+    const sel = rows.filter((r) => selectedIds.has(r.id))
+    const mains = sel.filter((r) => !r.isPhase)
+    if (mains.length === 0) { toast.error("Select at least one main project — this action applies to main projects only"); return }
+    setCascadeDlg({ kind, targets: mains, ignored: sel.length - mains.length })
+  }
 
   const visibleCols = colOrder.filter((id) => !hiddenCols.has(id)).map((id) => PROJ_COLS.find((c) => c.id === id)!).filter(Boolean)
   // Sticky-left offset for a frozen column = checkbox column (40px) + preceding frozen widths
@@ -431,7 +454,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       case "developer":
         return (
           <div className="flex items-center gap-2.5" onClick={(e) => e.stopPropagation()}>
-            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">{r.developer.logo}</span>
+            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{r.developer.logo}</span>
             <div className="min-w-0">
               <a href={`/developers/${r.developer.id}`} target="_blank" rel="noopener noreferrer" className="block truncate font-medium text-primary hover:underline">{r.developer.name}</a>
               <IdTag value={r.developer.id} />
@@ -508,7 +531,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               <DropdownMenuItem onClick={() => setSelected(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setListingDlg(r)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setPrimaryDlg(r)}><TagIcon className="mr-2 h-3.5 w-3.5" />Change Primary Status</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setOrgDlg(r)}><Building2 className="mr-2 h-3.5 w-3.5" />Organizations</DropdownMenuItem>
+              {/* Cascading changes are only available from the main project */}
+              {!r.isPhase && <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "orgs", targets: [r], ignored: 0 })}><Building2 className="mr-2 h-3.5 w-3.5" />Organizations</DropdownMenuItem>}
+              {!r.isPhase && <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "developer", targets: [r], ignored: 0 })}><Globe className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>}
+              {!r.isPhase && <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "location", targets: [r], ignored: 0 })}><MapPin className="mr-2 h-3.5 w-3.5" />Change Location</DropdownMenuItem>}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setDrawTarget(r)}><MapIcon className="mr-2 h-3.5 w-3.5" />Draw on Map</DropdownMenuItem>
             </DropdownMenuContent>
@@ -735,8 +761,11 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           onClear={() => setSelectedIds(new Set())}
         >
           <BulkBarButton icon={<Download className="h-4 w-4" />} onClick={() => { toast.success(`${selectedIds.size} row${selectedIds.size > 1 ? "s" : ""} exported to CSV`); setSelectedIds(new Set()) }}>Export</BulkBarButton>
-          <BulkBarButton icon={<ToggleRight className="h-4 w-4" />} onClick={() => setBulkListing(true)}>Listing Status</BulkBarButton>
-          <BulkBarButton icon={<TagIcon className="h-4 w-4" />} onClick={() => setBulkClass(true)}>Classification</BulkBarButton>
+          <BulkBarButton icon={<ToggleRight className="h-4 w-4" />} onClick={bulkGuard(() => setBulkListing(true))}>Listing Status</BulkBarButton>
+          <BulkBarButton icon={<TagIcon className="h-4 w-4" />} onClick={bulkGuard(() => setBulkClass(true))}>Classification</BulkBarButton>
+          <BulkBarButton icon={<Globe className="h-4 w-4" />} onClick={bulkGuard(() => openBulkCascade("developer"))}>Developer</BulkBarButton>
+          <BulkBarButton icon={<MapPin className="h-4 w-4" />} onClick={bulkGuard(() => openBulkCascade("location"))}>Location</BulkBarButton>
+          <BulkBarButton icon={<Building2 className="h-4 w-4" />} onClick={bulkGuard(() => openBulkCascade("orgs"))}>Organizations</BulkBarButton>
         </FloatingBulkBar>
 
         {listingDlg && (
@@ -801,15 +830,18 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           />
         )}
 
-        {orgDlg && (
-          <OrganizationsDialog
-            r={orgDlg}
-            phases={phasesOf(orgDlg)}
-            onClose={() => setOrgDlg(null)}
-            onConfirm={(orgs) => {
-              applyOrgs(orgDlg, orgs)
-              toast.success(`${orgDlg.name} organizations updated${!orgDlg.isPhase && phasesOf(orgDlg).length ? ` with ${phasesOf(orgDlg).length} phases` : ""}`)
-              setOrgDlg(null)
+        {cascadeDlg && (
+          <CascadeChangeDialog
+            kind={cascadeDlg.kind}
+            targets={cascadeDlg.targets}
+            ignored={cascadeDlg.ignored}
+            allRows={rows}
+            onClose={() => setCascadeDlg(null)}
+            onConfirm={(value) => {
+              applyCascade(cascadeDlg.kind, cascadeDlg.targets, value)
+              toast.success(`${cascadeDlg.targets.length} main project${cascadeDlg.targets.length > 1 ? "s" : ""} updated with their phases`)
+              setCascadeDlg(null)
+              setSelectedIds(new Set())
             }}
           />
         )}
@@ -899,7 +931,7 @@ function PhaseCascadeList({ phases, tagOf, next, nextCls }: {
   )
 }
 
-function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: () => void }) {
+export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: () => void }) {
   const next: ProjListingStatus = r.listingStatus === "Active" ? "Hidden" : "Active"
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -926,7 +958,7 @@ function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow;
   )
 }
 
-function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (s: ProjPrimaryStatus) => void }) {
+export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (s: ProjPrimaryStatus) => void }) {
   const [next, setNext] = useState<ProjPrimaryStatus>(r.primaryStatus)
   const impacted = [r, ...(!r.isPhase ? phases : [])]
   const grouped = impacted.reduce((s, x) => s + x.groupedProps, 0)
@@ -1001,36 +1033,98 @@ function BulkListingDialog({ count, onClose, onConfirm }: { count: number; onClo
   )
 }
 
-/** Organizations picker — cascades from a main project to its phases. */
-function OrganizationsDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (orgs: ProjOrg[]) => void }) {
-  const [orgs, setOrgs] = useState<ProjOrg[]>(r.organizations)
-  const toggle = (o: ProjOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
+/**
+ * Cascading change (Developer / Location / Organizations) — main projects only.
+ * The change also applies to every phase under the targets; the phases are
+ * listed read-only. In bulk mode, selected phases are ignored with a note.
+ */
+export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, onConfirm }: {
+  kind: CascadeKind
+  targets: ProjectRow[]
+  ignored: number
+  allRows: ProjectRow[]
+  onClose: () => void
+  onConfirm: (value: string | ProjOrg[]) => void
+}) {
+  const [devId, setDevId] = useState(targets[0]?.developer.id ?? "")
+  const [area, setArea] = useState(targets[0]?.area ?? "")
+  const [orgs, setOrgs] = useState<ProjOrg[]>(targets[0]?.organizations ?? ["Nawy"])
+  const toggleOrg = (o: ProjOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
+  const impacted = allRows.filter((x) => x.isPhase && targets.some((t) => t.id === x.mainProject?.id))
+  const title = kind === "developer" ? "Change Developer" : kind === "location" ? "Change Location" : "Organizations"
+  const canSave = kind === "developer" ? !!devId : kind === "location" ? !!area : orgs.length > 0
+  const phaseCurrent = (p: ProjectRow) =>
+    kind === "developer" ? p.developer.name : kind === "location" ? p.area : p.organizations.join(", ")
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader><DialogTitle>Organizations</DialogTitle></DialogHeader>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
         <p className="text-sm text-muted-foreground">
-          Choose the organizations linked to <span className="font-medium text-foreground">{r.name}</span> <IdTag value={r.id} />:
+          {targets.length === 1 ? (
+            <>
+              <span className="font-medium text-foreground">{targets[0].name}</span> <IdTag value={targets[0].id} /> and the phases under it will get the same change.
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-foreground">{targets.length} main projects</span> will be changed — each together with its phases.
+            </>
+          )}
         </p>
-        <div className="space-y-2">
-          {(["Nawy", "Partners"] as ProjOrg[]).map((o) => (
-            <label key={o} className={cn(
-              "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
-              orgs.includes(o) ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
-            )}>
-              <Checkbox checked={orgs.includes(o)} onCheckedChange={() => toggle(o)} className="h-4 w-4" />
-              <OrgChip org={o} />
-            </label>
-          ))}
-        </div>
-        {!r.isPhase && phases.length > 0 && (
-          <p className="text-xs text-muted-foreground">
-            This is a <span className="font-semibold text-foreground">main project</span> — its {phases.length} phase{phases.length > 1 ? "s" : ""} will get the same organizations.
-          </p>
+        {ignored > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
+            {ignored} selected phase{ignored > 1 ? "s are" : " is"} ignored — this action applies to main projects only; their phases inherit the change automatically.
+          </div>
         )}
+
+        {kind === "developer" && (
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Developer</div>
+            <FilterSelect label="Select developer…" value={devId} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={setDevId} searchable className="w-full" width="w-full" />
+          </div>
+        )}
+        {kind === "location" && (
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Area</div>
+            <FilterSelect label="Select area…" value={area} options={AREAS} onChange={setArea} className="w-full" width="w-full" />
+          </div>
+        )}
+        {kind === "orgs" && (
+          <div className="space-y-2">
+            {(["Nawy", "Partners"] as ProjOrg[]).map((o) => (
+              <label key={o} className={cn(
+                "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
+                orgs.includes(o) ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
+              )}>
+                <Checkbox checked={orgs.includes(o)} onCheckedChange={() => toggleOrg(o)} className="h-4 w-4" />
+                <OrgChip org={o} />
+              </label>
+            ))}
+          </div>
+        )}
+
+        {impacted.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">Phases inheriting this change ({impacted.length}) — read only:</p>
+            <div className="max-h-44 overflow-y-auto rounded-lg border border-border">
+              {impacted.map((p, i) => (
+                <div key={p.id} className={cn("flex items-center gap-2 px-3 py-2", i > 0 && "border-t border-border/70")}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{p.isPhase && targets.length > 1 ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
+                    <IdTag value={p.id} />
+                  </div>
+                  <span className="max-w-36 flex-shrink-0 truncate text-xs text-muted-foreground">{phaseCurrent(p)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={orgs.length === 0} onClick={() => onConfirm(orgs)}>Save</Button>
+          <Button size="sm" disabled={!canSave} onClick={() => onConfirm(kind === "developer" ? devId : kind === "location" ? area : orgs)}>
+            Apply to {targets.length} project{targets.length > 1 ? "s" : ""}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

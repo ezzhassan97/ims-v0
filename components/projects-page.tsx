@@ -16,6 +16,7 @@ import { SplittingRules } from "@/components/splitting-rules"
 import { AmenitiesList } from "@/components/amenities-list"
 import { AmenitiesMap } from "@/components/amenities-map"
 import { SeoTab, FaqsTab } from "@/components/developers-page"
+import { ProjectFeaturesTab } from "@/components/project-features-tab"
 import { MasterplansPage } from "@/components/masterplans-page"
 import { ConstructionUpdatesTab } from "@/components/construction-updates-tab"
 import { RenderImagesPage } from "@/components/render-images-page"
@@ -291,7 +292,8 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
                 { value: "seo", label: "SEO", icon: Globe },
                 { value: "faqs", label: "FAQs", icon: HelpCircle },
                 { value: "launches", label: "Launches", icon: Rocket },
-                { value: "phases", label: "Phases", icon: Layers },
+                // Phases only exist under a main project
+                ...(project?.isPhase ? [] : [{ value: "phases", label: "Phases", icon: Layers }]),
                 { value: "payment-plans", label: "Payment Plans", icon: CreditCard },
                 { value: "render-images", label: "Render Images", icon: ImageIcon },
                 { value: "floor-plans", label: "Floor Plans", icon: LayoutTemplate },
@@ -313,7 +315,11 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
           </TabStrip>
 
           {/* Not built yet → coming soon */}
-          {["features", "phases", "floor-plans", "ingestion-entries", "attachments", "audit-logs"].map((value) => (
+          <TabsContent value="features" className="mt-4">
+            <ProjectFeaturesTab />
+          </TabsContent>
+
+          {["phases", "floor-plans", "ingestion-entries", "attachments", "audit-logs"].map((value) => (
             <TabsContent key={value} value={value} className="mt-4">
               <ComingSoon pageName={value === "seo" ? "SEO" : value.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ")} />
             </TabsContent>

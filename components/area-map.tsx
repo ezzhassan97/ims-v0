@@ -135,15 +135,24 @@ function Basemap() {
 export interface MapView { cx: number; cy: number; zoom: number }
 type PtHandler = (p: Pt, e: React.PointerEvent, mapPerPx: number) => void
 
-function MapSvg({ view, onDown, onMove, onUp, cursor, children }: {
+function MapSvg({ view, onDown, onMove, onUp, onZoomDelta, cursor, children }: {
   view: MapView
   onDown?: PtHandler
   onMove?: PtHandler
   onUp?: () => void
+  /** Touchpad / wheel zoom — receives a multiplicative factor. */
+  onZoomDelta?: (factor: number) => void
   cursor?: string
   children?: React.ReactNode
 }) {
   const ref = useRef<SVGSVGElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !onZoomDelta) return
+    const h = (e: WheelEvent) => { e.preventDefault(); onZoomDelta(Math.exp(-e.deltaY * 0.0022)) }
+    el.addEventListener("wheel", h, { passive: false })
+    return () => el.removeEventListener("wheel", h)
+  }, [onZoomDelta])
   const vb = { x: view.cx - MAP_W / 2 / view.zoom, y: view.cy - MAP_H / 2 / view.zoom, w: MAP_W / view.zoom, h: MAP_H / view.zoom }
   // preserveAspectRatio="slice" → uniform scale that fills the box, centered crop
   const cvt = (e: React.PointerEvent): [Pt, number] => {
@@ -238,6 +247,20 @@ function PinMarker({ pt, color, zoom, onPointerDown, cursor }: {
 }
 
 const zoomFor = (kind: string) => (kind === "District" ? 1.8 : kind === "Project" ? 3.2 : kind === "Subarea" ? 3.6 : 2.6)
+
+/** View that fits an entity's geometry (polygon bbox, else pin). */
+function fitView(g: { pin: Pt | null; polygon: Pt[] | null }): MapView {
+  if (g.polygon && g.polygon.length >= 3) {
+    const xs = g.polygon.map((p) => p.x)
+    const ys = g.polygon.map((p) => p.y)
+    const minX = Math.min(...xs), maxX = Math.max(...xs)
+    const minY = Math.min(...ys), maxY = Math.max(...ys)
+    const zoom = Math.min(6, Math.max(1, Math.min(MAP_W / ((maxX - minX) * 2), MAP_H / ((maxY - minY) * 2))))
+    return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, zoom }
+  }
+  if (g.pin) return { cx: g.pin.x, cy: g.pin.y, zoom: 3.2 }
+  return { cx: 500, cy: 350, zoom: 1 }
+}
 
 function ToolBtn({ icon: Icon, label, active, onClick }: { icon: typeof Hand; label: string; active?: boolean; onClick: () => void }) {
   return (
@@ -360,7 +383,7 @@ export function MapDrawDialog({ name, level, entityId, pin: pin0, polygon: polyg
         </div>
 
         <div className="relative min-h-0 flex-1 overflow-hidden bg-[#EFEDE5]">
-          <MapSvg view={view} onDown={down} onMove={move} onUp={() => (dragRef.current = null)} cursor={mode === "pan" ? "grab" : "crosshair"}>
+          <MapSvg view={view} onDown={down} onMove={move} onUp={() => (dragRef.current = null)} onZoomDelta={(f) => zoomBy(f)} cursor={mode === "pan" ? "grab" : "crosshair"}>
             {backdrop.map((b, i) => (
               <polygon key={i} points={ptsStr(b.pts)} fill={b.color} fillOpacity={0.06} stroke={b.color} strokeOpacity={0.55}
                 strokeWidth={1.2 / view.zoom} strokeDasharray={`${6 / view.zoom} ${5 / view.zoom}`} />
@@ -463,6 +486,13 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
 
   const zoomBy = (f: number) => setView((v) => ({ ...v, zoom: Math.min(8, Math.max(0.75, v.zoom * f)) }))
   const stopDrawing = () => { setDrawMode(null); setDraft(null) }
+  /** Selecting a shape zooms the view to fit it (only on selection change). */
+  const selectAndFit = (g: GeoRef) => {
+    if (keyOf(g) !== selKey) {
+      setSelKey(keyOf(g))
+      setView(fitView(g))
+    }
+  }
 
   const down: PtHandler = (p, e, mpp) => {
     if (dragRef.current) return
@@ -512,7 +542,7 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
 
         <div className="flex min-h-0 flex-1">
           <div className="relative min-w-0 flex-1 bg-[#EFEDE5]">
-            <MapSvg view={view} onDown={down} onMove={move} onUp={() => (dragRef.current = null)} cursor={drawMode ? "crosshair" : "grab"}>
+            <MapSvg view={view} onDown={down} onMove={move} onUp={() => (dragRef.current = null)} onZoomDelta={(f) => zoomBy(f)} cursor={drawMode ? "crosshair" : "grab"}>
               {visibleLevels.map((lvl) =>
                 list.filter((g) => g.level === lvl && g.polygon).map((g) => {
                   const isSel = keyOf(g) === selKey
@@ -523,7 +553,7 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                       <polygon
                         points={ptsStr(g.polygon!)} fill={c} fillOpacity={isSel ? 0.2 : 0.08} stroke={c}
                         strokeWidth={(isSel ? 1.6 : 0.9) / view.zoom} style={{ cursor: drawMode ? "crosshair" : "pointer" }}
-                        onPointerDown={() => { if (drawMode) return; setSelKey(keyOf(g)) }}
+                        onPointerDown={() => { if (drawMode) return; selectAndFit(g) }}
                       />
                       {view.zoom >= LABEL_MIN[lvl] && (
                         <text x={cen.x} y={cen.y} textAnchor="middle" fontSize={(lvl === "District" ? 13 : 11) / view.zoom}
@@ -545,7 +575,7 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                   <PinMarker
                     key={keyOf(g)} pt={g.pin!} color={LEVEL_COLOR[lvl]} zoom={view.zoom}
                     cursor={drawMode ? "crosshair" : keyOf(g) === selKey ? "move" : "pointer"}
-                    onPointerDown={() => { if (drawMode) return; setSelKey(keyOf(g)); dragRef.current = { t: "pin", key: keyOf(g) } }}
+                    onPointerDown={() => { if (drawMode) return; const isNew = keyOf(g) !== selKey; selectAndFit(g); if (!isNew) dragRef.current = { t: "pin", key: keyOf(g) } }}
                   />
                 )),
               )}
@@ -726,20 +756,21 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
                       className="cursor-pointer rounded-lg border border-border bg-card p-2 text-left transition-colors hover:border-muted-foreground/40"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <span className="min-w-0 truncate text-sm font-medium text-foreground">{g.name}</span>
-                        <span className={cn(
-                          "flex-shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none",
-                          g.status === "Active" ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-700",
-                        )}>
-                          {g.status}
-                        </span>
-                      </div>
-                      <IdTag value={g.id} className="mt-0.5" />
-                      {(g.parent || g.sub) && (
-                        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                          {[g.parent, g.sub].filter(Boolean).join(" · ")}
+                        <div className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-foreground">{g.name}</span>
+                          <IdTag value={g.id} className="mt-0.5" />
+                          {g.parent && <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{g.parent}</div>}
                         </div>
-                      )}
+                        <div className="flex flex-shrink-0 flex-col items-end gap-0.5">
+                          <span className={cn(
+                            "rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none",
+                            g.status === "Active" ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-700",
+                          )}>
+                            {g.status}
+                          </span>
+                          {g.sub && <span className="max-w-28 truncate text-[11px] text-muted-foreground">{g.sub}</span>}
+                        </div>
+                      </div>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {!g.pin && <span className="rounded-md border border-red-200 bg-red-100 px-1.5 py-0.5 text-[10px] font-medium leading-none text-red-700">Missing Pin</span>}
                         {!g.polygon && <span className="rounded-md border border-red-200 bg-red-100 px-1.5 py-0.5 text-[10px] font-medium leading-none text-red-700">Missing Polygon</span>}
