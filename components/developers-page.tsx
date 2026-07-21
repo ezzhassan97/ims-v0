@@ -1032,7 +1032,8 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
                   )}>
                     {p.isPhase ? "Phase" : "Main Project"}
                   </span>
-                  {kind === "listing" && <StoryBadge value={p.listingStatus} />}
+                  {/* Listing status shown for both actions so the user sees each project/phase's state */}
+                  <StoryBadge value={p.listingStatus} />
                 </div>
               ))}
             </div>
