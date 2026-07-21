@@ -4,13 +4,15 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
   Search, SlidersHorizontal, ArrowUpDown, ArrowUp, ArrowDown, Columns3, Plus, Copy, Check, ChevronDown, Download,
   ArrowRight, Home, ChevronRight, Pencil, ChevronUp, MoreHorizontal, MessageCircle,
-  ChevronLeft, ChevronsLeft, ChevronsRight, Building2, FileText, Users, HelpCircle,
+  ChevronLeft, ChevronsLeft, ChevronsRight, Building2, Eye, FileText, Globe, ToggleRight, Users, HelpCircle,
   Image as ImageIcon, Group as GroupIcon, GripVertical, Trash2, Save, X, UploadCloud,
 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
@@ -126,6 +128,7 @@ export function DevelopersPage() {
   const [priorityF, setPriorityF] = useState<string[]>([])
   const [orgF, setOrgF] = useState<string[]>([])
   const [waF, setWaF] = useState("")
+  const [devDlg, setDevDlg] = useState<{ kind: "listing" | "orgs"; dev: Developer } | null>(null)
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   // Per-group pagination — real data can put hundreds of rows in one group
@@ -249,7 +252,8 @@ export function DevelopersPage() {
     switch (colId) {
       case "name": return <EntityCell image={d.logo} name={d.name} id={String(d.id)} />
       case "priority": return <StoryBadge value={d.priority} options={PRIORITIES} onChange={(v) => update(d.id, { priority: v as DevPriority })} />
-      case "listingStatus": return <StoryBadge value={d.listingStatus} options={["Active", "Hidden"]} onChange={(v) => update(d.id, { listingStatus: v as DevListingStatus })} />
+      // Listing status is NOT inline-editable — it changes through the row action (cascades to projects & phases)
+      case "listingStatus": return <StoryBadge value={d.listingStatus} />
       case "organization": return <div className="flex flex-nowrap items-center gap-1">{d.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
       case "whatsappGroup": return d.whatsappGroup
         ? <EntityCell image={d.whatsappGroup.image} name={d.whatsappGroup.name} id={d.whatsappGroup.id} rounded="rounded-full" />
@@ -273,15 +277,24 @@ export function DevelopersPage() {
           key={c.id}
           className={cn("px-4 py-3", frozenCols.has(c.id) && "sticky z-10 bg-card")}
           style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
-          onClick={c.id === "priority" || c.id === "listingStatus" ? (e) => e.stopPropagation() : undefined}
+          onClick={c.id === "priority" ? (e) => e.stopPropagation() : undefined}
         >
           {cellContent(c.id, d)}
         </td>
       ))}
-      <td className="sticky right-0 z-10 w-12 border-l border-border bg-card p-0 transition-colors group-hover:bg-muted/40">
-        <button onClick={(e) => { e.stopPropagation(); setSelected(d) }} title="View developer" className="flex h-full w-12 items-center justify-center text-muted-foreground hover:text-primary">
-          <ArrowRight className="h-4 w-4" />
-        </button>
+      {/* Action — frozen right: single ⋯ dropdown, View first */}
+      <td className="sticky right-0 z-10 w-12 border-l border-border bg-card p-0 transition-colors group-hover:bg-muted/40" onClick={(e) => e.stopPropagation()}>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex h-full w-12 items-center justify-center text-muted-foreground hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onClick={() => setSelected(d)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setDevDlg({ kind: "listing", dev: d })}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setDevDlg({ kind: "orgs", dev: d })}><Globe className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </td>
     </tr>
   )
@@ -408,6 +421,19 @@ export function DevelopersPage() {
           <BulkBarButton icon={<Download className="h-3.5 w-3.5 text-zinc-400" />} onClick={exportSelected}>Export</BulkBarButton>
         </FloatingBulkBar>
 
+        {devDlg && (
+          <DevCascadeDialog
+            kind={devDlg.kind}
+            dev={devDlg.dev}
+            onClose={() => setDevDlg(null)}
+            onConfirm={(value) => {
+              if (devDlg.kind === "listing") update(devDlg.dev.id, { listingStatus: value as DevListingStatus })
+              else update(devDlg.dev.id, { organizations: value as DevOrg[] })
+              setDevDlg(null)
+            }}
+          />
+        )}
+
         {/* All Filters drawer — same filters, order and state as the toolbar */}
         <FiltersDrawer
           open={showAllFilters}
@@ -510,12 +536,13 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
   const [collapsed, setCollapsed] = useState(true) // collapsed by default
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(developer)
+  const [dlg, setDlg] = useState<"listing" | "orgs" | null>(null)
   const startEdit = () => { setDraft(developer); setEditing(true); setCollapsed(false) }
+  // Listing status & organizations are NOT saved from inline edit — they change through the ⋯ actions (cascade)
   const saveEdit = () => {
-    onUpdate({ officialName: draft.officialName, nameEn: draft.nameEn, nameAr: draft.nameAr, name: draft.nameEn, priority: draft.priority, organizations: draft.organizations, listingStatus: draft.listingStatus, nawyEligible: draft.nawyEligible })
+    onUpdate({ officialName: draft.officialName, nameEn: draft.nameEn, nameAr: draft.nameAr, name: draft.nameEn, priority: draft.priority, nawyEligible: draft.nawyEligible })
     setEditing(false)
   }
-  const toggleOrg = (o: DevOrg) => setDraft((d) => ({ ...d, organizations: d.organizations.includes(o) ? d.organizations.filter((x) => x !== o) : [...d.organizations, o] }))
   const expanded = editing || !collapsed
 
   return (
@@ -574,7 +601,16 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
                 <>
                   <IconBtn title="Edit" onClick={startEdit}><Pencil className="h-4 w-4" /></IconBtn>
                   <IconBtn title={collapsed ? "Expand" : "Collapse"} onClick={() => setCollapsed((c) => !c)}>{collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}</IconBtn>
-                  <IconBtn title="More"><MoreHorizontal className="h-4 w-4" /></IconBtn>
+                  {/* Same cascading actions as the developers table rows */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="icon" className="h-8 w-8 text-muted-foreground"><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuItem onClick={() => setDlg("listing")}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setDlg("orgs")}><Globe className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </>
               )}
             </div>
@@ -597,37 +633,17 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
                 </div>
                 <div>
                   <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Organization</p>
+                  {/* Changed through the ⋯ Change Organizations action (cascades) — never inline */}
                   <div className="mt-1 flex flex-wrap gap-1">
-                    {editing
-                      ? (["Nawy", "Partners"] as DevOrg[]).map((o) => {
-                        const active = draft.organizations.includes(o)
-                        return (
-                          <button
-                            key={o}
-                            onClick={() => toggleOrg(o)}
-                            className={cn("rounded-md border px-2 py-0.5 text-xs font-semibold transition-colors", !active && "border-border text-muted-foreground hover:bg-muted")}
-                            style={active ? { backgroundColor: o === "Nawy" ? "#7DCBC1" : "#015C9A", color: o === "Nawy" ? "#0D1B2E" : "#ffffff", borderColor: "transparent" } : undefined}
-                          >
-                            {o}
-                          </button>
-                        )
-                      })
-                      : developer.organizations.map((o) => <OrgChip key={o} org={o} />)}
+                    {developer.organizations.map((o) => <OrgChip key={o} org={o} />)}
                   </div>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-x-8 gap-y-4 md:grid-cols-3 lg:grid-cols-5">
                 <div>
                   <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Listing status</p>
-                  {editing ? (
-                    <Select value={draft.listingStatus} onValueChange={(v) => setDraft((d) => ({ ...d, listingStatus: v as DevListingStatus }))}>
-                      <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Active" className="text-sm"><StoryBadge value="Active" /></SelectItem>
-                        <SelectItem value="Hidden" className="text-sm"><StoryBadge value="Hidden" /></SelectItem>
-                      </SelectContent>
-                    </Select>
-                  ) : <div className="mt-1"><StoryBadge value={developer.listingStatus} /></div>}
+                  {/* Changed through the ⋯ Change Listing Status action (cascades) — never inline */}
+                  <div className="mt-1"><StoryBadge value={developer.listingStatus} /></div>
                 </div>
                 <div>
                   <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Nawy Eligible</p>
@@ -653,6 +669,19 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
           <TabsContent value="whatsapp-media"><WhatsAppMediaTable hideDeveloperFilter /></TabsContent>
           <TabsContent value="contacts"><ContactsTab /></TabsContent>
         </Tabs>
+
+        {dlg && (
+          <DevCascadeDialog
+            kind={dlg}
+            dev={developer}
+            onClose={() => setDlg(null)}
+            onConfirm={(value) => {
+              if (dlg === "listing") onUpdate({ listingStatus: value as DevListingStatus })
+              else onUpdate({ organizations: value as DevOrg[] })
+              setDlg(null)
+            }}
+          />
+        )}
       </div>
     </div>
   )
@@ -894,3 +923,105 @@ function FaqModal({ faq, defaultLang, onClose, onSave }: { faq: Faq | null; defa
   )
 }
 
+
+/** Projects & phases under a developer (mock names don't always align — fuzzy match). */
+function projectsOfDeveloper(devName: string) {
+  const k = devName.toLowerCase()
+  return PROJECTS.filter((p) => {
+    const n = p.developer.name.toLowerCase()
+    return k.includes(n) || n.includes(k)
+  })
+}
+
+/**
+ * Developer cascade dialog — Change Listing Status / Change Organizations.
+ * The change cascades to every project and phase under the developer; they are
+ * listed read-only so the user sees the blast radius before confirming.
+ */
+export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
+  kind: "listing" | "orgs"
+  dev: Developer
+  onClose: () => void
+  onConfirm: (value: DevListingStatus | DevOrg[]) => void
+}) {
+  const next: DevListingStatus = dev.listingStatus === "Active" ? "Hidden" : "Active"
+  const [orgs, setOrgs] = useState<DevOrg[]>(dev.organizations)
+  const toggleOrg = (o: DevOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
+  const impacted = projectsOfDeveloper(dev.name)
+  const mains = impacted.filter((p) => !p.isPhase).length
+  const phases = impacted.length - mains
+  const canSave = kind === "listing" || orgs.length > 0
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>{kind === "listing" ? "Change Listing Status" : "Change Organizations"}</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{dev.name}</span> <IdTag value={String(dev.id)} />{" "}
+          {kind === "listing" ? (
+            <>will change from <StoryBadge value={dev.listingStatus} /> to <StoryBadge value={next} />.</>
+          ) : (
+            <>will get the selected organizations.</>
+          )}
+        </p>
+
+        {kind === "orgs" && (
+          <div className="flex gap-2">
+            {(["Nawy", "Partners"] as DevOrg[]).map((o) => (
+              <label key={o} className={cn(
+                "flex flex-1 cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
+                orgs.includes(o) ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
+              )}>
+                <Checkbox checked={orgs.includes(o)} onCheckedChange={() => toggleOrg(o)} className="h-4 w-4" />
+                <OrgChip org={o} />
+              </label>
+            ))}
+          </div>
+        )}
+
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
+          This change cascades to <span className="font-semibold">{mains}</span> project{mains !== 1 ? "s" : ""} and{" "}
+          <span className="font-semibold">{phases}</span> phase{phases !== 1 ? "s" : ""} under this developer.
+        </div>
+
+        {impacted.length > 0 ? (
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">Projects and phases inheriting this change ({impacted.length}) — read only:</p>
+            <div className="max-h-44 overflow-y-auto rounded-lg border border-border">
+              {impacted.map((p, i) => (
+                <div key={p.id} className={cn("flex items-center gap-2 px-3 py-2", i > 0 && "border-t border-border/70")}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{p.isPhase ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
+                    <IdTag value={p.id} />
+                  </div>
+                  <span className={cn(
+                    "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-px text-[10px] font-medium",
+                    p.isPhase ? "border-border bg-muted text-muted-foreground" : "border-blue-200 bg-blue-100 text-blue-700",
+                  )}>
+                    {p.isPhase ? "Phase" : "Main Project"}
+                  </span>
+                  {kind === "listing" && <StoryBadge value={p.listingStatus} />}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">No projects are linked to this developer yet.</p>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm" disabled={!canSave}
+            onClick={() => {
+              onConfirm(kind === "listing" ? next : orgs)
+              toast.success(`${dev.name} updated — cascaded to ${mains} project${mains !== 1 ? "s" : ""} and ${phases} phase${phases !== 1 ? "s" : ""}`)
+            }}
+          >
+            {kind === "listing" ? `Change to ${next}` : "Apply"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
