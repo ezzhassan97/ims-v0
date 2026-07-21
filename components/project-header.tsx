@@ -1,13 +1,13 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Building2, Check, ChevronDown, GitBranch, Globe, Layers, Map as MapIcon, MapPin, MoreHorizontal, Pencil, Repeat, Tag as TagIcon, ToggleRight, X } from "lucide-react"
+import { Building2, Check, ChevronDown, ExternalLink, GitBranch, Globe, Layers, Map as MapIcon, MapPin, MoreHorizontal, Pencil, Repeat, Tag as TagIcon, ToggleRight, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { FilterSelect, IdTag } from "@/components/table-kit"
 import { MapDrawDialog, type Pt } from "@/components/area-map"
-import { ListingStatusDialog, PrimaryStatusDialog, CascadeChangeDialog, CLASSIFICATION, fmtDateTime, type CascadeKind } from "@/components/projects-list-page"
+import { ListingStatusDialog, PrimaryStatusDialog, CascadeChangeDialog, CLASSIFICATION, fmtDateTime, projSiteUrl, type CascadeKind } from "@/components/projects-list-page"
 import { PROJECTS, type ProjectRow, type ProjListingStatus, type ProjPrimaryStatus, type ProjEntryType } from "@/lib/projects-mock"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -242,6 +242,9 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
             <span>{location}</span>
           </div>
         </div>
+        <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0 text-muted-foreground" title="View on Website" onClick={() => window.open(projSiteUrl(saved.nameEn), "_blank", "noopener")}>
+          <ExternalLink className="h-4 w-4" />
+        </Button>
         {editing ? (
           <div className="flex flex-shrink-0 gap-2">
             <Button variant="outline" size="sm" className="h-8 gap-1" onClick={() => { setForm(saved); setErrs(new Set()); setEditing(false) }}>

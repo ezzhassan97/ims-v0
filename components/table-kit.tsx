@@ -91,7 +91,8 @@ export function FilterSelect({
           active ? "border-primary text-primary" : "border-input text-foreground",
         )}
       >
-        <span className="truncate text-left">{active && selected ? selected.label : label}</span>
+        {/* Placeholder muted like FilterMultiSelect so mixed filter rows read uniformly */}
+        <span className={cn("truncate text-left", !active && "text-muted-foreground")}>{active && selected ? selected.label : label}</span>
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
 

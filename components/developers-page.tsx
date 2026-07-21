@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
   Search, SlidersHorizontal, ArrowUpDown, ArrowUp, ArrowDown, Columns3, Plus, Copy, Check, ChevronDown, Download,
   ArrowRight, Home, ChevronRight, Pencil, ChevronUp, MoreHorizontal, MessageCircle,
-  ChevronLeft, ChevronsLeft, ChevronsRight, Building2, Eye, FileText, Globe, ToggleRight, Users, HelpCircle,
+  ChevronLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Eye, FileText, Globe, ToggleRight, Users, HelpCircle,
   Image as ImageIcon, Group as GroupIcon, GripVertical, Trash2, Save, X, UploadCloud,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -28,6 +28,9 @@ import { DeveloperCreatePage } from "@/components/developer-create-page"
 import { DEVELOPERS, type Developer, type DevPriority, type DevListingStatus, type DevOrg } from "@/lib/developers-mock"
 
 const PRIORITIES: DevPriority[] = ["Lowest", "Low", "Medium", "High", "Highest"]
+
+/** Public listing page for a developer on nawy.com (mock slug). */
+const devSiteUrl = (name: string) => `https://www.nawy.com/developer/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`
 
 type SortKey = "priority" | "projects" | "phases" | "createdAt" | "updatedAt"
 const SORT_FIELDS: { key: SortKey; label: string }[] = [
@@ -251,12 +254,12 @@ export function DevelopersPage() {
   const cellContent = (colId: string, d: Developer): React.ReactNode => {
     switch (colId) {
       case "name": return <EntityCell image={d.logo} name={d.name} id={String(d.id)} />
-      case "priority": return <StoryBadge value={d.priority} options={PRIORITIES} onChange={(v) => update(d.id, { priority: v as DevPriority })} />
+      case "priority": return <StoryBadge value={d.priority} options={PRIORITIES} onChange={(v) => { update(d.id, { priority: v as DevPriority }); toast.success(`${d.name} priority updated to ${v}`) }} />
       // Listing status is NOT inline-editable — it changes through the row action (cascades to projects & phases)
       case "listingStatus": return <StoryBadge value={d.listingStatus} />
       case "organization": return <div className="flex flex-nowrap items-center gap-1">{d.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
       case "whatsappGroup": return d.whatsappGroup
-        ? <EntityCell image={d.whatsappGroup.image} name={d.whatsappGroup.name} id={d.whatsappGroup.id} rounded="rounded-full" />
+        ? <EntityCell image={d.whatsappGroup.image} name={d.whatsappGroup.name} id={d.whatsappGroup.id} />
         : <Badge variant="outline" className="border border-red-200 bg-red-50 text-xs font-medium text-red-600">No WhatsApp linked</Badge>
       case "projects": return <span className="whitespace-nowrap text-xs text-muted-foreground"><span className="font-medium text-foreground">{d.projectsListed}</span> Listed / <span className="font-medium text-foreground">{d.projectsTotal}</span> Total</span>
       case "phases": return <span className="whitespace-nowrap text-xs text-muted-foreground"><span className="font-medium text-foreground">{d.phasesListed}</span> Listed / <span className="font-medium text-foreground">{d.phasesTotal}</span> Total</span>
@@ -290,6 +293,7 @@ export function DevelopersPage() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuItem onClick={() => setSelected(d)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => window.open(devSiteUrl(d.name), "_blank", "noopener")}><ExternalLink className="mr-2 h-3.5 w-3.5" />View on Website</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setDevDlg({ kind: "listing", dev: d })}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setDevDlg({ kind: "orgs", dev: d })}><Globe className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
@@ -599,6 +603,9 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
                 </>
               ) : (
                 <>
+                  <Button variant="outline" size="icon" className="h-8 w-8 text-muted-foreground" title="View on Website" onClick={() => window.open(devSiteUrl(developer.name), "_blank", "noopener")}>
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
                   <IconBtn title="Edit" onClick={startEdit}><Pencil className="h-4 w-4" /></IconBtn>
                   <IconBtn title={collapsed ? "Expand" : "Collapse"} onClick={() => setCollapsed((c) => !c)}>{collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}</IconBtn>
                   {/* Same cascading actions as the developers table rows */}

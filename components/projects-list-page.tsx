@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
-  AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, GitBranch, ImagePlus, Info, MoreHorizontal, Download, Eye, FileText, Globe, Repeat, ToggleRight, Layers, Building2,
+  AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ExternalLink, GitBranch, ImagePlus, Info, MoreHorizontal, Download, Eye, FileText, Globe, Repeat, ToggleRight, Layers, Building2,
   Group as GroupIcon, MapPin, Plus, Tag as TagIcon, Map as MapIcon, Upload, X,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -57,6 +57,9 @@ const PROJECT_GEO0: GeoRef[] = PROJECTS.map((p) => {
 const PROJECT_MAP_LOCATIONS: MapLocation[] = PROJECT_GEO0.map((g) => ({ id: g.id, name: g.name, kind: g.level, center: centroid(g.polygon, g.pin) }))
 
 const PRIMARY_STATUSES: ProjPrimaryStatus[] = ["Launch", "On-Sale", "On-Hold", "Sold-Off", "Archived"]
+
+/** Public listing page for a project on nawy.com (mock slug). */
+export const projSiteUrl = (name: string) => `https://www.nawy.com/compound/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 // UTC getters (the mock stores UTC ISO strings) so SSR and client render identically — no hydration mismatch.
@@ -565,6 +568,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem onClick={() => setSelected(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.open(projSiteUrl(r.name), "_blank", "noopener")}><ExternalLink className="mr-2 h-3.5 w-3.5" />View on Website</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "entry", targets: [r], ignored: 0 })}><Repeat className="mr-2 h-3.5 w-3.5" />Change Entry Type</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setListingDlg(r)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>

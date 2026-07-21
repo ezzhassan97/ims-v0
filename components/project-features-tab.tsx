@@ -125,8 +125,8 @@ export function ProjectFeaturesTab() {
 
   return (
     <div className="space-y-4">
-      {/* Amenities & Services */}
-      <TableCard>
+      {/* Amenities & Services — overflow-visible so the multi-select panels aren't clipped by the card */}
+      <TableCard className="overflow-visible">
         <TableCardHeader title="Amenities & Services" />
         <div className="grid gap-6 p-5 sm:grid-cols-2">
           <div className="space-y-2">
