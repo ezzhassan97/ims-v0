@@ -289,14 +289,16 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
     setRows((rs) => rs.map((x) => (x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id) ? { ...x, listingStatus: next } : x)))
   const applyPrimary = (r: ProjectRow, next: ProjPrimaryStatus) =>
     setRows((rs) => rs.map((x) => (x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id) ? { ...x, primaryStatus: next } : x)))
-  /** Cascading changes: main-project targets cascade to every phase under them; phase targets change only themselves. */
-  const applyCascade = (kind: CascadeKind, targets: ProjectRow[], value: string | ProjOrg[]) => {
+  /** Cascading changes: main-project targets cascade to every phase under them; phase targets change only themselves.
+   *  For entry-type changes, phases the user unticked in the dialog are excluded from the cascade. */
+  const applyCascade = (kind: CascadeKind, targets: ProjectRow[], value: string | ProjOrg[], excludedPhaseIds?: string[]) => {
     const targetIds = new Set(targets.map((t) => t.id))
+    const excluded = new Set(excludedPhaseIds ?? [])
     setRows((rs) => {
       const parent = kind === "parent" ? rs.find((y) => y.id === value) : null
       return rs.map((x) => {
         const hit = targetIds.has(x.id) || (x.isPhase && !!x.mainProject && targetIds.has(x.mainProject.id))
-        if (!hit) return x
+        if (!hit || excluded.has(x.id)) return x
         if (kind === "developer") { const dev = PROJECT_DEVELOPERS.find((d) => d.id === value)!; return { ...x, developer: dev } }
         if (kind === "location") return { ...x, area: value as string }
         if (kind === "entry") return { ...x, entryType: value as ProjEntryType }
@@ -869,10 +871,15 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             ignored={cascadeDlg.ignored}
             allRows={rows}
             onClose={() => setCascadeDlg(null)}
-            onConfirm={(value) => {
-              applyCascade(cascadeDlg.kind, cascadeDlg.targets, value)
+            onConfirm={(value, excludedPhaseIds) => {
+              applyCascade(cascadeDlg.kind, cascadeDlg.targets, value, excludedPhaseIds)
               const t = cascadeDlg.targets
-              toast.success(t.length === 1 && t[0].isPhase ? `${t[0].name} updated` : `${t.length} main project${t.length > 1 ? "s" : ""} updated with their phases`)
+              const exCount = excludedPhaseIds?.length ?? 0
+              toast.success(
+                t.length === 1 && t[0].isPhase
+                  ? `${t[0].name} updated`
+                  : `${t.length} main project${t.length > 1 ? "s" : ""} updated with their phases${exCount > 0 ? ` (${exCount} excluded)` : ""}`,
+              )
               setCascadeDlg(null)
               setSelectedIds(new Set())
             }}
@@ -1088,7 +1095,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   ignored: number
   allRows: ProjectRow[]
   onClose: () => void
-  onConfirm: (value: string | ProjOrg[]) => void
+  onConfirm: (value: string | ProjOrg[], excludedPhaseIds?: string[]) => void
 }) {
   const [devId, setDevId] = useState(targets[0]?.developer.id ?? "")
   const initialArea = AREA_TREE.find((a) => a.name === targets[0]?.area)
@@ -1096,6 +1103,8 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   const [orgs, setOrgs] = useState<ProjOrg[]>(targets[0]?.organizations ?? ["Nawy"])
   const [entryVal, setEntryVal] = useState<ProjEntryType>(targets[0]?.entryType === "Automatic" ? "Manual" : "Automatic")
   const [parentId, setParentId] = useState(targets[0]?.mainProject?.id ?? "")
+  const [excludedPhases, setExcludedPhases] = useState<Set<string>>(new Set())
+  const toggleExcludedPhase = (id: string) => setExcludedPhases((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleOrg = (o: ProjOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
   const impacted = allRows.filter((x) => x.isPhase && targets.some((t) => t.id === x.mainProject?.id))
   const singlePhase = targets.length === 1 && targets[0].isPhase
@@ -1122,6 +1131,17 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   const grouped = propRows.reduce((s, x) => s + x.groupedProps, 0)
   const detailed = propRows.reduce((s, x) => s + x.detailedProps, 0)
 
+  // Entry-type specifics: only phases whose current type differs from the destination need changing.
+  // Excluded phases (and the always-changed mains) drive the impacted-property counts.
+  const otherEntry: ProjEntryType = entryVal === "Automatic" ? "Manual" : "Automatic"
+  const entryPhasesNeeding = impacted.filter((p) => p.entryType !== entryVal)
+  const includedEntryPhases = entryPhasesNeeding.filter((p) => !excludedPhases.has(p.id))
+  const entryImpactRows = [...targets, ...includedEntryPhases]
+  const entryGrouped = entryImpactRows.reduce((s, x) => s + x.groupedProps, 0)
+  const entryDetailed = entryImpactRows.reduce((s, x) => s + x.detailedProps, 0)
+  const mainsOwnGrouped = targets.reduce((s, x) => s + x.groupedProps, 0)
+  const mainsOwnDetailed = targets.reduce((s, x) => s + x.detailedProps, 0)
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
@@ -1130,6 +1150,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           {targets.length === 1 ? (
             <>
               <span className="font-medium text-foreground">{targets[0].name}</span> <IdTag value={targets[0].id} />{" "}
+              {kind === "entry" && <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />}{" "}
               {singlePhase ? "will get this change." : "and the phases under it will get the same change."}
             </>
           ) : (
@@ -1146,22 +1167,39 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
 
         {kind === "entry" && (
           <>
-            <div className="flex gap-2">
-              {(["Automatic", "Manual"] as ProjEntryType[]).map((s) => (
-                <button
-                  key={s} type="button" onClick={() => setEntryVal(s)}
-                  className={cn(
-                    "flex flex-1 items-center justify-center rounded-lg border py-2 transition-colors",
-                    entryVal === s ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
-                  )}
-                >
-                  <Tag value={s} cls={ENTRY_COLORS[s]} />
-                </button>
-              ))}
+            <div>
+              <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-foreground">
+                Destination entry type
+                {targets.length === 1 && <span className="font-normal text-muted-foreground">· currently <Tag value={targets[0].entryType} cls={ENTRY_COLORS[targets[0].entryType]} /></span>}
+              </div>
+              <div className="flex gap-2">
+                {(["Automatic", "Manual"] as ProjEntryType[]).map((s) => (
+                  <button
+                    key={s} type="button" onClick={() => setEntryVal(s)}
+                    className={cn(
+                      "flex flex-1 items-center justify-center rounded-lg border py-2 transition-colors",
+                      entryVal === s ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+                    )}
+                  >
+                    <Tag value={s} cls={ENTRY_COLORS[s]} />
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
-              This change also impacts <span className="font-semibold">{grouped}</span> grouped properties and{" "}
-              <span className="font-semibold">{detailed}</span> detailed properties under {targets.length === 1 ? "this project" : "these projects"}{impacted.length > 0 ? " and their phases" : ""}.
+            {/* Entry type flips which Primary properties are shown vs hidden — surface the property blast radius */}
+            <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
+              <p>
+                Switching to <span className="font-semibold">{entryVal}</span> hides the Primary properties currently entered as{" "}
+                <span className="font-semibold">{otherEntry}</span> and shows the <span className="font-semibold">{entryVal}</span> ones.
+              </p>
+              <p>
+                Impacts <span className="font-semibold">{entryGrouped}</span> grouped and <span className="font-semibold">{entryDetailed}</span> detailed properties
+                {" "}across {targets.length === 1 ? "this project" : "these projects"}{includedEntryPhases.length > 0 ? ` and ${includedEntryPhases.length} phase${includedEntryPhases.length > 1 ? "s" : ""}` : ""}.
+              </p>
+              <p className="text-amber-700/80">
+                {targets.length === 1 ? "The main project alone accounts for" : "The main projects alone account for"}{" "}
+                <span className="font-semibold">{mainsOwnGrouped}</span> grouped · <span className="font-semibold">{mainsOwnDetailed}</span> detailed.
+              </p>
             </div>
           </>
         )}
@@ -1197,7 +1235,8 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           </div>
         )}
 
-        {impacted.length > 0 && (
+        {/* Non-entry kinds: read-only phases-inherit list */}
+        {kind !== "entry" && impacted.length > 0 && (
           <div className="space-y-1.5">
             <p className="text-xs text-muted-foreground">Phases inheriting this change ({impacted.length}) — read only:</p>
             <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
@@ -1214,6 +1253,41 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           </div>
         )}
 
+        {/* Entry kind: only phases that actually need the change; each excludable, with listing status + current → destination */}
+        {kind === "entry" && (
+          entryPhasesNeeding.length > 0 ? (
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">
+                Phases that will change ({includedEntryPhases.length} of {entryPhasesNeeding.length}) — untick to exclude a phase from the cascade:
+              </p>
+              <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
+                {entryPhasesNeeding.map((p, i) => {
+                  const isExcluded = excludedPhases.has(p.id)
+                  return (
+                    <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70", isExcluded && "opacity-45")}>
+                      <Checkbox checked={!isExcluded} onCheckedChange={() => toggleExcludedPhase(p.id)} className="h-4 w-4 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{targets.length > 1 ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
+                        <IdTag value={p.id} />
+                      </div>
+                      <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+                      <div className="flex flex-shrink-0 items-center gap-1">
+                        <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
+                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Tag value={entryVal} cls={ENTRY_COLORS[entryVal]} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : impacted.length > 0 ? (
+            <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              All {impacted.length} phase{impacted.length > 1 ? "s are" : " is"} already <span className="font-medium text-foreground">{entryVal}</span> — only the main project will change.
+            </p>
+          ) : null
+        )}
+
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
           <Button
@@ -1225,6 +1299,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
               : kind === "entry" ? entryVal
               : kind === "parent" ? parentId
               : orgs,
+              kind === "entry" ? [...excludedPhases] : undefined,
             )}
           >
             Apply to {targets.length} project{targets.length > 1 ? "s" : ""}
