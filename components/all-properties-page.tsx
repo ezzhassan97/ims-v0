@@ -333,7 +333,7 @@ export const BADGE_CLASS: Record<string, string> = {
   "Sold-Off": "bg-red-100 text-red-700 border-red-200",
   Archived: "bg-gray-100 text-gray-700 border-gray-200",
   Active: "bg-green-100 text-green-700 border-green-200",
-  Hidden: "bg-gray-100 text-gray-700 border-gray-200",
+  Hidden: "bg-red-100 text-red-700 border-red-200", // light red — Hidden is a warning state, not a neutral one
   // property category
   Residential: "bg-blue-100 text-blue-700 border-blue-200",
   Commercial: "bg-purple-100 text-purple-700 border-purple-200",

@@ -983,7 +983,7 @@ function PhaseCascadeList({ phases, tagOf, next, nextCls }: {
   nextCls: string
 }) {
   return (
-    <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
+    <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
       {phases.map((p, i) => {
         const cur = tagOf(p)
         return (
@@ -1006,7 +1006,7 @@ export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   const next: ProjListingStatus = r.listingStatus === "Active" ? "Hidden" : "Active"
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader><DialogTitle>Change Listing Status</DialogTitle></DialogHeader>
         <p className="text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{r.name}</span> <IdTag value={r.id} /> will change from{" "}
@@ -1036,7 +1036,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   const detailed = impacted.reduce((s, x) => s + x.detailedProps, 0)
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader><DialogTitle>Change Primary Status</DialogTitle></DialogHeader>
         <p className="text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{r.name}</span> <IdTag value={r.id} /> is currently{" "}
@@ -1120,7 +1120,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
         <p className="text-sm text-muted-foreground">
           {targets.length === 1 ? (
@@ -1196,7 +1196,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
         {impacted.length > 0 && (
           <div className="space-y-1.5">
             <p className="text-xs text-muted-foreground">Phases inheriting this change ({impacted.length}) — read only:</p>
-            <div className="max-h-44 overflow-y-auto rounded-lg border border-border">
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
               {impacted.map((p, i) => (
                 <div key={p.id} className={cn("flex items-center gap-2 px-3 py-2", i > 0 && "border-t border-border/70")}>
                   <div className="min-w-0 flex-1">
@@ -1245,7 +1245,7 @@ function BulkClassificationDialog({ count, onClose, onConfirm }: { count: number
   const pickType = (t: string) => { setType(t); setSubtype(CLASSIFICATION[category][t][0]) }
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>Change Classification</DialogTitle></DialogHeader>
         <p className="text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{count}</span> selected row{count > 1 ? "s" : ""} — category, type and subtype are dependent:

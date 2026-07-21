@@ -935,8 +935,8 @@ function projectsOfDeveloper(devName: string) {
 
 /**
  * Developer cascade dialog — Change Listing Status / Change Organizations.
- * The change cascades to every project and phase under the developer; they are
- * listed read-only so the user sees the blast radius before confirming.
+ * The impacted list is grouped by main project (phases nested under it).
+ * Organizations only: every row is included by default and can be excluded.
  */
 export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
   kind: "listing" | "orgs"
@@ -946,15 +946,24 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
 }) {
   const next: DevListingStatus = dev.listingStatus === "Active" ? "Hidden" : "Active"
   const [orgs, setOrgs] = useState<DevOrg[]>(dev.organizations)
+  const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const toggleOrg = (o: DevOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
+  const toggleExcluded = (id: string) =>
+    setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+
   const impacted = projectsOfDeveloper(dev.name)
-  const mains = impacted.filter((p) => !p.isPhase).length
-  const phases = impacted.length - mains
+  // Grouped by main project — phases sit indented under their main
+  const flat = impacted
+    .filter((p) => !p.isPhase)
+    .flatMap((m) => [m, ...impacted.filter((p) => p.isPhase && p.mainProject?.id === m.id)])
+  const included = kind === "orgs" ? flat.filter((p) => !excluded.has(p.id)) : flat
+  const mainsIncl = included.filter((p) => !p.isPhase).length
+  const phasesIncl = included.length - mainsIncl
   const canSave = kind === "listing" || orgs.length > 0
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader><DialogTitle>{kind === "listing" ? "Change Listing Status" : "Change Organizations"}</DialogTitle></DialogHeader>
         <p className="text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{dev.name}</span> <IdTag value={String(dev.id)} />{" "}
@@ -980,18 +989,34 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
         )}
 
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
-          This change cascades to <span className="font-semibold">{mains}</span> project{mains !== 1 ? "s" : ""} and{" "}
-          <span className="font-semibold">{phases}</span> phase{phases !== 1 ? "s" : ""} under this developer.
+          This change cascades to <span className="font-semibold">{mainsIncl}</span> project{mainsIncl !== 1 ? "s" : ""} and{" "}
+          <span className="font-semibold">{phasesIncl}</span> phase{phasesIncl !== 1 ? "s" : ""} under this developer
+          {kind === "orgs" && excluded.size > 0 ? <> — <span className="font-semibold">{excluded.size}</span> excluded</> : null}.
         </div>
 
-        {impacted.length > 0 ? (
+        {flat.length > 0 ? (
           <div className="space-y-1.5">
-            <p className="text-xs text-muted-foreground">Projects and phases inheriting this change ({impacted.length}) — read only:</p>
-            <div className="max-h-44 overflow-y-auto rounded-lg border border-border">
-              {impacted.map((p, i) => (
-                <div key={p.id} className={cn("flex items-center gap-2 px-3 py-2", i > 0 && "border-t border-border/70")}>
+            <p className="text-xs text-muted-foreground">
+              {kind === "orgs"
+                ? "All projects and phases are included by default — untick a row to exclude it from this change:"
+                : "Projects and phases inheriting this change — grouped by main project, read only:"}
+            </p>
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
+              {flat.map((p, i) => (
+                <div
+                  key={p.id}
+                  className={cn(
+                    "flex items-center gap-2.5 px-3 py-2",
+                    i > 0 && "border-t border-border/70",
+                    p.isPhase && "bg-muted/20 pl-9",
+                    kind === "orgs" && excluded.has(p.id) && "opacity-45",
+                  )}
+                >
+                  {kind === "orgs" && (
+                    <Checkbox checked={!excluded.has(p.id)} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />
+                  )}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">{p.isPhase ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
+                    <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
                     <IdTag value={p.id} />
                   </div>
                   <span className={cn(
@@ -1015,7 +1040,7 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
             size="sm" disabled={!canSave}
             onClick={() => {
               onConfirm(kind === "listing" ? next : orgs)
-              toast.success(`${dev.name} updated — cascaded to ${mains} project${mains !== 1 ? "s" : ""} and ${phases} phase${phases !== 1 ? "s" : ""}`)
+              toast.success(`${dev.name} updated — cascaded to ${mainsIncl} project${mainsIncl !== 1 ? "s" : ""} and ${phasesIncl} phase${phasesIncl !== 1 ? "s" : ""}${kind === "orgs" && excluded.size > 0 ? ` (${excluded.size} excluded)` : ""}`)
             }}
           >
             {kind === "listing" ? `Change to ${next}` : "Apply"}
