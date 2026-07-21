@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
-import { RichTextEditor } from "@/components/rich-text-editor"
 import type { DevPriority, DevListingStatus, DevOrg } from "@/lib/developers-mock"
 
 const PRIORITY_OPTS: DevPriority[] = ["Lowest", "Low", "Medium", "High", "Highest"]
@@ -17,8 +16,6 @@ export function DeveloperCreatePage({ onBack, onCreate }: { onBack: () => void; 
   const [logo, setLogo] = useState<string | null>(null)
   const [nameEn, setNameEn] = useState("")
   const [nameAr, setNameAr] = useState("")
-  const [descEn, setDescEn] = useState("")
-  const [descAr, setDescAr] = useState("")
   const [officialName, setOfficialName] = useState("")
   const [priority, setPriority] = useState<DevPriority>("Medium")
   const [orgs, setOrgs] = useState<DevOrg[]>([])
@@ -57,11 +54,6 @@ export function DeveloperCreatePage({ onBack, onCreate }: { onBack: () => void; 
           <div className="grid gap-5 md:grid-cols-2">
             <Field label="Developer name (EN)" required><Input value={nameEn} onChange={(e) => setNameEn(e.target.value)} placeholder="Type..." className="h-10" /></Field>
             <Field label="Developer name (AR)" required><Input value={nameAr} onChange={(e) => setNameAr(e.target.value)} dir="rtl" placeholder="...اكتب" className="h-10 text-right" /></Field>
-          </div>
-
-          <div className="grid gap-5 md:grid-cols-2">
-            <Field label="Description (EN)"><RichTextEditor value={descEn} onChange={setDescEn} placeholder="Write the English description…" /></Field>
-            <Field label="Description (AR)"><RichTextEditor value={descAr} onChange={setDescAr} dir="rtl" placeholder="اكتب الوصف بالعربية…" /></Field>
           </div>
 
           <Field label="Developer Official name" required><Input value={officialName} onChange={(e) => setOfficialName(e.target.value)} placeholder="Type..." className="h-10" /></Field>
