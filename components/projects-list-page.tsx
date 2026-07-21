@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
-  AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ExternalLink, GitBranch, ImagePlus, Info, MoreHorizontal, Download, Eye, FileText, Globe, Repeat, ToggleRight, Layers, Building2,
+  AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ExternalLink, Eye, EyeOff, GitBranch, ImagePlus, Info, MoreHorizontal, Download, FileText, Globe, Repeat, ToggleRight, Layers, Building2,
   Group as GroupIcon, MapPin, Plus, Tag as TagIcon, Map as MapIcon, Upload, X,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -986,6 +986,22 @@ function CoverageCard({ icon, label, covered, total }: { icon: React.ReactNode; 
   )
 }
 
+/** Hidden (outgoing type) vs Shown (incoming type) property counts — used across the Change Entry Type impact sections. */
+function EntryImpactPair({ fromType, toType, c }: { fromType: string; toType: string; c: { hiddenG: number; hiddenD: number; shownG: number; shownD: number } }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <div className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5">
+        <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-red-600"><EyeOff className="h-3 w-3" />Hidden · {fromType}</div>
+        <div className="mt-0.5 text-xs text-foreground"><span className="font-semibold">{c.hiddenG}</span> grouped · <span className="font-semibold">{c.hiddenD}</span> detailed</div>
+      </div>
+      <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5">
+        <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-600"><Eye className="h-3 w-3" />Shown · {toType}</div>
+        <div className="mt-0.5 text-xs text-foreground"><span className="font-semibold">{c.shownG}</span> grouped · <span className="font-semibold">{c.shownD}</span> detailed</div>
+      </div>
+    </div>
+  )
+}
+
 /** Phase cascade preview: name + ID, current tag → new tag. */
 function PhaseCascadeList({ phases, tagOf, next, nextCls }: {
   phases: ProjectRow[]
@@ -1131,34 +1147,62 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   const grouped = propRows.reduce((s, x) => s + x.groupedProps, 0)
   const detailed = propRows.reduce((s, x) => s + x.detailedProps, 0)
 
-  // Entry-type specifics: only phases whose current type differs from the destination need changing.
-  // Excluded phases (and the always-changed mains) drive the impacted-property counts.
-  const otherEntry: ProjEntryType = entryVal === "Automatic" ? "Manual" : "Automatic"
+  // Change Entry Type specifics. Switching makes `entryVal` the active type: the OTHER
+  // type's Primary properties get hidden, `entryVal`'s get shown. Only phases whose current
+  // type differs from the destination are impacted; excluded phases are skipped in the counts.
+  const fromEntry: ProjEntryType = entryVal === "Automatic" ? "Manual" : "Automatic"
+  const entryUnchanged = entryVal === targets[0]?.entryType
   const entryPhasesNeeding = impacted.filter((p) => p.entryType !== entryVal)
   const includedEntryPhases = entryPhasesNeeding.filter((p) => !excludedPhases.has(p.id))
-  const entryImpactRows = [...targets, ...includedEntryPhases]
-  const entryGrouped = entryImpactRows.reduce((s, x) => s + x.groupedProps, 0)
-  const entryDetailed = entryImpactRows.reduce((s, x) => s + x.detailedProps, 0)
-  const mainsOwnGrouped = targets.reduce((s, x) => s + x.groupedProps, 0)
-  const mainsOwnDetailed = targets.reduce((s, x) => s + x.detailedProps, 0)
+  // hidden = outgoing (`fromEntry`) type's properties · shown = incoming (`entryVal`) type's properties
+  const entryCounts = (rows: ProjectRow[]) => ({
+    hiddenG: rows.reduce((s, x) => s + x.primaryByEntry[fromEntry].grouped, 0),
+    hiddenD: rows.reduce((s, x) => s + x.primaryByEntry[fromEntry].detailed, 0),
+    shownG: rows.reduce((s, x) => s + x.primaryByEntry[entryVal].grouped, 0),
+    shownD: rows.reduce((s, x) => s + x.primaryByEntry[entryVal].detailed, 0),
+  })
+  const totalCounts = entryCounts([...targets, ...includedEntryPhases])
+  const mainCounts = entryCounts(targets)
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          {targets.length === 1 ? (
-            <>
-              <span className="font-medium text-foreground">{targets[0].name}</span> <IdTag value={targets[0].id} />{" "}
-              {kind === "entry" && <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />}{" "}
-              {singlePhase ? "will get this change." : "and the phases under it will get the same change."}
-            </>
-          ) : (
-            <>
-              <span className="font-medium text-foreground">{targets.length} main projects</span> will be changed — each together with its phases.
-            </>
-          )}
-        </p>
+        {/* Entry-type single target: rich header — name, ID, developer, listing status, current entry type */}
+        {kind === "entry" && targets.length === 1 ? (
+          <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
+            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{targets[0].developer.logo}</span>
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-sm font-semibold text-foreground">{targets[0].name}</span>
+                <IdTag value={targets[0].id} />
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <a href={`/developers/${targets[0].developer.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-foreground hover:text-primary hover:underline">{targets[0].developer.name}</a>
+                <IdTag value={targets[0].developer.id} />
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Listing</span>
+                <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />
+                <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">Current entry type</span>
+                <Tag value={targets[0].entryType} cls={ENTRY_COLORS[targets[0].entryType]} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {targets.length === 1 ? (
+              <>
+                <span className="font-medium text-foreground">{targets[0].name}</span> <IdTag value={targets[0].id} />{" "}
+                {singlePhase ? "will get this change." : "and the phases under it will get the same change."}
+              </>
+            ) : (
+              <>
+                <span className="font-medium text-foreground">{targets.length} main projects</span> will be changed — each together with its phases.
+              </>
+            )}
+          </p>
+        )}
         {ignored > 0 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
             {ignored} selected phase{ignored > 1 ? "s are" : " is"} ignored — this action applies to main projects only; their phases inherit the change automatically.
@@ -1168,39 +1212,48 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
         {kind === "entry" && (
           <>
             <div>
-              <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-foreground">
-                Destination entry type
-                {targets.length === 1 && <span className="font-normal text-muted-foreground">· currently <Tag value={targets[0].entryType} cls={ENTRY_COLORS[targets[0].entryType]} /></span>}
-              </div>
+              <div className="mb-1.5 text-xs font-medium text-foreground">Change entry type to</div>
               <div className="flex gap-2">
                 {(["Automatic", "Manual"] as ProjEntryType[]).map((s) => (
                   <button
                     key={s} type="button" onClick={() => setEntryVal(s)}
                     className={cn(
-                      "flex flex-1 items-center justify-center rounded-lg border py-2 transition-colors",
+                      "flex flex-1 items-center justify-center gap-1.5 rounded-lg border py-2 transition-colors",
                       entryVal === s ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
                     )}
                   >
                     <Tag value={s} cls={ENTRY_COLORS[s]} />
+                    {targets.length === 1 && s === targets[0].entryType && <span className="text-[10px] text-muted-foreground">(current)</span>}
                   </button>
                 ))}
               </div>
             </div>
-            {/* Entry type flips which Primary properties are shown vs hidden — surface the property blast radius */}
-            <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
-              <p>
-                Switching to <span className="font-semibold">{entryVal}</span> hides the Primary properties currently entered as{" "}
-                <span className="font-semibold">{otherEntry}</span> and shows the <span className="font-semibold">{entryVal}</span> ones.
+
+            {entryUnchanged ? (
+              <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{entryVal}</span> is already the current entry type — pick the other type to see what changes.
               </p>
-              <p>
-                Impacts <span className="font-semibold">{entryGrouped}</span> grouped and <span className="font-semibold">{entryDetailed}</span> detailed properties
-                {" "}across {targets.length === 1 ? "this project" : "these projects"}{includedEntryPhases.length > 0 ? ` and ${includedEntryPhases.length} phase${includedEntryPhases.length > 1 ? "s" : ""}` : ""}.
-              </p>
-              <p className="text-amber-700/80">
-                {targets.length === 1 ? "The main project alone accounts for" : "The main projects alone account for"}{" "}
-                <span className="font-semibold">{mainsOwnGrouped}</span> grouped · <span className="font-semibold">{mainsOwnDetailed}</span> detailed.
-              </p>
-            </div>
+            ) : (
+              <>
+                <p className="text-sm text-foreground">
+                  Switching from <Tag value={fromEntry} cls={ENTRY_COLORS[fromEntry]} /> to <Tag value={entryVal} cls={ENTRY_COLORS[entryVal]} />{" "}
+                  will <span className="font-semibold text-red-600">hide</span> the Primary {fromEntry} properties and{" "}
+                  <span className="font-semibold text-emerald-600">show</span> the {entryVal} Primary properties.
+                </p>
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Total impact — this project{includedEntryPhases.length > 0 ? ` and ${includedEntryPhases.length} phase${includedEntryPhases.length > 1 ? "s" : ""}` : ""}
+                  </div>
+                  <EntryImpactPair fromType={fromEntry} toType={entryVal} c={totalCounts} />
+                </div>
+                {impacted.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Main project only</div>
+                    <EntryImpactPair fromType={fromEntry} toType={entryVal} c={mainCounts} />
+                  </div>
+                )}
+              </>
+            )}
           </>
         )}
         {kind === "parent" && (
@@ -1253,8 +1306,9 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           </div>
         )}
 
-        {/* Entry kind: only phases that actually need the change; each excludable, with listing status + current → destination */}
-        {kind === "entry" && (
+        {/* Entry kind: only phases that actually need the change; each excludable, with listing
+            status, current → destination, and its own hidden/shown property counts */}
+        {kind === "entry" && !entryUnchanged && (
           entryPhasesNeeding.length > 0 ? (
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground">
@@ -1263,18 +1317,26 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
               <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
                 {entryPhasesNeeding.map((p, i) => {
                   const isExcluded = excludedPhases.has(p.id)
+                  const pc = entryCounts([p])
                   return (
-                    <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70", isExcluded && "opacity-45")}>
-                      <Checkbox checked={!isExcluded} onCheckedChange={() => toggleExcludedPhase(p.id)} className="h-4 w-4 flex-shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-foreground">{targets.length > 1 ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
-                        <IdTag value={p.id} />
+                    <div key={p.id} className={cn("space-y-1.5 px-3 py-2.5", i > 0 && "border-t border-border/70", isExcluded && "opacity-45")}>
+                      <div className="flex items-center gap-2.5">
+                        <Checkbox checked={!isExcluded} onCheckedChange={() => toggleExcludedPhase(p.id)} className="h-4 w-4 flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">{targets.length > 1 ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
+                          <IdTag value={p.id} />
+                        </div>
+                        <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+                        <div className="flex flex-shrink-0 items-center gap-1">
+                          <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
+                          <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                          <Tag value={entryVal} cls={ENTRY_COLORS[entryVal]} />
+                        </div>
                       </div>
-                      <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
-                      <div className="flex flex-shrink-0 items-center gap-1">
-                        <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
-                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-                        <Tag value={entryVal} cls={ENTRY_COLORS[entryVal]} />
+                      <div className="pl-7 text-[11px] text-muted-foreground">
+                        <span className="text-red-600">Hidden</span> {pc.hiddenG} grouped · {pc.hiddenD} detailed
+                        <span className="mx-1.5 text-border">|</span>
+                        <span className="text-emerald-600">Shown</span> {pc.shownG} grouped · {pc.shownD} detailed
                       </div>
                     </div>
                   )
@@ -1406,6 +1468,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
       buildingsCount: 0,
       groupedProps: 0,
       detailedProps: 0,
+      primaryByEntry: { Automatic: { grouped: 0, detailed: 0 }, Manual: { grouped: 0, detailed: 0 } },
       primaryUnits: zero, resaleUnits: zero, nawyNowUnits: zero, rentalUnits: zero,
       createdAt: stamp,
       updatedAt: stamp,

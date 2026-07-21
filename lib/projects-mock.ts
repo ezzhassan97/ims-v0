@@ -7,6 +7,9 @@ export type ProjEntryType = "Automatic" | "Manual"
 export type ProjOrg = "Nawy" | "Partners"
 export type ProjConstructionStatus = "Off-plan" | "Under Construction" | "Completed"
 export interface UnitCount { available: number; total: number }
+/** Primary property counts (grouped + detailed) split by the entry type they were ingested with. */
+export interface EntryPropCount { grouped: number; detailed: number }
+export interface PrimaryByEntry { Automatic: EntryPropCount; Manual: EntryPropCount }
 
 export interface ProjectRow {
   id: string
@@ -39,6 +42,8 @@ export interface ProjectRow {
   /** Property counts impacted by primary-status changes */
   groupedProps: number
   detailedProps: number
+  /** Primary properties split by entry type — drives the Change Entry Type impact preview */
+  primaryByEntry: PrimaryByEntry
   /** Sale-type unit counts: available / total */
   primaryUnits: UnitCount
   resaleUnits: UnitCount
@@ -128,6 +133,10 @@ function buildRows(): ProjectRow[] {
       buildingsCount: i % 5 === 4 ? 0 : 6 + i * 3,
       groupedProps: 4 + ((i * 3) % 18),
       detailedProps: 30 + ((i * 23) % 160),
+      primaryByEntry: {
+        Automatic: { grouped: 3 + ((i * 2) % 12), detailed: 22 + ((i * 11) % 90) },
+        Manual: { grouped: 2 + ((i * 3) % 10), detailed: 16 + ((i * 7) % 70) },
+      },
       primaryUnits: { available: 12 + ((i * 7) % 60), total: 40 + ((i * 13) % 120) },
       resaleUnits: { available: (i * 5) % 25, total: ((i * 5) % 25) + ((i * 9) % 40) },
       nawyNowUnits: { available: (i * 3) % 12, total: ((i * 3) % 12) + ((i * 5) % 18) },
@@ -168,6 +177,10 @@ function buildRows(): ProjectRow[] {
         buildingsCount: seed % 4 === 0 ? 0 : 2 + (seed % 9),
         groupedProps: 2 + (seed % 9),
         detailedProps: 12 + ((seed * 13) % 70),
+        primaryByEntry: {
+          Automatic: { grouped: 1 + ((seed * 2) % 8), detailed: 8 + ((seed * 5) % 40) },
+          Manual: { grouped: 1 + ((seed * 3) % 7), detailed: 6 + ((seed * 4) % 35) },
+        },
         primaryUnits: { available: 4 + ((seed * 3) % 30), total: 15 + ((seed * 7) % 60) },
         resaleUnits: { available: (seed * 2) % 14, total: ((seed * 2) % 14) + (seed % 20) },
         nawyNowUnits: { available: seed % 8, total: (seed % 8) + ((seed * 3) % 10) },
