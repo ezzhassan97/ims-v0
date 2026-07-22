@@ -828,9 +828,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             onConfirm={(excludedPhaseIds) => {
               const next: ProjListingStatus = listingDlg.listingStatus === "Active" ? "Hidden" : "Active"
               applyListing(listingDlg, next, excludedPhaseIds)
-              const phaseCount = phasesOf(listingDlg).length
+              const changingCount = phasesOf(listingDlg).filter((p) => p.listingStatus !== next).length
               const exCount = excludedPhaseIds?.length ?? 0
-              toast.success(`${listingDlg.name} set to ${next}${!listingDlg.isPhase && phaseCount ? ` with ${phaseCount - exCount} of ${phaseCount} phases${exCount ? ` (${exCount} excluded)` : ""}` : ""}`)
+              const applied = changingCount - exCount
+              toast.success(`${listingDlg.name} set to ${next}${!listingDlg.isPhase && changingCount ? ` — ${applied} phase${applied !== 1 ? "s" : ""} changed${exCount ? `, ${exCount} excluded` : ""}` : ""}`)
               setListingDlg(null)
             }}
           />
@@ -1045,7 +1046,10 @@ export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   const next: ProjListingStatus = r.listingStatus === "Active" ? "Hidden" : "Active"
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const toggle = (id: string) => setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
-  const includedCount = phases.filter((p) => !excluded.has(p.id)).length
+  // Phases already at the destination status won't change — shown read-only below, not excludable
+  const changing = phases.filter((p) => p.listingStatus !== next)
+  const unchanged = phases.filter((p) => p.listingStatus === next)
+  const includedCount = changing.filter((p) => !excluded.has(p.id)).length
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl">
@@ -1055,11 +1059,39 @@ export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           <Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} /> to <Tag value={next} cls={LISTING_COLORS[next]} />.
         </p>
         {!r.isPhase && phases.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              This is a <span className="font-semibold text-foreground">main project</span> — {includedCount} of its {phases.length} phase{phases.length > 1 ? "s" : ""} will become {next}. Untick a phase to exclude it:
-            </p>
-            <PhaseCascadeList phases={phases} tagOf={(p) => ({ value: p.listingStatus, cls: LISTING_COLORS[p.listingStatus] })} next={next} nextCls={LISTING_COLORS[next]} excluded={excluded} onToggle={toggle} />
+          <div className="space-y-3">
+            {changing.length > 0 ? (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-semibold text-foreground">{includedCount} of {changing.length}</span> phase{changing.length > 1 ? "s" : ""} will change to{" "}
+                  <Tag value={next} cls={LISTING_COLORS[next]} /> — untick to exclude:
+                </p>
+                <PhaseCascadeList phases={changing} tagOf={(p) => ({ value: p.listingStatus, cls: LISTING_COLORS[p.listingStatus] })} next={next} nextCls={LISTING_COLORS[next]} excluded={excluded} onToggle={toggle} />
+              </div>
+            ) : (
+              <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                All phases are already <span className="font-medium text-foreground">{next}</span> — none will change.
+              </p>
+            )}
+            {unchanged.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">
+                  {unchanged.length} phase{unchanged.length > 1 ? "s are" : " is"} already <span className="font-medium text-foreground">{next}</span> — left unchanged:
+                </p>
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-border bg-muted/20">
+                  {unchanged.map((p, i) => (
+                    <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70")}>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                        <IdTag value={p.id} />
+                      </div>
+                      <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">No change</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
         <DialogFooter>
