@@ -587,13 +587,16 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               <DropdownMenuItem onClick={() => setListingDlg(r)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setPrimaryDlg(r)}><TagIcon className="mr-2 h-3.5 w-3.5" />Change Primary Status</DropdownMenuItem>
               <DropdownMenuSeparator />
+              {/* Phases: only Change Parent Project. Mains: Change Developer / Area / Organizations */}
               {r.isPhase ? (
                 <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "parent", targets: [r], ignored: 0 })}><GitBranch className="mr-2 h-3.5 w-3.5" />Change Parent Project</DropdownMenuItem>
               ) : (
-                <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "developer", targets: [r], ignored: 0 })}><Building2 className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>
+                <>
+                  <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "developer", targets: [r], ignored: 0 })}><Building2 className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "location", targets: [r], ignored: 0 })}><MapPin className="mr-2 h-3.5 w-3.5" />Change Area</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "orgs", targets: [r], ignored: 0 })}><Globe className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
+                </>
               )}
-              <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "location", targets: [r], ignored: 0 })}><MapPin className="mr-2 h-3.5 w-3.5" />Change Area</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "orgs", targets: [r], ignored: 0 })}><Globe className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setDrawTarget(r)}><MapIcon className="mr-2 h-3.5 w-3.5" />Draw on Map</DropdownMenuItem>
             </DropdownMenuContent>
@@ -1233,9 +1236,10 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   const destDevName = PROJECT_DEVELOPERS.find((d) => d.id === devId)?.name ?? ""
   const destAreaName = areaPick ? (areaPick.level === "Area" ? areaPick.name : areaPick.parent ?? areaPick.name) : ""
   const includedCascadePhases = kind === "developer" ? impacted.filter((p) => !excludedPhases.has(p.id)) : impacted
-  const titleCounts = (rows: ProjectRow[]) => ({ grouped: rows.reduce((s, x) => s + x.groupedProps, 0), detailed: rows.reduce((s, x) => s + x.detailedProps, 0) })
-  const titleTotal = titleCounts([...targets, ...includedCascadePhases])
-  const titleMain = titleCounts(targets)
+  // A single "properties" count (grouped + detailed combined) — no grouped/detailed split in the UI
+  const propCount = (rows: ProjectRow[]) => rows.reduce((s, x) => s + x.groupedProps + x.detailedProps, 0)
+  const titleTotal = propCount([...targets, ...includedCascadePhases])
+  const titleMain = propCount(targets)
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -1411,10 +1415,10 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
         {(kind === "developer" || kind === "location") && (
           <>
             <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
-              <p>Property titles are auto-generated from attributes including the {kind === "developer" ? "developer" : "area"} — this change regenerates the titles of the properties below.</p>
+              <p>Property titles will be changed by changing the {kind === "developer" ? "developer" : "area"}.</p>
               <p>
-                <span className="font-semibold">{titleTotal.grouped}</span> grouped · <span className="font-semibold">{titleTotal.detailed}</span> detailed property titles will change
-                {impacted.length > 0 ? <> — main project alone: <span className="font-semibold">{titleMain.grouped}</span> grouped · <span className="font-semibold">{titleMain.detailed}</span> detailed</> : null}.
+                <span className="font-semibold">{titleTotal}</span> property title{titleTotal !== 1 ? "s" : ""} will change
+                {impacted.length > 0 ? <> — main project alone: <span className="font-semibold">{titleMain}</span></> : null}.
               </p>
             </div>
             {impacted.length > 0 && (
@@ -1444,7 +1448,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                             <span className="max-w-24 truncate text-xs font-medium text-foreground">{dest || "—"}</span>
                           </div>
                         </div>
-                        <div className="pl-7 text-[11px] text-muted-foreground">{p.groupedProps} grouped · {p.detailedProps} detailed titles change</div>
+                        <div className="pl-7 text-[11px] text-muted-foreground">{p.groupedProps + p.detailedProps} property titles change</div>
                       </div>
                     )
                   })}

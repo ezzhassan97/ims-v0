@@ -272,13 +272,16 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
             <DropdownMenuItem onClick={() => setListingDlg(true)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setPrimaryDlg(true)}><TagIcon className="mr-2 h-3.5 w-3.5" />Change Primary Status</DropdownMenuItem>
             <DropdownMenuSeparator />
+            {/* Phases: only Change Parent Project. Mains: Change Developer / Area / Organizations */}
             {p.isPhase ? (
               <DropdownMenuItem onClick={() => setCascade("parent")}><GitBranch className="mr-2 h-3.5 w-3.5" />Change Parent Project</DropdownMenuItem>
             ) : (
-              <DropdownMenuItem onClick={() => setCascade("developer")}><Building2 className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>
+              <>
+                <DropdownMenuItem onClick={() => setCascade("developer")}><Building2 className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCascade("location")}><MapPin className="mr-2 h-3.5 w-3.5" />Change Area</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCascade("orgs")}><Globe className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
+              </>
             )}
-            <DropdownMenuItem onClick={() => setCascade("location")}><MapPin className="mr-2 h-3.5 w-3.5" />Change Area</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setCascade("orgs")}><Globe className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setDrawOpen(true)}><MapIcon className="mr-2 h-3.5 w-3.5" />Draw on Map</DropdownMenuItem>
           </DropdownMenuContent>
