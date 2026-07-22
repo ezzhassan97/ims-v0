@@ -128,6 +128,8 @@ export function OrgChip({ org }: { org: ProjOrg }) {
 }
 
 export type CascadeKind = "developer" | "location" | "orgs" | "entry" | "parent"
+/** Sentinel value for "Change Parent Project" → promote the phase to a standalone main project. */
+export const PROMOTE_TO_MAIN = "__promote_to_main__"
 
 /** Dependent classification tree: Category → Type → Subtype. */
 export const CLASSIFICATION: Record<string, Record<string, string[]>> = {
@@ -307,7 +309,11 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         if (kind === "developer") { const dev = PROJECT_DEVELOPERS.find((d) => d.id === value)!; return { ...x, developer: dev } }
         if (kind === "location") return { ...x, area: value as string }
         if (kind === "entry") return { ...x, entryType: value as ProjEntryType }
-        if (kind === "parent") return parent ? { ...x, mainProject: { id: parent.id, name: parent.name } } : x
+        if (kind === "parent") {
+          // Promote the phase to a standalone main project (unlinked from any parent)
+          if (value === PROMOTE_TO_MAIN) return { ...x, isPhase: false, mainProject: null }
+          return parent ? { ...x, mainProject: { id: parent.id, name: parent.name } } : x
+        }
         return { ...x, organizations: value as ProjOrg[] }
       })
     })
@@ -885,7 +891,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               const exCount = excludedPhaseIds?.length ?? 0
               toast.success(
                 t.length === 1 && t[0].isPhase
-                  ? `${t[0].name} updated`
+                  ? (cascadeDlg.kind === "parent" && value === PROMOTE_TO_MAIN ? `${t[0].name} promoted to a main project` : `${t[0].name} updated`)
                   : `${t.length} main project${t.length > 1 ? "s" : ""} updated with their phases${exCount > 0 ? ` (${exCount} excluded)` : ""}`,
               )
               setCascadeDlg(null)
@@ -1166,6 +1172,12 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   const [orgs, setOrgs] = useState<ProjOrg[]>(targets[0]?.organizations ?? ["Nawy"])
   const [entryVal, setEntryVal] = useState<ProjEntryType>(targets[0]?.entryType === "Automatic" ? "Manual" : "Automatic")
   const [parentId, setParentId] = useState(targets[0]?.mainProject?.id ?? "")
+  const [parentMode, setParentMode] = useState<"reparent" | "promote">("reparent")
+  // Parent options are scoped to the SAME developer as the phase; each carries its listing status
+  const parentDevStatus = PROJECT_DEVELOPERS.find((d) => d.id === targets[0]?.developer.id)?.status
+  const parentOptions = allRows
+    .filter((x) => !x.isPhase && x.developer.id === targets[0]?.developer.id && x.id !== targets[0]?.mainProject?.id)
+    .map((x) => ({ id: x.id, name: x.name, status: x.listingStatus }))
   const [excludedPhases, setExcludedPhases] = useState<Set<string>>(new Set())
   const toggleExcludedPhase = (id: string) => setExcludedPhases((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleOrg = (o: ProjOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
@@ -1182,7 +1194,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
     : kind === "location" ? !!areaPick
     // Picking the current type is allowed — phases with mismatched data still get corrected
     : kind === "entry" ? true
-    : kind === "parent" ? !!parentId && parentId !== targets[0]?.mainProject?.id
+    : kind === "parent" ? (parentMode === "promote" ? !!targets[0]?.mainProject : (!!parentId && parentId !== targets[0]?.mainProject?.id))
     : orgs.length > 0
   const phaseCurrent = (p: ProjectRow) =>
     kind === "developer" ? p.developer.name
@@ -1238,6 +1250,25 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                 <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">Current entry type</span>
                 <Tag value={targets[0].entryType} cls={ENTRY_COLORS[targets[0].entryType]} />
               </div>
+            </div>
+          </div>
+        ) : kind === "parent" && targets.length === 1 ? (
+          /* Change Parent Project: phase + its listing status, developer + dev listing status, scope note */
+          <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
+            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{targets[0].developer.logo}</span>
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-sm font-semibold text-foreground">{targets[0].name}</span>
+                <IdTag value={targets[0].id} />
+                <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer</span>
+                <a href={`/developers/${targets[0].developer.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-foreground hover:text-primary hover:underline">{targets[0].developer.name}</a>
+                <IdTag value={targets[0].developer.id} />
+                {parentDevStatus && <Tag value={parentDevStatus} cls={LISTING_COLORS[parentDevStatus]} />}
+              </div>
+              <p className="text-[10px] text-muted-foreground">Parent options are limited to main projects under this developer.</p>
             </div>
           </div>
         ) : (
@@ -1306,10 +1337,39 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           </>
         )}
         {kind === "parent" && (
-          <div className="space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Parent Project</div>
-            <FilterSelect label="Select main project…" value={parentId} options={allRows.filter((x) => !x.isPhase).map((x) => ({ value: x.id, label: x.name }))} onChange={setParentId} searchable className="w-full" width="w-full" />
-          </div>
+          <>
+            <div>
+              <div className="mb-1.5 text-xs font-medium text-foreground">Change to</div>
+              <div className="flex gap-2">
+                {([
+                  { key: "reparent" as const, label: "Another parent project", icon: GitBranch },
+                  { key: "promote" as const, label: "Main project (no parent)", icon: Building2 },
+                ]).map(({ key, label, icon: Icon }) => (
+                  <button
+                    key={key} type="button" onClick={() => setParentMode(key)}
+                    className={cn(
+                      "flex flex-1 items-center justify-center gap-1.5 rounded-lg border py-2 text-sm font-medium transition-colors",
+                      parentMode === key ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/40" : "border-border text-muted-foreground hover:border-muted-foreground/40",
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />{label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {parentMode === "reparent" ? (
+              <div className="space-y-1.5">
+                <div className="text-xs font-medium text-foreground">Parent Project <span className="font-normal text-muted-foreground">· only projects under {targets[0]?.developer.name}</span></div>
+                {/* DeveloperSelect renders name + listing-status tag + ID — reused here for main projects */}
+                <DeveloperSelect developers={parentOptions} value={parentId} onChange={setParentId} placeholder="Select parent project…" />
+                {parentOptions.length === 0 && <p className="text-[11px] text-muted-foreground">No other main projects under this developer.</p>}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
+                <span className="font-medium">{targets[0]?.name}</span> will be promoted to a standalone <span className="font-medium">main project</span> and unlinked from <span className="font-medium">{targets[0]?.mainProject?.name}</span>.
+              </div>
+            )}
+          </>
         )}
         {kind === "developer" && (
           <div className="space-y-1.5">
@@ -1408,12 +1468,14 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
               // Picking a subarea still cascades its parent area
               : kind === "location" ? (areaPick!.level === "Area" ? areaPick!.name : areaPick!.parent!)
               : kind === "entry" ? entryVal
-              : kind === "parent" ? parentId
+              : kind === "parent" ? (parentMode === "promote" ? PROMOTE_TO_MAIN : parentId)
               : orgs,
               kind === "entry" ? [...excludedPhases] : undefined,
             )}
           >
-            Apply to {targets.length} project{targets.length > 1 ? "s" : ""}
+            {kind === "parent"
+              ? (parentMode === "promote" ? "Promote to main project" : "Move phase")
+              : `Apply to ${targets.length} project${targets.length > 1 ? "s" : ""}`}
           </Button>
         </DialogFooter>
       </DialogContent>
