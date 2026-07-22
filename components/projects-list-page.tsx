@@ -1227,6 +1227,16 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   const totalCounts = entryCounts([...mainImpacted, ...includedEntryPhases])
   const mainCounts = entryCounts(mainImpacted)
 
+  // Change Developer / Change Area — property titles are auto-generated from attributes
+  // including developer + area, so changing either regenerates the titles of every property
+  // under the impacted entities. Developer allows excluding phases; Area does not.
+  const destDevName = PROJECT_DEVELOPERS.find((d) => d.id === devId)?.name ?? ""
+  const destAreaName = areaPick ? (areaPick.level === "Area" ? areaPick.name : areaPick.parent ?? areaPick.name) : ""
+  const includedCascadePhases = kind === "developer" ? impacted.filter((p) => !excludedPhases.has(p.id)) : impacted
+  const titleCounts = (rows: ProjectRow[]) => ({ grouped: rows.reduce((s, x) => s + x.groupedProps, 0), detailed: rows.reduce((s, x) => s + x.detailedProps, 0) })
+  const titleTotal = titleCounts([...targets, ...includedCascadePhases])
+  const titleMain = titleCounts(targets)
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl">
@@ -1397,11 +1407,58 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           </div>
         )}
 
-        {/* Non-entry kinds: read-only phases-inherit list */}
-        {kind !== "entry" && impacted.length > 0 && (
+        {/* Developer / Area: property-title regeneration impact + impacted phases (developer excludable) */}
+        {(kind === "developer" || kind === "location") && (
+          <>
+            <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
+              <p>Property titles are auto-generated from attributes including the {kind === "developer" ? "developer" : "area"} — this change regenerates the titles of the properties below.</p>
+              <p>
+                <span className="font-semibold">{titleTotal.grouped}</span> grouped · <span className="font-semibold">{titleTotal.detailed}</span> detailed property titles will change
+                {impacted.length > 0 ? <> — main project alone: <span className="font-semibold">{titleMain.grouped}</span> grouped · <span className="font-semibold">{titleMain.detailed}</span> detailed</> : null}.
+              </p>
+            </div>
+            {impacted.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">
+                  {kind === "developer"
+                    ? <><span className="font-semibold text-foreground">{includedCascadePhases.length} of {impacted.length}</span> phase{impacted.length > 1 ? "s" : ""} will change — untick to exclude:</>
+                    : <><span className="font-semibold text-foreground">{impacted.length}</span> phase{impacted.length > 1 ? "s" : ""} will change:</>}
+                </p>
+                <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
+                  {impacted.map((p, i) => {
+                    const isEx = kind === "developer" && excludedPhases.has(p.id)
+                    const current = kind === "developer" ? p.developer.name : p.area
+                    const dest = kind === "developer" ? destDevName : destAreaName
+                    return (
+                      <div key={p.id} className={cn("space-y-1.5 px-3 py-2.5", i > 0 && "border-t border-border/70", isEx && "opacity-45")}>
+                        <div className="flex items-center gap-2.5">
+                          {kind === "developer" && <Checkbox checked={!isEx} onCheckedChange={() => toggleExcludedPhase(p.id)} className="h-4 w-4 flex-shrink-0" />}
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-foreground">{targets.length > 1 ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
+                            <IdTag value={p.id} />
+                          </div>
+                          <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+                          <div className="flex flex-shrink-0 items-center gap-1.5">
+                            <span className="max-w-24 truncate text-xs text-muted-foreground">{current}</span>
+                            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="max-w-24 truncate text-xs font-medium text-foreground">{dest || "—"}</span>
+                          </div>
+                        </div>
+                        <div className="pl-7 text-[11px] text-muted-foreground">{p.groupedProps} grouped · {p.detailedProps} detailed titles change</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Organizations: read-only phases-inherit list */}
+        {kind === "orgs" && impacted.length > 0 && (
           <div className="space-y-1.5">
             <p className="text-xs text-muted-foreground">Phases inheriting this change ({impacted.length}) — read only:</p>
-            <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
+            <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
               {impacted.map((p, i) => (
                 <div key={p.id} className={cn("flex items-center gap-2 px-3 py-2", i > 0 && "border-t border-border/70")}>
                   <div className="min-w-0 flex-1">
@@ -1470,7 +1527,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
               : kind === "entry" ? entryVal
               : kind === "parent" ? (parentMode === "promote" ? PROMOTE_TO_MAIN : parentId)
               : orgs,
-              kind === "entry" ? [...excludedPhases] : undefined,
+              kind === "entry" || kind === "developer" ? [...excludedPhases] : undefined,
             )}
           >
             {kind === "parent"
