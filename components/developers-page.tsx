@@ -24,6 +24,7 @@ import { RichTextEditor } from "@/components/rich-text-editor"
 import { WhatsAppMediaTable } from "@/components/whatsapp-media-page"
 import { ProjectsPage } from "@/components/projects-list-page"
 import { PROJECTS } from "@/lib/projects-mock"
+import { WA_CONTACTS, type WaContact } from "@/lib/wa-contacts-mock"
 import { DeveloperCreatePage } from "@/components/developer-create-page"
 import { DEVELOPERS, type Developer, type DevPriority, type DevListingStatus, type DevOrg } from "@/lib/developers-mock"
 
@@ -132,6 +133,7 @@ export function DevelopersPage() {
   const [orgF, setOrgF] = useState<string[]>([])
   const [waF, setWaF] = useState("")
   const [devDlg, setDevDlg] = useState<{ kind: "listing" | "orgs"; dev: Developer } | null>(null)
+  const [waGroupDev, setWaGroupDev] = useState<Developer | null>(null)
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   // Per-group pagination — real data can put hundreds of rows in one group
@@ -297,6 +299,13 @@ export function DevelopersPage() {
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setDevDlg({ kind: "listing", dev: d })}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setDevDlg({ kind: "orgs", dev: d })}><Globe className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
+            {/* Only for developers with no WhatsApp group linked yet */}
+            {!d.whatsappGroup && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setWaGroupDev(d)}><MessageCircle className="mr-2 h-3.5 w-3.5" />Create WhatsApp Group</DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </td>
@@ -434,6 +443,19 @@ export function DevelopersPage() {
               if (devDlg.kind === "listing") update(devDlg.dev.id, { listingStatus: value as DevListingStatus })
               else update(devDlg.dev.id, { organizations: value as DevOrg[] })
               setDevDlg(null)
+            }}
+          />
+        )}
+
+        {waGroupDev && (
+          <CreateWaGroupDialog
+            dev={waGroupDev}
+            onClose={() => setWaGroupDev(null)}
+            onCreate={(members) => {
+              update(waGroupDev.id, { whatsappGroup: { id: `WA-9${String(waGroupDev.id).slice(-3)}`, name: `${waGroupDev.name} — Nawy`, image: "/placeholder-logo.png" } })
+              const admins = members.filter((m) => m.role === "Admin").length
+              toast.success(`WhatsApp group created for ${waGroupDev.name} — ${members.length} contact${members.length !== 1 ? "s" : ""} added (${admins} admin${admins !== 1 ? "s" : ""})`)
+              setWaGroupDev(null)
             }}
           />
         )}
@@ -1052,6 +1074,94 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
             }}
           >
             {kind === "listing" ? `Change to ${next}` : "Apply"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * Create WhatsApp Group — for developers with no group linked. The default contacts
+ * (WhatsApp Configurations → Contacts) are all included; the user can exclude any
+ * of them and flip each contact's role between Admin and Member before creating.
+ */
+export function CreateWaGroupDialog({ dev, onClose, onCreate }: {
+  dev: Developer
+  onClose: () => void
+  onCreate: (members: WaContact[]) => void
+}) {
+  const [members, setMembers] = useState<WaContact[]>(WA_CONTACTS.map((c) => ({ ...c })))
+  const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  const toggleExcluded = (id: string) =>
+    setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const setRole = (id: string, role: WaContact["role"]) =>
+    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, role } : m)))
+  const included = members.filter((m) => !excluded.has(m.id))
+  const admins = included.filter((m) => m.role === "Admin").length
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader><DialogTitle>Create WhatsApp Group</DialogTitle></DialogHeader>
+
+        {/* Developer context: image, name + ID, listing status, projects listed vs total */}
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
+          <img src={dev.logo} alt="" className="h-11 w-11 flex-shrink-0 rounded-lg border border-border object-cover" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-sm font-semibold text-foreground">{dev.name}</span>
+              <IdTag value={String(dev.id)} />
+              <StoryBadge value={dev.listingStatus} />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Projects: <span className="font-medium text-foreground">{dev.projectsListed}</span> Listed / <span className="font-medium text-foreground">{dev.projectsTotal}</span> Total
+            </p>
+          </div>
+        </div>
+
+        <p className="text-sm text-muted-foreground">
+          A new WhatsApp group will be created for this developer. The contacts below are added by default — untick to exclude, and switch roles as needed.
+        </p>
+
+        <div className="space-y-1.5">
+          <p className="text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">{included.length} of {members.length}</span> contact{members.length !== 1 ? "s" : ""} will be added ({admins} admin{admins !== 1 ? "s" : ""}):
+          </p>
+          <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
+            {members.map((c, i) => {
+              const isEx = excluded.has(c.id)
+              return (
+                <div key={c.id} className={cn("flex items-center gap-2.5 px-3 py-2.5", i > 0 && "border-t border-border/70", isEx && "opacity-45")}>
+                  <Checkbox checked={!isEx} onCheckedChange={() => toggleExcluded(c.id)} className="h-4 w-4 flex-shrink-0" />
+                  <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">
+                    {c.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
+                    <p className="font-mono text-[10px] text-muted-foreground">{c.phone}</p>
+                  </div>
+                  {/* Admin ↔ Member toggle */}
+                  <div className="flex flex-shrink-0 overflow-hidden rounded-md border border-border text-[11px] font-medium">
+                    {(["Admin", "Member"] as const).map((r) => (
+                      <button
+                        key={r} type="button" disabled={isEx} onClick={() => setRole(c.id, r)}
+                        className={cn("px-2 py-1 transition-colors", c.role === r ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={included.length === 0} onClick={() => onCreate(included)}>
+            <MessageCircle className="mr-1.5 h-3.5 w-3.5" />Create Group
           </Button>
         </DialogFooter>
       </DialogContent>
