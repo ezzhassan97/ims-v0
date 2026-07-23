@@ -20,7 +20,7 @@ import {
   Search, Calendar, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, MoreHorizontal,
   Copy, Check, Eye, FileText, FileImage, FileVideo, FileSpreadsheet, Group as GroupIcon,
   ArrowUp, ArrowDown, ArrowUpDown,
-  X, Download, Archive, Tag, UserCheck, ExternalLink, ChevronDown,
+  X, Download, Archive, Tag, UserCheck, ExternalLink, ChevronDown, Info,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -336,11 +336,14 @@ function FileDetailsSheet({
   open,
   onOpenChange,
   onSave,
+  onPreview,
 }: {
   item: WhatsAppMediaItem | null
   open: boolean
   onOpenChange: (v: boolean) => void
   onSave?: (id: string, mediaClasses: MediaClass[], projects: string[]) => void
+  /** Opens the full file preview dialog for the shown file. */
+  onPreview?: () => void
 }) {
   const [mediaClasses, setMediaClasses] = useState<MediaClass[]>([])
   const [projects, setProjects] = useState<string[]>([])
@@ -358,9 +361,21 @@ function FileDetailsSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="!w-[440px] !max-w-[90vw] p-0 flex flex-col h-full overflow-hidden">
         {/* Header */}
-        <SheetHeader className="sticky top-0 z-10 bg-background border-b border-border px-5 py-4 flex-shrink-0 flex flex-row items-center justify-between">
-          <SheetTitle className="text-base">File details</SheetTitle>
-          <div className="flex items-center gap-2">
+        <SheetHeader className="sticky top-0 z-10 bg-background border-b border-border px-5 py-4 flex-shrink-0 flex flex-row items-center justify-between gap-3">
+          <div className="min-w-0">
+            <SheetTitle className="truncate text-base">{item.fileName}</SheetTitle>
+            <IdTag value={item.id} label={item.id.toUpperCase()} />
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            {onPreview && (
+              <button
+                onClick={onPreview}
+                className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-border hover:bg-secondary transition-colors"
+                title="Preview file"
+              >
+                <Eye className="h-4 w-4 text-muted-foreground" />
+              </button>
+            )}
             <a
               href={item.url ?? "#"}
               target="_blank"
@@ -744,11 +759,11 @@ export function WhatsAppMediaTable({ hideDeveloperFilter = false }: { hideDevelo
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => openPreview(item)}><Eye className="mr-2 h-3.5 w-3.5" />Preview</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => openDetail(item)}>View details</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openDetail(item)}><Info className="mr-2 h-3.5 w-3.5" />View details</DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>Download</DropdownMenuItem>
-            <DropdownMenuItem>Classify</DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive">Archive</DropdownMenuItem>
+            <DropdownMenuItem><Download className="mr-2 h-3.5 w-3.5" />Download</DropdownMenuItem>
+            <DropdownMenuItem><Tag className="mr-2 h-3.5 w-3.5" />Classify</DropdownMenuItem>
+            <DropdownMenuItem className="text-destructive"><Archive className="mr-2 h-3.5 w-3.5" />Archive</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </td>
@@ -874,7 +889,7 @@ export function WhatsAppMediaTable({ hideDeveloperFilter = false }: { hideDevelo
         <BulkBarButton icon={<Archive className="h-3.5 w-3.5" />} danger>Archive</BulkBarButton>
       </FloatingBulkBar>
 
-      <FileDetailsSheet item={detailItem} open={detailOpen} onOpenChange={setDetailOpen} onSave={handleSave} />
+      <FileDetailsSheet item={detailItem} open={detailOpen} onOpenChange={setDetailOpen} onSave={handleSave} onPreview={() => detailItem && openPreview(detailItem)} />
 
       {/* All Filters drawer — same filters, order and state as the toolbar */}
       <FiltersDrawer

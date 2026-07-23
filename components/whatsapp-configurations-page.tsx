@@ -18,12 +18,13 @@ import {
 } from "@/components/ui/dialog"
 import {
   Pencil, ArchiveIcon, ArchiveRestore, Plus, Check, X, Upload, FileText, FileImage, FileSpreadsheet, File, Search, Copy, ChevronDown, CalendarIcon, Download, ExternalLink,
-  Shapes, Users, PanelsTopLeft, LayoutTemplate, MessageCircle, Plug, Link2, Trash2, Tag as TagIcon,
+  Shapes, Users, PanelsTopLeft, LayoutTemplate, MessageCircle, Plug, Link2, Trash2, Tag as TagIcon, Lock, Phone,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FilterSelect, FilterMultiSelect, IdTag, TabStrip } from "@/components/table-kit"
 import { whatsappMediaItems, ALL_DEVELOPERS, ALL_PROJECTS, type WhatsAppMediaItem } from "@/lib/whatsapp-media-mock"
-import { WA_CONTACTS, WA_USERS, type WaContact } from "@/lib/wa-contacts-mock"
+import { WA_CONTACTS, WA_USERS, CONNECTED_PHONES, type WaContact } from "@/lib/wa-contacts-mock"
+import { WA_GROUPS } from "@/components/whatsapp-groups-page"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -865,6 +866,7 @@ export function WhatsAppConfigurationsPage() {
                 { value: "media-classes", label: "Media Classes", icon: Shapes },
                 { value: "contacts", label: "Contacts", icon: Users },
                 { value: "labels", label: "Labels", icon: TagIcon },
+                { value: "connected-phones", label: "Connected Phones", icon: Phone },
                 { value: "modals", label: "Modals", icon: PanelsTopLeft },
                 { value: "templates", label: "Templates", icon: LayoutTemplate },
                 { value: "auto-replies", label: "Auto Replies", icon: MessageCircle },
@@ -888,6 +890,11 @@ export function WhatsAppConfigurationsPage() {
 
           <TabsContent value="labels" className="mt-4">
             <LabelsTab />
+          </TabsContent>
+
+          {/* Connected Phones tab */}
+          <TabsContent value="connected-phones" className="mt-4">
+            <ConnectedPhonesTab />
           </TabsContent>
 
           {/* Modals tab */}
@@ -926,13 +933,17 @@ export function WhatsAppConfigurationsPage() {
 
 // ── Labels tab — the labels WhatsApp groups can carry (all editable) ──────────
 
-interface WaLabel { id: string; name: string }
+interface WaLabel { id: string; name: string; locked?: boolean }
 
+// The four system labels are fixed — they can't be renamed or deleted.
 const SEED_LABELS: WaLabel[] = [
-  { id: "LB-001", name: "Developer" },
-  { id: "LB-002", name: "Product" },
-  { id: "LB-003", name: "Other" },
+  { id: "LB-001", name: "Developer", locked: true },
+  { id: "LB-002", name: "Product", locked: true },
+  { id: "LB-003", name: "Internal", locked: true },
+  { id: "LB-004", name: "Other", locked: true },
 ]
+
+const labelGroupCount = (name: string) => WA_GROUPS.filter((g) => g.label === name).length
 
 function LabelsTab() {
   const [labels, setLabels] = useState<WaLabel[]>(SEED_LABELS)
@@ -965,7 +976,7 @@ function LabelsTab() {
     <div className="space-y-4">
       <div className="flex gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
         <TagIcon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-        <span>Labels classify WhatsApp groups. A group linked to a developer takes the <span className="font-semibold">Developer</span> label automatically; the rest use Product or Other.</span>
+        <span>Labels classify WhatsApp groups. A group linked to a developer takes the <span className="font-semibold">Developer</span> label automatically. The four system labels are fixed — labels you add yourself stay editable.</span>
       </div>
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="flex items-center justify-between gap-3 border-b border-border bg-card px-5 py-3.5">
@@ -983,15 +994,25 @@ function LabelsTab() {
           ) : (
             <div key={l.id} className={cn("flex items-center gap-3 px-5 py-3", i > 0 && "border-t border-border/70")}>
               <span className="inline-flex items-center whitespace-nowrap rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">{l.name}</span>
-              <div className="min-w-0 flex-1"><IdTag value={l.id} /></div>
-              <div className="flex flex-shrink-0 items-center gap-0.5">
-                <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-foreground" title="Edit" onClick={() => startEdit(l)}>
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-red-600" title="Delete" onClick={() => { setLabels((prev) => prev.filter((x) => x.id !== l.id)); toast.success(`${l.name} label removed`) }}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
+              <IdTag value={l.id} />
+              <div className="min-w-0 flex-1" />
+              <span className="flex-shrink-0 text-xs tabular-nums text-muted-foreground">
+                <span className="font-medium text-foreground">{labelGroupCount(l.name)}</span> group{labelGroupCount(l.name) !== 1 ? "s" : ""}
+              </span>
+              {l.locked ? (
+                <span className="flex h-7 w-14 flex-shrink-0 items-center justify-end gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title="System label — can't be renamed or deleted">
+                  <Lock className="h-3 w-3" />Fixed
+                </span>
+              ) : (
+                <div className="flex flex-shrink-0 items-center gap-0.5">
+                  <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-foreground" title="Edit" onClick={() => startEdit(l)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-red-600" title="Delete" onClick={() => { setLabels((prev) => prev.filter((x) => x.id !== l.id)); toast.success(`${l.name} label removed`) }}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
             </div>
           ),
         )}
@@ -999,6 +1020,43 @@ function LabelsTab() {
         {labels.length === 0 && editingId !== "new" && (
           <p className="px-5 py-10 text-center text-sm text-muted-foreground">No labels yet — click "Add Label" to create one.</p>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ── Connected Phones tab — the numbers this WhatsApp solution runs on ──────────
+
+function ConnectedPhonesTab() {
+  const groupsOn = (phone: string) => WA_GROUPS.filter((g) => g.connectedPhone === phone).length
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
+        <Phone className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+        <span>Each connected phone carries its own WhatsApp groups and contacts. All existing groups run on <span className="font-semibold">{CONNECTED_PHONES[0].name}</span> today.</span>
+      </div>
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex items-center gap-2 border-b border-border bg-card px-5 py-3.5">
+          <h3 className="text-sm font-semibold text-foreground">Connected Phones</h3>
+          <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{CONNECTED_PHONES.length}</span>
+        </div>
+        {CONNECTED_PHONES.map((p, i) => (
+          <div key={p.id} className={cn("flex items-center gap-3 px-5 py-3", i > 0 && "border-t border-border/70")}>
+            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-muted/60">
+              <Phone className="h-4 w-4 text-muted-foreground" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                <IdTag value={p.id} />
+              </div>
+              <p className="font-mono text-xs text-muted-foreground">{p.phone}</p>
+            </div>
+            <span className="flex-shrink-0 text-xs tabular-nums text-muted-foreground">
+              <span className="font-medium text-foreground">{groupsOn(p.phone)}</span> group{groupsOn(p.phone) !== 1 ? "s" : ""}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   )

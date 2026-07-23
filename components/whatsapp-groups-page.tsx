@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowRight, ArrowLeft, Home, ChevronRight, ChevronUp, ChevronDown, Copy, Check,
   Users, Image as ImageIcon, MessageSquareText, Tag as TagIcon, CheckCircle2,
-  ArrowUp, ArrowDown, ArrowUpDown, Link2, RefreshCw, Search, X,
+  ArrowUp, ArrowDown, ArrowUpDown, Link2, RefreshCw, Search, X, Plus, Pencil,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,13 +18,15 @@ import { cn } from "@/lib/utils"
 import { TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, DateRangeFilter, DeveloperSelect, IdTag, COL_SEP, FiltersDrawer, FilterDrawerField, ColumnsSheet, type ManagedColumn } from "@/components/table-kit"
 import { WhatsAppMediaTable } from "@/components/whatsapp-media-page"
 import { DEVELOPERS } from "@/lib/developers-mock"
+import { WA_CONTACTS, CONNECTED_PHONES, type WaContact } from "@/lib/wa-contacts-mock"
+import { devContactsFor } from "@/lib/dev-contacts-mock"
 import { toast } from "sonner"
 
 // ─── Types + mock data ─────────────────────────────────────────────────────────
 
-export type WaGroupLabel = "Developer" | "Product" | "Other"
+export type WaGroupLabel = "Developer" | "Product" | "Internal" | "Other"
 
-interface WaGroup {
+export interface WaGroup {
   id: string            // short id, e.g. "191"
   jid: string           // WhatsApp JID
   name: string
@@ -46,12 +48,13 @@ interface WaGroup {
   updatedAt: string
 }
 
-/** The single phone connected to all groups today (multi-phone comes later). */
-const CONNECTED_PHONE = "+2 010 2258 8846"
+/** All existing groups run on the first connected phone; more phones come later. */
+const CONNECTED_PHONE = CONNECTED_PHONES[0].phone
 
 const LABEL_TONE: Record<WaGroupLabel, string> = {
   Developer: "border-blue-200 bg-blue-100 text-blue-700",
   Product: "border-purple-200 bg-purple-50 text-purple-700",
+  Internal: "border-amber-200 bg-amber-50 text-amber-700",
   Other: "border-border bg-muted text-muted-foreground",
 }
 
@@ -71,7 +74,7 @@ const WA_GROUPS_RAW = [
 ]
 
 // Linked groups take the Developer label; unlinked ones fall to Product / Other
-const WA_GROUPS: WaGroup[] = WA_GROUPS_RAW.map((g, i) => ({
+export const WA_GROUPS: WaGroup[] = WA_GROUPS_RAW.map((g, i) => ({
   ...g,
   status: g.status as WaGroup["status"],
   connectedPhone: CONNECTED_PHONE,
@@ -228,6 +231,7 @@ export function WhatsAppGroupsPage() {
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [showColumnsSheet, setShowColumnsSheet] = useState(false)
   const [resyncOpen, setResyncOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
   const [colOrder, setColOrder] = useState<string[]>(WAG_COLS.map((c) => c.id))
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set())
   const [frozenCols, setFrozenCols] = useState<Set<string>>(new Set())
@@ -374,9 +378,14 @@ export function WhatsAppGroupsPage() {
             title="WhatsApp groups"
             count={sorted.length}
             cta={
-              <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setResyncOpen(true)}>
-                <RefreshCw className="h-3.5 w-3.5" />Resync
-              </Button>
+              <>
+                <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setResyncOpen(true)}>
+                  <RefreshCw className="h-3.5 w-3.5" />Resync
+                </Button>
+                <Button size="sm" className="h-8 gap-1.5" onClick={() => setCreateOpen(true)}>
+                  <Plus className="h-3.5 w-3.5" />Create Group
+                </Button>
+              </>
             }
           />
           <div className="overflow-x-auto">
@@ -443,6 +452,17 @@ export function WhatsAppGroupsPage() {
           onFrozenChange={setFrozenCols}
         />
 
+        {createOpen && (
+          <CreateGroupDialog
+            onClose={() => setCreateOpen(false)}
+            onCreate={(group) => {
+              setRows((rs) => [group, ...rs])
+              toast.success(`${group.name} created${group.developer ? ` — linked to ${group.developer.name}` : ""}`)
+              setCreateOpen(false)
+            }}
+          />
+        )}
+
         {resyncOpen && (
           <ResyncGroupsDialog
             onClose={() => setResyncOpen(false)}
@@ -456,6 +476,172 @@ export function WhatsAppGroupsPage() {
         )}
       </div>
     </div>
+  )
+}
+
+// ─── Create Group — new WhatsApp group of any type, on a chosen phone ──────────
+
+const GROUP_TYPES: WaGroupLabel[] = ["Developer", "Product", "Internal", "Other"]
+
+/**
+ * Create Group dialog — pick a type (Developer requires linking a developer, which
+ * pulls in the auto-joined Nawy + developer contacts), name + image are editable,
+ * and the group is created on a chosen connected phone.
+ */
+function CreateGroupDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (group: WaGroup) => void }) {
+  type GroupMember = WaContact & { source: "Nawy" | "Developer" }
+  const devOptions = DEVELOPERS.map((d) => ({ id: String(d.id), name: d.name, status: d.listingStatus }))
+  const [groupType, setGroupType] = useState<WaGroupLabel | "">("")
+  const [devId, setDevId] = useState("")
+  const [phoneId, setPhoneId] = useState(CONNECTED_PHONES[0].id)
+  const [groupName, setGroupName] = useState("")
+  const [nameTouched, setNameTouched] = useState(false)
+  const [groupImage, setGroupImage] = useState("")
+  const [roles, setRoles] = useState<Record<string, WaContact["role"]>>({})
+  const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  const imgRef = useRef<HTMLInputElement>(null)
+
+  const dev = groupType === "Developer" ? DEVELOPERS.find((d) => String(d.id) === devId) : undefined
+  const phone = CONNECTED_PHONES.find((p) => p.id === phoneId)!
+  // Nawy default contacts always auto-join; a linked developer adds its own contacts too
+  const members: GroupMember[] = [
+    ...WA_CONTACTS.map((c) => ({ ...c, source: "Nawy" as const })),
+    ...(dev ? devContactsFor(dev.id, null).map((c) => ({ id: c.id, name: c.name, phone: c.phone, role: "Member" as const, source: "Developer" as const })) : []),
+  ].map((m) => ({ ...m, role: roles[m.id] ?? m.role }))
+  const included = members.filter((m) => !excluded.has(m.id))
+  const admins = included.filter((m) => m.role === "Admin").length
+
+  const pickDev = (id: string) => {
+    setDevId(id)
+    const d = DEVELOPERS.find((x) => String(x.id) === id)
+    if (d && !nameTouched) setGroupName(`Nawy - ${d.name}`)
+  }
+  const toggleExcluded = (id: string) =>
+    setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  const displayImage = groupImage || dev?.logo || img(groupName.trim() ? groupName.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() : "WG", "334155")
+  const canCreate = groupType !== "" && groupName.trim() !== "" && (groupType !== "Developer" || !!dev) && included.length > 0
+
+  const create = () => {
+    const now = "2026-07-23T10:00:00"
+    onCreate({
+      id: String(Date.now()).slice(-3),
+      jid: `1203633${String(Date.now()).slice(-8)}@g.us`,
+      name: groupName.trim(),
+      image: displayImage,
+      developer: dev ? { name: dev.name, id: String(dev.id), logo: dev.logo } : null,
+      connectedPhone: phone.phone,
+      label: groupType as WaGroupLabel,
+      members: included.length,
+      classified: 0,
+      totalMedia: 0,
+      invitationLink: null,
+      status: "Active",
+      lastMessageSent: now,
+      lastMediaSent: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader><DialogTitle>Create WhatsApp Group</DialogTitle></DialogHeader>
+
+        {/* Type + connected phone */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Type</div>
+            <FilterSelect label="Select type…" value={groupType} options={GROUP_TYPES} onChange={(v) => setGroupType(v as WaGroupLabel | "")} className="w-full" />
+          </div>
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Connected phone</div>
+            <FilterSelect label="Connected phone" value={phoneId} options={CONNECTED_PHONES.map((p) => ({ value: p.id, label: p.name, sublabel: p.phone }))} onChange={(v) => setPhoneId(v || CONNECTED_PHONES[0].id)} className="w-full" />
+          </div>
+        </div>
+
+        {/* Developer type must link an existing developer */}
+        {groupType === "Developer" && (
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Developer</div>
+            <DeveloperSelect developers={devOptions} value={devId} onChange={pickDev} placeholder="Select the developer this group belongs to…" />
+          </div>
+        )}
+
+        {/* The group that will be created — name and image are editable */}
+        <div className="space-y-1.5">
+          <div className="text-xs font-medium text-foreground">Group to be created</div>
+          <div className="flex items-center gap-3 rounded-lg border border-border p-3">
+            <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setGroupImage(URL.createObjectURL(f)) }} />
+            <button
+              type="button" title="Change group image" onClick={() => imgRef.current?.click()}
+              className="group relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg border border-border"
+            >
+              <img src={displayImage} alt="Group" className="h-full w-full object-cover" />
+              <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+                <Pencil className="h-3.5 w-3.5 text-white" />
+              </span>
+            </button>
+            <div className="min-w-0 flex-1">
+              <Input value={groupName} placeholder="Group name…" onChange={(e) => { setGroupName(e.target.value); setNameTouched(true) }} className="h-9 text-sm" />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {groupType === "Developer" ? "Name defaults to “Nawy - Developer”; image defaults to the developer profile image — click it to change." : "Click the image to change it."}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Contacts auto-joining the group */}
+        <div className="space-y-1.5">
+          <p className="text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">{included.length} of {members.length}</span> contact{members.length !== 1 ? "s" : ""} will join automatically ({admins} admin{admins !== 1 ? "s" : ""}) — untick to exclude:
+          </p>
+          <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
+            {members.map((c, i) => {
+              const isEx = excluded.has(c.id)
+              return (
+                <div key={c.id} className={cn("flex items-center gap-2.5 px-3 py-2.5", i > 0 && "border-t border-border/70", isEx && "opacity-45")}>
+                  <Checkbox checked={!isEx} onCheckedChange={() => toggleExcluded(c.id)} className="h-4 w-4 flex-shrink-0" />
+                  <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">
+                    {c.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
+                      <span className={cn(
+                        "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded border px-1.5 py-px text-[10px] font-medium",
+                        c.source === "Nawy" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-blue-200 bg-blue-50 text-blue-700",
+                      )}>
+                        {c.source}
+                      </span>
+                    </div>
+                    <p className="font-mono text-[10px] text-muted-foreground">{c.phone}</p>
+                  </div>
+                  <div className="flex flex-shrink-0 overflow-hidden rounded-md border border-border text-[11px] font-medium">
+                    {(["Admin", "Member"] as const).map((r) => (
+                      <button
+                        key={r} type="button" disabled={isEx} onClick={() => setRoles((prev) => ({ ...prev, [c.id]: r }))}
+                        className={cn("px-2 py-1 transition-colors", c.role === r ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={!canCreate} onClick={create}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />Create Group
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
