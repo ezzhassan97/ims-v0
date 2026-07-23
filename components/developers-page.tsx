@@ -451,10 +451,10 @@ export function DevelopersPage() {
           <CreateWaGroupDialog
             dev={waGroupDev}
             onClose={() => setWaGroupDev(null)}
-            onCreate={(members) => {
-              update(waGroupDev.id, { whatsappGroup: { id: `WA-9${String(waGroupDev.id).slice(-3)}`, name: `${waGroupDev.name} — Nawy`, image: "/placeholder-logo.png" } })
+            onCreate={(members, groupName, groupImage) => {
+              update(waGroupDev.id, { whatsappGroup: { id: `WA-9${String(waGroupDev.id).slice(-3)}`, name: groupName, image: groupImage } })
               const admins = members.filter((m) => m.role === "Admin").length
-              toast.success(`WhatsApp group created for ${waGroupDev.name} — ${members.length} contact${members.length !== 1 ? "s" : ""} added (${admins} admin${admins !== 1 ? "s" : ""})`)
+              toast.success(`${groupName} created — ${members.length} contact${members.length !== 1 ? "s" : ""} added (${admins} admin${admins !== 1 ? "s" : ""})`)
               setWaGroupDev(null)
             }}
           />
@@ -1081,18 +1081,36 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
   )
 }
 
+/** Minimal developer shape for the WhatsApp-group dialog — works for existing rows AND drafts mid-creation. */
+export interface WaGroupDev {
+  id?: number | string
+  name: string
+  logo: string
+  listingStatus: string
+  projectsListed: number
+  projectsTotal: number
+}
+
 /**
- * Create WhatsApp Group — for developers with no group linked. The default contacts
- * (WhatsApp Configurations → Contacts) are all included; the user can exclude any
- * of them and flip each contact's role between Admin and Member before creating.
+ * Create WhatsApp Group — the group preview (name defaults to "Nawy - {developer}",
+ * image defaults to the developer's profile image; both editable) plus the default
+ * contacts (WhatsApp Configurations → Contacts), all included by default with
+ * per-contact exclude and Admin ↔ Member toggles.
+ * `mode="creation"` embeds it in the developer creation flow: create with or without the group.
  */
-export function CreateWaGroupDialog({ dev, onClose, onCreate }: {
-  dev: Developer
+export function CreateWaGroupDialog({ dev, mode = "action", onClose, onCreate, onSkip }: {
+  dev: WaGroupDev
+  mode?: "action" | "creation"
   onClose: () => void
-  onCreate: (members: WaContact[]) => void
+  onCreate: (members: WaContact[], groupName: string, groupImage: string) => void
+  /** creation mode only — create the developer without a WhatsApp group */
+  onSkip?: () => void
 }) {
   const [members, setMembers] = useState<WaContact[]>(WA_CONTACTS.map((c) => ({ ...c })))
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  const [groupName, setGroupName] = useState(`Nawy - ${dev.name}`)
+  const [groupImage, setGroupImage] = useState(dev.logo)
+  const imgRef = useRef<HTMLInputElement>(null)
   const toggleExcluded = (id: string) =>
     setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const setRole = (id: string, role: WaContact["role"]) =>
@@ -1111,7 +1129,7 @@ export function CreateWaGroupDialog({ dev, onClose, onCreate }: {
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-sm font-semibold text-foreground">{dev.name}</span>
-              <IdTag value={String(dev.id)} />
+              {dev.id != null && <IdTag value={String(dev.id)} />}
               <StoryBadge value={dev.listingStatus} />
             </div>
             <p className="text-xs text-muted-foreground">
@@ -1120,15 +1138,36 @@ export function CreateWaGroupDialog({ dev, onClose, onCreate }: {
           </div>
         </div>
 
+        {/* The group that will be created — name and image are editable before creation */}
+        <div className="space-y-1.5">
+          <div className="text-xs font-medium text-foreground">Group to be created</div>
+          <div className="flex items-center gap-3 rounded-lg border border-border p-3">
+            <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setGroupImage(URL.createObjectURL(f)) }} />
+            <button
+              type="button" title="Change group image" onClick={() => imgRef.current?.click()}
+              className="group relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg border border-border"
+            >
+              <img src={groupImage} alt="Group" className="h-full w-full object-cover" />
+              <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+                <Pencil className="h-3.5 w-3.5 text-white" />
+              </span>
+            </button>
+            <div className="min-w-0 flex-1">
+              <Input value={groupName} onChange={(e) => setGroupName(e.target.value)} className="h-9 text-sm" />
+              <p className="mt-1 text-[11px] text-muted-foreground">Image defaults to the developer profile image — click it to change.</p>
+            </div>
+          </div>
+        </div>
+
         <p className="text-sm text-muted-foreground">
-          A new WhatsApp group will be created for this developer. The contacts below are added by default — untick to exclude, and switch roles as needed.
+          The contacts below are added by default — untick to exclude, and switch roles as needed.
         </p>
 
         <div className="space-y-1.5">
           <p className="text-xs text-muted-foreground">
             <span className="font-semibold text-foreground">{included.length} of {members.length}</span> contact{members.length !== 1 ? "s" : ""} will be added ({admins} admin{admins !== 1 ? "s" : ""}):
           </p>
-          <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
+          <div className="max-h-64 overflow-y-auto rounded-lg border border-border">
             {members.map((c, i) => {
               const isEx = excluded.has(c.id)
               return (
@@ -1159,10 +1198,21 @@ export function CreateWaGroupDialog({ dev, onClose, onCreate }: {
         </div>
 
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={included.length === 0} onClick={() => onCreate(included)}>
-            <MessageCircle className="mr-1.5 h-3.5 w-3.5" />Create Group
-          </Button>
+          {mode === "creation" ? (
+            <>
+              <Button variant="outline" size="sm" onClick={onSkip}>Create Developer Only</Button>
+              <Button size="sm" disabled={included.length === 0 || !groupName.trim()} onClick={() => onCreate(included, groupName.trim(), groupImage)}>
+                <MessageCircle className="mr-1.5 h-3.5 w-3.5" />Create Developer &amp; Group
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+              <Button size="sm" disabled={included.length === 0 || !groupName.trim()} onClick={() => onCreate(included, groupName.trim(), groupImage)}>
+                <MessageCircle className="mr-1.5 h-3.5 w-3.5" />Create Group
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

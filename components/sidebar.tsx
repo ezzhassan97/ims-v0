@@ -348,7 +348,7 @@ export function Sidebar({ onPageChange, activePage, onCollapseChange }: SidebarP
       >
         {/* Header */}
         <div className="h-14 flex items-center justify-between px-4 border-b border-border">
-          {!isCollapsed && <span className="font-semibold text-foreground truncate">Masterplan</span>}
+          {!isCollapsed && <img src="/nawy-logo.svg" alt="Nawy" className="h-7 w-auto" />}
           <Button
             variant="ghost"
             size="icon"

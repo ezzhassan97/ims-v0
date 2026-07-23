@@ -1,12 +1,14 @@
 "use client"
 
 import { useState } from "react"
+import { toast } from "sonner"
 import { ArrowLeft, UploadCloud, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
+import { CreateWaGroupDialog } from "@/components/developers-page"
 import type { DevPriority, DevListingStatus, DevOrg } from "@/lib/developers-mock"
 
 const PRIORITY_OPTS: DevPriority[] = ["Lowest", "Low", "Medium", "High", "Highest"]
@@ -21,6 +23,7 @@ export function DeveloperCreatePage({ onBack, onCreate }: { onBack: () => void; 
   const [orgs, setOrgs] = useState<DevOrg[]>([])
   const [listing, setListing] = useState<DevListingStatus>("Hidden")
   const [nawyEligible, setNawyEligible] = useState(false)
+  const [waDlgOpen, setWaDlgOpen] = useState(false)
 
   const canSave = !!nameEn.trim() && !!nameAr.trim() && !!officialName.trim()
   const toggleOrg = (o: DevOrg) => setOrgs((os) => (os.includes(o) ? os.filter((x) => x !== o) : [...os, o]))
@@ -86,10 +89,30 @@ export function DeveloperCreatePage({ onBack, onCreate }: { onBack: () => void; 
 
           <div className="flex justify-end gap-2 border-t border-border pt-4">
             <Button variant="outline" onClick={onBack}>Cancel</Button>
-            <Button disabled={!canSave} onClick={onCreate}>Save</Button>
+            {/* Saving offers to also create the developer's WhatsApp group — optional */}
+            <Button disabled={!canSave} onClick={() => setWaDlgOpen(true)}>Save</Button>
           </div>
         </div>
       </div>
+
+      {waDlgOpen && (
+        <CreateWaGroupDialog
+          mode="creation"
+          dev={{ name: nameEn.trim(), logo: logo ?? "/placeholder-logo.png", listingStatus: listing, projectsListed: 0, projectsTotal: 0 }}
+          onClose={() => setWaDlgOpen(false)}
+          onSkip={() => {
+            toast.success(`${nameEn.trim()} created — no WhatsApp group linked`)
+            setWaDlgOpen(false)
+            onCreate()
+          }}
+          onCreate={(members, groupName) => {
+            const admins = members.filter((m) => m.role === "Admin").length
+            toast.success(`${nameEn.trim()} created with WhatsApp group "${groupName}" — ${members.length} contact${members.length !== 1 ? "s" : ""} (${admins} admin${admins !== 1 ? "s" : ""})`)
+            setWaDlgOpen(false)
+            onCreate()
+          }}
+        />
+      )}
     </div>
   )
 }

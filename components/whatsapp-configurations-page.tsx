@@ -38,8 +38,8 @@ interface MediaClass {
   fileTypes: FileType[]
   useCases: string[]
   archived: boolean
-  /** Media units linked to this class, per file type */
-  linkedUnits: Partial<Record<FileType, number>>
+  /** Files linked to this class, per file type */
+  linkedFiles: Partial<Record<FileType, number>>
 }
 
 const USE_CASES = [
@@ -62,18 +62,18 @@ const FILE_TYPE_ICON: Record<FileType, React.ReactNode> = {
 // ── Seed data — classes can span several file types ───────────────────────────
 
 const SEED_CLASSES: MediaClass[] = [
-  { id: "MC-001", name: "Brochure", description: "Project or unit marketing brochures", fileTypes: ["Image", "Document"], useCases: ["Project Brochures", "Developers Attachments"], archived: false, linkedUnits: { Image: 142, Document: 96 } },
-  { id: "MC-002", name: "Render", description: "Architectural renders and 3D visualisations", fileTypes: ["Image"], useCases: ["Unit Images", "Project Gallery"], archived: false, linkedUnits: { Image: 318 } },
-  { id: "MC-003", name: "Floor Plan", description: "Unit and building floor plan layouts", fileTypes: ["Image", "Document"], useCases: ["Unit Floor Plans", "Projects Floor Plans"], archived: false, linkedUnits: { Image: 207, Document: 41 } },
-  { id: "MC-004", name: "Construction Photo", description: "On-site progress photography", fileTypes: ["Image"], useCases: ["Construction Updates"], archived: false, linkedUnits: { Image: 88 } },
-  { id: "MC-005", name: "Launch Fact Sheet", description: "Key project facts distributed at launch events", fileTypes: ["Document"], useCases: ["Market Updates"], archived: false, linkedUnits: { Document: 27 } },
-  { id: "MC-006", name: "Payment Plan", description: "Instalment schedule and payment terms", fileTypes: ["Document", "Sheet"], useCases: ["Developers Attachments"], archived: false, linkedUnits: { Document: 63, Sheet: 35 } },
-  { id: "MC-007", name: "Legal Document", description: "Contracts, title deeds, and legal notices", fileTypes: ["Document"], useCases: ["Developers Attachments"], archived: false, linkedUnits: { Document: 19 } },
-  { id: "MC-008", name: "EOI Form", description: "Expression of interest registration forms", fileTypes: ["Document"], useCases: ["Manual Availability"], archived: false, linkedUnits: { Document: 12 } },
-  { id: "MC-009", name: "Availability Sheet", description: "Unit availability with pricing and status", fileTypes: ["Sheet"], useCases: ["Automatic Availability", "Manual Availability"], archived: false, linkedUnits: { Sheet: 154 } },
-  { id: "MC-010", name: "Construction Update", description: "Periodic construction milestone reports", fileTypes: ["Sheet", "Image"], useCases: ["Construction Updates", "Market Updates"], archived: false, linkedUnits: { Sheet: 44, Image: 23 } },
-  { id: "MC-011", name: "Comparison Sheet", description: "Side-by-side project or unit comparison", fileTypes: ["Sheet"], useCases: ["Market Updates"], archived: false, linkedUnits: { Sheet: 9 } },
-  { id: "MC-012", name: "Old Price List", description: "Deprecated pricing sheets from before 2024", fileTypes: ["Sheet"], useCases: ["Manual Availability"], archived: true, linkedUnits: { Sheet: 71 } },
+  { id: "MC-001", name: "Brochure", description: "Project or unit marketing brochures", fileTypes: ["Image", "Document"], useCases: ["Project Brochures", "Developers Attachments"], archived: false, linkedFiles: { Image: 142, Document: 96 } },
+  { id: "MC-002", name: "Render", description: "Architectural renders and 3D visualisations", fileTypes: ["Image"], useCases: ["Unit Images", "Project Gallery"], archived: false, linkedFiles: { Image: 318 } },
+  { id: "MC-003", name: "Floor Plan", description: "Unit and building floor plan layouts", fileTypes: ["Image", "Document"], useCases: ["Unit Floor Plans", "Projects Floor Plans"], archived: false, linkedFiles: { Image: 207, Document: 41 } },
+  { id: "MC-004", name: "Construction Photo", description: "On-site progress photography", fileTypes: ["Image"], useCases: ["Construction Updates"], archived: false, linkedFiles: { Image: 88 } },
+  { id: "MC-005", name: "Launch Fact Sheet", description: "Key project facts distributed at launch events", fileTypes: ["Document"], useCases: ["Market Updates"], archived: false, linkedFiles: { Document: 27 } },
+  { id: "MC-006", name: "Payment Plan", description: "Instalment schedule and payment terms", fileTypes: ["Document", "Sheet"], useCases: ["Developers Attachments"], archived: false, linkedFiles: { Document: 63, Sheet: 35 } },
+  { id: "MC-007", name: "Legal Document", description: "Contracts, title deeds, and legal notices", fileTypes: ["Document"], useCases: ["Developers Attachments"], archived: false, linkedFiles: { Document: 19 } },
+  { id: "MC-008", name: "EOI Form", description: "Expression of interest registration forms", fileTypes: ["Document"], useCases: ["Manual Availability"], archived: false, linkedFiles: { Document: 12 } },
+  { id: "MC-009", name: "Availability Sheet", description: "Unit availability with pricing and status", fileTypes: ["Sheet"], useCases: ["Automatic Availability", "Manual Availability"], archived: false, linkedFiles: { Sheet: 154 } },
+  { id: "MC-010", name: "Construction Update", description: "Periodic construction milestone reports", fileTypes: ["Sheet", "Image"], useCases: ["Construction Updates", "Market Updates"], archived: false, linkedFiles: { Sheet: 44, Image: 23 } },
+  { id: "MC-011", name: "Comparison Sheet", description: "Side-by-side project or unit comparison", fileTypes: ["Sheet"], useCases: ["Market Updates"], archived: false, linkedFiles: { Sheet: 9 } },
+  { id: "MC-012", name: "Old Price List", description: "Deprecated pricing sheets from before 2024", fileTypes: ["Sheet"], useCases: ["Manual Availability"], archived: true, linkedFiles: { Sheet: 71 } },
 ]
 
 // ── Media Classes tab ─────────────────────────────────────────────────────────
@@ -117,7 +117,8 @@ function ClassDialog({ initial, onClose, onSave }: {
           </div>
           <div className="space-y-1.5">
             <div className="text-xs font-medium text-foreground">Description</div>
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short description…" rows={2} className="resize-none text-sm" />
+            {/* wrap-anywhere: long unbroken text must wrap and grow the box DOWN, not stretch the dialog */}
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short description…" rows={2} className="max-h-40 resize-none overflow-y-auto text-sm [overflow-wrap:anywhere]" />
           </div>
           <div className="space-y-1.5">
             <div className="text-xs font-medium text-foreground">File Types<span className="ml-0.5 text-red-500">*</span> <span className="font-normal text-muted-foreground">· the class is available under every selected type</span></div>
@@ -161,7 +162,7 @@ function ClassDialog({ initial, onClose, onSave }: {
 }
 
 function ArchiveConfirmDialog({ cls, onClose, onConfirm }: { cls: MediaClass; onClose: () => void; onConfirm: () => void }) {
-  const totalLinked = Object.values(cls.linkedUnits).reduce((s, n) => s + (n ?? 0), 0)
+  const totalLinked = Object.values(cls.linkedFiles).reduce((s, n) => s + (n ?? 0), 0)
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
@@ -171,8 +172,8 @@ function ArchiveConfirmDialog({ cls, onClose, onConfirm }: { cls: MediaClass; on
         </p>
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
           {totalLinked > 0
-            ? <>It currently has <span className="font-semibold">{totalLinked}</span> linked unit{totalLinked !== 1 ? "s" : ""} across {cls.fileTypes.join(", ")} — they keep their classification.</>
-            : <>It has no linked units.</>}{" "}
+            ? <>It currently has <span className="font-semibold">{totalLinked}</span> linked file{totalLinked !== 1 ? "s" : ""} across {cls.fileTypes.join(", ")} — they keep their classification.</>
+            : <>It has no linked files.</>}{" "}
           You can restore it anytime from Archived Classes.
         </div>
         <DialogFooter>
@@ -239,7 +240,7 @@ function MediaClassesTab({ classes, onChange }: { classes: MediaClass[]; onChang
       toast.success(`${draft.name} updated`)
     } else {
       const nextNum = Math.max(0, ...classes.map((c) => Number(c.id.slice(3)))) + 1
-      onChange([...classes, { id: `MC-${String(nextNum).padStart(3, "0")}`, ...draft, archived: false, linkedUnits: {} }])
+      onChange([...classes, { id: `MC-${String(nextNum).padStart(3, "0")}`, ...draft, archived: false, linkedFiles: {} }])
       toast.success(`${draft.name} created`)
     }
     setDlg(null)
@@ -248,7 +249,7 @@ function MediaClassesTab({ classes, onChange }: { classes: MediaClass[]; onChang
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">One class, one ID — linked to multiple file types at the same time; it appears under every type it covers.</p>
+        <p className="text-sm text-muted-foreground">Media Classes and their descriptions are used in AI media classification and across the IMS.</p>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setArchivedOpen(true)}>
             <ArchiveIcon className="h-3.5 w-3.5" />Archived Classes
@@ -290,7 +291,7 @@ function MediaClassesTab({ classes, onChange }: { classes: MediaClass[]; onChang
                     {/* Units linked to this class under THIS file type */}
                     <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
                       <Link2 className="h-3.5 w-3.5" />
-                      <span className="font-semibold text-foreground">{cls.linkedUnits[ft] ?? 0}</span> linked units
+                      <span className="font-semibold text-foreground">{cls.linkedFiles[ft] ?? 0}</span> linked files
                     </span>
                     <div className="flex items-center gap-0.5">
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-foreground" title="Edit" onClick={() => setDlg({ cls })}>
