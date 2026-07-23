@@ -20,6 +20,8 @@ export interface WhatsAppMediaItem {
   developerId: string
   developerName: string
   developerLogo: string
+  // WhatsApp group the file arrived through
+  waGroup: { id: string; name: string; image: string }
 }
 
 export const ALL_PROJECTS = [
@@ -89,6 +91,13 @@ const PROJECT_SETS = [
   ["Patterns", "Marassi"],
 ]
 
+const WA_GROUP_POOL = [
+  { id: "WA-8801", name: "Sales Group A", image: "/placeholder-user.jpg" },
+  { id: "WA-8814", name: "Partners Feed", image: "/placeholder-logo.png" },
+  { id: "WA-8822", name: "Developer Broadcast", image: "/placeholder-user.jpg" },
+  { id: "WA-8830", name: "New Launches", image: "/placeholder-logo.png" },
+]
+
 export const whatsappMediaItems: WhatsAppMediaItem[] = Array.from({ length: 50 }, (_, i) => {
   const dev   = ALL_DEVELOPERS[i % ALL_DEVELOPERS.length]
   const raw   = RAW_ITEMS[i % RAW_ITEMS.length]
@@ -110,5 +119,6 @@ export const whatsappMediaItems: WhatsAppMediaItem[] = Array.from({ length: 50 }
     developerId: dev.id,
     developerName: dev.name,
     developerLogo: dev.logo,
+    waGroup: WA_GROUP_POOL[i % WA_GROUP_POOL.length],
   }
 })

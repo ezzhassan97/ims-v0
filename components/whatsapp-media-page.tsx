@@ -1,22 +1,25 @@
 "use client"
 
-import { useState, useMemo, useRef, useEffect } from "react"
+import { Fragment, useState, useMemo, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { TableCard, TableCardHeader, TableToolbar, TableFooter, FloatingBulkBar, BulkBarButton, DateRangeFilter, FilterMultiSelect, COL_SEP } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter, FloatingBulkBar, BulkBarButton, DateRangeFilter, FilterMultiSelect, FiltersDrawer, FilterDrawerField, MultiSortControl, GroupPager, IdTag, COL_SEP, type SortLevel } from "@/components/table-kit"
+import { FilePreviewDialog, type PreviewFile } from "@/components/file-preview-dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
   Search, Calendar, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, MoreHorizontal,
-  Copy, Check, FileText, FileImage, FileVideo, FileSpreadsheet,
+  Copy, Check, Eye, FileText, FileImage, FileVideo, FileSpreadsheet, Group as GroupIcon,
+  ArrowUp, ArrowDown, ArrowUpDown,
   X, Download, Archive, Tag, UserCheck, ExternalLink, ChevronDown,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -526,9 +529,15 @@ export function WhatsAppMediaTable({ hideDeveloperFilter = false }: { hideDevelo
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [detailItem, setDetailItem] = useState<WhatsAppMediaItem | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [previewItem, setPreviewItem] = useState<WhatsAppMediaItem | null>(null)
+  const [showFilters, setShowFilters] = useState(false)
+  const [sorts, setSorts] = useState<SortLevel[]>([])
+  const [groupBy, setGroupBy] = useState<"none" | "fileType">("none")
+  const GROUP_PAGE_SIZE = 10
+  const [groupPages, setGroupPages] = useState<Record<string, number>>({})
 
   const filtered = useMemo(() => {
-    return items.filter((item) => {
+    let out = items.filter((item) => {
       if (search) {
         const q = search.toLowerCase()
         if (!item.fileName.toLowerCase().includes(q) && !item.id.toLowerCase().includes(q)) return false
@@ -541,10 +550,36 @@ export function WhatsAppMediaTable({ hideDeveloperFilter = false }: { hideDevelo
       if (dateTo && item.createdAt > new Date(dateTo + "T23:59:59")) return false
       return true
     })
-  }, [items, search, fileTypeFilter, mediaClassFilter, projectFilter, developerFilter, dateFrom, dateTo])
+    if (sorts.length > 0) {
+      out = [...out].sort((a, b) => {
+        for (const s of sorts) {
+          const av = s.key === "createdAt" ? a.createdAt.getTime() : a.updatedAt.getTime()
+          const bv = s.key === "createdAt" ? b.createdAt.getTime() : b.updatedAt.getTime()
+          if (av !== bv) return s.dir === "asc" ? av - bv : bv - av
+        }
+        return 0
+      })
+    }
+    return out
+  }, [items, search, fileTypeFilter, mediaClassFilter, projectFilter, developerFilter, dateFrom, dateTo, sorts])
+
+  // Grouped by File Type — each group paginates independently past 10 rows
+  const groups = useMemo(() => {
+    if (groupBy !== "fileType") return null
+    return FILE_TYPE_GROUPS
+      .map((g) => ({ label: g, rows: filtered.filter((i) => i.fileTypeGroup === g) }))
+      .filter((g) => g.rows.length > 0)
+  }, [filtered, groupBy])
+
+  const cycleHeaderSort = (key: string) =>
+    setSorts((prev) => {
+      const cur = prev.length === 1 && prev[0].key === key ? prev[0] : null
+      if (!cur) return [{ key, dir: "asc" }]
+      return cur.dir === "asc" ? [{ key, dir: "desc" }] : []
+    })
 
   const totalPages = Math.ceil(filtered.length / rowsPerPage)
-  const pageItems = filtered.slice((page - 1) * rowsPerPage, page * rowsPerPage)
+  const pageItems = groups ? filtered : filtered.slice((page - 1) * rowsPerPage, page * rowsPerPage)
   const allOnPageSelected = pageItems.length > 0 && pageItems.every((i) => selected.has(i.id))
   const someOnPageSelected = pageItems.some((i) => selected.has(i.id)) && !allOnPageSelected
 
@@ -568,6 +603,8 @@ export function WhatsAppMediaTable({ hideDeveloperFilter = false }: { hideDevelo
     projectFilter.length > 0 || developerFilter.length > 0 || dateFrom || dateTo
 
   const openDetail = (item: WhatsAppMediaItem) => { setDetailItem(item); setDetailOpen(true) }
+  const openPreview = (item: WhatsAppMediaItem) => setPreviewItem(item)
+  useEffect(() => { setGroupPages({}) }, [groupBy, search, fileTypeFilter, mediaClassFilter, projectFilter, developerFilter, dateFrom, dateTo])
 
   const handleSave = (id: string, mediaClasses: MediaClass[], projects: string[]) => {
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, mediaClasses, projects, updatedAt: new Date() } : it))
@@ -581,6 +618,143 @@ export function WhatsAppMediaTable({ hideDeveloperFilter = false }: { hideDevelo
 
   const developerNames = ALL_DEVELOPERS.map((d) => d.name)
 
+  const renderRow = (item: WhatsAppMediaItem) => (
+    <tr
+      key={item.id}
+      className={cn(
+        "hover:bg-muted/40 transition-colors cursor-pointer",
+        selected.has(item.id) && "bg-primary/5",
+      )}
+      onClick={() => openDetail(item)}
+    >
+      {/* Checkbox — sticky left */}
+      <td
+        className={cn("sticky left-0 z-10 px-4 py-3", selected.has(item.id) ? "bg-primary/5" : "bg-card")}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Checkbox checked={selected.has(item.id)} onCheckedChange={() => toggleOne(item.id)} className="h-4 w-4" />
+      </td>
+
+      {/* Developer — or, inside a developer's details, the WhatsApp group the file came through */}
+      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+        {hideDeveloperFilter ? (
+          <div className="flex items-center gap-2 group">
+            <img src={item.waGroup.image} alt={item.waGroup.name} className="h-7 w-7 flex-shrink-0 rounded-lg border border-border object-cover" />
+            <div className="min-w-0">
+              <a
+                href={`/whatsapp-groups/${item.waGroup.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block max-w-[140px] truncate text-sm font-medium leading-none text-foreground hover:text-primary hover:underline"
+              >
+                {item.waGroup.name}
+              </a>
+              <div className="mt-0.5 flex items-center gap-0.5">
+                <code className="font-mono text-[10px] text-muted-foreground">{item.waGroup.id}</code>
+                <CopyBtn value={item.waGroup.id} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 group">
+            <img src={item.developerLogo} alt={item.developerName} className="w-7 h-7 rounded-full flex-shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium leading-none truncate max-w-[110px]">{item.developerName}</p>
+              <div className="flex items-center gap-0.5 mt-0.5">
+                <code className="text-[10px] font-mono text-muted-foreground">{item.developerId}</code>
+                <CopyBtn value={item.developerId} />
+              </div>
+            </div>
+          </div>
+        )}
+      </td>
+
+      {/* File name + ID — clicking the name opens the in-app preview */}
+      <td className="px-4 py-3 max-w-[240px]">
+        <div className="flex items-center gap-2.5">
+          <FileIcon ext={item.fileExt} />
+          <div className="min-w-0">
+            <button
+              onClick={(e) => { e.stopPropagation(); openPreview(item) }}
+              className="text-sm text-primary hover:underline font-medium text-left block truncate max-w-[160px]"
+              title={item.fileName}
+            >
+              {item.fileName.length > 30 ? item.fileName.slice(0, 30) + "…" : item.fileName}
+            </button>
+            <div className="flex items-center gap-0.5 group" onClick={(e) => e.stopPropagation()}>
+              <code className="text-[10px] font-mono text-muted-foreground">{item.id}</code>
+              <CopyBtn value={item.id} />
+            </div>
+          </div>
+        </div>
+      </td>
+
+      {/* File size */}
+      <td className="px-4 py-3 whitespace-nowrap">
+        <span className="text-xs text-muted-foreground font-mono">{formatBytes(item.fileSize)}</span>
+      </td>
+
+      {/* File type */}
+      <td className="px-4 py-3">
+        <FileTypeBadge group={item.fileTypeGroup} />
+      </td>
+
+      {/* Media class — inline multi-select */}
+      <td className="px-4 py-3 min-w-[140px]" onClick={(e) => e.stopPropagation()}>
+        <InlineMultiSelect
+          options={MEDIA_CLASSES}
+          value={item.mediaClasses}
+          onChange={(v) => handleInlineMediaClass(item.id, v)}
+          placeholder="Unclassified"
+        />
+      </td>
+
+      {/* Projects — inline multi-select with overflow tooltip */}
+      <td className="px-4 py-3 min-w-[160px]" onClick={(e) => e.stopPropagation()}>
+        <InlineMultiSelect
+          options={ALL_PROJECTS}
+          value={item.projects}
+          onChange={(v) => handleInlineProjects(item.id, v)}
+          placeholder="No projects"
+        />
+      </td>
+
+      {/* Created at */}
+      <td className="px-4 py-3 whitespace-nowrap">
+        <div className="text-sm leading-none">{formatDate(item.createdAt)}</div>
+        <div className="text-xs text-muted-foreground mt-0.5">{formatTime(item.createdAt)}</div>
+      </td>
+
+      {/* Updated at */}
+      <td className="px-4 py-3 whitespace-nowrap">
+        <div className="text-sm leading-none">{formatDate(item.updatedAt)}</div>
+        <div className="text-xs text-muted-foreground mt-0.5">{formatTime(item.updatedAt)}</div>
+      </td>
+
+      {/* Row actions — sticky right */}
+      <td
+        className={cn("sticky right-0 z-10 px-4 py-3", selected.has(item.id) ? "bg-primary/5" : "bg-card")}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => openPreview(item)}><Eye className="mr-2 h-3.5 w-3.5" />Preview</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openDetail(item)}>View details</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem>Download</DropdownMenuItem>
+            <DropdownMenuItem>Classify</DropdownMenuItem>
+            <DropdownMenuItem className="text-destructive">Archive</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </td>
+    </tr>
+  )
+
   return (
     <div className="space-y-4">
       {/* Filter bar */}
@@ -588,16 +762,31 @@ export function WhatsAppMediaTable({ hideDeveloperFilter = false }: { hideDevelo
         search={search}
         onSearch={(v) => { setSearch(v); setPage(1) }}
         searchPlaceholder="File name or ID"
+        hideAdvanced
         activeFilters={(hideDeveloperFilter ? 0 : developerFilter.length) + projectFilter.length + fileTypeFilter.length + mediaClassFilter.length + ((dateFrom || dateTo) ? 1 : 0)}
-        onAllFilters={hasFilters ? clearFilters : undefined}
+        onAllFilters={() => setShowFilters(true)}
         filters={
         <>
           {!hideDeveloperFilter && <FilterMultiSelect label="Developer" options={developerNames} value={developerFilter} onChange={(v) => { setDeveloperFilter(v); setPage(1) }} className="w-40" />}
           <FilterMultiSelect label="Project" options={ALL_PROJECTS} value={projectFilter} onChange={(v) => { setProjectFilter(v); setPage(1) }} className="w-40" />
           <FilterMultiSelect label="File type" options={FILE_TYPE_GROUPS} value={fileTypeFilter} onChange={(v) => { setFileTypeFilter(v); setPage(1) }} className="w-36" />
           <FilterMultiSelect label="Media class" options={MEDIA_CLASSES} value={mediaClassFilter} onChange={(v) => { setMediaClassFilter(v); setPage(1) }} className="w-40" />
-          <DateRangeFilter label="Date Range" dateFrom={dateFrom} dateTo={dateTo} onChangeFrom={(v) => { setDateFrom(v); setPage(1) }} onChangeTo={(v) => { setDateTo(v); setPage(1) }} />
+          <DateRangeFilter label="Created At" dateFrom={dateFrom} dateTo={dateTo} onChangeFrom={(v) => { setDateFrom(v); setPage(1) }} onChangeTo={(v) => { setDateTo(v); setPage(1) }} />
         </>
+        }
+        sortControl={<MultiSortControl fields={[{ key: "createdAt", label: "Created at" }, { key: "updatedAt", label: "Updated at" }]} sorts={sorts} onChange={setSorts} />}
+        groupControl={
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant={groupBy === "none" ? "outline" : "default"} size="sm" className="h-8 gap-1.5">
+                <GroupIcon className="h-3.5 w-3.5" />{groupBy === "none" ? "Group by" : "File Type"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem className="text-sm" onClick={() => setGroupBy("none")}>No grouping</DropdownMenuItem>
+              <DropdownMenuItem className="text-sm" onClick={() => setGroupBy("fileType")}>File Type</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         }
       />
 
@@ -613,150 +802,68 @@ export function WhatsAppMediaTable({ hideDeveloperFilter = false }: { hideDevelo
                   <th className="sticky left-0 z-10 bg-muted/60 w-10 px-4 py-3">
                     <Checkbox checked={allOnPageSelected} data-indeterminate={someOnPageSelected} onCheckedChange={toggleAll} className="h-4 w-4" />
                   </th>
-                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Developer</th>
+                  {/* Inside a developer's details the Developer column becomes the WhatsApp Group column */}
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">{hideDeveloperFilter ? "WhatsApp Group" : "Developer"}</th>
                   <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">File Name</th>
                   <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">File Size</th>
                   <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">File Type</th>
                   <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Media Class</th>
                   <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Projects</th>
-                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Created At</th>
-                  <th className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">Updated At</th>
+                  {(["createdAt", "updatedAt"] as const).map((key) => {
+                    const s = sorts.find((x) => x.key === key)
+                    return (
+                      <th key={key} className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
+                        <button onClick={() => cycleHeaderSort(key)} className="inline-flex items-center gap-1 uppercase hover:text-foreground">
+                          {key === "createdAt" ? "Created At" : "Updated At"}
+                          {s ? (s.dir === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                        </button>
+                      </th>
+                    )
+                  })}
                   {/* sticky action col */}
                   <th className="sticky right-0 z-10 bg-muted/60 w-10 px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {pageItems.length === 0 ? (
+                {filtered.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="px-4 py-16 text-center text-sm text-muted-foreground">
                       No media files match your filters
                     </td>
                   </tr>
-                ) : pageItems.map((item) => (
-                  <tr
-                    key={item.id}
-                    className={cn(
-                      "hover:bg-muted/40 transition-colors cursor-pointer",
-                      selected.has(item.id) && "bg-primary/5",
-                    )}
-                    onClick={() => openDetail(item)}
-                  >
-                    {/* Checkbox — sticky left */}
-                    <td
-                      className={cn(
-                        "sticky left-0 z-10 px-4 py-3",
-                        selected.has(item.id) ? "bg-primary/5" : "bg-card",
-                      )}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Checkbox checked={selected.has(item.id)} onCheckedChange={() => toggleOne(item.id)} className="h-4 w-4" />
-                    </td>
-
-                    {/* Developer */}
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-2 group">
-                        <img src={item.developerLogo} alt={item.developerName} className="w-7 h-7 rounded-full flex-shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium leading-none truncate max-w-[110px]">{item.developerName}</p>
-                          <div className="flex items-center gap-0.5 mt-0.5">
-                            <code className="text-[10px] font-mono text-muted-foreground">{item.developerId}</code>
-                            <CopyBtn value={item.developerId} />
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* File name + ID */}
-                    <td className="px-4 py-3 max-w-[240px]">
-                      <div className="flex items-center gap-2.5">
-                        <FileIcon ext={item.fileExt} />
-                        <div className="min-w-0">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); openDetail(item) }}
-                            className="text-sm text-primary hover:underline font-medium text-left block truncate max-w-[160px]"
-                            title={item.fileName}
-                          >
-                            {item.fileName.length > 30 ? item.fileName.slice(0, 30) + "…" : item.fileName}
-                          </button>
-                          <div className="flex items-center gap-0.5 group" onClick={(e) => e.stopPropagation()}>
-                            <code className="text-[10px] font-mono text-muted-foreground">{item.id}</code>
-                            <CopyBtn value={item.id} />
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* File size */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-xs text-muted-foreground font-mono">{formatBytes(item.fileSize)}</span>
-                    </td>
-
-                    {/* File type */}
-                    <td className="px-4 py-3">
-                      <FileTypeBadge group={item.fileTypeGroup} />
-                    </td>
-
-                    {/* Media class — inline multi-select */}
-                    <td className="px-4 py-3 min-w-[140px]" onClick={(e) => e.stopPropagation()}>
-                      <InlineMultiSelect
-                        options={MEDIA_CLASSES}
-                        value={item.mediaClasses}
-                        onChange={(v) => handleInlineMediaClass(item.id, v)}
-                        placeholder="Unclassified"
-                      />
-                    </td>
-
-                    {/* Projects — inline multi-select with overflow tooltip */}
-                    <td className="px-4 py-3 min-w-[160px]" onClick={(e) => e.stopPropagation()}>
-                      <InlineMultiSelect
-                        options={ALL_PROJECTS}
-                        value={item.projects}
-                        onChange={(v) => handleInlineProjects(item.id, v)}
-                        placeholder="No projects"
-                      />
-                    </td>
-
-                    {/* Created at */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="text-sm leading-none">{formatDate(item.createdAt)}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">{formatTime(item.createdAt)}</div>
-                    </td>
-
-                    {/* Updated at */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="text-sm leading-none">{formatDate(item.updatedAt)}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">{formatTime(item.updatedAt)}</div>
-                    </td>
-
-                    {/* Row actions — sticky right */}
-                    <td
-                      className={cn(
-                        "sticky right-0 z-10 px-4 py-3",
-                        selected.has(item.id) ? "bg-primary/5" : "bg-card",
-                      )}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openDetail(item)}>View details</DropdownMenuItem>
-                          <DropdownMenuItem>Download</DropdownMenuItem>
-                          <DropdownMenuItem>Classify</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">Archive</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                ))}
+                ) : groups ? (
+                  groups.map((g) => {
+                    const gPage = groupPages[g.label] ?? 1
+                    const gRows = g.rows.slice((gPage - 1) * GROUP_PAGE_SIZE, gPage * GROUP_PAGE_SIZE)
+                    return (
+                      <Fragment key={g.label}>
+                        <tr className="bg-muted/40">
+                          <td colSpan={10} className="p-0">
+                            <div className="sticky left-0 flex w-max items-center gap-2 px-5 py-2">
+                              <FileTypeBadge group={g.label} />
+                              <span className="text-xs text-muted-foreground">{g.rows.length} file{g.rows.length !== 1 ? "s" : ""}</span>
+                              {g.rows.length > GROUP_PAGE_SIZE && (
+                                <GroupPager total={g.rows.length} page={gPage} pageSize={GROUP_PAGE_SIZE} onPage={(pg) => setGroupPages((prev) => ({ ...prev, [g.label]: pg }))} />
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {gRows.map(renderRow)}
+                      </Fragment>
+                    )
+                  })
+                ) : (
+                  pageItems.map(renderRow)
+                )}
               </tbody>
             </table>
           </div>
 
-          <TableFooter page={page} pageSize={rowsPerPage} total={filtered.length} onPage={setPage} onPageSize={(n) => { setRowsPerPage(n); setPage(1) }} label="assets" />
+          {groups ? (
+            <div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">{filtered.length} files in {groups.length} group{groups.length !== 1 ? "s" : ""}</div>
+          ) : (
+            <TableFooter page={page} pageSize={rowsPerPage} total={filtered.length} onPage={setPage} onPageSize={(n) => { setRowsPerPage(n); setPage(1) }} label="assets" />
+          )}
         </TableCard>
       </div>
 
@@ -768,6 +875,40 @@ export function WhatsAppMediaTable({ hideDeveloperFilter = false }: { hideDevelo
       </FloatingBulkBar>
 
       <FileDetailsSheet item={detailItem} open={detailOpen} onOpenChange={setDetailOpen} onSave={handleSave} />
+
+      {/* All Filters drawer — same filters, order and state as the toolbar */}
+      <FiltersDrawer
+        open={showFilters}
+        onClose={() => setShowFilters(false)}
+        activeCount={(hideDeveloperFilter ? 0 : developerFilter.length) + projectFilter.length + fileTypeFilter.length + mediaClassFilter.length + ((dateFrom || dateTo) ? 1 : 0)}
+        onClear={clearFilters}
+      >
+        {!hideDeveloperFilter && (
+          <FilterDrawerField label="Developer">
+            <FilterMultiSelect label="Developer" options={developerNames} value={developerFilter} onChange={(v) => { setDeveloperFilter(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+        )}
+        <FilterDrawerField label="Project">
+          <FilterMultiSelect label="Project" options={ALL_PROJECTS} value={projectFilter} onChange={(v) => { setProjectFilter(v); setPage(1) }} className="w-full" width="w-full" />
+        </FilterDrawerField>
+        <FilterDrawerField label="File type">
+          <FilterMultiSelect label="File type" options={FILE_TYPE_GROUPS} value={fileTypeFilter} onChange={(v) => { setFileTypeFilter(v); setPage(1) }} className="w-full" width="w-full" />
+        </FilterDrawerField>
+        <FilterDrawerField label="Media class">
+          <FilterMultiSelect label="Media class" options={MEDIA_CLASSES} value={mediaClassFilter} onChange={(v) => { setMediaClassFilter(v); setPage(1) }} className="w-full" width="w-full" />
+        </FilterDrawerField>
+        <FilterDrawerField label="Created At">
+          <DateRangeFilter label="Created At" dateFrom={dateFrom} dateTo={dateTo} onChangeFrom={(v) => { setDateFrom(v); setPage(1) }} onChangeTo={(v) => { setDateTo(v); setPage(1) }} className="w-full" />
+        </FilterDrawerField>
+      </FiltersDrawer>
+
+      {/* In-app large file preview — images, PDFs, videos, sheets */}
+      {previewItem && (
+        <FilePreviewDialog
+          file={{ id: previewItem.id, name: previewItem.fileName, ext: previewItem.fileExt, typeGroup: previewItem.fileTypeGroup, url: previewItem.url, size: previewItem.fileSize }}
+          onClose={() => setPreviewItem(null)}
+        />
+      )}
     </div>
   )
 }

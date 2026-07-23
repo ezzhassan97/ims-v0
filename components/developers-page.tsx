@@ -25,6 +25,7 @@ import { WhatsAppMediaTable } from "@/components/whatsapp-media-page"
 import { ProjectsPage } from "@/components/projects-list-page"
 import { PROJECTS } from "@/lib/projects-mock"
 import { WA_CONTACTS, type WaContact } from "@/lib/wa-contacts-mock"
+import { devContactsFor, type DevContact } from "@/lib/dev-contacts-mock"
 import { DeveloperCreatePage } from "@/components/developer-create-page"
 import { DEVELOPERS, type Developer, type DevPriority, type DevListingStatus, type DevOrg } from "@/lib/developers-mock"
 
@@ -450,6 +451,7 @@ export function DevelopersPage() {
         {waGroupDev && (
           <CreateWaGroupDialog
             dev={waGroupDev}
+            devContacts={devContactsFor(waGroupDev.id, waGroupDev.whatsappGroup ? { id: waGroupDev.whatsappGroup.id, name: waGroupDev.whatsappGroup.name } : null)}
             onClose={() => setWaGroupDev(null)}
             onCreate={(members, groupName, groupImage) => {
               update(waGroupDev.id, { whatsappGroup: { id: `WA-9${String(waGroupDev.id).slice(-3)}`, name: groupName, image: groupImage } })
@@ -696,7 +698,7 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
           <TabsContent value="faqs"><FaqsTab entityName={developer.name} /></TabsContent>
           <TabsContent value="projects"><ProjectsTab developer={developer} /></TabsContent>
           <TabsContent value="whatsapp-media"><WhatsAppMediaTable hideDeveloperFilter /></TabsContent>
-          <TabsContent value="contacts"><ContactsTab /></TabsContent>
+          <TabsContent value="contacts"><ContactsTab developer={developer} /></TabsContent>
         </Tabs>
 
         {dlg && (
@@ -798,30 +800,109 @@ export function SeoTab({ entity }: { entity: { name: string; nameAr: string; des
   )
 }
 
-function ContactsTab() {
-  const contacts = [
-    { name: "Mahmoud Adel", role: "Sales Director", phone: "+20 100 123 4567", email: "m.adel@example.com" },
-    { name: "Nour Hassan", role: "Marketing Lead", phone: "+20 106 987 6543", email: "n.hassan@example.com" },
-    { name: "Omar Zaki", role: "Partnerships Manager", phone: "+20 111 222 3344", email: "o.zaki@example.com" },
-  ]
+/** Developer contacts — searchable, addable; each shows whether it joined a WhatsApp group and which one. */
+function ContactsTab({ developer }: { developer: Developer }) {
+  const [contacts, setContacts] = useState<DevContact[]>(() => devContactsFor(developer.id, developer.whatsappGroup ? { id: developer.whatsappGroup.id, name: developer.whatsappGroup.name } : null))
+  const [q, setQ] = useState("")
+  const [dlgOpen, setDlgOpen] = useState(false)
+  const needle = q.trim().toLowerCase()
+  const shown = contacts.filter((c) => !needle || c.name.toLowerCase().includes(needle) || c.phone.replace(/\s/g, "").includes(needle.replace(/\s/g, "")))
   return (
     <TabCard>
-      <div className="mb-3 flex items-baseline gap-2">
-        <h3 className="text-sm font-semibold">Contacts</h3>
-        <span className="text-xs text-muted-foreground">({contacts.length})</span>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {contacts.map((c) => (
-          <div key={c.email} className="rounded-lg border border-border p-3">
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">{c.name.split(" ").map((p) => p[0]).join("")}</div>
-              <div><p className="text-sm font-medium">{c.name}</p><p className="text-xs text-muted-foreground">{c.role}</p></div>
-            </div>
-            <div className="mt-2.5 space-y-1 text-xs text-muted-foreground"><p>{c.phone}</p><p className="truncate">{c.email}</p></div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold">Contacts</h3>
+          <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{contacts.length}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name or phone…" className="h-8 w-56 pl-8 text-sm" />
           </div>
-        ))}
+          <Button size="sm" className="h-8 gap-1.5" onClick={() => setDlgOpen(true)}><Plus className="h-3.5 w-3.5" />Add Contact</Button>
+        </div>
       </div>
+      {shown.length === 0 ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">{contacts.length === 0 ? "No contacts yet — click \"Add Contact\" to create one." : "No contacts match your search."}</p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {shown.map((c) => (
+            <div key={c.id} className="rounded-lg border border-border p-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">{c.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}</div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5"><p className="truncate text-sm font-medium">{c.name}</p><IdTag value={c.id} /></div>
+                  <p className="truncate text-xs text-muted-foreground">{c.title}</p>
+                </div>
+              </div>
+              <div className="mt-2.5 space-y-1 text-xs text-muted-foreground">
+                <p className="font-mono">{c.phone}</p>
+                <p className="truncate">{c.email ?? "—"}</p>
+              </div>
+              {/* WhatsApp group membership — a developer can have several groups */}
+              <div className="mt-2.5 border-t border-border/70 pt-2">
+                {c.joinedGroup ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">In Group</span>
+                    <span className="truncate text-[11px] font-medium text-foreground">{c.joinedGroup.name}</span>
+                    <IdTag value={c.joinedGroup.id} />
+                  </div>
+                ) : (
+                  <span className="inline-flex items-center whitespace-nowrap rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Not in a group</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {dlgOpen && (
+        <DevContactDialog
+          onClose={() => setDlgOpen(false)}
+          onSave={(draft) => {
+            setContacts((prev) => [...prev, { id: `DC-${String(developer.id).slice(-2)}${prev.length + 1}`, ...draft, joinedGroup: null }])
+            toast.success(`${draft.name} added to ${developer.name}'s contacts`)
+            setDlgOpen(false)
+          }}
+        />
+      )}
     </TabCard>
+  )
+}
+
+function DevContactDialog({ onClose, onSave }: { onClose: () => void; onSave: (draft: { name: string; title: string; phone: string; email?: string }) => void }) {
+  const [name, setName] = useState("")
+  const [title, setTitle] = useState("")
+  const [phone, setPhone] = useState("+2 ")
+  const [email, setEmail] = useState("")
+  const canSave = name.trim() !== "" && phone.replace(/\D/g, "").length >= 8
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader><DialogTitle>Add Contact</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Name<span className="ml-0.5 text-red-500">*</span></div>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Contact name" className="h-9 text-sm" autoFocus />
+          </div>
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Title</div>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Sales Director" className="h-9 text-sm" />
+          </div>
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Phone Number<span className="ml-0.5 text-red-500">*</span> <span className="font-normal text-muted-foreground">· +2 country code by default</span></div>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+2 010 1234 5678" className="h-9 font-mono text-sm" />
+          </div>
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Email <span className="font-normal text-muted-foreground">· optional</span></div>
+            <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" className="h-9 text-sm" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={!canSave} onClick={() => onSave({ name: name.trim(), title: title.trim(), phone: phone.trim(), email: email.trim() || undefined })}>Add Contact</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1098,15 +1179,22 @@ export interface WaGroupDev {
  * per-contact exclude and Admin ↔ Member toggles.
  * `mode="creation"` embeds it in the developer creation flow: create with or without the group.
  */
-export function CreateWaGroupDialog({ dev, mode = "action", onClose, onCreate, onSkip }: {
+export function CreateWaGroupDialog({ dev, devContacts, mode = "action", onClose, onCreate, onSkip }: {
   dev: WaGroupDev
+  /** The developer's own contacts (from its Contacts tab) — offered alongside the default Nawy contacts.
+   *  Absent in creation mode, since the developer's contacts don't exist yet at that point. */
+  devContacts?: DevContact[]
   mode?: "action" | "creation"
   onClose: () => void
   onCreate: (members: WaContact[], groupName: string, groupImage: string) => void
   /** creation mode only — create the developer without a WhatsApp group */
   onSkip?: () => void
 }) {
-  const [members, setMembers] = useState<WaContact[]>(WA_CONTACTS.map((c) => ({ ...c })))
+  type GroupMember = WaContact & { source: "Nawy" | "Developer" }
+  const [members, setMembers] = useState<GroupMember[]>([
+    ...WA_CONTACTS.map((c) => ({ ...c, source: "Nawy" as const })),
+    ...(devContacts ?? []).map((c) => ({ id: c.id, name: c.name, phone: c.phone, role: "Member" as const, source: "Developer" as const })),
+  ])
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const [groupName, setGroupName] = useState(`Nawy - ${dev.name}`)
   const [groupImage, setGroupImage] = useState(dev.logo)
@@ -1177,7 +1265,15 @@ export function CreateWaGroupDialog({ dev, mode = "action", onClose, onCreate, o
                     {c.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
+                      <span className={cn(
+                        "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded border px-1.5 py-px text-[10px] font-medium",
+                        c.source === "Nawy" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-blue-200 bg-blue-50 text-blue-700",
+                      )}>
+                        {c.source}
+                      </span>
+                    </div>
                     <p className="font-mono text-[10px] text-muted-foreground">{c.phone}</p>
                   </div>
                   {/* Admin ↔ Member toggle */}

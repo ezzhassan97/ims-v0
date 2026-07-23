@@ -227,9 +227,10 @@ export function DateRangeFilter({
   return (
     <Popover>
       <PopoverTrigger asChild>
+        {/* Same typography/tones as FilterSelect so mixed filter rows read uniformly */}
         <button className={cn(
-          "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-3 text-xs font-medium transition-colors",
-          isActive ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-foreground hover:bg-muted",
+          "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border bg-white px-2.5 text-sm transition-colors hover:bg-muted/50",
+          isActive ? "border-primary text-primary" : "border-input text-muted-foreground",
           className,
         )}>
           {display}
