@@ -2,7 +2,7 @@
 // A phase row carries a `mainProject` reference; a project row has `mainProject: null`.
 
 export type ProjListingStatus = "Active" | "Hidden"
-export type ProjPrimaryStatus = "Launch" | "On-Sale" | "On-Hold" | "Sold-Off" | "Archived"
+export type ProjPrimaryStatus = "Launch" | "On-Sale" | "On-Hold" | "Sold-Off"
 export type ProjEntryType = "Automatic" | "Manual"
 export type ProjOrg = "Nawy" | "Partners"
 export type ProjConstructionStatus = "Off-plan" | "Under Construction" | "Completed"
@@ -44,6 +44,9 @@ export interface ProjectRow {
   detailedProps: number
   /** Primary properties split by entry type — drives the Change Entry Type impact preview */
   primaryByEntry: PrimaryByEntry
+  /** Primary/Launch property breakdown — drives the Change Primary Status impact preview.
+   *  Only Primary & Launch properties cascade (never Resale / Nawy Now / Rental). */
+  primaryStatusProps: { launch: number; available: number; onHold: number; soldOff: number }
   /** Sale-type unit counts: available / total */
   primaryUnits: UnitCount
   resaleUnits: UnitCount
@@ -73,7 +76,7 @@ export const AREA_TREE = AREAS.map((name, i) => ({
   subareas: [{ id: `SUB-${String(i + 1).padStart(3, "0")}`, name: SUBAREAS[i] }],
 }))
 
-const PRIMARY: ProjPrimaryStatus[] = ["Launch", "On-Sale", "On-Hold", "Sold-Off", "Archived"]
+const PRIMARY: ProjPrimaryStatus[] = ["Launch", "On-Sale", "On-Hold", "Sold-Off"]
 
 const CONSTRUCTION: ProjConstructionStatus[] = ["Off-plan", "Under Construction", "Completed"]
 const CATEGORIES = ["Residential", "Commercial", "Mixed Use"]
@@ -137,6 +140,7 @@ function buildRows(): ProjectRow[] {
         Automatic: { grouped: 3 + ((i * 2) % 12), detailed: 22 + ((i * 11) % 90) },
         Manual: { grouped: 2 + ((i * 3) % 10), detailed: 16 + ((i * 7) % 70) },
       },
+      primaryStatusProps: { launch: 4 + ((i * 3) % 18), available: 12 + ((i * 5) % 40), onHold: (i * 2) % 10, soldOff: (i * 7) % 26 },
       primaryUnits: { available: 12 + ((i * 7) % 60), total: 40 + ((i * 13) % 120) },
       resaleUnits: { available: (i * 5) % 25, total: ((i * 5) % 25) + ((i * 9) % 40) },
       nawyNowUnits: { available: (i * 3) % 12, total: ((i * 3) % 12) + ((i * 5) % 18) },
@@ -181,6 +185,7 @@ function buildRows(): ProjectRow[] {
           Automatic: { grouped: 1 + ((seed * 2) % 8), detailed: 8 + ((seed * 5) % 40) },
           Manual: { grouped: 1 + ((seed * 3) % 7), detailed: 6 + ((seed * 4) % 35) },
         },
+        primaryStatusProps: { launch: 2 + ((seed * 3) % 10), available: 5 + ((seed * 5) % 20), onHold: seed % 6, soldOff: (seed * 4) % 12 },
         primaryUnits: { available: 4 + ((seed * 3) % 30), total: 15 + ((seed * 7) % 60) },
         resaleUnits: { available: (seed * 2) % 14, total: ((seed * 2) % 14) + (seed % 20) },
         nawyNowUnits: { available: seed % 8, total: (seed % 8) + ((seed * 3) % 10) },

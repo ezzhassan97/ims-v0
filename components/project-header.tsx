@@ -24,7 +24,6 @@ const PRIMARY_TONE: Record<string, string> = {
   "On-Sale": "border-emerald-300 bg-emerald-100 text-emerald-800",
   "On-Hold": "border-orange-200 bg-orange-50 text-orange-700",
   "Sold-Off": "border-red-200 bg-red-50 text-red-600",
-  Archived: "border-red-300 bg-red-100 text-red-800",
 }
 const ENTRY_TONE: Record<string, string> = {
   Automatic: "border-emerald-200 bg-emerald-50 text-emerald-700",

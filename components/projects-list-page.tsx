@@ -56,7 +56,7 @@ const PROJECT_GEO0: GeoRef[] = PROJECTS.map((p) => {
 })
 const PROJECT_MAP_LOCATIONS: MapLocation[] = PROJECT_GEO0.map((g) => ({ id: g.id, name: g.name, kind: g.level, center: centroid(g.polygon, g.pin) }))
 
-const PRIMARY_STATUSES: ProjPrimaryStatus[] = ["Launch", "On-Sale", "On-Hold", "Sold-Off", "Archived"]
+const PRIMARY_STATUSES: ProjPrimaryStatus[] = ["Launch", "On-Sale", "On-Hold", "Sold-Off"]
 
 /** Public listing page for a project on nawy.com (mock slug). */
 export const projSiteUrl = (name: string) => `https://www.nawy.com/compound/${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`
@@ -102,7 +102,6 @@ const PRIMARY_COLORS: Record<ProjPrimaryStatus, string> = {
   "On-Sale": "bg-emerald-100 text-emerald-800 border-emerald-300", // darker green
   "On-Hold": "bg-orange-50 text-orange-700 border-orange-200",     // orange
   "Sold-Off": "bg-red-50 text-red-600 border-red-200",             // red
-  Archived: "bg-red-100 text-red-800 border-red-300",              // darker red
 }
 // Rounded-md status tag (not a circular pill).
 function Tag({ value, cls }: { value: string; cls: string }) {
@@ -294,8 +293,13 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       return hit && !excluded.has(x.id) ? { ...x, listingStatus: next } : x
     }))
   }
-  const applyPrimary = (r: ProjectRow, next: ProjPrimaryStatus) =>
-    setRows((rs) => rs.map((x) => (x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id) ? { ...x, primaryStatus: next } : x)))
+  const applyPrimary = (r: ProjectRow, next: ProjPrimaryStatus, excludedPhaseIds?: string[]) => {
+    const excluded = new Set(excludedPhaseIds ?? [])
+    setRows((rs) => rs.map((x) => {
+      const hit = x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id)
+      return hit && !excluded.has(x.id) ? { ...x, primaryStatus: next } : x
+    }))
+  }
   /** Cascading changes: main-project targets cascade to every phase under them; phase targets change only themselves.
    *  For entry-type changes, phases the user unticked in the dialog are excluded from the cascade. */
   const applyCascade = (kind: CascadeKind, targets: ProjectRow[], value: string | ProjOrg[], excludedPhaseIds?: string[]) => {
@@ -851,9 +855,11 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             r={primaryDlg}
             phases={phasesOf(primaryDlg)}
             onClose={() => setPrimaryDlg(null)}
-            onConfirm={(next) => {
-              applyPrimary(primaryDlg, next)
-              toast.success(`${primaryDlg.name} set to ${next}${!primaryDlg.isPhase && phasesOf(primaryDlg).length ? ` with ${phasesOf(primaryDlg).length} phases` : ""}`)
+            onConfirm={(next, excludedPhaseIds) => {
+              applyPrimary(primaryDlg, next, excludedPhaseIds)
+              const phaseCount = phasesOf(primaryDlg).length
+              const exCount = excludedPhaseIds?.length ?? 0
+              toast.success(`${primaryDlg.name} set to ${next}${!primaryDlg.isPhase && phaseCount ? ` with ${phaseCount - exCount} of ${phaseCount} phases${exCount ? ` (${exCount} excluded)` : ""}` : ""}`)
               setPrimaryDlg(null)
             }}
           />
@@ -1112,18 +1118,109 @@ export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   )
 }
 
-export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (s: ProjPrimaryStatus) => void }) {
-  const [next, setNext] = useState<ProjPrimaryStatus>(r.primaryStatus)
-  const impacted = [r, ...(!r.isPhase ? phases : [])]
-  const grouped = impacted.reduce((s, x) => s + x.groupedProps, 0)
-  const detailed = impacted.reduce((s, x) => s + x.detailedProps, 0)
+/**
+ * Change Primary Status — the primary status drives the listing (Publish/Unpublish)
+ * of Grouped Properties and the status of the detailed properties under them
+ * (Available / Sold Off / Hold / Archived). Only Primary & Launch properties are
+ * impacted — never Resale, Nawy Now or Rental. Each from→to transition cascades
+ * differently; leaving Launch always requires the launch end date (EOI flagging).
+ */
+export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (s: ProjPrimaryStatus, excludedPhaseIds?: string[]) => void }) {
+  const from = r.primaryStatus
+  const [next, setNext] = useState<ProjPrimaryStatus>(from)
+  const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  const [endDate, setEndDate] = useState("")
+  const [hideAvailable, setHideAvailable] = useState(false)
+  const toggleExcluded = (id: string) =>
+    setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  const cascading = !r.isPhase && phases.length > 0
+  const includedPhases = cascading ? phases.filter((p) => !excluded.has(p.id)) : []
+  const impactedRows = [r, ...includedPhases]
+  const sum = (k: keyof ProjectRow["primaryStatusProps"]) => impactedRows.reduce((s, x) => s + x.primaryStatusProps[k], 0)
+  const launch = sum("launch")
+  const available = sum("available")
+  const onHold = sum("onHold")
+
+  const changed = next !== from
+  const leavingLaunch = from === "Launch" && changed
+  const canApply = changed && (!leavingLaunch || endDate !== "")
+
+  // What this exact from → to transition does to the properties underneath
+  type Effect = { kind: "hide" | "show" | "change" | "none"; node: React.ReactNode }
+  const effects: Effect[] = []
+  if (changed) {
+    if (from === "Launch") {
+      effects.push({ kind: "hide", node: <>Hide (Unpublish) <b>{launch}</b> Launch properties</> })
+      if (next === "On-Hold") effects.push({ kind: "change", node: <><b>{available}</b> Available Primary properties become <Tag value="On-Hold" cls={PRIMARY_COLORS["On-Hold"]} /></> })
+      if (next === "Sold-Off") effects.push({ kind: "change", node: <><b>{available}</b> Available Primary properties become <Tag value="Sold-Off" cls={PRIMARY_COLORS["Sold-Off"]} /></> })
+    } else if (from === "On-Sale") {
+      if (next === "Launch") {
+        effects.push({ kind: "show", node: <>Show (Publish) <b>{launch}</b> Launch properties</> })
+        if (hideAvailable) effects.push({ kind: "hide", node: <>Hide (Unpublish) <b>{available}</b> Available Primary properties</> })
+      }
+      if (next === "On-Hold") {
+        effects.push({ kind: "change", node: <><b>{available}</b> Available detailed Primary properties become <Tag value="On-Hold" cls={PRIMARY_COLORS["On-Hold"]} /></> })
+        effects.push({ kind: "hide", node: <>Their Grouped properties are hidden (Unpublished)</> })
+      }
+      if (next === "Sold-Off") {
+        effects.push({ kind: "change", node: <><b>{available + onHold}</b> Available &amp; On-Hold detailed properties become <Tag value="Sold-Off" cls={PRIMARY_COLORS["Sold-Off"]} /></> })
+        effects.push({ kind: "hide", node: <>Their Grouped Primary properties are hidden (Unpublished)</> })
+      }
+    } else if (from === "On-Hold") {
+      if (next === "On-Sale") {
+        effects.push({ kind: "change", node: <><b>{onHold}</b> On-Hold detailed Primary properties become <b>Available</b></> })
+        effects.push({ kind: "show", node: <>Their Grouped properties are published (Shown)</> })
+      }
+      if (next === "Sold-Off") {
+        effects.push({ kind: "change", node: <><b>{available + onHold}</b> Primary properties of any status (except Archived) become <Tag value="Sold-Off" cls={PRIMARY_COLORS["Sold-Off"]} /></> })
+        effects.push({ kind: "hide", node: <>Their Grouped properties are hidden (Unpublished)</> })
+      }
+      if (next === "Launch") effects.push({ kind: "show", node: <>Show (Publish) <b>{launch}</b> Launch properties</> })
+    } else {
+      effects.push({ kind: "none", node: <>No automatic cascading property changes for this transition.</> })
+    }
+  }
+  const EFFECT_ICON: Record<Effect["kind"], React.ReactNode> = {
+    hide: <EyeOff className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-red-600" />,
+    show: <Eye className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-emerald-600" />,
+    change: <Repeat className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-600" />,
+    none: <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />,
+  }
+  const parentDevStatus = PROJECT_DEVELOPERS.find((d) => d.id === r.developer.id)?.status
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader><DialogTitle>Change Primary Status</DialogTitle></DialogHeader>
+
+        {/* Context: project/phase + listing status, parent (for phases), developer */}
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
+          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{r.developer.logo}</span>
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-sm font-semibold text-foreground">{r.name}</span>
+              <IdTag value={r.id} />
+              <Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} />
+            </div>
+            {r.isPhase && r.mainProject && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Parent</span>
+                <a href={`/projects/${r.mainProject.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-foreground hover:text-primary hover:underline">{r.mainProject.name}</a>
+                <IdTag value={r.mainProject.id} />
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer</span>
+              <a href={`/developers/${r.developer.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-foreground hover:text-primary hover:underline">{r.developer.name}</a>
+              <IdTag value={r.developer.id} />
+              {parentDevStatus && <Tag value={parentDevStatus} cls={LISTING_COLORS[parentDevStatus]} />}
+            </div>
+          </div>
+        </div>
+
         <p className="text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">{r.name}</span> <IdTag value={r.id} /> is currently{" "}
-          <Tag value={r.primaryStatus} cls={PRIMARY_COLORS[r.primaryStatus]} />. Choose the new status:
+          Currently <Tag value={from} cls={PRIMARY_COLORS[from]} />. Choose the new status:
         </p>
         <div className="flex flex-wrap gap-1.5">
           {PRIMARY_STATUSES.map((s) => (
@@ -1135,21 +1232,79 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
             </button>
           ))}
         </div>
-        {!r.isPhase && phases.length > 0 && next !== r.primaryStatus && (
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              This is a <span className="font-semibold text-foreground">main project</span> — its {phases.length} phase{phases.length > 1 ? "s" : ""} will become {next} as well:
-            </p>
-            <PhaseCascadeList phases={phases} tagOf={(p) => ({ value: p.primaryStatus, cls: PRIMARY_COLORS[p.primaryStatus] })} next={next} nextCls={PRIMARY_COLORS[next]} />
+
+        {changed && (
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              What happens with <Tag value={from} cls={PRIMARY_COLORS[from]} /> <ArrowRight className="inline h-3 w-3" /> <Tag value={next} cls={PRIMARY_COLORS[next]} />
+            </div>
+            <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              {effects.map((e, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs leading-4 text-amber-900">{EFFECT_ICON[e.kind]}<span>{e.node}</span></div>
+              ))}
+              <p className="pt-0.5 text-[11px] text-amber-700/80">
+                Only Primary and Launch properties are impacted — Resale, Nawy Now and Rental properties are not touched.
+              </p>
+            </div>
           </div>
         )}
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
-          This change impacts <span className="font-semibold">{grouped}</span> grouped properties and{" "}
-          <span className="font-semibold">{detailed}</span> detailed properties{!r.isPhase && phases.length > 0 ? " across this project and its phases" : ""}.
-        </div>
+
+        {/* Leaving Launch always requires the launch end date (flags EOIs on Nawy Sales Portal) */}
+        {leavingLaunch && (
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Launch End Date<span className="ml-0.5 text-red-500">*</span></div>
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 w-52 text-sm" />
+            <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
+              The launch end date is needed to flag the EOIs collected on this launch after this date on Nawy Sales Portal.
+            </p>
+          </div>
+        )}
+
+        {/* On-Sale → Launch: optionally hide the Available Primary properties (left unchanged by default) */}
+        {from === "On-Sale" && next === "Launch" && (
+          <label className={cn(
+            "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
+            hideAvailable ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
+          )}>
+            <Checkbox checked={hideAvailable} onCheckedChange={() => setHideAvailable((v) => !v)} className="h-4 w-4" />
+            <span className="text-sm text-foreground">
+              Also hide (Unpublish) the <span className="font-semibold">{available}</span> Available Primary properties
+              <span className="block text-xs text-muted-foreground">Left unchanged by default</span>
+            </span>
+          </label>
+        )}
+
+        {cascading && changed && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">{includedPhases.length} of {phases.length}</span> phase{phases.length > 1 ? "s" : ""} will become {next} — untick to exclude:
+            </p>
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
+              {phases.map((p, i) => {
+                const isEx = excluded.has(p.id)
+                return (
+                  <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70", isEx && "opacity-45")}>
+                    <Checkbox checked={!isEx} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                      <IdTag value={p.id} />
+                    </div>
+                    <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+                    <div className="flex flex-shrink-0 items-center gap-1">
+                      <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
+                      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                      <Tag value={next} cls={PRIMARY_COLORS[next]} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={next === r.primaryStatus} onClick={() => onConfirm(next)}>Change to {next}</Button>
+          <Button size="sm" disabled={!canApply} onClick={() => onConfirm(next, [...excluded])}>Change to {next}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1641,6 +1796,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
       groupedProps: 0,
       detailedProps: 0,
       primaryByEntry: { Automatic: { grouped: 0, detailed: 0 }, Manual: { grouped: 0, detailed: 0 } },
+      primaryStatusProps: { launch: 0, available: 0, onHold: 0, soldOff: 0 },
       primaryUnits: zero, resaleUnits: zero, nawyNowUnits: zero, rentalUnits: zero,
       createdAt: stamp,
       updatedAt: stamp,
