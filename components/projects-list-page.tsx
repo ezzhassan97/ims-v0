@@ -1127,7 +1127,7 @@ export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
  */
 export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (s: ProjPrimaryStatus, excludedPhaseIds?: string[]) => void }) {
   const from = r.primaryStatus
-  const [next, setNext] = useState<ProjPrimaryStatus>(from)
+  const [next, setNext] = useState<ProjPrimaryStatus | "">("")
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const [endDate, setEndDate] = useState("")
   const [hideAvailable, setHideAvailable] = useState(false)
@@ -1137,46 +1137,73 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   const cascading = !r.isPhase && phases.length > 0
   const includedPhases = cascading ? phases.filter((p) => !excluded.has(p.id)) : []
   const impactedRows = [r, ...includedPhases]
-  const sum = (k: keyof ProjectRow["primaryStatusProps"]) => impactedRows.reduce((s, x) => s + x.primaryStatusProps[k], 0)
-  const launch = sum("launch")
-  const available = sum("available")
-  const onHold = sum("onHold")
 
-  const changed = next !== from
+  // grouped + detailed counts everywhere — never just a statement
+  type PC = { grouped: number; detailed: number }
+  const ZERO: PC = { grouped: 0, detailed: 0 }
+  const add = (a: PC, b: PC): PC => ({ grouped: a.grouped + b.grouped, detailed: a.detailed + b.detailed })
+  const statusSum = (rows: ProjectRow[], k: keyof ProjectRow["primaryStatusProps"]): PC =>
+    rows.reduce((s, x) => add(s, x.primaryStatusProps[k]), ZERO)
+  const launch = statusSum(impactedRows, "launch")
+  const available = statusSum(impactedRows, "available")
+  const onHold = statusSum(impactedRows, "onHold")
+  const fmtPC = (c: PC) => <><span className="font-semibold">{c.grouped}</span> grouped · <span className="font-semibold">{c.detailed}</span> detailed</>
+
+  const changed = next !== "" && next !== from
   const leavingLaunch = from === "Launch" && changed
   const canApply = changed && (!leavingLaunch || endDate !== "")
+
+  /** Properties touched by a fromS → to transition for the given rows (each phase judged by ITS own status). */
+  const impactOf = (fromS: ProjPrimaryStatus, to: ProjPrimaryStatus, rows: ProjectRow[]): PC => {
+    if (fromS === to) return ZERO
+    const l = statusSum(rows, "launch"), a = statusSum(rows, "available"), h = statusSum(rows, "onHold")
+    if (fromS === "Launch") return to === "On-Sale" ? l : add(l, a)
+    if (fromS === "On-Sale") {
+      if (to === "Launch") return hideAvailable ? add(l, a) : l
+      if (to === "On-Hold") return a
+      return add(a, h) // Sold-Off
+    }
+    if (fromS === "On-Hold") {
+      if (to === "On-Sale") return h
+      if (to === "Sold-Off") return add(a, h)
+      return l // Launch
+    }
+    return ZERO // from Sold-Off — no automatic cascade
+  }
+  const totalImpact = changed ? impactedRows.reduce((s, x) => add(s, impactOf(x.primaryStatus, next as ProjPrimaryStatus, [x])), ZERO) : ZERO
+  const mainImpact = changed ? impactOf(from, next as ProjPrimaryStatus, [r]) : ZERO
 
   // What this exact from → to transition does to the properties underneath
   type Effect = { kind: "hide" | "show" | "change" | "none"; node: React.ReactNode }
   const effects: Effect[] = []
   if (changed) {
     if (from === "Launch") {
-      effects.push({ kind: "hide", node: <>Hide (Unpublish) <b>{launch}</b> Launch properties</> })
-      if (next === "On-Hold") effects.push({ kind: "change", node: <><b>{available}</b> Available Primary properties become <Tag value="On-Hold" cls={PRIMARY_COLORS["On-Hold"]} /></> })
-      if (next === "Sold-Off") effects.push({ kind: "change", node: <><b>{available}</b> Available Primary properties become <Tag value="Sold-Off" cls={PRIMARY_COLORS["Sold-Off"]} /></> })
+      effects.push({ kind: "hide", node: <>Hide (Unpublish) {fmtPC(launch)} Launch properties</> })
+      if (next === "On-Hold") effects.push({ kind: "change", node: <>{fmtPC(available)} Available Primary properties become <Tag value="On-Hold" cls={PRIMARY_COLORS["On-Hold"]} /></> })
+      if (next === "Sold-Off") effects.push({ kind: "change", node: <>{fmtPC(available)} Available Primary properties become <Tag value="Sold-Off" cls={PRIMARY_COLORS["Sold-Off"]} /></> })
     } else if (from === "On-Sale") {
       if (next === "Launch") {
-        effects.push({ kind: "show", node: <>Show (Publish) <b>{launch}</b> Launch properties</> })
-        if (hideAvailable) effects.push({ kind: "hide", node: <>Hide (Unpublish) <b>{available}</b> Available Primary properties</> })
+        effects.push({ kind: "show", node: <>Show (Publish) {fmtPC(launch)} Launch properties</> })
+        if (hideAvailable) effects.push({ kind: "hide", node: <>Hide (Unpublish) {fmtPC(available)} Available Primary properties</> })
       }
       if (next === "On-Hold") {
-        effects.push({ kind: "change", node: <><b>{available}</b> Available detailed Primary properties become <Tag value="On-Hold" cls={PRIMARY_COLORS["On-Hold"]} /></> })
-        effects.push({ kind: "hide", node: <>Their Grouped properties are hidden (Unpublished)</> })
+        effects.push({ kind: "change", node: <>{fmtPC(available)} Available Primary properties become <Tag value="On-Hold" cls={PRIMARY_COLORS["On-Hold"]} /></> })
+        effects.push({ kind: "hide", node: <>Their <span className="font-semibold">{available.grouped}</span> Grouped properties are hidden (Unpublished)</> })
       }
       if (next === "Sold-Off") {
-        effects.push({ kind: "change", node: <><b>{available + onHold}</b> Available &amp; On-Hold detailed properties become <Tag value="Sold-Off" cls={PRIMARY_COLORS["Sold-Off"]} /></> })
-        effects.push({ kind: "hide", node: <>Their Grouped Primary properties are hidden (Unpublished)</> })
+        effects.push({ kind: "change", node: <>{fmtPC(add(available, onHold))} Available &amp; On-Hold properties become <Tag value="Sold-Off" cls={PRIMARY_COLORS["Sold-Off"]} /></> })
+        effects.push({ kind: "hide", node: <>Their <span className="font-semibold">{available.grouped + onHold.grouped}</span> Grouped Primary properties are hidden (Unpublished)</> })
       }
     } else if (from === "On-Hold") {
       if (next === "On-Sale") {
-        effects.push({ kind: "change", node: <><b>{onHold}</b> On-Hold detailed Primary properties become <b>Available</b></> })
-        effects.push({ kind: "show", node: <>Their Grouped properties are published (Shown)</> })
+        effects.push({ kind: "change", node: <>{fmtPC(onHold)} On-Hold Primary properties become <b>Available</b></> })
+        effects.push({ kind: "show", node: <>Their <span className="font-semibold">{onHold.grouped}</span> Grouped properties are published (Shown)</> })
       }
       if (next === "Sold-Off") {
-        effects.push({ kind: "change", node: <><b>{available + onHold}</b> Primary properties of any status (except Archived) become <Tag value="Sold-Off" cls={PRIMARY_COLORS["Sold-Off"]} /></> })
-        effects.push({ kind: "hide", node: <>Their Grouped properties are hidden (Unpublished)</> })
+        effects.push({ kind: "change", node: <>{fmtPC(add(available, onHold))} Primary properties of any status become <Tag value="Sold-Off" cls={PRIMARY_COLORS["Sold-Off"]} /></> })
+        effects.push({ kind: "hide", node: <>Their <span className="font-semibold">{available.grouped + onHold.grouped}</span> Grouped properties are hidden (Unpublished)</> })
       }
-      if (next === "Launch") effects.push({ kind: "show", node: <>Show (Publish) <b>{launch}</b> Launch properties</> })
+      if (next === "Launch") effects.push({ kind: "show", node: <>Show (Publish) {fmtPC(launch)} Launch properties</> })
     } else {
       effects.push({ kind: "none", node: <>No automatic cascading property changes for this transition.</> })
     }
@@ -1219,24 +1246,29 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         </div>
 
-        <p className="text-sm text-muted-foreground">
-          Currently <Tag value={from} cls={PRIMARY_COLORS[from]} />. Choose the new status:
-        </p>
-        <div className="flex flex-wrap gap-1.5">
-          {PRIMARY_STATUSES.map((s) => (
-            <button
-              key={s} type="button" onClick={() => setNext(s)}
-              className={cn("rounded-md transition-shadow", s === next && "ring-2 ring-primary/50 ring-offset-1")}
-            >
-              <Tag value={s} cls={PRIMARY_COLORS[s]} />
-            </button>
-          ))}
+        {/* Current status on the left → destination picked from a dropdown on the right */}
+        <div className="flex items-end gap-3">
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Current Status</div>
+            <div className="flex h-8 items-center"><Tag value={from} cls={PRIMARY_COLORS[from]} /></div>
+          </div>
+          <ArrowRight className="mb-2 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+          <div className="flex-1 space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Change to<span className="ml-0.5 text-red-500">*</span></div>
+            <FilterSelect
+              label="Select new status…"
+              value={next}
+              options={PRIMARY_STATUSES.filter((s) => s !== from)}
+              onChange={(v) => setNext(v as ProjPrimaryStatus | "")}
+              className="w-full" width="w-full"
+            />
+          </div>
         </div>
 
         {changed && (
           <div className="space-y-1.5">
             <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              What happens with <Tag value={from} cls={PRIMARY_COLORS[from]} /> <ArrowRight className="inline h-3 w-3" /> <Tag value={next} cls={PRIMARY_COLORS[next]} />
+              What happens with <Tag value={from} cls={PRIMARY_COLORS[from]} /> <ArrowRight className="inline h-3 w-3" /> <Tag value={next} cls={PRIMARY_COLORS[next as ProjPrimaryStatus]} />
             </div>
             <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
               {effects.map((e, i) => (
@@ -1245,6 +1277,21 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
               <p className="pt-0.5 text-[11px] text-amber-700/80">
                 Only Primary and Launch properties are impacted — Resale, Nawy Now and Rental properties are not touched.
               </p>
+            </div>
+            {/* Totals recompute as phases are excluded */}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded-md border border-border bg-muted/30 px-2.5 py-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Total impacted{cascading ? ` — main + ${includedPhases.length} phase${includedPhases.length !== 1 ? "s" : ""}` : ""}
+                </div>
+                <div className="mt-0.5 text-xs text-foreground">{fmtPC(totalImpact)} properties</div>
+              </div>
+              {cascading && (
+                <div className="rounded-md border border-border bg-muted/30 px-2.5 py-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Main project only</div>
+                  <div className="mt-0.5 text-xs text-foreground">{fmtPC(mainImpact)} properties</div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1279,21 +1326,28 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
             <p className="text-xs text-muted-foreground">
               <span className="font-semibold text-foreground">{includedPhases.length} of {phases.length}</span> phase{phases.length > 1 ? "s" : ""} will become {next} — untick to exclude:
             </p>
-            <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
+            {/* max-h-96: a main project can have many phases */}
+            <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
               {phases.map((p, i) => {
                 const isEx = excluded.has(p.id)
+                const pImpact = impactOf(p.primaryStatus, next as ProjPrimaryStatus, [p])
                 return (
-                  <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70", isEx && "opacity-45")}>
-                    <Checkbox checked={!isEx} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
-                      <IdTag value={p.id} />
+                  <div key={p.id} className={cn("space-y-1 px-3 py-2.5", i > 0 && "border-t border-border/70", isEx && "opacity-45")}>
+                    <div className="flex items-center gap-2.5">
+                      <Checkbox checked={!isEx} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                        <IdTag value={p.id} />
+                      </div>
+                      <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+                      <div className="flex flex-shrink-0 items-center gap-1">
+                        <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
+                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Tag value={next} cls={PRIMARY_COLORS[next as ProjPrimaryStatus]} />
+                      </div>
                     </div>
-                    <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
-                    <div className="flex flex-shrink-0 items-center gap-1">
-                      <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
-                      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-                      <Tag value={next} cls={PRIMARY_COLORS[next]} />
+                    <div className="pl-7 text-[11px] text-muted-foreground">
+                      Impacts <span className="font-semibold text-foreground">{pImpact.grouped}</span> grouped · <span className="font-semibold text-foreground">{pImpact.detailed}</span> detailed properties
                     </div>
                   </div>
                 )
@@ -1304,7 +1358,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={!canApply} onClick={() => onConfirm(next, [...excluded])}>Change to {next}</Button>
+          <Button size="sm" disabled={!canApply} onClick={() => onConfirm(next as ProjPrimaryStatus, [...excluded])}>{changed ? `Change to ${next}` : "Change Status"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1796,7 +1850,12 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
       groupedProps: 0,
       detailedProps: 0,
       primaryByEntry: { Automatic: { grouped: 0, detailed: 0 }, Manual: { grouped: 0, detailed: 0 } },
-      primaryStatusProps: { launch: 0, available: 0, onHold: 0, soldOff: 0 },
+      primaryStatusProps: {
+        launch: { grouped: 0, detailed: 0 },
+        available: { grouped: 0, detailed: 0 },
+        onHold: { grouped: 0, detailed: 0 },
+        soldOff: { grouped: 0, detailed: 0 },
+      },
       primaryUnits: zero, resaleUnits: zero, nawyNowUnits: zero, rentalUnits: zero,
       createdAt: stamp,
       updatedAt: stamp,
