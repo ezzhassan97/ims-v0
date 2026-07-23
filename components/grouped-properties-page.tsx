@@ -494,10 +494,10 @@ const SALE_STATUS_CLS: Record<string, string> = {
 }
 
 const STATUS_META: Record<string, { icon: React.ElementType; cls: string; note: string }> = {
-  Available: { icon: CheckCircle2, cls: "border-emerald-300 bg-emerald-50 text-emerald-700", note: "Listed and bookable on the website." },
-  Hold: { icon: Clock, cls: "border-amber-300 bg-amber-50 text-amber-700", note: "Temporarily reserved; not bookable." },
-  Sold: { icon: Banknote, cls: "border-red-300 bg-red-50 text-red-700", note: "All units sold; no longer available." },
-  Archived: { icon: Archive, cls: "border-gray-300 bg-gray-100 text-gray-600", note: "Removed from listings and hidden from the website." },
+  Available: { icon: CheckCircle2, cls: "border-emerald-300 bg-emerald-50 text-emerald-700", note: "Listed and available on the website and E-realty." },
+  Hold: { icon: Clock, cls: "border-amber-300 bg-amber-50 text-amber-700", note: "Temporarily closed and hidden from the website and E-realty." },
+  Sold: { icon: Banknote, cls: "border-red-300 bg-red-50 text-red-700", note: "Sold and hidden from the website and E-realty." },
+  Archived: { icon: Archive, cls: "border-gray-300 bg-gray-100 text-gray-600", note: "Removed and hidden from the Nawy platform — for properties entered by mistake." },
 }
 
 function FieldCell({ label, icon, children }: { label: string; icon?: React.ReactNode; children: React.ReactNode }) {
@@ -1234,7 +1234,7 @@ function GroupCard({
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Change sale status</DialogTitle>
-            <DialogDescription>Updates the sale status for all {group.totalUnits} unit{group.totalUnits !== 1 ? "s" : ""} in this group.</DialogDescription>
+            <DialogDescription>This property status will be changed accordingly.</DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5 py-1">
             {SALE_STATUS_OPTIONS.map((s) => {
@@ -1404,6 +1404,54 @@ function simulateDuplicates(unitCodes: string[], destProjectId: string): string[
   return []
 }
 
+// ── Destination status metadata — drives the moved properties' resulting statuses ──
+
+type DestStatusMeta = { listing: "Active" | "Hidden"; primary: "Launch" | "On-Sale" | "On-Hold" | "Sold-Off"; entry: "Automatic" | "Manual" }
+
+/** Deterministic mock statuses per destination project / phase id. */
+function destMeta(id: string): DestStatusMeta {
+  const n = id.charCodeAt(id.length - 1) + id.length
+  return {
+    listing: n % 3 === 0 ? "Hidden" : "Active",
+    primary: (["On-Sale", "Launch", "On-Sale", "On-Hold"] as const)[n % 4],
+    entry: n % 2 === 0 ? "Automatic" : "Manual",
+  }
+}
+
+const DEST_TONE: Record<string, string> = {
+  Active: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Hidden: "border-red-200 bg-red-100 text-red-700",
+  Launch: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  "On-Sale": "border-emerald-200 bg-emerald-100 text-emerald-700",
+  "On-Hold": "border-orange-200 bg-orange-50 text-orange-700",
+  "Sold-Off": "border-red-200 bg-red-50 text-red-700",
+  Automatic: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Manual: "border-blue-200 bg-blue-100 text-blue-700",
+}
+
+function DestTags({ id }: { id: string }) {
+  const m = destMeta(id)
+  return (
+    <span className="inline-flex items-center gap-1">
+      {[m.listing, m.primary, m.entry].map(v => (
+        <span key={v} className={cn("inline-flex items-center rounded border px-1 py-0 text-[9px] font-medium leading-4", DEST_TONE[v])}>{v}</span>
+      ))}
+    </span>
+  )
+}
+
+/**
+ * Similarity check for Launch / Primary-Manual groups: these carry no unit codes,
+ * so the review matches on criteria (type · bedrooms · area · finishing) instead.
+ * Deterministic mock: roughly half the groups find a similar destination match.
+ */
+function simulateSimilar(g: GroupedProperty, destProjectId: string): { criteria: string } | null {
+  const seed = (g.bedroom + g.bathroom + destProjectId.length + destProjectId.charCodeAt(destProjectId.length - 1)) % 2
+  return seed === 0
+    ? { criteria: `${g.propertyType} · ${g.bedroom} BR · ${g.areaMin}–${g.areaMax} m² · ${g.finishing}` }
+    : null
+}
+
 // ── Per-compound destination selector sub-component ───────────────────────────
 interface DestSelectorProps {
   value: { devId: string; projectId: string; phaseId: string }
@@ -1440,7 +1488,15 @@ function DestSelector({ value, onChange, lockedDevName, excludeProjectId, exclud
           <SelectContent>
             {projects.length === 0
               ? <div className="px-2 py-1.5 text-xs text-muted-foreground">No other project under this developer</div>
-              : projects.map(p => <SelectItem key={p.id} value={p.id} className="text-xs">{p.name}</SelectItem>)}
+              : projects.map(p => (
+                  <SelectItem key={p.id} value={p.id} className="text-xs">
+                    <span className="flex items-center gap-1.5">
+                      <span>{p.name}</span>
+                      <span className="font-mono text-[9px] text-muted-foreground">{p.id}</span>
+                      <DestTags id={p.id} />
+                    </span>
+                  </SelectItem>
+                ))}
           </SelectContent>
         </Select>
       </div>
@@ -1452,11 +1508,222 @@ function DestSelector({ value, onChange, lockedDevName, excludeProjectId, exclud
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="none" className="text-xs">No specific phase</SelectItem>
-            {phases.map(ph => <SelectItem key={ph.id} value={ph.id} className="text-xs">{ph.name}</SelectItem>)}
+            {phases.map(ph => (
+              <SelectItem key={ph.id} value={ph.id} className="text-xs">
+                <span className="flex items-center gap-1.5">
+                  <span>{ph.name}</span>
+                  <span className="font-mono text-[9px] text-muted-foreground">{ph.id}</span>
+                  <DestTags id={ph.id} />
+                </span>
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
+      {/* The destination's statuses decide what the moved properties become */}
+      {value.projectId && (() => {
+        const src = value.phaseId !== "none" ? value.phaseId : value.projectId
+        const m = destMeta(src)
+        const proj = projects.find(p => p.id === value.projectId)
+        const phase = value.phaseId !== "none" ? (proj?.phases ?? []).find(ph => ph.id === value.phaseId) : null
+        return (
+          <p className="col-span-3 text-[11px] leading-5 text-muted-foreground">
+            Moved properties take their <span className="font-medium text-foreground">sale &amp; listing status</span> from the destination —{" "}
+            <span className="font-medium text-foreground">{phase ? `${proj?.name} / ${phase.name}` : proj?.name}</span> is{" "}
+            <span className={cn("mx-0.5 inline-flex items-center rounded border px-1 py-0 text-[9px] font-medium leading-4 align-[1px]", DEST_TONE[m.primary])}>{m.primary}</span>
+            <span className={cn("mx-0.5 inline-flex items-center rounded border px-1 py-0 text-[9px] font-medium leading-4 align-[1px]", DEST_TONE[m.entry])}>{m.entry} entry</span>
+            <span className={cn("mx-0.5 inline-flex items-center rounded border px-1 py-0 text-[9px] font-medium leading-4 align-[1px]", DEST_TONE[m.listing])}>{m.listing}</span>.
+          </p>
+        )
+      })()}
     </div>
+  )
+}
+
+// ── Bulk status change (listing / sale) with per-destination impact tree ──────
+
+type BulkStatusMode = "listing" | "sale"
+
+const LISTING_META: Record<string, { icon: React.ElementType; cls: string; note: string }> = {
+  Published: { icon: Eye, cls: "border-emerald-300 bg-emerald-50 text-emerald-700", note: "Visible and bookable on the website and E-realty." },
+  Hidden: { icon: EyeOff, cls: "border-gray-300 bg-gray-100 text-gray-700", note: "Hidden from the website and E-realty." },
+}
+
+/** Count grouped properties by sale type, in canonical order. */
+function saleTypeCounts(gs: GroupedProperty[]): [string, number][] {
+  const m: Record<string, number> = {}
+  for (const g of gs) m[g.saleType] = (m[g.saleType] ?? 0) + 1
+  return ALL_SALE_TYPES.filter(t => m[t]).map(t => [t, m[t]])
+}
+
+/**
+ * Bulk Change Listing Status / Change Sale Status — pick the destination status at
+ * the top, then see the impact by sale type grouped developer → project → phase.
+ * Only properties not already at the destination status are changed; sale mode
+ * excludes Primary Automatic entirely and never offers Archived.
+ */
+function BulkStatusDialog({ mode, groups, onClose, onApply }: {
+  mode: BulkStatusMode
+  groups: GroupedProperty[]
+  onClose: () => void
+  onApply: (target: string, changingIds: string[]) => void
+}) {
+  // Sale status is CRM-fed for Primary Automatic — excluded from the bulk action
+  const eligible = mode === "sale" ? groups.filter(g => !(g.saleType === "Primary" && g.entryType === "Automatic")) : groups
+  const excludedCount = groups.length - eligible.length
+  const options = mode === "listing" ? ["Published", "Hidden"] : ["Available", "Hold", "Sold"]
+  const meta = mode === "listing" ? LISTING_META : STATUS_META
+  const [target, setTarget] = useState("")
+  const statusOf = (g: GroupedProperty) => (mode === "listing" ? g.listingStatus : g.saleStatus)
+  const changing = target ? eligible.filter(g => statusOf(g) !== target) : eligible
+  const changingSet = new Set(changing.map(g => g.id))
+
+  // developer → project → phase tree of the eligible selection
+  const tree = useMemo(() => {
+    const devs = new Map<string, { name: string; id: string; projects: Map<string, { name: string; id: string; phases: Map<string, { name: string; groups: GroupedProperty[] }> }> }>()
+    for (const g of eligible) {
+      if (!devs.has(g.developer.id)) devs.set(g.developer.id, { name: g.developer.name, id: g.developer.id, projects: new Map() })
+      const d = devs.get(g.developer.id)!
+      if (!d.projects.has(g.project.id)) d.projects.set(g.project.id, { name: g.project.name, id: g.project.id, phases: new Map() })
+      const p = d.projects.get(g.project.id)!
+      const phKey = g.phase?.id ?? "none"
+      if (!p.phases.has(phKey)) p.phases.set(phKey, { name: g.phase?.name ?? "No specific phase", groups: [] })
+      p.phases.get(phKey)!.groups.push(g)
+    }
+    return [...devs.values()]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, mode])
+
+  // Per-node chips: counts by sale type of the properties that WILL change, plus a muted "already" tail
+  const nodeCounts = (gs: GroupedProperty[]) => {
+    const ch = target ? gs.filter(g => changingSet.has(g.id)) : gs
+    const alreadyN = gs.length - ch.length
+    return (
+      <span className="flex flex-wrap items-center gap-1">
+        {saleTypeCounts(ch).map(([t, n]) => (
+          <Badge key={t} variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium", badgeClass[t])}>{t} {n}</Badge>
+        ))}
+        {target && alreadyN > 0 && (
+          <span className="text-[10px] text-muted-foreground">· {alreadyN} already {target}</span>
+        )}
+        {target && ch.length === 0 && <span className="text-[10px] text-muted-foreground">no change</span>}
+      </span>
+    )
+  }
+
+  return (
+    <Dialog open onOpenChange={v => { if (!v) onClose() }}>
+      <DialogContent className="sm:!max-w-2xl p-0 gap-0 flex flex-col" style={{ maxHeight: "88vh" }}>
+        <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
+          <DialogTitle>{mode === "listing" ? "Change Listing Status" : "Change Sale Status"}</DialogTitle>
+          <DialogDescription>
+            {mode === "listing"
+              ? "Set the listing status for the selected grouped properties — only properties not already at that status will change."
+              : "This property status will be changed accordingly — only properties not already at that status will change."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {/* Destination status picker */}
+          <div className={cn("grid gap-2", mode === "listing" ? "grid-cols-2" : "grid-cols-3")}>
+            {options.map(s => {
+              const m = meta[s]
+              const Icon = m.icon
+              const selected = target === s
+              return (
+                <button
+                  key={s}
+                  onClick={() => setTarget(s)}
+                  className={cn(
+                    "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                    selected ? m.cls : "border-border hover:bg-muted",
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium">{s}</div>
+                    <div className="text-[11px] opacity-80 leading-snug">{m.note}</div>
+                  </div>
+                  {selected && <Check className="h-4 w-4 shrink-0" />}
+                </button>
+              )
+            })}
+          </div>
+          {mode === "sale" && (
+            <p className="text-[11px] text-muted-foreground -mt-1.5">Archived is available per property only — it can't be applied as a bulk action.</p>
+          )}
+
+          {/* Only-changed summary */}
+          {target && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/40 px-4 py-2.5 text-sm">
+              <span><span className="font-semibold">{changing.length}</span> of <span className="font-semibold">{eligible.length}</span> selected will change to <span className="font-medium">{target}</span></span>
+              {eligible.length - changing.length > 0 && (
+                <span className="text-xs text-muted-foreground">{eligible.length - changing.length} already {target} — no change</span>
+              )}
+            </div>
+          )}
+
+          {/* Primary Automatic exclusion (sale mode) */}
+          {mode === "sale" && excludedCount > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 flex gap-2.5">
+              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-800">
+                <span className="font-medium">{excludedCount} Primary Automatic propert{excludedCount !== 1 ? "ies are" : "y is"} excluded</span> — their sale status is managed automatically by the CRM feed.
+              </p>
+            </div>
+          )}
+
+          {/* Impact tree: developer → project → phase, counts by sale type */}
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Impact by developer, project and phase</p>
+            {tree.map(dev => {
+              const devGroups = [...dev.projects.values()].flatMap(p => [...p.phases.values()].flatMap(ph => ph.groups))
+              return (
+                <div key={dev.id} className="rounded-xl border border-border overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-muted/50 border-b border-border">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <span className="text-sm font-semibold text-foreground truncate">{dev.name}</span>
+                      <span className="font-mono text-[10px] text-muted-foreground">{dev.id}</span>
+                    </div>
+                    {nodeCounts(devGroups)}
+                  </div>
+                  {[...dev.projects.values()].map(p => {
+                    const projGroups = [...p.phases.values()].flatMap(ph => ph.groups)
+                    return (
+                      <div key={p.id} className="border-b border-border/70 last:border-b-0">
+                        <div className="flex items-center justify-between gap-3 px-4 py-2 bg-muted/20">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-xs font-medium text-foreground truncate">{p.name}</span>
+                            <span className="font-mono text-[10px] text-muted-foreground">{p.id}</span>
+                          </div>
+                          {nodeCounts(projGroups)}
+                        </div>
+                        {[...p.phases.values()].map(ph => (
+                          <div key={ph.name} className="flex items-center justify-between gap-3 pl-8 pr-4 py-1.5">
+                            <span className="text-xs text-muted-foreground truncate">{ph.name}</span>
+                            {nodeCounts(ph.groups)}
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <DialogFooter className="px-6 py-4 border-t border-border shrink-0">
+          <Button variant="outline" size="sm" onClick={onClose}><X className="mr-1 h-3 w-3" /> Cancel</Button>
+          <Button size="sm" disabled={!target || changing.length === 0} onClick={() => onApply(target, changing.map(g => g.id))}>
+            {target && changing.length > 0
+              ? `Set ${changing.length} to ${target}`
+              : "Apply"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1511,6 +1778,10 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
   const [destinations, setDestinations] = useState<Record<string, DestState>>({})
   const [step, setStep] = useState<"select" | "review" | "loading" | "done">("select")
   const [conflictMap, setConflictMap] = useState<Record<string, string[]>>({}) // key → duplicate codes
+  // Launch / Primary-Manual similarity decisions: merge with the match, move as new, or drop from the move
+  const [simDecisions, setSimDecisions] = useState<Record<string, "similar" | "new" | "exclude">>({})
+  const needsSimCheck = (g: GroupedProperty) => g.saleType === "Launch" || (g.saleType === "Primary" && g.entryType === "Manual")
+  const isSingle = selectedGroups.length === 1
 
   React.useEffect(() => {
     if (open) {
@@ -1535,26 +1806,52 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
 
   function handleCheckConflicts() {
     const newConflictMap: Record<string, string[]> = {}
+    const decisions: Record<string, "similar" | "new" | "exclude"> = {}
     for (const cg of compoundGroups) {
       const dest = destinations[cg.key]
       if (!dest?.projectId) continue
-      const codes = cg.groups.flatMap(g => g.details.map(d => d.unitCode))
+      // Unit-code duplicate check only applies to Primary Automatic (they carry unit codes)
+      const codes = cg.groups.filter(g => g.saleType === "Primary" && g.entryType === "Automatic").flatMap(g => g.details.map(d => d.unitCode))
       const dupes = simulateDuplicates(codes, dest.projectId)
       if (dupes.length > 0) newConflictMap[cg.key] = dupes
+      // Launch / Primary-Manual: similarity check by criteria — default to merging found matches
+      for (const g of cg.groups.filter(needsSimCheck)) {
+        decisions[g.id] = simulateSimilar(g, dest.projectId) ? "similar" : "new"
+      }
     }
     setConflictMap(newConflictMap)
+    setSimDecisions(decisions)
     setStep("review")
   }
+
+  const movedEligible = eligible.filter(g => simDecisions[g.id] !== "exclude")
+  const excludedGroups = eligible.filter(g => simDecisions[g.id] === "exclude")
+  const mergedCount = eligible.filter(g => simDecisions[g.id] === "similar").length
+
+  // Snapshot for the done screen — the confirm callback clears the parent selection,
+  // which empties the live-derived counts while the dialog is still open.
+  const [doneSnap, setDoneSnap] = useState<{ groups: number; units: number; compounds: number; lines: { from: string; to: string }[] } | null>(null)
 
   function handleConfirm() {
     const moves = compoundGroups.map(cg => {
       const d = destinations[cg.key] ?? { devId: "", projectId: "", phaseId: "none" }
       return {
-        groupIds: cg.groups.map(g => g.id),
+        groupIds: cg.groups.filter(g => simDecisions[g.id] !== "exclude").map(g => g.id),
         devId: d.devId,
         projectId: d.projectId,
         phaseId: d.phaseId !== "none" ? d.phaseId : null,
       }
+    }).filter(m => m.groupIds.length > 0)
+    setDoneSnap({
+      groups: totalGroupsMoved,
+      units: totalDetailsMoved,
+      compounds: compoundGroups.length,
+      lines: compoundGroups.map(cg => {
+        const d = destinations[cg.key]
+        const proj = (DEST_PROJECTS[d?.devId ?? ""] ?? []).find(p => p.id === d?.projectId)
+        const dev = DEST_DEVELOPERS.find(x => x.id === d?.devId)
+        return proj ? { from: cg.projectName, to: `${dev?.name} · ${proj.name}` } : null
+      }).filter((l): l is { from: string; to: string } => l !== null),
     })
     setStep("loading")
     setTimeout(() => {
@@ -1563,15 +1860,16 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
     }, 1500)
   }
 
-  const totalGroupsMoved = eligible.length
-  const totalDetailsMoved = eligible.reduce((s, g) => s + g.details.length, 0)
+  const totalGroupsMoved = movedEligible.length
+  const totalDetailsMoved = movedEligible.reduce((s, g) => s + g.details.length, 0)
   const hasConflicts = Object.keys(conflictMap).length > 0
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent className="!max-w-5xl w-[95vw] sm:!max-w-5xl p-0 gap-0 flex flex-col" style={{ maxHeight: "92vh", height: "92vh" }}>
+      {/* Single-property moves get a compact dialog; bulk needs the room for the selected list */}
+      <DialogContent className={cn("p-0 gap-0 flex flex-col", isSingle ? "w-[92vw] sm:!max-w-3xl" : "!max-w-5xl w-[95vw] sm:!max-w-5xl")} style={{ maxHeight: "92vh" }}>
         <DialogTitle className="sr-only">Change Project</DialogTitle>
-        <DialogDescription className="sr-only">Move selected Primary and Launch properties to a different project.</DialogDescription>
+        <DialogDescription className="sr-only">Move the selected properties to a different project.</DialogDescription>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2.5">
@@ -1637,6 +1935,16 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                       Resale, Nawy Now, and Rental properties cannot be moved to a different project. Only Primary and Launch units will be transferred.
                     </p>
                   </div>
+                </div>
+              )}
+
+              {/* Titles are regenerated for the destination */}
+              {eligible.length > 0 && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex gap-3">
+                  <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-800">
+                    <strong>Property titles will be changed.</strong> Titles are auto-generated from the project, phase and developer — moving these properties re-titles them for the destination.
+                  </p>
                 </div>
               )}
 
@@ -1757,7 +2065,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
           {step === "review" && (
             <div className="p-6 space-y-5">
               {/* Summary */}
-              <div className="flex items-center gap-4 rounded-lg border border-border bg-muted/40 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-border bg-muted/40 px-4 py-3">
                 <span className="text-sm font-medium">{totalGroupsMoved} groups · {totalDetailsMoved} detailed units will be moved</span>
                 {hasConflicts ? (
                   <>
@@ -1776,6 +2084,18 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                     </span>
                   </>
                 )}
+                {mergedCount > 0 && (
+                  <>
+                    <div className="w-px h-4 bg-border" />
+                    <span className="text-sm text-emerald-700 font-medium">{mergedCount} merging as similar</span>
+                  </>
+                )}
+                {excludedGroups.length > 0 && (
+                  <>
+                    <div className="w-px h-4 bg-border" />
+                    <span className="text-sm text-red-600 font-medium">{excludedGroups.length} excluded from the move</span>
+                  </>
+                )}
               </div>
 
               {/* Per-compound review cards */}
@@ -1785,12 +2105,16 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                   const destDev = DEST_DEVELOPERS.find(d => d.id === dest.devId)
                   const destProj = (DEST_PROJECTS[dest.devId] ?? []).find(p => p.id === dest.projectId)
                   const destPhaseObj = dest.phaseId !== "none" ? (destProj?.phases ?? []).find(ph => ph.id === dest.phaseId) : null
+                  // Primary Automatic → unit-code duplicate check; Launch / Primary Manual → similarity check
+                  const autoG = cg.groups.filter(g => g.saleType === "Primary" && g.entryType === "Automatic")
+                  const simG = cg.groups.filter(needsSimCheck)
+                  const otherG = cg.groups.filter(g => !needsSimCheck(g) && !(g.saleType === "Primary" && g.entryType === "Automatic"))
                   const dupes = conflictMap[cg.key] ?? []
-                  const allUnits = cg.groups.flatMap(g => g.details)
-                  const totalDetails = allUnits.length
-                  const availUnits = allUnits.filter(d => d.status === "Available").length
+                  const autoUnits = autoG.flatMap(g => g.details)
+                  const autoTotal = autoUnits.length
+                  const autoAvail = autoUnits.filter(d => d.status === "Available").length
                   const dupeSet = new Set(dupes)
-                  const dupeAvail = allUnits.filter(d => dupeSet.has(d.unitCode) && d.status === "Available").length
+                  const dupeAvail = autoUnits.filter(d => dupeSet.has(d.unitCode) && d.status === "Available").length
 
                   return (
                     <div key={cg.key} className="rounded-xl border border-border bg-card overflow-hidden">
@@ -1810,58 +2134,136 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                             <span className="text-xs text-muted-foreground">›</span>
                             <span className="text-xs font-semibold text-foreground">{destProj?.name ?? "—"}</span>
                             {destPhaseObj && <span className="text-xs text-muted-foreground">— {destPhaseObj.name}</span>}
+                            {destProj && <DestTags id={destPhaseObj?.id ?? destProj.id} />}
                           </div>
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {cg.groups.length} grouped · {totalDetails} detailed properties
+                          {cg.groups.length} grouped · {cg.groups.flatMap(g => g.details).length} detailed properties
                         </p>
                       </div>
 
-                      {/* Transfer stats: how many unit IDs move, and how many duplicate */}
-                      <div className="flex items-center gap-5 px-5 py-3 border-b border-border bg-muted/20">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Unit IDs transferring</span>
-                          <span className="text-sm font-semibold text-foreground">
-                            {totalDetails} total <span className="font-medium text-emerald-600">({availUnits} available)</span>
-                          </span>
-                        </div>
-                        <div className="w-px h-8 bg-border" />
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Duplicate unit IDs</span>
-                          <span className={cn("text-sm font-semibold", dupes.length > 0 ? "text-amber-700" : "text-emerald-700")}>
-                            {dupes.length} of {totalDetails} <span className="font-medium text-emerald-600">({dupeAvail} available)</span>
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Conflict info or clear */}
-                      <div className="px-5 py-3">
-                        {dupes.length > 0 ? (
-                          <div className="space-y-2">
-                            <div className="flex items-start gap-2">
-                              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-                              <div>
-                                <p className="text-sm font-medium text-amber-800">
-                                  {dupes.length} unit code{dupes.length !== 1 ? "s" : ""} ({dupeAvail} available) already exist in <strong>{destProj?.name}</strong>
-                                </p>
-                                <p className="text-xs text-amber-700 mt-0.5">
-                                  The source units will <strong>overwrite</strong> the matching records in {destProj?.name} — the existing destination records will be replaced.
-                                </p>
+                      {/* ── Check 1 (top): unit-code duplicates — Primary Automatic only ── */}
+                      {autoG.length > 0 && (
+                        <div className="border-b border-border last:border-b-0">
+                          <div className="flex items-center justify-between px-5 pt-3">
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Unit-code check · Primary Automatic</p>
+                            <span className="text-[10px] text-muted-foreground">{autoG.length} group{autoG.length !== 1 ? "s" : ""}</span>
+                          </div>
+                          <div className="flex items-center gap-5 px-5 py-3">
+                            <div className="flex flex-col">
+                              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Unit IDs transferring</span>
+                              <span className="text-sm font-semibold text-foreground">
+                                {autoTotal} total <span className="font-medium text-emerald-600">({autoAvail} available)</span>
+                              </span>
+                            </div>
+                            <div className="w-px h-8 bg-border" />
+                            <div className="flex flex-col">
+                              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Duplicate unit IDs</span>
+                              <span className={cn("text-sm font-semibold", dupes.length > 0 ? "text-amber-700" : "text-emerald-700")}>
+                                {dupes.length} of {autoTotal} <span className="font-medium text-emerald-600">({dupeAvail} available)</span>
+                              </span>
+                            </div>
+                          </div>
+                          <div className="px-5 pb-3">
+                            {dupes.length > 0 ? (
+                              <div className="space-y-2">
+                                <div className="flex items-start gap-2">
+                                  <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                                  <div>
+                                    <p className="text-sm font-medium text-amber-800">
+                                      {dupes.length} unit code{dupes.length !== 1 ? "s" : ""} ({dupeAvail} available) already exist in <strong>{destProj?.name}</strong>
+                                    </p>
+                                    <p className="text-xs text-amber-700 mt-0.5">
+                                      The source units will <strong>overwrite</strong> the matching records in {destProj?.name} — the existing destination records will be replaced.
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5 pl-6">
+                                  {dupes.map(code => (
+                                    <span key={code} className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-mono text-amber-700">{code}</span>
+                                  ))}
+                                </div>
                               </div>
-                            </div>
-                            <div className="flex flex-wrap gap-1.5 pl-6">
-                              {dupes.map(code => (
-                                <span key={code} className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-mono text-amber-700">{code}</span>
-                              ))}
-                            </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                                <p className="text-xs text-emerald-700">No unit code conflicts in <strong>{destProj?.name}</strong>. All units will be moved cleanly.</p>
+                              </div>
+                            )}
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                            <p className="text-xs text-emerald-700">No unit code conflicts in <strong>{destProj?.name}</strong>. All units will be moved cleanly.</p>
+                        </div>
+                      )}
+
+                      {/* ── Check 2: similarity by criteria — Launch & Primary Manual (no unit codes) ── */}
+                      {simG.length > 0 && (
+                        <div className="border-b border-border last:border-b-0">
+                          <div className="flex items-center justify-between px-5 pt-3 pb-1">
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Similarity check · Launch &amp; Primary Manual</p>
+                            <span className="text-[10px] text-muted-foreground">no unit codes — matched by criteria</span>
                           </div>
-                        )}
-                      </div>
+                          <div className="divide-y divide-border/70">
+                            {simG.map(g => {
+                              const match = simulateSimilar(g, dest.projectId)
+                              const decision = simDecisions[g.id] ?? (match ? "similar" : "new")
+                              const opts: { v: "similar" | "new" | "exclude"; label: string; activeCls: string }[] = [
+                                ...(match ? [{ v: "similar" as const, label: "Similar — merge", activeCls: "bg-emerald-600 text-white" }] : []),
+                                { v: "new", label: match ? "Not similar — move as new" : "Move as new", activeCls: "bg-primary text-primary-foreground" },
+                                { v: "exclude", label: "Exclude", activeCls: "bg-red-600 text-white" },
+                              ]
+                              return (
+                                <div key={g.id} className={cn("px-5 py-2.5 space-y-1.5", decision === "exclude" && "opacity-50")}>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <span className="text-xs font-mono text-muted-foreground shrink-0">{g.id}</span>
+                                      <span className="text-xs text-foreground truncate">{g.title}</span>
+                                      <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium shrink-0", badgeClass[g.saleType])}>{g.saleType}</Badge>
+                                      <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium shrink-0", badgeClass[g.entryType])}>{g.entryType}</Badge>
+                                    </div>
+                                    <div className="flex shrink-0 overflow-hidden rounded-md border border-border text-[11px] font-medium">
+                                      {opts.map(o => (
+                                        <button
+                                          key={o.v}
+                                          onClick={() => setSimDecisions(prev => ({ ...prev, [g.id]: o.v }))}
+                                          className={cn("px-2 py-1 transition-colors whitespace-nowrap", decision === o.v ? o.activeCls : "text-muted-foreground hover:bg-muted")}
+                                        >
+                                          {o.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  {match ? (
+                                    <p className="flex items-start gap-1.5 text-[11px] text-amber-700">
+                                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                                      <span>Similar property found in <strong>{destProj?.name}</strong> — same criteria: {match.criteria}. Merging updates the existing property instead of creating a new one.</span>
+                                    </p>
+                                  ) : (
+                                    <p className="flex items-start gap-1.5 text-[11px] text-emerald-700">
+                                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-px" />
+                                      <span>No similar property in <strong>{destProj?.name}</strong> — it will be created as a new property.</span>
+                                    </p>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Other sale types (single-property moves): no duplicate semantics — move as-is */}
+                      {otherG.length > 0 && (
+                        <div className="divide-y divide-border/70">
+                          {otherG.map(g => (
+                            <div key={g.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className="text-xs font-mono text-muted-foreground shrink-0">{g.id}</span>
+                                <span className="text-xs text-foreground truncate">{g.title}</span>
+                                <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium shrink-0", badgeClass[g.saleType])}>{g.saleType}</Badge>
+                              </div>
+                              <span className="text-[11px] text-muted-foreground shrink-0">No duplicate checks for this sale type — moves as-is</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -1903,22 +2305,17 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
               <div className="space-y-1">
                 <p className="text-base font-semibold">Transfer complete</p>
                 <p className="text-sm text-muted-foreground">
-                  {totalGroupsMoved} grouped propert{totalGroupsMoved !== 1 ? "ies" : "y"} · {totalDetailsMoved} detailed units moved across {compoundGroups.length} compound{compoundGroups.length !== 1 ? "s" : ""}.
+                  {doneSnap?.groups ?? 0} grouped propert{(doneSnap?.groups ?? 0) !== 1 ? "ies" : "y"} · {doneSnap?.units ?? 0} detailed units moved across {doneSnap?.compounds ?? 0} compound{(doneSnap?.compounds ?? 0) !== 1 ? "s" : ""}.
                 </p>
               </div>
               <div className="inline-flex flex-col items-start gap-1 rounded-lg border border-border bg-muted/40 px-5 py-3 text-left mt-2">
-                {compoundGroups.map(cg => {
-                  const dest = destinations[cg.key]
-                  const destProj = (DEST_PROJECTS[dest?.devId ?? ""] ?? []).find(p => p.id === dest?.projectId)
-                  const destDev = DEST_DEVELOPERS.find(d => d.id === dest?.devId)
-                  return destProj ? (
-                    <p key={cg.key} className="text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">{cg.projectName}</span>
-                      {" → "}
-                      <span className="font-medium text-foreground">{destDev?.name} · {destProj.name}</span>
-                    </p>
-                  ) : null
-                })}
+                {(doneSnap?.lines ?? []).map((l, i) => (
+                  <p key={i} className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">{l.from}</span>
+                    {" → "}
+                    <span className="font-medium text-foreground">{l.to}</span>
+                  </p>
+                ))}
               </div>
             </div>
           )}
@@ -1947,8 +2344,8 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
             {step === "review" && (
               <>
                 <Button variant="outline" size="sm" onClick={() => setStep("select")}>Back</Button>
-                <Button size="sm" onClick={handleConfirm}>
-                  Confirm transfer
+                <Button size="sm" onClick={handleConfirm} disabled={totalGroupsMoved === 0}>
+                  {totalGroupsMoved === 0 ? "All groups excluded" : "Confirm transfer"}
                 </Button>
               </>
             )}
@@ -2142,6 +2539,7 @@ export function GroupedPropertiesView({
   const lastSelectedIdxRef = useRef<number | null>(null)
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   const [showChangeCompound, setShowChangeCompound] = useState(false)
+  const [bulkStatus, setBulkStatus] = useState<BulkStatusMode | null>(null)
 
   const openDetail = (group: GroupedProperty, index: number) =>
     onOpenGroupDetail?.({ group, allRows, index })
@@ -2369,13 +2767,11 @@ export function GroupedPropertiesView({
         const selGroups = groups.filter(g => selectedCards.has(g.id))
         const eligibleTypes: GroupedProperty["saleType"][] = ["Primary", "Launch"]
         const hasEligible = selGroups.some(g => eligibleTypes.includes(g.saleType))
-        // Determine current publish state for toggle label
-        const allPublished = selGroups.every(g => g.listingStatus === "Published")
-
-        const handlePublishToggle = () => {
-          const next = allPublished ? "Hidden" : "Published"
-          setGroups(prev => prev.map(g => selectedCards.has(g.id) ? { ...g, listingStatus: next } : g))
-        }
+        // Change Project is capped at 10 selected groups
+        const tooManyForMove = selGroups.length > 10
+        const canMove = hasEligible && !tooManyForMove
+        // Sale status can't be bulk-changed for Primary Automatic
+        const saleEligible = selGroups.some(g => !(g.saleType === "Primary" && g.entryType === "Automatic"))
 
         return (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-0 bg-zinc-900 text-white rounded-xl shadow-2xl overflow-hidden text-sm select-none">
@@ -2401,36 +2797,59 @@ export function GroupedPropertiesView({
 
             <div className="w-px h-8 bg-zinc-700" />
 
-            {/* is Publish */}
+            {/* Listing status — opens the bulk impact popup */}
             <button
-              onClick={handlePublishToggle}
+              onClick={() => setBulkStatus("listing")}
               className="flex items-center gap-1.5 px-4 py-2.5 hover:bg-zinc-800 transition-colors"
             >
-              {allPublished
-                ? <><EyeOff className="h-3.5 w-3.5 text-zinc-400" /> Unpublish</>
-                : <><Eye className="h-3.5 w-3.5 text-zinc-400" /> Publish</>
-              }
+              <Eye className="h-3.5 w-3.5 text-zinc-400" />
+              Listing Status
             </button>
 
             <div className="w-px h-8 bg-zinc-700" />
 
-            {/* Change Project — only for Primary/Launch */}
+            {/* Sale status — excluded for Primary Automatic */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={() => hasEligible && setShowChangeCompound(true)}
+                  onClick={() => saleEligible && setBulkStatus("sale")}
                   className={cn(
                     "flex items-center gap-1.5 px-4 py-2.5 transition-colors",
-                    hasEligible ? "hover:bg-zinc-800 cursor-pointer" : "opacity-40 cursor-not-allowed"
+                    saleEligible ? "hover:bg-zinc-800 cursor-pointer" : "opacity-40 cursor-not-allowed"
+                  )}
+                >
+                  <ArrowUpDown className="h-3.5 w-3.5 text-zinc-400" />
+                  Sale Status
+                </button>
+              </TooltipTrigger>
+              {!saleEligible && (
+                <TooltipContent side="top" className="text-xs max-w-[240px]">
+                  Sale status can't be changed for Primary Automatic properties — it's managed by the CRM feed.
+                </TooltipContent>
+              )}
+            </Tooltip>
+
+            <div className="w-px h-8 bg-zinc-700" />
+
+            {/* Change Project — Primary/Launch only, max 10 groups */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => canMove && setShowChangeCompound(true)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-4 py-2.5 transition-colors",
+                    canMove ? "hover:bg-zinc-800 cursor-pointer" : "opacity-40 cursor-not-allowed"
                   )}
                 >
                   <ArrowRightLeft className="h-3.5 w-3.5 text-zinc-400" />
                   Change Project
                 </button>
               </TooltipTrigger>
-              {!hasEligible && (
-                <TooltipContent side="top" className="text-xs max-w-[220px]">
-                  Only Primary and Launch properties can be moved to a different project.
+              {!canMove && (
+                <TooltipContent side="top" className="text-xs max-w-[240px]">
+                  {tooManyForMove
+                    ? `Change Project is limited to 10 selected groups — you have ${selGroups.length}. Narrow the selection.`
+                    : "Only Primary and Launch properties can be moved to a different project."}
                 </TooltipContent>
               )}
             </Tooltip>
@@ -2466,6 +2885,24 @@ export function GroupedPropertiesView({
           </div>
         )
       })()}
+
+      {/* Bulk listing / sale status */}
+      {bulkStatus && (
+        <BulkStatusDialog
+          mode={bulkStatus}
+          groups={groups.filter(g => selectedCards.has(g.id))}
+          onClose={() => setBulkStatus(null)}
+          onApply={(target, ids) => {
+            const idSet = new Set(ids)
+            setGroups(prev => prev.map(g => idSet.has(g.id)
+              ? { ...g, ...(bulkStatus === "listing" ? { listingStatus: target as GroupedProperty["listingStatus"] } : { saleStatus: target as GroupedProperty["saleStatus"] }) }
+              : g))
+            toast.success(`${ids.length} grouped propert${ids.length !== 1 ? "ies" : "y"} set to ${target}`)
+            setBulkStatus(null)
+            setSelectedCards(new Set())
+          }}
+        />
+      )}
 
       {/* Change Project Modal */}
       <ChangeProjectModal

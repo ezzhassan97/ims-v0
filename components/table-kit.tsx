@@ -275,7 +275,8 @@ export function TableCardHeader({ title, count, extra, cta }: { title: string; c
         )}
         {extra}
       </div>
-      {cta}
+      {/* wrapped so a multi-button cta stays right-aligned as one flex item */}
+      {cta && <div className="flex items-center gap-2">{cta}</div>}
     </div>
   )
 }
