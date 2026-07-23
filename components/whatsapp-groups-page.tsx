@@ -4,21 +4,25 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowRight, ArrowLeft, Home, ChevronRight, ChevronUp, ChevronDown, Copy, Check,
   Users, Image as ImageIcon, MessageSquareText, Tag as TagIcon, CheckCircle2,
-  ArrowUp, ArrowDown, ArrowUpDown, Link2, Search, X,
+  ArrowUp, ArrowDown, ArrowUpDown, Link2, RefreshCw, Search, X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
-import { TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, DateRangeFilter, IdTag, COL_SEP, FiltersDrawer, FilterDrawerField, ColumnsSheet, type ManagedColumn } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, DateRangeFilter, DeveloperSelect, IdTag, COL_SEP, FiltersDrawer, FilterDrawerField, ColumnsSheet, type ManagedColumn } from "@/components/table-kit"
 import { WhatsAppMediaTable } from "@/components/whatsapp-media-page"
 import { DEVELOPERS } from "@/lib/developers-mock"
 import { toast } from "sonner"
 
 // ─── Types + mock data ─────────────────────────────────────────────────────────
+
+export type WaGroupLabel = "Developer" | "Product" | "Other"
 
 interface WaGroup {
   id: string            // short id, e.g. "191"
@@ -27,6 +31,10 @@ interface WaGroup {
   image: string
   /** null ⇒ the group is not linked to any developer yet. */
   developer: { name: string; id: string; logo: string } | null
+  /** Phone number connected to this group — one shared number today, more later. */
+  connectedPhone: string
+  /** Developer when linked to a developer; otherwise Product / Other. */
+  label: WaGroupLabel
   members: number
   classified: number
   totalMedia: number
@@ -38,9 +46,18 @@ interface WaGroup {
   updatedAt: string
 }
 
+/** The single phone connected to all groups today (multi-phone comes later). */
+const CONNECTED_PHONE = "+2 010 2258 8846"
+
+const LABEL_TONE: Record<WaGroupLabel, string> = {
+  Developer: "border-blue-200 bg-blue-100 text-blue-700",
+  Product: "border-purple-200 bg-purple-50 text-purple-700",
+  Other: "border-border bg-muted text-muted-foreground",
+}
+
 const img = (seed: string, bg: string) => `https://api.dicebear.com/7.x/initials/svg?seed=${seed}&backgroundColor=${bg}&fontColor=ffffff`
 
-const WA_GROUPS: WaGroup[] = [
+const WA_GROUPS_RAW = [
   { id: "191", jid: "201000107055-1484756396@g.us", name: "Nawy - Sodic", image: img("NS", "0f766e"), developer: { name: "SODIC", id: "8", logo: img("SO", "111111") }, members: 764, classified: 1550, totalMedia: 3922, invitationLink: null, status: "Active", lastMessageSent: "2026-07-05T22:21:00", lastMediaSent: "2026-07-05T22:21:00", createdAt: "2017-01-18T18:19:00", updatedAt: "2025-04-15T16:16:00" },
   { id: "204", jid: "120363315548230041@g.us", name: "Nawy - PRE", image: img("PRE", "334155"), developer: { name: "PRE Group", id: "111", logo: img("PR", "1e293b") }, members: 673, classified: 1205, totalMedia: 3611, invitationLink: null, status: "Active", lastMessageSent: "2026-07-05T22:21:00", lastMediaSent: "2026-07-05T22:09:00", createdAt: "2024-07-01T21:39:00", updatedAt: "2026-07-05T22:21:00" },
   { id: "301", jid: "201018721074-1615491012@g.us", name: "Nawy - IL CAZAR (Creek)", image: img("ILC", "b45309"), developer: { name: "IL Cazar Developments", id: "213", logo: img("IC", "7c2d12") }, members: 698, classified: 1219, totalMedia: 4522, invitationLink: null, status: "Active", lastMessageSent: "2026-07-05T22:20:00", lastMediaSent: "2026-07-05T21:57:00", createdAt: "2021-03-11T21:30:00", updatedAt: "2026-07-05T22:20:00" },
@@ -53,12 +70,22 @@ const WA_GROUPS: WaGroup[] = [
   { id: "164", jid: "201224508357-1623589047@g.us", name: "Nawy - Waterway", image: img("WW", "0e7490"), developer: { name: "The Waterway Developments", id: "64", logo: img("WW", "155e75") }, members: 633, classified: 544, totalMedia: 1794, invitationLink: null, status: "Active", lastMessageSent: "2026-07-05T22:02:00", lastMediaSent: "2026-07-05T22:02:00", createdAt: "2021-06-13T14:57:00", updatedAt: "2026-07-05T22:02:00" },
 ]
 
+// Linked groups take the Developer label; unlinked ones fall to Product / Other
+const WA_GROUPS: WaGroup[] = WA_GROUPS_RAW.map((g, i) => ({
+  ...g,
+  status: g.status as WaGroup["status"],
+  connectedPhone: CONNECTED_PHONE,
+  label: (g.developer ? "Developer" : i % 2 === 0 ? "Product" : "Other") as WaGroupLabel,
+}))
+
 const DEVELOPER_OPTIONS = [...new Map(WA_GROUPS.filter((g) => g.developer).map((g) => [g.developer!.id, g.developer!])).values()]
 
 // ── Column control config (actions column stays fixed) ──
 const WAG_COLS: (ManagedColumn & { width: number })[] = [
   { id: "groupName", label: "Group Name", width: 280 },
   { id: "developer", label: "Developer", width: 260 },
+  { id: "connectedPhone", label: "Connected Phone", width: 170 },
+  { id: "label", label: "Label", width: 120 },
   { id: "members", label: "Members #", width: 110 },
   { id: "classified", label: "Classified Media", width: 160 },
   { id: "invitationLink", label: "Invitation Link", width: 140 },
@@ -200,6 +227,7 @@ export function WhatsAppGroupsPage() {
   // All Filters drawer + Customize Columns (order / hide / freeze)
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [showColumnsSheet, setShowColumnsSheet] = useState(false)
+  const [resyncOpen, setResyncOpen] = useState(false)
   const [colOrder, setColOrder] = useState<string[]>(WAG_COLS.map((c) => c.id))
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set())
   const [frozenCols, setFrozenCols] = useState<Set<string>>(new Set())
@@ -278,6 +306,8 @@ export function WhatsAppGroupsPage() {
           <LinkDeveloperButton onLink={(dev) => linkDeveloper(g.id, dev)} />
         </div>
       )
+      case "connectedPhone": return <span className="whitespace-nowrap font-mono text-xs text-muted-foreground">{g.connectedPhone}</span>
+      case "label": return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium", LABEL_TONE[g.label])}>{g.label}</span>
       case "members": return <span className="tabular-nums">{g.members}</span>
       case "classified": return <><span className="font-semibold text-primary">{g.classified.toLocaleString()}</span> <span className="text-muted-foreground">/ {g.totalMedia.toLocaleString()}</span></>
       case "invitationLink": return <span className="text-muted-foreground">{g.invitationLink ?? "-"}</span>
@@ -340,7 +370,15 @@ export function WhatsAppGroupsPage() {
         />
 
         <TableCard>
-          <TableCardHeader title="WhatsApp groups" count={sorted.length} />
+          <TableCardHeader
+            title="WhatsApp groups"
+            count={sorted.length}
+            cta={
+              <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setResyncOpen(true)}>
+                <RefreshCw className="h-3.5 w-3.5" />Resync
+              </Button>
+            }
+          />
           <div className="overflow-x-auto">
             <table className={cn("w-max text-sm", COL_SEP)}>
               <thead className="border-b border-border bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -404,8 +442,125 @@ export function WhatsAppGroupsPage() {
           frozen={frozenCols}
           onFrozenChange={setFrozenCols}
         />
+
+        {resyncOpen && (
+          <ResyncGroupsDialog
+            onClose={() => setResyncOpen(false)}
+            onSync={(synced) => {
+              setRows((rs) => [...synced, ...rs])
+              const linked = synced.filter((g) => g.developer).length
+              toast.success(`${synced.length} group${synced.length !== 1 ? "s" : ""} synced${linked ? ` — ${linked} linked to developers` : ""}`)
+              setResyncOpen(false)
+            }}
+          />
+        )}
       </div>
     </div>
+  )
+}
+
+// ─── Resync — fetch connected groups not yet synced to the portal ──────────────
+
+const UNSYNCED_GROUPS: Array<{ jid: string; name: string; image: string; members: number; matchName: string | null }> = [
+  { jid: "120363399887701123@g.us", name: "Nawy - Tatweer Misr 2", image: img("TM2", "b45309"), members: 214, matchName: "Tatweer Misr" },
+  { jid: "120363377665544332@g.us", name: "Nawy - Madinet Masr Offers", image: img("MM", "0f766e"), members: 486, matchName: "Madinet Masr" },
+  { jid: "120363311224455667@g.us", name: "Nawy - The Med Community", image: img("MED", "6d28d9"), members: 152, matchName: null },
+  { jid: "120363355443322110@g.us", name: "Brokers Hub 6", image: img("BH", "1f2937"), members: 921, matchName: null },
+]
+
+/**
+ * Resync dialog — connected-but-unsynced groups, auto-matched to developers where
+ * possible. Every group is included by default (untick to skip entirely); the
+ * matched developer can be changed, and unmatched groups can be assigned one.
+ */
+function ResyncGroupsDialog({ onClose, onSync }: { onClose: () => void; onSync: (groups: WaGroup[]) => void }) {
+  const devOptions = DEVELOPERS.map((d) => ({ id: String(d.id), name: d.name, status: d.listingStatus }))
+  const autoMatch = (matchName: string | null) => {
+    if (!matchName) return ""
+    const d = DEVELOPERS.find((x) => x.name.toLowerCase().includes(matchName.toLowerCase()))
+    return d ? String(d.id) : ""
+  }
+  const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  const [devMap, setDevMap] = useState<Record<string, string>>(() =>
+    Object.fromEntries(UNSYNCED_GROUPS.map((g) => [g.jid, autoMatch(g.matchName)])))
+  const toggleExcluded = (jid: string) =>
+    setExcluded((prev) => { const n = new Set(prev); n.has(jid) ? n.delete(jid) : n.add(jid); return n })
+  const included = UNSYNCED_GROUPS.filter((g) => !excluded.has(g.jid))
+
+  const sync = () => {
+    const groups: WaGroup[] = included.map((g, i) => {
+      const dev = DEVELOPERS.find((d) => String(d.id) === devMap[g.jid])
+      return {
+        id: String(400 + i),
+        jid: g.jid,
+        name: g.name,
+        image: g.image,
+        developer: dev ? { name: dev.name, id: String(dev.id), logo: dev.logo } : null,
+        connectedPhone: CONNECTED_PHONE,
+        label: (dev ? "Developer" : "Other") as WaGroupLabel,
+        members: g.members,
+        classified: 0,
+        totalMedia: 0,
+        invitationLink: null,
+        status: "Active",
+        lastMessageSent: "2026-07-23T10:00:00",
+        lastMediaSent: "2026-07-23T10:00:00",
+        createdAt: "2026-07-23T10:00:00",
+        updatedAt: "2026-07-23T10:00:00",
+      }
+    })
+    onSync(groups)
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader><DialogTitle>Resync WhatsApp Groups</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{UNSYNCED_GROUPS.length} connected group{UNSYNCED_GROUPS.length !== 1 ? "s are" : " is"}</span> not synced to the portal yet.
+          The system matched them to developers where possible — untick a group to skip it entirely, and adjust the developer on any match.
+        </p>
+        <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
+          {UNSYNCED_GROUPS.map((g, i) => {
+            const isEx = excluded.has(g.jid)
+            const matched = devMap[g.jid] !== ""
+            return (
+              <div key={g.jid} className={cn("space-y-2 px-3 py-2.5", i > 0 && "border-t border-border/70", isEx && "opacity-45")}>
+                <div className="flex items-center gap-2.5">
+                  <Checkbox checked={!isEx} onCheckedChange={() => toggleExcluded(g.jid)} className="h-4 w-4 flex-shrink-0" />
+                  <img src={g.image} alt="" className="h-9 w-9 flex-shrink-0 rounded-lg border border-border object-cover" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{g.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <IdTag value={g.jid} />
+                      <span className="text-[10px] text-muted-foreground">· {g.members} members</span>
+                    </div>
+                  </div>
+                  {!matched && (
+                    <span className="inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">No match</span>
+                  )}
+                </div>
+                {/* Auto-matched developer — editable; unmatched groups pick one here */}
+                <div className="pl-7">
+                  <DeveloperSelect
+                    developers={devOptions}
+                    value={devMap[g.jid]}
+                    onChange={(v) => setDevMap((prev) => ({ ...prev, [g.jid]: v }))}
+                    placeholder="Select developer — group syncs unlinked otherwise…"
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={included.length === 0} onClick={sync}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />Sync {included.length} group{included.length !== 1 ? "s" : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

@@ -32,13 +32,15 @@ export function IdTag({ value, label, className }: { value: string; label?: stri
   return (
     <span className={cn("group/id inline-flex items-center gap-1 font-mono text-[10px] leading-none text-muted-foreground", className)}>
       {shown}
-      <button
+      {/* span, not button — IdTag renders inside picker option <button>s and buttons can't nest */}
+      <span
+        role="button"
         onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(value).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1200) }}
-        className="opacity-0 transition-opacity group-hover/id:opacity-100"
+        className="cursor-pointer opacity-0 transition-opacity group-hover/id:opacity-100"
         title="Copy ID"
       >
         {copied ? <Check className="h-2.5 w-2.5 text-emerald-500" /> : <Copy className="h-2.5 w-2.5 hover:text-foreground" />}
-      </button>
+      </span>
     </span>
   )
 }

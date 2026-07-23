@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import {
   Pencil, ArchiveIcon, ArchiveRestore, Plus, Check, X, Upload, FileText, FileImage, FileSpreadsheet, File, Search, Copy, ChevronDown, CalendarIcon, Download, ExternalLink,
-  Shapes, Users, PanelsTopLeft, LayoutTemplate, MessageCircle, Plug, Link2, Trash2,
+  Shapes, Users, PanelsTopLeft, LayoutTemplate, MessageCircle, Plug, Link2, Trash2, Tag as TagIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FilterSelect, FilterMultiSelect, IdTag, TabStrip } from "@/components/table-kit"
@@ -864,6 +864,7 @@ export function WhatsAppConfigurationsPage() {
               {[
                 { value: "media-classes", label: "Media Classes", icon: Shapes },
                 { value: "contacts", label: "Contacts", icon: Users },
+                { value: "labels", label: "Labels", icon: TagIcon },
                 { value: "modals", label: "Modals", icon: PanelsTopLeft },
                 { value: "templates", label: "Templates", icon: LayoutTemplate },
                 { value: "auto-replies", label: "Auto Replies", icon: MessageCircle },
@@ -883,6 +884,10 @@ export function WhatsAppConfigurationsPage() {
 
           <TabsContent value="contacts" className="mt-4">
             <ContactsTab contacts={contacts} onChange={setContacts} />
+          </TabsContent>
+
+          <TabsContent value="labels" className="mt-4">
+            <LabelsTab />
           </TabsContent>
 
           {/* Modals tab */}
@@ -915,6 +920,86 @@ export function WhatsAppConfigurationsPage() {
       </div>
 
       <UploadFromWhatsAppDialog open={uploadOpen} onOpenChange={setUploadOpen} />
+    </div>
+  )
+}
+
+// ── Labels tab — the labels WhatsApp groups can carry (all editable) ──────────
+
+interface WaLabel { id: string; name: string }
+
+const SEED_LABELS: WaLabel[] = [
+  { id: "LB-001", name: "Developer" },
+  { id: "LB-002", name: "Product" },
+  { id: "LB-003", name: "Other" },
+]
+
+function LabelsTab() {
+  const [labels, setLabels] = useState<WaLabel[]>(SEED_LABELS)
+  const [editingId, setEditingId] = useState<string | null>(null) // "new" while adding
+  const [draft, setDraft] = useState("")
+  const startEdit = (l?: WaLabel) => { setDraft(l?.name ?? ""); setEditingId(l?.id ?? "new") }
+  const save = () => {
+    const name = draft.trim()
+    if (!name) return
+    if (editingId === "new") {
+      const nextNum = Math.max(0, ...labels.map((l) => Number(l.id.slice(3)))) + 1
+      setLabels((prev) => [...prev, { id: `LB-${String(nextNum).padStart(3, "0")}`, name }])
+      toast.success(`${name} label created`)
+    } else {
+      setLabels((prev) => prev.map((l) => (l.id === editingId ? { ...l, name } : l)))
+      toast.success(`Label renamed to ${name}`)
+    }
+    setEditingId(null)
+  }
+
+  const editRow = (
+    <div className="flex items-center gap-2 bg-primary/5 px-5 py-2.5">
+      <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Label name" className="h-8 w-64 text-sm" autoFocus />
+      <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-600 hover:text-emerald-700 disabled:text-muted-foreground" disabled={!draft.trim()} onClick={save}><Check className="h-4 w-4" /></Button>
+      <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setEditingId(null)}><X className="h-4 w-4" /></Button>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
+        <TagIcon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+        <span>Labels classify WhatsApp groups. A group linked to a developer takes the <span className="font-semibold">Developer</span> label automatically; the rest use Product or Other.</span>
+      </div>
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex items-center justify-between gap-3 border-b border-border bg-card px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-foreground">Group Labels</h3>
+            <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{labels.length}</span>
+          </div>
+          <Button size="sm" className="h-8 gap-1.5" disabled={editingId === "new"} onClick={() => startEdit()}>
+            <Plus className="h-3.5 w-3.5" />Add Label
+          </Button>
+        </div>
+        {labels.map((l, i) =>
+          editingId === l.id ? (
+            <div key={l.id} className={cn(i > 0 && "border-t border-border/70")}>{editRow}</div>
+          ) : (
+            <div key={l.id} className={cn("flex items-center gap-3 px-5 py-3", i > 0 && "border-t border-border/70")}>
+              <span className="inline-flex items-center whitespace-nowrap rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">{l.name}</span>
+              <div className="min-w-0 flex-1"><IdTag value={l.id} /></div>
+              <div className="flex flex-shrink-0 items-center gap-0.5">
+                <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-foreground" title="Edit" onClick={() => startEdit(l)}>
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-red-600" title="Delete" onClick={() => { setLabels((prev) => prev.filter((x) => x.id !== l.id)); toast.success(`${l.name} label removed`) }}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          ),
+        )}
+        {editingId === "new" && <div className={cn(labels.length > 0 && "border-t border-border/70")}>{editRow}</div>}
+        {labels.length === 0 && editingId !== "new" && (
+          <p className="px-5 py-10 text-center text-sm text-muted-foreground">No labels yet — click "Add Label" to create one.</p>
+        )}
+      </div>
     </div>
   )
 }
