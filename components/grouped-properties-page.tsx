@@ -915,7 +915,7 @@ function GroupCard({
                       </DropdownMenuItem>
                     )}
                     <DropdownMenuItem onClick={() => setMoveOpen(true)}>
-                      <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Move Compound
+                      <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -948,7 +948,7 @@ function GroupCard({
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuItem onClick={() => setMoveOpen(true)}>
-                    <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Move Compound
+                    <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -1281,7 +1281,7 @@ function GroupCard({
         </DialogContent>
       </Dialog>
 
-      {/* ── Move Compound modal ── */}
+      {/* ── Change Project modal ── */}
       <ChangeProjectModal
         open={moveOpen}
         onClose={() => setMoveOpen(false)}
@@ -1557,11 +1557,11 @@ const SALE_TYPE_BUCKETS: { key: string; match: (g: GroupedProperty) => boolean; 
   { key: "Rentals", match: g => g.saleType === "Rental", cls: "border-red-200 bg-red-50 text-red-600" },
 ]
 
-/** Plain-text sale-type breakdown, count first: "2 Launch Properties · 1 Resale Property". */
+/** Plain-text sale-type breakdown, count first: "2 Launch · 1 Resale". */
 const saleTypeBreakdown = (gs: GroupedProperty[]) =>
   SALE_TYPE_BUCKETS.map(b => ({ n: gs.filter(b.match).length, key: b.key }))
     .filter(x => x.n > 0)
-    .map(x => `${x.n} ${x.key} Propert${x.n !== 1 ? "ies" : "y"}`)
+    .map(x => `${x.n} ${x.key}`)
     .join(" · ")
 
 /**
@@ -1661,7 +1661,7 @@ function BulkListingDialog({ groups, onClose, onApply }: {
                 const n = groups.filter(b.match).length
                 return n > 0 ? (
                   <span key={b.key} className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium", b.cls)}>
-                    {n.toLocaleString()} {b.key} Propert{n !== 1 ? "ies" : "y"}
+                    {n.toLocaleString()} {b.key}
                   </span>
                 ) : null
               })}
