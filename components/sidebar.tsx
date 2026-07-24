@@ -128,6 +128,7 @@ const navItems: NavItem[] = [
     icon: <Home className="h-4 w-4" />,
     children: [
       { label: "All Properties", icon: <Package className="h-4 w-4" /> },
+      { label: "Launch Properties", icon: <Rocket className="h-4 w-4" /> },
       { label: "Primary Properties", icon: <Home className="h-4 w-4" /> },
       { label: "Resale Properties", icon: <Repeat className="h-4 w-4" /> },
       { label: "Nawy Now Properties", icon: <Clock className="h-4 w-4" /> },

@@ -1440,6 +1440,85 @@ function DestTags({ id }: { id: string }) {
   )
 }
 
+const isPrimaryAuto = (g: GroupedProperty) => g.saleType === "Primary" && g.entryType === "Automatic"
+
+/**
+ * Compact selected-property row — the same component in single and bulk Change
+ * Project: ID · Type - Subtype · bedrooms · area range · price range + the tags
+ * (sale type, entry type, listing status, sale status; availability for Primary
+ * Automatic only). `right` hosts row actions (e.g. similarity decisions).
+ */
+function PropertyInfoRow({ g, right }: { g: GroupedProperty; right?: React.ReactNode }) {
+  const fmtPrice = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n.toLocaleString())
+  return (
+    <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+        <span className="shrink-0 font-mono text-xs text-muted-foreground">{g.id}</span>
+        <span className="shrink-0 text-xs font-medium text-foreground">{g.propertyType}{g.propertySubType ? ` - ${g.propertySubType}` : ""}</span>
+        {g.bedroom > 0 && <span className="shrink-0 text-xs text-muted-foreground">{g.bedroom} BR</span>}
+        <span className="shrink-0 text-xs text-muted-foreground">{g.areaMin}–{g.areaMax} SQM</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{fmtPrice(g.priceMin)} – {fmtPrice(g.priceMax)} EGP</span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium", badgeClass[g.saleType])}>{g.saleType}</Badge>
+          <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium", badgeClass[g.entryType])}>{g.entryType}</Badge>
+          <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium", badgeClass[g.listingStatus])}>{g.listingStatus}</Badge>
+          <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium border", SALE_STATUS_CLS[g.saleStatus])}>{g.saleStatus}</Badge>
+          {isPrimaryAuto(g) && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-medium">{g.availableUnits} / {g.totalUnits} Available</Badge>
+          )}
+        </span>
+      </div>
+      {right}
+    </div>
+  )
+}
+
+/**
+ * What moved properties become at the destination — per sale-type bucket, driven
+ * by the destination's primary status and entry type:
+ *  - Sold-Off destination → everything becomes Sold + Hidden.
+ *  - On-Hold destination → Primary becomes Hold + Hidden; Launch keeps its sale
+ *    status but is Hidden.
+ *  - Otherwise the sale status carries over; an Automatic-entry destination keeps
+ *    the moved properties Hidden until its feed syncs, Manual publishes them.
+ */
+function moveOutcomeLines(destId: string, groups: GroupedProperty[]): { bucket: string; sale: string; listing: "Published" | "Hidden" }[] {
+  const m = destMeta(destId)
+  const outcomeFor = (bucket: string): { sale: string; listing: "Published" | "Hidden" } => {
+    if (m.primary === "Sold-Off") return { sale: "Sold", listing: "Hidden" }
+    if (m.primary === "On-Hold") return bucket === "Launch" ? { sale: "Unchanged", listing: "Hidden" } : { sale: "Hold", listing: "Hidden" }
+    return { sale: "Unchanged", listing: m.entry === "Automatic" ? "Hidden" : "Published" }
+  }
+  const buckets: string[] = []
+  if (groups.some(g => g.saleType === "Launch")) buckets.push("Launch")
+  if (groups.some(g => g.saleType === "Primary")) buckets.push("Primary")
+  for (const g of groups) if (!["Launch", "Primary"].includes(g.saleType) && !buckets.includes(g.saleType)) buckets.push(g.saleType)
+  return buckets.map(b => ({ bucket: b, ...outcomeFor(b) }))
+}
+
+const OUTCOME_TONE: Record<string, string> = {
+  Sold: "border-red-200 bg-red-50 text-red-700",
+  Hold: "border-amber-200 bg-amber-50 text-amber-700",
+  Unchanged: "border-border bg-muted text-muted-foreground",
+  Published: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Hidden: "border-red-200 bg-red-100 text-red-700",
+}
+
+/** "After the move" box — the resulting listing + sale status per bucket at the chosen destination. */
+function MoveOutcomeBox({ destId, groups }: { destId: string; groups: GroupedProperty[] }) {
+  const tag = (v: string) => <span className={cn("mx-0.5 inline-flex items-center rounded border px-1 py-0 align-[1px] text-[9px] font-medium leading-4", OUTCOME_TONE[v])}>{v}</span>
+  return (
+    <div className="space-y-1 rounded-lg border border-border bg-card px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">After the move</p>
+      {moveOutcomeLines(destId, groups).map(l => (
+        <p key={l.bucket} className="text-[11px] leading-5 text-muted-foreground">
+          <span className="font-medium text-foreground">{l.bucket}</span> properties → Sale Status {tag(l.sale)} · Listing {tag(l.listing)}
+        </p>
+      ))}
+    </div>
+  )
+}
+
 /**
  * Similarity check for Launch / Primary-Manual groups: these carry no unit codes,
  * so the review matches on criteria (type · bedrooms · area · finishing) instead.
@@ -1493,7 +1572,6 @@ function DestSelector({ value, onChange, lockedDevName, excludeProjectId, exclud
                     <span className="flex items-center gap-1.5">
                       <span>{p.name}</span>
                       <span className="font-mono text-[9px] text-muted-foreground">{p.id}</span>
-                      <DestTags id={p.id} />
                     </span>
                   </SelectItem>
                 ))}
@@ -1513,7 +1591,6 @@ function DestSelector({ value, onChange, lockedDevName, excludeProjectId, exclud
                 <span className="flex items-center gap-1.5">
                   <span>{ph.name}</span>
                   <span className="font-mono text-[9px] text-muted-foreground">{ph.id}</span>
-                  <DestTags id={ph.id} />
                 </span>
               </SelectItem>
             ))}
@@ -1852,14 +1929,6 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
 
   // ── Shared building blocks ──────────────────────────────────────────────────
 
-  const propertyTags = (g: GroupedProperty) => (
-    <span className="flex shrink-0 items-center gap-1.5">
-      <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium", badgeClass[g.saleType])}>{g.saleType}</Badge>
-      <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium", badgeClass[g.entryType])}>{g.entryType}</Badge>
-      <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium border", SALE_STATUS_CLS[g.saleStatus])}>{g.saleStatus}</Badge>
-    </span>
-  )
-
   const destOf = (cg: CompoundGroup) => {
     const dest = destinations[cg.key] ?? { devId: "", projectId: "", phaseId: "none" }
     const destDev = DEST_DEVELOPERS.find(d => d.id === dest.devId)
@@ -1944,32 +2013,30 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
               { v: "exclude", label: "Exclude", activeCls: "bg-red-600 text-white" },
             ]
             return (
-              <div key={g.id} className={cn("space-y-1.5 px-3 py-2.5", decision === "exclude" && "opacity-50")}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="shrink-0 font-mono text-xs text-muted-foreground">{g.id}</span>
-                    <span className="truncate text-xs text-foreground">{g.title}</span>
-                    {!isSingle && propertyTags(g)}
-                  </div>
-                  <div className="flex shrink-0 overflow-hidden rounded-md border border-border text-[11px] font-medium">
-                    {opts.map(o => (
-                      <button
-                        key={o.v}
-                        onClick={() => setSimDecisions(prev => ({ ...prev, [g.id]: o.v }))}
-                        className={cn("whitespace-nowrap px-2 py-1 transition-colors", decision === o.v ? o.activeCls : "text-muted-foreground hover:bg-muted")}
-                      >
-                        {o.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              <div key={g.id} className={cn("space-y-0.5 pb-2", decision === "exclude" && "opacity-50")}>
+                <PropertyInfoRow
+                  g={g}
+                  right={
+                    <div className="flex shrink-0 overflow-hidden rounded-md border border-border text-[11px] font-medium">
+                      {opts.map(o => (
+                        <button
+                          key={o.v}
+                          onClick={() => setSimDecisions(prev => ({ ...prev, [g.id]: o.v }))}
+                          className={cn("whitespace-nowrap px-2 py-1 transition-colors", decision === o.v ? o.activeCls : "text-muted-foreground hover:bg-muted")}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  }
+                />
                 {match ? (
-                  <p className="flex items-start gap-1.5 text-[11px] text-amber-700">
+                  <p className="flex items-start gap-1.5 px-4 text-[11px] text-amber-700">
                     <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
                     <span>Similar property found in <strong>{destProj?.name}</strong> — {match.criteria}. Merging updates it instead of creating a new one.</span>
                   </p>
                 ) : (
-                  <p className="flex items-start gap-1.5 text-[11px] text-emerald-700">
+                  <p className="flex items-start gap-1.5 px-4 text-[11px] text-emerald-700">
                     <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0" />
                     <span>No similar property in <strong>{destProj?.name}</strong> — it will be created as new.</span>
                   </p>
@@ -1996,15 +2063,16 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
         <div className="flex shrink-0 items-center gap-3 border-b border-border py-4 pl-6 pr-12">
           <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-base font-semibold">Change Project</h2>
+          {/* right-aligned; header pr-12 keeps it clear of the dialog close button */}
           {(step === "select" || step === "review") && (
-            <div className="ml-1 flex items-center gap-1.5 rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+            <div className="ml-auto flex items-center gap-1.5 rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
               <span className={cn(step === "select" && "font-semibold text-foreground")}>1 Select</span>
               <ChevronRight className="h-3 w-3" />
               <span className={cn(step === "review" && "font-semibold text-foreground")}>2 Review</span>
             </div>
           )}
           {step === "done" && (
-            <Badge className="ml-1 border border-emerald-200 bg-emerald-100 text-xs font-medium text-emerald-700">Done</Badge>
+            <Badge className="ml-auto border border-emerald-200 bg-emerald-100 text-xs font-medium text-emerald-700">Done</Badge>
           )}
         </div>
 
@@ -2017,23 +2085,14 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
 
               {isSingle && single ? (
                 <>
-                  {/* The property being moved — compact card with its current location */}
+                  {/* The property being moved — same compact row as bulk, plus its current location */}
                   <div className="overflow-hidden rounded-xl border border-border bg-card">
-                    <div className="flex items-center gap-3 px-4 py-3">
-                      <img src={single.images[0] ?? "/placeholder.jpg"} alt="" className="h-12 w-12 shrink-0 rounded-lg border border-border object-cover" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="shrink-0 font-mono text-xs text-muted-foreground">{single.id}</span>
-                          <p className="truncate text-sm font-medium text-foreground">{single.title}</p>
-                        </div>
-                        <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Building2 className="h-3 w-3" />
-                          <span className="truncate">
-                            Current: <span className="font-medium text-foreground">{single.developer.name}</span> › <span className="font-medium text-foreground">{single.project.name}{single.phase ? ` — ${single.phase.name}` : ""}</span>
-                          </span>
-                        </div>
-                      </div>
-                      {propertyTags(single)}
+                    <PropertyInfoRow g={single} />
+                    <div className="flex items-center gap-1.5 border-t border-border/70 bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+                      <Building2 className="h-3 w-3 shrink-0" />
+                      <span className="truncate">
+                        Current: <span className="font-medium text-foreground">{single.developer.name}</span> › <span className="font-medium text-foreground">{single.project.name}{single.phase ? ` — ${single.phase.name}` : ""}</span>
+                      </span>
                     </div>
                   </div>
 
@@ -2049,6 +2108,10 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                       excludeProjectId={singleCg?.projectId ?? ""}
                       excludeProjectName={singleCg?.projectName ?? ""}
                     />
+                    {(() => {
+                      const d = destinations[singleCg?.key ?? ""]
+                      return d?.projectId ? <MoveOutcomeBox destId={d.phaseId !== "none" ? d.phaseId : d.projectId} groups={[single]} /> : null
+                    })()}
                   </div>
 
                   <div className="flex gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
@@ -2110,20 +2173,13 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                               <span className="font-mono text-[10px] text-muted-foreground">{cg.devId}</span>
                               <span className="text-xs text-muted-foreground">›</span>
                               <span className="text-sm font-semibold text-foreground">{cg.projectName}{cg.phaseName ? ` — ${cg.phaseName}` : ""}</span>
-                              <span className="font-mono text-[10px] text-muted-foreground">{cg.projectId}</span>
+                              <span className="font-mono text-[10px] text-muted-foreground">{cg.phaseId ?? cg.projectId}</span>
+                              <DestTags id={cg.phaseId ?? cg.projectId} />
                               <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{cg.groups.length} propert{cg.groups.length !== 1 ? "ies" : "y"}</span>
                             </div>
                           </div>
                           <div className="divide-y divide-border/70">
-                            {cg.groups.map(g => (
-                              <div key={g.id} className="flex items-center justify-between gap-3 px-5 py-2">
-                                <div className="flex min-w-0 items-center gap-2.5">
-                                  <span className="shrink-0 font-mono text-xs text-muted-foreground">{g.id}</span>
-                                  <span className="truncate text-xs text-foreground">{g.title}</span>
-                                </div>
-                                {propertyTags(g)}
-                              </div>
-                            ))}
+                            {cg.groups.map(g => <PropertyInfoRow key={g.id} g={g} />)}
                           </div>
                           <div className="space-y-2 border-t border-border bg-muted/20 px-5 py-3.5">
                             <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -2136,6 +2192,10 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                               excludeProjectId={cg.projectId}
                               excludeProjectName={cg.projectName}
                             />
+                            {(() => {
+                              const d = destinations[cg.key]
+                              return d?.projectId ? <MoveOutcomeBox destId={d.phaseId !== "none" ? d.phaseId : d.projectId} groups={cg.groups} /> : null
+                            })()}
                           </div>
                         </div>
                       ))}
@@ -2658,20 +2718,28 @@ export function GroupedPropertiesView({
 
             <div className="w-px h-8 bg-zinc-700" />
 
-            {/* Listing status — opens the bulk impact popup; hidden above 20 selected */}
-            {selGroups.length <= 20 && (
-              <>
+            {/* Listing status — opens the bulk impact popup; capped at 20 selected */}
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <button
-                  onClick={() => setBulkListingOpen(true)}
-                  className="flex items-center gap-1.5 px-4 py-2.5 hover:bg-zinc-800 transition-colors"
+                  onClick={() => selGroups.length <= 20 && setBulkListingOpen(true)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-4 py-2.5 transition-colors",
+                    selGroups.length <= 20 ? "hover:bg-zinc-800 cursor-pointer" : "opacity-40 cursor-not-allowed"
+                  )}
                 >
                   <Eye className="h-3.5 w-3.5 text-zinc-400" />
                   Listing Status
                 </button>
+              </TooltipTrigger>
+              {selGroups.length > 20 && (
+                <TooltipContent side="top" className="text-xs max-w-[240px]">
+                  Changing the Listing status is limited to 20 Properties at a time.
+                </TooltipContent>
+              )}
+            </Tooltip>
 
-                <div className="w-px h-8 bg-zinc-700" />
-              </>
-            )}
+            <div className="w-px h-8 bg-zinc-700" />
 
             {/* Change Project — Primary/Launch only, max 10 groups */}
             <Tooltip>
@@ -2690,7 +2758,7 @@ export function GroupedPropertiesView({
               {!canMove && (
                 <TooltipContent side="top" className="text-xs max-w-[240px]">
                   {tooManyForMove
-                    ? `Change Project is limited to 10 selected groups — you have ${selGroups.length}. Narrow the selection.`
+                    ? "Changing Project action is limited to 10 Properties at a time."
                     : "Only Primary and Launch properties can be moved to a different project."}
                 </TooltipContent>
               )}

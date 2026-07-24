@@ -47,16 +47,19 @@ export function AppShell() {
         return <ProjectsPage />
       case "Launches":
         return <LaunchesPage />
+      {/* key: sale-type pages share one component — without a key the previous page's filter state leaks across navigation */}
       case "All Properties":
-        return <AllPropertiesPage onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
+        return <AllPropertiesPage key="all" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
+      case "Launch Properties":
+        return <AllPropertiesPage key="launch" fixedSaleType="Launch" pageTitle="Launch Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
       case "Primary Properties":
-        return <AllPropertiesPage fixedSaleType="Primary" pageTitle="Primary Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
+        return <AllPropertiesPage key="primary" fixedSaleType="Primary" pageTitle="Primary Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
       case "Resale Properties":
-        return <AllPropertiesPage fixedSaleType="Resale" pageTitle="Resale Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
+        return <AllPropertiesPage key="resale" fixedSaleType="Resale" pageTitle="Resale Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
       case "Nawy Now Properties":
-        return <AllPropertiesPage fixedSaleType="Nawy Now" pageTitle="Nawy Now Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
+        return <AllPropertiesPage key="nawy-now" fixedSaleType="Nawy Now" pageTitle="Nawy Now Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
       case "Rental Properties":
-        return <AllPropertiesPage fixedSaleType="Rental" pageTitle="Rental Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
+        return <AllPropertiesPage key="rental" fixedSaleType="Rental" pageTitle="Rental Properties" onOpenGroupDetail={setGroupDetail} onCreateProperty={setCreateProperty} />
       case "Areas":
         return <AreasPage />
       case "Developers":
