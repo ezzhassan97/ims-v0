@@ -199,7 +199,7 @@ const badgeClass: Record<string, string> = {
   Rental: "border-orange-200 bg-orange-50 text-orange-700",
   Launch: "border-indigo-200 bg-indigo-50 text-indigo-700",
   Published: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  Hidden: "border-gray-200 bg-gray-50 text-gray-700",
+  Hidden: "border-red-200 bg-red-50 text-red-600",
   "OFF PLAN": "border-amber-200 bg-amber-50 text-amber-700",
   "READY TO MOVE": "border-emerald-200 bg-emerald-50 text-emerald-700",
 }
@@ -1540,94 +1540,79 @@ function DestSelector({ value, onChange, lockedDevName, excludeProjectId, exclud
   )
 }
 
-// ── Bulk status change (listing / sale) with per-destination impact tree ──────
-
-type BulkStatusMode = "listing" | "sale"
+// ── Bulk Change Listing Status — unit counts by sale type + destination tree ──
 
 const LISTING_META: Record<string, { icon: React.ElementType; cls: string; note: string }> = {
   Published: { icon: Eye, cls: "border-emerald-300 bg-emerald-50 text-emerald-700", note: "Visible and bookable on the website and E-realty." },
-  Hidden: { icon: EyeOff, cls: "border-gray-300 bg-gray-100 text-gray-700", note: "Hidden from the website and E-realty." },
+  Hidden: { icon: EyeOff, cls: "border-red-300 bg-red-50 text-red-700", note: "Hidden from the website and E-realty." },
 }
 
-/** Count grouped properties by sale type, in canonical order. */
-function saleTypeCounts(gs: GroupedProperty[]): [string, number][] {
-  const m: Record<string, number> = {}
-  for (const g of gs) m[g.saleType] = (m[g.saleType] ?? 0) + 1
-  return ALL_SALE_TYPES.filter(t => m[t]).map(t => [t, m[t]])
-}
+// Sale-type unit buckets — Primary splits by entry type, each with its own light tone
+const UNIT_BUCKETS: { key: string; match: (g: GroupedProperty) => boolean; cls: string }[] = [
+  { key: "Launch", match: g => g.saleType === "Launch", cls: "border-yellow-200 bg-yellow-50 text-yellow-700" },
+  { key: "Primary Automatic", match: g => g.saleType === "Primary" && g.entryType === "Automatic", cls: "border-blue-200 bg-blue-50 text-blue-700" },
+  { key: "Primary Manual", match: g => g.saleType === "Primary" && g.entryType === "Manual", cls: "border-blue-200 bg-blue-50 text-blue-700" },
+  { key: "Resale", match: g => g.saleType === "Resale", cls: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  { key: "Nawy Now", match: g => g.saleType === "Nawy Now", cls: "border-orange-200 bg-orange-50 text-orange-700" },
+  { key: "Rentals", match: g => g.saleType === "Rental", cls: "border-red-200 bg-red-50 text-red-600" },
+]
+
+const unitsOf = (gs: GroupedProperty[]) => gs.reduce((s, g) => s + g.totalUnits, 0)
 
 /**
- * Bulk Change Listing Status / Change Sale Status — pick the destination status at
- * the top, then see the impact by sale type grouped developer → project → phase.
- * Only properties not already at the destination status are changed; sale mode
- * excludes Primary Automatic entirely and never offers Archived.
+ * Bulk Change Listing Status — pick Published / Hidden at the top, see the total
+ * selected units broken down by sale type, then by developer → project → phase.
+ * Developer totals equal the sum of their projects + phases; a main project only
+ * shows a count for units linked directly to it (none when all sit under phases).
+ * Only properties not already at the destination status are changed.
  */
-function BulkStatusDialog({ mode, groups, onClose, onApply }: {
-  mode: BulkStatusMode
+function BulkListingDialog({ groups, onClose, onApply }: {
   groups: GroupedProperty[]
   onClose: () => void
   onApply: (target: string, changingIds: string[]) => void
 }) {
-  // Sale status is CRM-fed for Primary Automatic — excluded from the bulk action
-  const eligible = mode === "sale" ? groups.filter(g => !(g.saleType === "Primary" && g.entryType === "Automatic")) : groups
-  const excludedCount = groups.length - eligible.length
-  const options = mode === "listing" ? ["Published", "Hidden"] : ["Available", "Hold", "Sold"]
-  const meta = mode === "listing" ? LISTING_META : STATUS_META
   const [target, setTarget] = useState("")
-  const statusOf = (g: GroupedProperty) => (mode === "listing" ? g.listingStatus : g.saleStatus)
-  const changing = target ? eligible.filter(g => statusOf(g) !== target) : eligible
-  const changingSet = new Set(changing.map(g => g.id))
+  const changing = target ? groups.filter(g => g.listingStatus !== target) : groups
+  const totalUnits = unitsOf(groups)
 
-  // developer → project → phase tree of the eligible selection
+  // developer → project (direct groups + phases) tree of the selection
   const tree = useMemo(() => {
-    const devs = new Map<string, { name: string; id: string; projects: Map<string, { name: string; id: string; phases: Map<string, { name: string; groups: GroupedProperty[] }> }> }>()
-    for (const g of eligible) {
+    const devs = new Map<string, { name: string; id: string; projects: Map<string, { name: string; id: string; direct: GroupedProperty[]; phases: Map<string, { name: string; id: string; groups: GroupedProperty[] }> }> }>()
+    for (const g of groups) {
       if (!devs.has(g.developer.id)) devs.set(g.developer.id, { name: g.developer.name, id: g.developer.id, projects: new Map() })
       const d = devs.get(g.developer.id)!
-      if (!d.projects.has(g.project.id)) d.projects.set(g.project.id, { name: g.project.name, id: g.project.id, phases: new Map() })
+      if (!d.projects.has(g.project.id)) d.projects.set(g.project.id, { name: g.project.name, id: g.project.id, direct: [], phases: new Map() })
       const p = d.projects.get(g.project.id)!
-      const phKey = g.phase?.id ?? "none"
-      if (!p.phases.has(phKey)) p.phases.set(phKey, { name: g.phase?.name ?? "No specific phase", groups: [] })
-      p.phases.get(phKey)!.groups.push(g)
+      if (g.phase) {
+        if (!p.phases.has(g.phase.id)) p.phases.set(g.phase.id, { name: g.phase.name, id: g.phase.id, groups: [] })
+        p.phases.get(g.phase.id)!.groups.push(g)
+      } else {
+        p.direct.push(g)
+      }
     }
     return [...devs.values()]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, mode])
+  }, [groups])
 
-  // Per-node chips: counts by sale type of the properties that WILL change, plus a muted "already" tail
-  const nodeCounts = (gs: GroupedProperty[]) => {
-    const ch = target ? gs.filter(g => changingSet.has(g.id)) : gs
-    const alreadyN = gs.length - ch.length
-    return (
-      <span className="flex flex-wrap items-center gap-1">
-        {saleTypeCounts(ch).map(([t, n]) => (
-          <Badge key={t} variant="outline" className={cn("text-[10px] px-1.5 py-0 font-medium", badgeClass[t])}>{t} {n}</Badge>
-        ))}
-        {target && alreadyN > 0 && (
-          <span className="text-[10px] text-muted-foreground">· {alreadyN} already {target}</span>
-        )}
-        {target && ch.length === 0 && <span className="text-[10px] text-muted-foreground">no change</span>}
-      </span>
-    )
-  }
+  const unitChip = (n: number) => (
+    <span className="shrink-0 text-xs tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{n.toLocaleString()}</span> units</span>
+  )
 
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
       <DialogContent className="sm:!max-w-2xl p-0 gap-0 flex flex-col" style={{ maxHeight: "88vh" }}>
         <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
-          <DialogTitle>{mode === "listing" ? "Change Listing Status" : "Change Sale Status"}</DialogTitle>
+          <DialogTitle>Change Listing Status</DialogTitle>
           <DialogDescription>
-            {mode === "listing"
-              ? "Set the listing status for the selected grouped properties — only properties not already at that status will change."
-              : "This property status will be changed accordingly — only properties not already at that status will change."}
+            Set the listing status for the selected grouped properties — only properties not already at that status will change.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {/* Destination status picker */}
-          <div className={cn("grid gap-2", mode === "listing" ? "grid-cols-2" : "grid-cols-3")}>
-            {options.map(s => {
-              const m = meta[s]
+          <div className="grid grid-cols-2 gap-2">
+            {["Published", "Hidden"].map(s => {
+              const m = LISTING_META[s]
               const Icon = m.icon
               const selected = target === s
               return (
@@ -1649,35 +1634,40 @@ function BulkStatusDialog({ mode, groups, onClose, onApply }: {
               )
             })}
           </div>
-          {mode === "sale" && (
-            <p className="text-[11px] text-muted-foreground -mt-1.5">Archived is available per property only — it can't be applied as a bulk action.</p>
-          )}
 
           {/* Only-changed summary */}
           {target && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/40 px-4 py-2.5 text-sm">
-              <span><span className="font-semibold">{changing.length}</span> of <span className="font-semibold">{eligible.length}</span> selected will change to <span className="font-medium">{target}</span></span>
-              {eligible.length - changing.length > 0 && (
-                <span className="text-xs text-muted-foreground">{eligible.length - changing.length} already {target} — no change</span>
+              <span><span className="font-semibold">{changing.length}</span> of <span className="font-semibold">{groups.length}</span> selected will change to <span className="font-medium">{target}</span></span>
+              {groups.length - changing.length > 0 && (
+                <span className="text-xs text-muted-foreground">{groups.length - changing.length} already {target} — no change</span>
               )}
             </div>
           )}
 
-          {/* Primary Automatic exclusion (sale mode) */}
-          {mode === "sale" && excludedCount > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 flex gap-2.5">
-              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-800">
-                <span className="font-medium">{excludedCount} Primary Automatic propert{excludedCount !== 1 ? "ies are" : "y is"} excluded</span> — their sale status is managed automatically by the CRM feed.
-              </p>
+          {/* Units selected — total + breakdown by sale type */}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Units selected</p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center rounded-md border border-border bg-muted/60 px-2 py-0.5 text-xs font-semibold text-foreground">
+                Total {totalUnits.toLocaleString()} units
+              </span>
+              {UNIT_BUCKETS.map(b => {
+                const n = unitsOf(groups.filter(b.match))
+                return n > 0 ? (
+                  <span key={b.key} className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium", b.cls)}>
+                    {b.key} {n.toLocaleString()}
+                  </span>
+                ) : null
+              })}
             </div>
-          )}
+          </div>
 
-          {/* Impact tree: developer → project → phase, counts by sale type */}
+          {/* Breakdown: developer → project → phase (developer = sum of all below) */}
           <div className="space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Impact by developer, project and phase</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Breakdown by developer, project and phase</p>
             {tree.map(dev => {
-              const devGroups = [...dev.projects.values()].flatMap(p => [...p.phases.values()].flatMap(ph => ph.groups))
+              const devUnits = unitsOf([...dev.projects.values()].flatMap(p => [...p.direct, ...[...p.phases.values()].flatMap(ph => ph.groups)]))
               return (
                 <div key={dev.id} className="rounded-xl border border-border overflow-hidden">
                   <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-muted/50 border-b border-border">
@@ -1686,28 +1676,29 @@ function BulkStatusDialog({ mode, groups, onClose, onApply }: {
                       <span className="text-sm font-semibold text-foreground truncate">{dev.name}</span>
                       <span className="font-mono text-[10px] text-muted-foreground">{dev.id}</span>
                     </div>
-                    {nodeCounts(devGroups)}
+                    {unitChip(devUnits)}
                   </div>
-                  {[...dev.projects.values()].map(p => {
-                    const projGroups = [...p.phases.values()].flatMap(ph => ph.groups)
-                    return (
-                      <div key={p.id} className="border-b border-border/70 last:border-b-0">
-                        <div className="flex items-center justify-between gap-3 px-4 py-2 bg-muted/20">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-xs font-medium text-foreground truncate">{p.name}</span>
-                            <span className="font-mono text-[10px] text-muted-foreground">{p.id}</span>
-                          </div>
-                          {nodeCounts(projGroups)}
+                  {[...dev.projects.values()].map(p => (
+                    <div key={p.id} className="border-b border-border/70 last:border-b-0">
+                      <div className="flex items-center justify-between gap-3 px-4 py-2 bg-muted/20">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs font-medium text-foreground truncate">{p.name}</span>
+                          <span className="font-mono text-[10px] text-muted-foreground">{p.id}</span>
                         </div>
-                        {[...p.phases.values()].map(ph => (
-                          <div key={ph.name} className="flex items-center justify-between gap-3 pl-8 pr-4 py-1.5">
-                            <span className="text-xs text-muted-foreground truncate">{ph.name}</span>
-                            {nodeCounts(ph.groups)}
-                          </div>
-                        ))}
+                        {/* count only for units linked directly to the main project */}
+                        {p.direct.length > 0 ? unitChip(unitsOf(p.direct)) : null}
                       </div>
-                    )
-                  })}
+                      {[...p.phases.values()].map(ph => (
+                        <div key={ph.id} className="flex items-center justify-between gap-3 pl-8 pr-4 py-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-xs text-muted-foreground truncate">{ph.name}</span>
+                            <span className="font-mono text-[10px] text-muted-foreground">{ph.id}</span>
+                          </div>
+                          {unitChip(unitsOf(ph.groups))}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
                 </div>
               )
             })}
@@ -2539,7 +2530,7 @@ export function GroupedPropertiesView({
   const lastSelectedIdxRef = useRef<number | null>(null)
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   const [showChangeCompound, setShowChangeCompound] = useState(false)
-  const [bulkStatus, setBulkStatus] = useState<BulkStatusMode | null>(null)
+  const [bulkListingOpen, setBulkListingOpen] = useState(false)
 
   const openDetail = (group: GroupedProperty, index: number) =>
     onOpenGroupDetail?.({ group, allRows, index })
@@ -2662,43 +2653,6 @@ export function GroupedPropertiesView({
         </DropdownMenu>
       </div>
 
-      {/* Select-all-results banner */}
-      {(() => {
-        const pageFullySelected = paginatedGroups.length > 0 && paginatedGroups.every((g) => selectedCards.has(g.id))
-        const allResultsSelected = filteredGroups.length > 0 && filteredGroups.every((g) => selectedCards.has(g.id))
-        const hasMoreThanPage = filteredGroups.length > paginatedGroups.length
-        if (!pageFullySelected || !hasMoreThanPage) return null
-        return (
-          <div className="flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs dark:border-blue-900 dark:bg-blue-950/30">
-            {allResultsSelected ? (
-              <>
-                <span className="text-blue-800 dark:text-blue-200">
-                  All <strong>{filteredGroups.length.toLocaleString()}</strong> groups across all pages are selected.
-                </span>
-                <button
-                  onClick={() => setSelectedCards(new Set())}
-                  className="font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900 dark:text-blue-300"
-                >
-                  Clear selection
-                </button>
-              </>
-            ) : (
-              <>
-                <span className="text-blue-800 dark:text-blue-200">
-                  All <strong>{paginatedGroups.length}</strong> on this page are selected.
-                </span>
-                <button
-                  onClick={() => setSelectedCards(new Set(filteredGroups.map((g) => g.id)))}
-                  className="font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900 dark:text-blue-300"
-                >
-                  Select all {filteredGroups.length.toLocaleString()} groups
-                </button>
-              </>
-            )}
-          </div>
-        )
-      })()}
-
         <div className="space-y-4">
           {groupByColumn ? (() => {
             const sections: Record<string, GroupedProperty[]> = {}
@@ -2770,8 +2724,6 @@ export function GroupedPropertiesView({
         // Change Project is capped at 10 selected groups
         const tooManyForMove = selGroups.length > 10
         const canMove = hasEligible && !tooManyForMove
-        // Sale status can't be bulk-changed for Primary Automatic
-        const saleEligible = selGroups.some(g => !(g.saleType === "Primary" && g.entryType === "Automatic"))
 
         return (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-0 bg-zinc-900 text-white rounded-xl shadow-2xl overflow-hidden text-sm select-none">
@@ -2799,35 +2751,12 @@ export function GroupedPropertiesView({
 
             {/* Listing status — opens the bulk impact popup */}
             <button
-              onClick={() => setBulkStatus("listing")}
+              onClick={() => setBulkListingOpen(true)}
               className="flex items-center gap-1.5 px-4 py-2.5 hover:bg-zinc-800 transition-colors"
             >
               <Eye className="h-3.5 w-3.5 text-zinc-400" />
               Listing Status
             </button>
-
-            <div className="w-px h-8 bg-zinc-700" />
-
-            {/* Sale status — excluded for Primary Automatic */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => saleEligible && setBulkStatus("sale")}
-                  className={cn(
-                    "flex items-center gap-1.5 px-4 py-2.5 transition-colors",
-                    saleEligible ? "hover:bg-zinc-800 cursor-pointer" : "opacity-40 cursor-not-allowed"
-                  )}
-                >
-                  <ArrowUpDown className="h-3.5 w-3.5 text-zinc-400" />
-                  Sale Status
-                </button>
-              </TooltipTrigger>
-              {!saleEligible && (
-                <TooltipContent side="top" className="text-xs max-w-[240px]">
-                  Sale status can't be changed for Primary Automatic properties — it's managed by the CRM feed.
-                </TooltipContent>
-              )}
-            </Tooltip>
 
             <div className="w-px h-8 bg-zinc-700" />
 
@@ -2886,19 +2815,16 @@ export function GroupedPropertiesView({
         )
       })()}
 
-      {/* Bulk listing / sale status */}
-      {bulkStatus && (
-        <BulkStatusDialog
-          mode={bulkStatus}
+      {/* Bulk listing status */}
+      {bulkListingOpen && (
+        <BulkListingDialog
           groups={groups.filter(g => selectedCards.has(g.id))}
-          onClose={() => setBulkStatus(null)}
+          onClose={() => setBulkListingOpen(false)}
           onApply={(target, ids) => {
             const idSet = new Set(ids)
-            setGroups(prev => prev.map(g => idSet.has(g.id)
-              ? { ...g, ...(bulkStatus === "listing" ? { listingStatus: target as GroupedProperty["listingStatus"] } : { saleStatus: target as GroupedProperty["saleStatus"] }) }
-              : g))
+            setGroups(prev => prev.map(g => idSet.has(g.id) ? { ...g, listingStatus: target as GroupedProperty["listingStatus"] } : g))
             toast.success(`${ids.length} grouped propert${ids.length !== 1 ? "ies" : "y"} set to ${target}`)
-            setBulkStatus(null)
+            setBulkListingOpen(false)
             setSelectedCards(new Set())
           }}
         />
