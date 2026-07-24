@@ -1934,7 +1934,6 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
         if (hasUnitCodes(g)) {
           const dupes = simulateDuplicates(g.details.map(d => d.unitCode), dest.projectId)
           newChecks[g.id] = { kind: "unitcode", dupes, candidates: [] }
-          if (dupes.length > 0) newDecisions[g.id] = "overwrite"
         } else {
           const candidates = simulateCandidates(g, dest.projectId)
           newChecks[g.id] = { kind: "similarity", dupes: [], candidates }
@@ -2083,7 +2082,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
   )
 
   /** Per-group check result detail, rendered under its PropertyInfoRow. */
-  const checkDetail = (g: GroupedProperty, cg: CompoundGroup, withActions: boolean) => {
+  const checkDetail = (g: GroupedProperty, cg: CompoundGroup) => {
     const c = checks[g.id]
     const { destName } = destOf(cg)
     if (!c) return null
@@ -2100,13 +2099,11 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
       }
       return (
         <div className="mx-4 mb-2.5 space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <p className="flex items-start gap-2 text-xs text-amber-800">
-              <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <span><span className="font-semibold">{c.dupes.length} same unit code{c.dupes.length !== 1 ? "s" : ""} found in {destName}</span> — the source units will overwrite these matching records on confirmation.</span>
-            </p>
-            {withActions && decisionControl(g)}
-          </div>
+          {/* unit-code conflicts are informational for every unit-code type — no Overwrite / Move as new */}
+          <p className="flex items-start gap-2 text-xs text-amber-800">
+            <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
+            <span><span className="font-semibold">{c.dupes.length} same unit code{c.dupes.length !== 1 ? "s" : ""} found in {destName}</span> — the source units will overwrite these matching records on confirmation.</span>
+          </p>
           <div className="flex flex-wrap gap-1.5 pl-5">
             {c.dupes.map(code => (
               <span key={code} className="inline-flex items-center rounded border border-amber-200 bg-white px-2 py-0.5 font-mono text-[10px] text-amber-700">{code}</span>
@@ -2155,7 +2152,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
   }
 
   /** Review cards for a subset of groups, grouped by source project/phase with route + outcome. */
-  const reviewCards = (subset: GroupedProperty[], withActions: boolean) =>
+  const reviewCards = (subset: GroupedProperty[]) =>
     compoundGroups.map(cg => {
       const gs = cg.groups.filter(g => subset.includes(g))
       if (gs.length === 0) return null
@@ -2170,7 +2167,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
               <div key={g.id}>
                 <PropertyInfoRow g={g} />
                 {linkedLine(g)}
-                {checkDetail(g, cg, withActions)}
+                {checkDetail(g, cg)}
               </div>
             ))}
           </div>
@@ -2295,8 +2292,8 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                             </div>
                           ))}
                         </div>
-                        <div className="space-y-1.5 border-t border-border px-5 py-3">
-                          <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        <div className="space-y-1 border-t border-border bg-muted/30 px-5 py-2.5">
+                          <p className="flex items-center gap-1 text-[9px] font-semibold uppercase leading-4 tracking-wider text-muted-foreground">
                             <MoveRight className="h-3 w-3" /> Destination
                           </p>
                           <DestSelector
@@ -2342,7 +2339,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
               {titleNote}
 
               {isSingle ? (
-                reviewCards(eligible, true)
+                reviewCards(eligible)
               ) : (
                 <>
                   {/* Outcome summary — compact stat cells so four counts never fight for one line */}
@@ -2353,7 +2350,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                     </div>
                     <div className={cn("rounded-lg border px-3 py-2", unitConflicts.length > 0 ? "border-amber-200 bg-amber-50" : "border-border bg-muted/40")}>
                       <p className={cn("text-base font-semibold leading-6 tabular-nums", unitConflicts.length > 0 ? "text-amber-700" : "text-foreground")}>{unitConflicts.length}</p>
-                      <p className={cn("text-[10px] leading-tight", unitConflicts.length > 0 ? "text-amber-800" : "text-muted-foreground")}>Automatic Properties with unit code conflicts</p>
+                      <p className={cn("text-[10px] leading-tight", unitConflicts.length > 0 ? "text-amber-800" : "text-muted-foreground")}>Primary Automatic Properties with unit code conflicts</p>
                     </div>
                     <div className={cn("rounded-lg border px-3 py-2", simConflicts.length > 0 ? "border-amber-200 bg-amber-50" : "border-border bg-muted/40")}>
                       <p className={cn("text-base font-semibold leading-6 tabular-nums", simConflicts.length > 0 ? "text-amber-700" : "text-foreground")}>{simConflicts.length}</p>
@@ -2367,21 +2364,21 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
 
                   {reviewSection(
                     "unit",
-                    `Unit Code Conflicts · ${unitConflicts.length} Propert${unitConflicts.length !== 1 ? "ies" : "y"} · ${unitConflicts.reduce((s, g) => s + g.details.length, 0)} Detailed Properties`,
+                    `Unit Code Conflicts · ${unitConflicts.length} Propert${unitConflicts.length !== 1 ? "ies" : "y"} · ${unitConflicts.reduce((s, g) => s + (checks[g.id]?.dupes.length ?? 0), 0)} Detailed Properties`,
                     "text-amber-700",
-                    reviewCards(unitConflicts, false),
+                    reviewCards(unitConflicts),
                   )}
                   {reviewSection(
                     "sim",
                     `Similarity Conflicts · ${simConflicts.length} Propert${simConflicts.length !== 1 ? "ies" : "y"}`,
                     "text-amber-700",
-                    reviewCards(simConflicts, true),
+                    reviewCards(simConflicts),
                   )}
                   {reviewSection(
                     "clean",
                     `No Conflicts · ${cleanGroups.length} Propert${cleanGroups.length !== 1 ? "ies" : "y"}`,
                     "text-emerald-700",
-                    reviewCards(cleanGroups, false),
+                    reviewCards(cleanGroups),
                   )}
                 </>
               )}
