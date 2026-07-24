@@ -17,6 +17,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  Link2,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -1450,15 +1451,16 @@ const isPrimaryAuto = (g: GroupedProperty) => g.saleType === "Primary" && g.entr
  */
 function PropertyInfoRow({ g, right }: { g: GroupedProperty; right?: React.ReactNode }) {
   const fmtPrice = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n.toLocaleString())
+  // fixed columns so bedrooms / area / price line up across rows; values darker, units muted
+  const val = (v: React.ReactNode) => <span className="font-medium text-foreground">{v}</span>
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
-        <span className="shrink-0 font-mono text-xs text-muted-foreground">{g.id}</span>
-        <span className="shrink-0 text-xs font-medium text-foreground">{g.propertyType}{g.propertySubType ? ` - ${g.propertySubType}` : ""}</span>
-        {g.bedroom > 0 && <span className="shrink-0 text-xs text-muted-foreground">{g.bedroom} BR</span>}
-        <span className="shrink-0 text-xs text-muted-foreground">{g.areaMin}–{g.areaMax} SQM</span>
-        <span className="shrink-0 text-xs text-muted-foreground">{fmtPrice(g.priceMin)} – {fmtPrice(g.priceMax)} EGP</span>
-      </div>
+    <div className="flex items-center gap-3 px-4 py-2.5">
+      <span className="w-14 shrink-0 font-mono text-xs text-muted-foreground">{g.id}</span>
+      <span className="w-44 shrink-0 truncate text-xs font-medium text-foreground">{g.propertyType}{g.propertySubType ? ` - ${g.propertySubType}` : ""}</span>
+      <span className="w-12 shrink-0 text-xs tabular-nums text-muted-foreground">{g.bedroom > 0 ? <>{val(g.bedroom)} BR</> : null}</span>
+      <span className="w-32 shrink-0 text-xs tabular-nums text-muted-foreground">{val(<>{g.areaMin}–{g.areaMax}</>)} SQM</span>
+      <span className="w-36 shrink-0 text-xs tabular-nums text-muted-foreground">{val(<>{fmtPrice(g.priceMin)} – {fmtPrice(g.priceMax)}</>)} EGP</span>
+      <span className="min-w-0 flex-1" />
       {/* tags always right-aligned; the PA-only availability tag leads so the shared tags stay lined up */}
       <div className="flex shrink-0 items-center gap-1.5">
         {isPrimaryAuto(g) && (
@@ -1472,6 +1474,38 @@ function PropertyInfoRow({ g, right }: { g: GroupedProperty; right?: React.React
       </div>
     </div>
   )
+}
+
+/** Similarity confidence — progress bar + percentage; amber above 80, green above 90. */
+function ConfidenceBar({ value }: { value: number }) {
+  const bar = value > 90 ? "bg-emerald-500" : "bg-amber-500"
+  const text = value > 90 ? "text-emerald-700" : "text-amber-700"
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
+        <span className={cn("block h-full rounded-full", bar)} style={{ width: `${value}%` }} />
+      </span>
+      <span className={cn("text-[11px] font-semibold tabular-nums", text)}>{value}%</span>
+    </span>
+  )
+}
+
+/** Candidate matches for the drawer — the surfaced match first, then weaker alternatives the user can switch to. */
+function simulateCandidates(g: GroupedProperty, destProjectId: string): { confidence: number; prop: GroupedProperty }[] {
+  const first = simulateSimilar(g, destProjectId)
+  if (!first) return []
+  const alt = (i: number, drop: number) => ({
+    confidence: Math.max(68, first.confidence - drop),
+    prop: {
+      ...first.prop,
+      id: String(Number(first.prop.id) + i * 71),
+      areaMin: first.prop.areaMin + i * 3,
+      areaMax: first.prop.areaMax + i * 5,
+      priceMin: Math.round(first.prop.priceMin * (1 + i * 0.03)),
+      priceMax: Math.round(first.prop.priceMax * (1 + i * 0.04)),
+    },
+  })
+  return [first, alt(1, 6), alt(2, 13)]
 }
 
 /**
@@ -1621,20 +1655,19 @@ function DestSelector({ value, onChange, lockedDevName, excludeProjectId, exclud
           </SelectContent>
         </Select>
       </div>
-      {/* The destination's statuses decide what the moved properties become */}
+      {/* The destination's statuses decide what the moved properties become — tags right-aligned like the source header */}
       {value.projectId && (() => {
         const src = value.phaseId !== "none" ? value.phaseId : value.projectId
-        const m = destMeta(src)
         const proj = projects.find(p => p.id === value.projectId)
         const phase = value.phaseId !== "none" ? (proj?.phases ?? []).find(ph => ph.id === value.phaseId) : null
         return (
-          <p className="col-span-3 text-[11px] leading-5 text-muted-foreground">
-            Moved properties take their <span className="font-medium text-foreground">sale &amp; listing status</span> from the destination —{" "}
-            <span className="font-medium text-foreground">{phase ? `${proj?.name} / ${phase.name}` : proj?.name}</span> is{" "}
-            <span className={cn("mx-0.5 inline-flex items-center rounded border px-1 py-0 text-[9px] font-medium leading-4 align-[1px]", DEST_TONE[m.primary])}>{m.primary}</span>
-            <span className={cn("mx-0.5 inline-flex items-center rounded border px-1 py-0 text-[9px] font-medium leading-4 align-[1px]", DEST_TONE[m.entry])}>{m.entry} entry</span>
-            <span className={cn("mx-0.5 inline-flex items-center rounded border px-1 py-0 text-[9px] font-medium leading-4 align-[1px]", DEST_TONE[m.listing])}>{m.listing}</span>.
-          </p>
+          <div className="col-span-3 flex items-center justify-between gap-3 text-[11px] leading-5 text-muted-foreground">
+            <span>
+              Moved properties take their <span className="font-medium text-foreground">sale &amp; listing status</span> from the destination{" "}
+              <span className="font-medium text-foreground">{phase ? `${proj?.name} — ${phase.name}` : proj?.name}</span>
+            </span>
+            <DestTags id={src} />
+          </div>
         )
       })()}
     </div>
@@ -1844,7 +1877,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
   const eligible = selectedGroups.filter(g => eligibleTypes.includes(g.saleType))
   const ineligible = selectedGroups.filter(g => !eligibleTypes.includes(g.saleType))
 
-  // Group eligible by compound key: devId|projectId|phaseId — each compound picks its own destination
+  // Group eligible by key: devId|projectId|phaseId — each source project/phase picks its own destination
   type CompoundGroup = {
     key: string
     devId: string; devName: string
@@ -1870,13 +1903,18 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
     return Array.from(map.values())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGroups])
+
   type DestState = { devId: string; projectId: string; phaseId: string }
-  type GroupCheck = { kind: "unitcode" | "similarity"; dupes: string[]; match: { confidence: number; prop: GroupedProperty } | null }
+  type GroupCheck = { kind: "unitcode" | "similarity"; dupes: string[]; candidates: { confidence: number; prop: GroupedProperty }[] }
   const [destinations, setDestinations] = useState<Record<string, DestState>>({})
   const [step, setStep] = useState<"select" | "review" | "loading" | "done">("select")
   const [checks, setChecks] = useState<Record<string, GroupCheck>>({})
   // Conflict resolutions — Overwrite (default) or Move as new
   const [decisions, setDecisions] = useState<Record<string, "overwrite" | "new">>({})
+  // Which similarity candidate is treated as THE match (changeable from the matching drawer)
+  const [matchPick, setMatchPick] = useState<Record<string, number>>({})
+  const [matchDrawer, setMatchDrawer] = useState<string | null>(null)
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   // Snapshot for the done screen — confirming clears the parent selection, which empties live-derived counts
   const [doneSnap, setDoneSnap] = useState<{ groups: number; units: number; compounds: number; lines: { from: string; to: string }[] } | null>(null)
 
@@ -1890,6 +1928,9 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
       setDestinations(init)
       setChecks({})
       setDecisions({})
+      setMatchPick({})
+      setMatchDrawer(null)
+      setCollapsedSections(new Set())
       setDoneSnap(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1907,23 +1948,24 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
       for (const g of cg.groups) {
         if (hasUnitCodes(g)) {
           const dupes = simulateDuplicates(g.details.map(d => d.unitCode), dest.projectId)
-          newChecks[g.id] = { kind: "unitcode", dupes, match: null }
+          newChecks[g.id] = { kind: "unitcode", dupes, candidates: [] }
           if (dupes.length > 0) newDecisions[g.id] = "overwrite"
         } else {
-          const match = simulateSimilar(g, dest.projectId)
-          newChecks[g.id] = { kind: "similarity", dupes: [], match }
-          if (match) newDecisions[g.id] = "overwrite"
+          const candidates = simulateCandidates(g, dest.projectId)
+          newChecks[g.id] = { kind: "similarity", dupes: [], candidates }
+          if (candidates.length > 0) newDecisions[g.id] = "overwrite"
         }
       }
     }
     setChecks(newChecks)
     setDecisions(newDecisions)
+    setMatchPick({})
     setStep("review")
   }
 
   const hasConflict = (g: GroupedProperty) => {
     const c = checks[g.id]
-    return c ? (c.kind === "unitcode" ? c.dupes.length > 0 : c.match !== null) : false
+    return c ? (c.kind === "unitcode" ? c.dupes.length > 0 : c.candidates.length > 0) : false
   }
   const unitConflicts = eligible.filter(g => checks[g.id]?.kind === "unitcode" && hasConflict(g))
   const simConflicts = eligible.filter(g => checks[g.id]?.kind === "similarity" && hasConflict(g))
@@ -1975,10 +2017,33 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
     const destDev = DEST_DEVELOPERS.find(d => d.id === dest.devId)
     const destProj = (DEST_PROJECTS[dest.devId] ?? []).find(p => p.id === dest.projectId)
     const destPhase = dest.phaseId !== "none" ? (destProj?.phases ?? []).find(ph => ph.id === dest.phaseId) : null
-    return { dest, destDev, destProj, destPhase, destTagId: destPhase?.id ?? destProj?.id ?? "" }
+    const destName = destProj ? `${destProj.name}${destPhase ? ` — ${destPhase.name}` : ""}` : "—"
+    return { dest, destDev, destProj, destPhase, destName, destTagId: destPhase?.id ?? destProj?.id ?? "" }
   }
 
-  /** Source compound header — developer, project — phase, ids, phase status tags. */
+  const effectiveMatch = (g: GroupedProperty) => {
+    const c = checks[g.id]
+    if (!c || c.candidates.length === 0) return null
+    return c.candidates[Math.min(matchPick[g.id] ?? 0, c.candidates.length - 1)]
+  }
+
+  /** Moves-together line for a single Resale ⇄ Nawy Now linked property. */
+  const linkedLine = (g: GroupedProperty) => {
+    if (!isSingle) return null
+    const linked = g.nawyNowId ? { kind: "Nawy Now", id: g.nawyNowId } : g.resalePropertyId ? { kind: "Resale", id: g.resalePropertyId } : null
+    if (!linked) return null
+    return (
+      <div className="flex items-center gap-2 border-t border-border/70 bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
+        <Link2 className="h-3 w-3 shrink-0" />
+        <span>
+          Moves together with its linked <span className="font-medium text-foreground">{linked.kind}</span> property{" "}
+          <span className="font-mono">{linked.id}</span> — a {g.saleType} property can't be moved apart from its linked {linked.kind} unit.
+        </span>
+      </div>
+    )
+  }
+
+  /** Source project/phase header — tags right-aligned to line up with destination tags below. */
   const compoundHeader = (cg: CompoundGroup) => (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
       <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1987,12 +2052,14 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
       <span className="text-xs text-muted-foreground">›</span>
       <span className="text-sm font-semibold text-foreground">{cg.projectName}{cg.phaseName ? ` — ${cg.phaseName}` : ""}</span>
       <span className="font-mono text-[10px] text-muted-foreground">{cg.phaseId ?? cg.projectId}</span>
-      <DestTags id={cg.phaseId ?? cg.projectId} />
-      <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{cg.groups.length} propert{cg.groups.length !== 1 ? "ies" : "y"}</span>
+      <span className="ml-auto flex items-center gap-2">
+        <span className="text-[11px] tabular-nums text-muted-foreground">{cg.groups.length} propert{cg.groups.length !== 1 ? "ies" : "y"}</span>
+        <DestTags id={cg.phaseId ?? cg.projectId} />
+      </span>
     </div>
   )
 
-  /** Source → destination line for review cards. */
+  /** Source → destination line for review cards — destination tags right-aligned. */
   const routeLine = (cg: CompoundGroup) => {
     const { destDev, destProj, destPhase, destTagId } = destOf(cg)
     return (
@@ -2006,8 +2073,8 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-xs text-muted-foreground">{destDev?.name} ›</span>
           <span className="text-xs font-semibold text-foreground">{destProj?.name}{destPhase ? ` — ${destPhase.name}` : ""}</span>
-          {destProj && <DestTags id={destTagId} />}
         </div>
+        {destProj && <span className="ml-auto"><DestTags id={destTagId} /></span>}
       </div>
     )
   }
@@ -2032,14 +2099,14 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
   /** Per-group check result detail, rendered under its PropertyInfoRow. */
   const checkDetail = (g: GroupedProperty, cg: CompoundGroup, withActions: boolean) => {
     const c = checks[g.id]
-    const { destProj } = destOf(cg)
+    const { destName } = destOf(cg)
     if (!c) return null
     if (c.kind === "unitcode") {
       if (c.dupes.length === 0) {
         return (
           <p className="flex items-center gap-1.5 px-4 pb-2.5 text-[11px] text-emerald-700">
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-            No similar unit code found in <strong>{destProj?.name}</strong> — no conflicts.
+            No similar unit code found in <strong>{destName}</strong> — no conflicts.
           </p>
         )
       }
@@ -2048,7 +2115,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
           <div className="flex items-center justify-between gap-3">
             <p className="flex items-start gap-2 text-xs text-amber-800">
               <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
-              <span><span className="font-semibold">{c.dupes.length} same unit code{c.dupes.length !== 1 ? "s" : ""} found in {destProj?.name}</span>{!withActions && <> — the source units overwrite the matching records on confirm; no action needed.</>}</span>
+              <span><span className="font-semibold">{c.dupes.length} same unit code{c.dupes.length !== 1 ? "s" : ""} found in {destName}</span> — the source units will overwrite these matching records on confirmation.</span>
             </p>
             {withActions && decisionControl(g)}
           </div>
@@ -2061,32 +2128,44 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
       )
     }
     // similarity
-    if (!c.match) {
+    const match = effectiveMatch(g)
+    if (!match) {
       return (
         <p className="flex items-center gap-1.5 px-4 pb-2.5 text-[11px] text-emerald-700">
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-          No similar property found in <strong>{destProj?.name}</strong> — no conflicts.
+          No similar property found in <strong>{destName}</strong> — no conflicts.
         </p>
       )
     }
     return (
       <div className="mx-4 mb-2.5 space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-        <div className="flex items-center justify-between gap-3">
-          <p className="flex items-start gap-2 text-xs text-amber-800">
-            <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
-            <span>Similar property found in <span className="font-semibold">{destProj?.name}</span> — <span className="font-semibold">{c.match.confidence}% similar</span></span>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+          <p className="flex items-center gap-2 text-xs text-amber-800">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+            <span>Similar property found in <span className="font-semibold">{destName}</span></span>
           </p>
-          {decisionControl(g)}
+          <div className="flex items-center gap-2.5">
+            <ConfidenceBar value={match.confidence} />
+            <button
+              type="button"
+              title="View matching details"
+              onClick={() => setMatchDrawer(g.id)}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-amber-300 bg-white text-amber-700 transition-colors hover:bg-amber-100"
+            >
+              <Eye className="h-3.5 w-3.5" />
+            </button>
+            {decisionControl(g)}
+          </div>
         </div>
         {/* the destination property causing the conflict */}
         <div className="overflow-hidden rounded-lg border border-border bg-card">
-          <PropertyInfoRow g={c.match.prop} />
+          <PropertyInfoRow g={match.prop} />
         </div>
       </div>
     )
   }
 
-  /** Review cards for a subset of groups, still grouped by compound with route + outcome. */
+  /** Review cards for a subset of groups, grouped by source project/phase with route + outcome. */
   const reviewCards = (subset: GroupedProperty[], withActions: boolean) =>
     compoundGroups.map(cg => {
       const gs = cg.groups.filter(g => subset.includes(g))
@@ -2101,6 +2180,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
             {gs.map(g => (
               <div key={g.id}>
                 <PropertyInfoRow g={g} />
+                {linkedLine(g)}
                 {checkDetail(g, cg, withActions)}
               </div>
             ))}
@@ -2113,6 +2193,29 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
         </div>
       )
     }).filter(Boolean)
+
+  /** Collapsible review section. */
+  const reviewSection = (key: string, title: string, tone: string, cards: React.ReactNode[]) => {
+    if (cards.length === 0) return null
+    const isCollapsed = collapsedSections.has(key)
+    return (
+      <div className="space-y-3">
+        <button
+          type="button"
+          onClick={() => setCollapsedSections(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })}
+          className={cn("flex w-full items-center gap-1.5 text-left text-xs font-semibold uppercase tracking-wider", tone)}
+        >
+          {isCollapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+          {title}
+        </button>
+        {!isCollapsed && cards}
+      </div>
+    )
+  }
+
+  const footerCounts = !isSingle && eligible.length > 0 && (step === "select" || step === "review") ? (
+    <span>{compoundGroups.length} project{compoundGroups.length !== 1 ? "s" : ""} and phases · {eligible.length} propert{eligible.length !== 1 ? "ies" : "y"}</span>
+  ) : null
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
@@ -2146,18 +2249,23 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
 
               {!isSingle && (
                 <>
-                  {/* What's selected — buckets the data-ops user cares about */}
+                  {/* Selected vs moving, by sale type — ignored types struck through */}
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="inline-flex items-center rounded-md border border-border bg-muted/60 px-2 py-0.5 text-xs font-semibold text-foreground">
+                      {selectedGroups.length} selected
+                    </span>
+                    <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
                       {eligible.length} moving
                     </span>
                     {SALE_TYPE_BUCKETS.map(b => {
-                      const n = eligible.filter(b.match).length
-                      return n > 0 ? (
-                        <span key={b.key} className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium", b.cls)}>
+                      const n = selectedGroups.filter(b.match).length
+                      if (n === 0) return null
+                      const movable = eligibleTypes.includes(selectedGroups.find(b.match)!.saleType)
+                      return (
+                        <span key={b.key} className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium", b.cls, !movable && "line-through opacity-60")}>
                           {n} {b.key}
                         </span>
-                      ) : null
+                      )
                     })}
                   </div>
 
@@ -2165,7 +2273,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                     <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                       <p className="text-xs text-amber-800">
-                        <span className="font-semibold">{ineligible.length} propert{ineligible.length !== 1 ? "ies" : "y"} skipped</span> — Resale, Nawy Now and Rental can't be moved in bulk. Open them one by one to change their project.
+                        Resale, Nawy Now and Rentals can't be moved in bulk — move them unit by unit or from their dedicated sale type page.
                       </p>
                     </div>
                   )}
@@ -2181,7 +2289,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                 <div className="space-y-4">
                   {!isSingle && (
                     <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      {compoundGroups.length} source compound{compoundGroups.length !== 1 ? "s" : ""} — set a destination for each
+                      {compoundGroups.length} source project{compoundGroups.length !== 1 ? "s" : ""} and phases — set a destination for each
                     </p>
                   )}
                   {compoundGroups.map(cg => {
@@ -2191,7 +2299,12 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                       <div key={cg.key} className="overflow-hidden rounded-xl border border-border bg-card">
                         <div className="border-b border-border bg-muted/50 px-5 py-2.5">{compoundHeader(cg)}</div>
                         <div className="divide-y divide-border/70">
-                          {cg.groups.map(g => <PropertyInfoRow key={g.id} g={g} />)}
+                          {cg.groups.map(g => (
+                            <div key={g.id}>
+                              <PropertyInfoRow g={g} />
+                              {linkedLine(g)}
+                            </div>
+                          ))}
                         </div>
                         <div className="space-y-2 border-t border-border bg-muted/20 px-5 py-3.5">
                           <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -2225,52 +2338,41 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                 <>
                   {/* Outcome summary */}
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-border bg-muted/40 px-4 py-2.5 text-sm">
-                    <span className="font-medium">{totalGroupsMoved} propert{totalGroupsMoved !== 1 ? "ies" : "y"} will be moved</span>
+                    <span className="font-medium">{totalGroupsMoved} Total Properties will be Moved</span>
                     {unitConflicts.length > 0 && (
                       <span className="flex items-center gap-1.5 text-sm font-medium text-amber-700">
-                        <AlertTriangle className="h-3.5 w-3.5" />{unitConflicts.length} unit-code conflict{unitConflicts.length !== 1 ? "s" : ""}
+                        <AlertTriangle className="h-3.5 w-3.5" />{unitConflicts.length} Automatic Propert{unitConflicts.length !== 1 ? "ies have" : "y has"} unit code conflicts
                       </span>
                     )}
                     {simConflicts.length > 0 && (
                       <span className="flex items-center gap-1.5 text-sm font-medium text-amber-700">
-                        <AlertTriangle className="h-3.5 w-3.5" />{simConflicts.length} similarity match{simConflicts.length !== 1 ? "es" : ""}
+                        <AlertTriangle className="h-3.5 w-3.5" />{simConflicts.length} Launch and Primary Manual Propert{simConflicts.length !== 1 ? "ies have" : "y has"} similarity conflicts
                       </span>
                     )}
-                    {unitConflicts.length === 0 && simConflicts.length === 0 && (
+                    {cleanGroups.length > 0 && (
                       <span className="flex items-center gap-1.5 text-sm font-medium text-emerald-700">
-                        <CheckCircle2 className="h-3.5 w-3.5" />No conflicts found
+                        <CheckCircle2 className="h-3.5 w-3.5" />{cleanGroups.length} Propert{cleanGroups.length !== 1 ? "ies have" : "y has"} no conflicts
                       </span>
                     )}
                   </div>
 
-                  {/* 1 — unit-code conflicts (no action needed) */}
-                  {unitConflicts.length > 0 && (
-                    <div className="space-y-3">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">
-                        Unit-code conflicts · {unitConflicts.length} — overwritten on confirm, no action needed
-                      </p>
-                      {reviewCards(unitConflicts, false)}
-                    </div>
+                  {reviewSection(
+                    "unit",
+                    `Unit Code Conflicts · ${unitConflicts.length} Propert${unitConflicts.length !== 1 ? "ies" : "y"} · ${unitConflicts.reduce((s, g) => s + g.details.length, 0)} Detailed Properties`,
+                    "text-amber-700",
+                    reviewCards(unitConflicts, false),
                   )}
-
-                  {/* 2 — similarity conflicts (Overwrite or Move as new) */}
-                  {simConflicts.length > 0 && (
-                    <div className="space-y-3">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">
-                        Similarity conflicts · {simConflicts.length} — choose Overwrite or Move as new
-                      </p>
-                      {reviewCards(simConflicts, true)}
-                    </div>
+                  {reviewSection(
+                    "sim",
+                    `Similarity Conflicts · ${simConflicts.length} Propert${simConflicts.length !== 1 ? "ies" : "y"}`,
+                    "text-amber-700",
+                    reviewCards(simConflicts, true),
                   )}
-
-                  {/* 3 — no conflicts (no action needed) */}
-                  {cleanGroups.length > 0 && (
-                    <div className="space-y-3">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
-                        No conflicts · {cleanGroups.length} — moving cleanly, no action needed
-                      </p>
-                      {reviewCards(cleanGroups, false)}
-                    </div>
+                  {reviewSection(
+                    "clean",
+                    `No Conflicts · ${cleanGroups.length} Propert${cleanGroups.length !== 1 ? "ies" : "y"}`,
+                    "text-emerald-700",
+                    reviewCards(cleanGroups, false),
                   )}
                 </>
               )}
@@ -2286,7 +2388,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
               <div className="space-y-1">
                 <p className="text-base font-semibold">Transferring…</p>
                 <p className="text-sm text-muted-foreground">
-                  Moving {totalGroupsMoved} propert{totalGroupsMoved !== 1 ? "ies" : "y"} across {compoundGroups.length} compound{compoundGroups.length !== 1 ? "s" : ""}. Please wait.
+                  Moving {totalGroupsMoved} propert{totalGroupsMoved !== 1 ? "ies" : "y"} across {compoundGroups.length} project{compoundGroups.length !== 1 ? "s" : ""} and phases. Please wait.
                 </p>
               </div>
             </div>
@@ -2301,7 +2403,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
               <div className="space-y-1">
                 <p className="text-base font-semibold">Transfer complete</p>
                 <p className="text-sm text-muted-foreground">
-                  {doneSnap?.groups ?? 0} grouped propert{(doneSnap?.groups ?? 0) !== 1 ? "ies" : "y"} · {doneSnap?.units ?? 0} detailed units moved across {doneSnap?.compounds ?? 0} compound{(doneSnap?.compounds ?? 0) !== 1 ? "s" : ""}.
+                  {doneSnap?.groups ?? 0} grouped propert{(doneSnap?.groups ?? 0) !== 1 ? "ies" : "y"} · {doneSnap?.units ?? 0} detailed units moved across {doneSnap?.compounds ?? 0} project{(doneSnap?.compounds ?? 0) !== 1 ? "s" : ""} and phases.
                 </p>
               </div>
               <div className="mt-2 inline-flex flex-col items-start gap-1 rounded-lg border border-border bg-muted/40 px-5 py-3 text-left">
@@ -2317,16 +2419,9 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
           )}
         </div>
 
-        {/* Footer — no counts on single moves */}
+        {/* Footer */}
         <div className="flex shrink-0 items-center justify-between border-t border-border bg-card px-6 py-4">
-          <div className="text-xs text-muted-foreground">
-            {!isSingle && step === "select" && eligible.length > 0 && (
-              <span>{compoundGroups.length} compound{compoundGroups.length !== 1 ? "s" : ""} · {eligible.length} propert{eligible.length !== 1 ? "ies" : "y"}</span>
-            )}
-            {!isSingle && step === "review" && unitConflicts.length > 0 && (
-              <span className="font-medium text-amber-600">Unit-code conflicts overwrite the destination on confirm</span>
-            )}
-          </div>
+          <div className="text-xs text-muted-foreground">{footerCounts}</div>
           <div className="flex items-center gap-2">
             {step === "select" && (
               <>
@@ -2354,6 +2449,62 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
             )}
           </div>
         </div>
+
+        {/* Property Matching drawer — source vs matched + switchable alternatives */}
+        {matchDrawer && (() => {
+          const g = eligible.find(x => x.id === matchDrawer)
+          if (!g) return null
+          const cg = compoundGroups.find(c => c.groups.includes(g))!
+          const { destName } = destOf(cg)
+          const cands = checks[g.id]?.candidates ?? []
+          const pick = Math.min(matchPick[g.id] ?? 0, cands.length - 1)
+          return (
+            <Sheet open onOpenChange={o => { if (!o) setMatchDrawer(null) }}>
+              <SheetContent side="right" className="!w-[760px] !max-w-[95vw] p-0 flex flex-col">
+                <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
+                  <SheetTitle className="text-base">Property Matching</SheetTitle>
+                  <SheetDescription className="text-xs">
+                    Source property vs similar properties found in {destName}. Pick a different property to treat as the match.
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Source property</p>
+                    <div className="overflow-hidden rounded-lg border border-border bg-card"><PropertyInfoRow g={g} /></div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Matched property</p>
+                    <div className="overflow-hidden rounded-lg border border-emerald-300 bg-card">
+                      <PropertyInfoRow g={cands[pick].prop} />
+                      <div className="flex items-center justify-between border-t border-border/70 bg-emerald-50/50 px-4 py-2">
+                        <ConfidenceBar value={cands[pick].confidence} />
+                        <Badge variant="outline" className="border-emerald-200 bg-emerald-100 text-[10px] font-medium text-emerald-700">Current match</Badge>
+                      </div>
+                    </div>
+                  </div>
+                  {cands.length > 1 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Other similar properties</p>
+                      <div className="space-y-2">
+                        {cands.map((c, i) => i === pick ? null : (
+                          <div key={c.prop.id} className="overflow-hidden rounded-lg border border-border bg-card">
+                            <PropertyInfoRow g={c.prop} />
+                            <div className="flex items-center justify-between border-t border-border/70 bg-muted/30 px-4 py-2">
+                              <ConfidenceBar value={c.confidence} />
+                              <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => setMatchPick(prev => ({ ...prev, [g.id]: i }))}>
+                                Use as match
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </SheetContent>
+            </Sheet>
+          )
+        })()}
       </DialogContent>
     </Dialog>
   )
