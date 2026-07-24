@@ -838,13 +838,12 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             r={listingDlg}
             phases={phasesOf(listingDlg)}
             onClose={() => setListingDlg(null)}
-            onConfirm={(excludedPhaseIds) => {
-              const next: ProjListingStatus = listingDlg.listingStatus === "Active" ? "Hidden" : "Active"
+            onConfirm={(next, excludedPhaseIds) => {
               applyListing(listingDlg, next, excludedPhaseIds)
-              const changingCount = phasesOf(listingDlg).filter((p) => p.listingStatus !== next).length
+              const phaseCount = phasesOf(listingDlg).length
               const exCount = excludedPhaseIds?.length ?? 0
-              const applied = changingCount - exCount
-              toast.success(`${listingDlg.name} set to ${next}${!listingDlg.isPhase && changingCount ? ` — ${applied} phase${applied !== 1 ? "s" : ""} changed${exCount ? `, ${exCount} excluded` : ""}` : ""}`)
+              const applied = phaseCount - exCount
+              toast.success(`${listingDlg.name} set to ${next}${!listingDlg.isPhase && phaseCount ? ` — ${applied} phase${applied !== 1 ? "s" : ""} changed${exCount ? `, ${exCount} excluded` : ""}` : ""}`)
               setListingDlg(null)
             }}
           />
@@ -1063,61 +1062,132 @@ function PhaseCascadeList({ phases, tagOf, next, nextCls, excluded, onToggle }: 
   )
 }
 
-export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (excludedPhaseIds?: string[]) => void }) {
-  const next: ProjListingStatus = r.listingStatus === "Active" ? "Hidden" : "Active"
+export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (next: ProjListingStatus, excludedPhaseIds?: string[]) => void }) {
+  // Destination is picked — defaults to the flip of current; picking the current status
+  // still runs, aligning any mismatched phases (data may lack integrity).
+  const [target, setTarget] = useState<ProjListingStatus>(r.listingStatus === "Active" ? "Hidden" : "Active")
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const toggle = (id: string) => setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
-  // Phases already at the destination status won't change — shown read-only below, not excludable
-  const changing = phases.filter((p) => p.listingStatus !== next)
-  const unchanged = phases.filter((p) => p.listingStatus === next)
-  const includedCount = changing.filter((p) => !excluded.has(p.id)).length
+  const includedPhases = phases.filter((p) => !excluded.has(p.id))
+  const propsOf = (rows: ProjectRow[]) => rows.reduce((s, x) => s + x.groupedProps + x.detailedProps, 0)
+  const impactedProps = propsOf([r, ...includedPhases])
+  const verb = target === "Active" ? "shown" : "hidden"
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader><DialogTitle>Change Listing Status</DialogTitle></DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">{r.name}</span> <IdTag value={r.id} /> will change from{" "}
-          <Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} /> to <Tag value={next} cls={LISTING_COLORS[next]} />.
-        </p>
-        {!r.isPhase && phases.length > 0 && (
-          <div className="space-y-3">
-            {changing.length > 0 ? (
-              <div className="space-y-1.5">
-                <p className="text-xs text-muted-foreground">
-                  <span className="font-semibold text-foreground">{includedCount} of {changing.length}</span> phase{changing.length > 1 ? "s" : ""} will change to{" "}
-                  <Tag value={next} cls={LISTING_COLORS[next]} /> — untick to exclude:
-                </p>
-                <PhaseCascadeList phases={changing} tagOf={(p) => ({ value: p.listingStatus, cls: LISTING_COLORS[p.listingStatus] })} next={next} nextCls={LISTING_COLORS[next]} excluded={excluded} onToggle={toggle} />
+
+        {/* Rich context — name, ID, current listing; parent for phases; developer */}
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
+          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{r.developer.logo}</span>
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-sm font-semibold text-foreground">{r.name}</span>
+              <IdTag value={r.id} />
+              <Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} />
+            </div>
+            {r.isPhase && r.mainProject && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Main project</span>
+                <span className="text-xs font-medium text-foreground">{r.mainProject.name}</span>
+                <IdTag value={r.mainProject.id} />
               </div>
-            ) : (
-              <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                All phases are already <span className="font-medium text-foreground">{next}</span> — none will change.
-              </p>
             )}
-            {unchanged.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="text-xs text-muted-foreground">
-                  {unchanged.length} phase{unchanged.length > 1 ? "s are" : " is"} already <span className="font-medium text-foreground">{next}</span> — left unchanged:
-                </p>
-                <div className="max-h-40 overflow-y-auto rounded-lg border border-border bg-muted/20">
-                  {unchanged.map((p, i) => (
-                    <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70")}>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer</span>
+              <a href={`/developers/${r.developer.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-foreground hover:text-primary hover:underline">{r.developer.name}</a>
+              <IdTag value={r.developer.id} />
+            </div>
+          </div>
+        </div>
+
+        {/* Destination — Active on the left, Hidden on the right, colored on selection */}
+        <div className="grid grid-cols-2 gap-2">
+          {(["Active", "Hidden"] as ProjListingStatus[]).map((s) => {
+            const selected = target === s
+            const Icon = s === "Active" ? Eye : EyeOff
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setTarget(s)}
+                className={cn(
+                  "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                  selected
+                    ? s === "Active"
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                      : "border-red-300 bg-red-50 text-red-700"
+                    : "border-border hover:bg-muted",
+                )}
+              >
+                <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    {s}
+                    {r.listingStatus === s && (
+                      <span className="inline-flex items-center rounded border border-border bg-muted px-1 py-0 text-[9px] font-medium leading-4 text-muted-foreground">Current</span>
+                    )}
+                  </span>
+                  <span className="block text-[11px] leading-snug opacity-80">
+                    {s === "Active" ? "Visible on Website and E-realty." : "Hidden from the website and E-realty."}
+                  </span>
+                </span>
+                {selected && <Check className="h-4 w-4 shrink-0" />}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Impact cells — properties shown/hidden + entities in scope */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className={cn("rounded-md border px-2.5 py-1.5", target === "Active" ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50")}>
+            <div className={cn("flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide", target === "Active" ? "text-emerald-600" : "text-red-600")}>
+              {target === "Active" ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}{verb} on Website &amp; E-realty
+            </div>
+            <div className="mt-0.5 text-xs text-foreground"><span className="font-semibold">{impactedProps}</span> propert{impactedProps !== 1 ? "ies" : "y"}</div>
+          </div>
+          <div className="rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Total impacted</div>
+            <div className="mt-0.5 text-xs text-foreground"><span className="font-semibold">{1 + includedPhases.length}</span> project/phase{1 + includedPhases.length !== 1 ? "s" : ""}</div>
+          </div>
+        </div>
+
+        {/* Main + EVERY phase, each with current → destination and its property impact —
+            listed even when already at the destination (rerunning aligns mismatches) */}
+        {!r.isPhase && phases.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">
+              Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — untick a phase to exclude it:
+            </p>
+            <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
+              {[r, ...phases].map((p, i) => {
+                const excludable = p.id !== r.id
+                const isExcluded = excludable && excluded.has(p.id)
+                return (
+                  <div key={p.id} className={cn("space-y-1.5 px-3 py-2.5", i > 0 && "border-t border-border/70", excludable && "bg-muted/20", isExcluded && "opacity-45")}>
+                    <div className="flex items-center gap-2.5">
+                      {excludable && <Checkbox checked={!isExcluded} onCheckedChange={() => toggle(p.id)} className="h-4 w-4 flex-shrink-0" />}
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
                         <IdTag value={p.id} />
                       </div>
                       <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
-                      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">No change</span>
+                      <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                      <Tag value={target} cls={LISTING_COLORS[target]} />
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                    <div className={cn("text-[11px] text-muted-foreground", excludable && "pl-7")}>
+                      <span className="font-medium text-foreground">{p.groupedProps + p.detailedProps}</span> properties will be {verb}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
+
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={() => onConfirm([...excluded])}>Change to {next}</Button>
+          <Button size="sm" onClick={() => onConfirm(target, [...excluded])}>Change to {target}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
