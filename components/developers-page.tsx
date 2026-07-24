@@ -1071,6 +1071,17 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
   const changing = flat.filter((p) => p.listingStatus !== target)
   const changingMains = changing.filter((p) => !p.isPhase).length
   const changingPhases = changing.length - changingMains
+  // Display rows: a parent main appears above its changing phases even when the
+  // main itself doesn't change — context only, no arrow
+  const listingRows: { p: (typeof flat)[number]; context: boolean }[] = []
+  for (const m of flat.filter((p) => !p.isPhase)) {
+    const phasesChanging = flat.filter((p) => p.isPhase && p.mainProject?.id === m.id && p.listingStatus !== target)
+    const mainChanges = m.listingStatus !== target
+    if (mainChanges || phasesChanging.length > 0) {
+      listingRows.push({ p: m, context: !mainChanges })
+      phasesChanging.forEach((ph) => listingRows.push({ p: ph, context: false }))
+    }
+  }
   const included = kind === "orgs" ? flat.filter((p) => !excluded.has(p.id)) : changing
   const mainsIncl = included.filter((p) => !p.isPhase).length
   const phasesIncl = included.length - mainsIncl
@@ -1079,21 +1090,19 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className={kind === "listing" ? "sm:!max-w-2xl" : "sm:max-w-lg"}>
+      <DialogContent className="sm:!max-w-2xl">
         <DialogHeader><DialogTitle>{kind === "listing" ? "Change Listing Status" : "Change Organizations"}</DialogTitle></DialogHeader>
-        {kind === "listing" ? (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-foreground">{dev.name}</p>
-              <IdTag value={String(dev.id)} />
-            </div>
-            <StoryBadge value={dev.listingStatus} />
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-foreground">{dev.name}</p>
+            <IdTag value={String(dev.id)} />
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{dev.name}</span> <IdTag value={String(dev.id)} /> will get the selected organizations.
-          </p>
-        )}
+          {kind === "listing" ? (
+            <StoryBadge value={dev.listingStatus} />
+          ) : (
+            <div className="flex items-center gap-1.5">{dev.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
+          )}
+        </div>
 
         {/* Listing: Active on the left, Hidden on the right — each colors up when selected */}
         {kind === "listing" && (
@@ -1186,8 +1195,10 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
                     )}>
                       {p.isPhase ? "Phase" : "Main Project"}
                     </span>
-                    {/* Listing status shown so the user sees each project/phase's state */}
-                    <StoryBadge value={p.listingStatus} />
+                    {/* current organizations of each project / phase */}
+                    <div className="flex flex-shrink-0 items-center gap-1">
+                      {p.organizations.map((o) => <OrgChip key={o} org={o} />)}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1201,8 +1212,8 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
                   <span className="font-medium text-foreground">{changingPhases}</span> phase{changingPhases !== 1 ? "s" : ""} will change to <span className="font-medium text-foreground">{target}</span>:
                 </p>
                 <div className="max-h-[48vh] overflow-y-auto rounded-lg border border-border">
-                  {changing.map((p, i) => (
-                    <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70", p.isPhase && "bg-muted/20 pl-9")}>
+                  {listingRows.map(({ p, context }, i) => (
+                    <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70", p.isPhase && "bg-muted/20 pl-9", context && "opacity-60")}>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
                         <IdTag value={p.id} />
@@ -1214,8 +1225,13 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
                         {p.isPhase ? "Phase" : "Main Project"}
                       </span>
                       <StoryBadge value={p.listingStatus} />
-                      <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                      <StoryBadge value={target} />
+                      {/* context parents don't change — current tag only, no arrow */}
+                      {!context && (
+                        <>
+                          <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                          <StoryBadge value={target} />
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1236,7 +1252,9 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
             size="sm" disabled={!canSave}
             onClick={() => {
               onConfirm(kind === "listing" ? target : orgs)
-              toast.success(`${dev.name} updated — cascaded to ${mainsIncl} project${mainsIncl !== 1 ? "s" : ""} and ${phasesIncl} phase${phasesIncl !== 1 ? "s" : ""}${kind === "orgs" && excluded.size > 0 ? ` (${excluded.size} excluded)` : ""}`)
+              toast.success(kind === "listing"
+                ? `Developer listing status has been updated with ${changingMains} Project${changingMains !== 1 ? "s" : ""} and ${changingPhases} Phase${changingPhases !== 1 ? "s" : ""} successfully.`
+                : `Developer organizations have been updated with ${mainsIncl} Project${mainsIncl !== 1 ? "s" : ""} and ${phasesIncl} Phase${phasesIncl !== 1 ? "s" : ""} successfully.`)
             }}
           >
             {kind === "listing" ? `Change to ${target}` : "Apply"}
