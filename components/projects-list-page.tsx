@@ -838,12 +838,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             r={listingDlg}
             phases={phasesOf(listingDlg)}
             onClose={() => setListingDlg(null)}
-            onConfirm={(next, excludedPhaseIds) => {
-              applyListing(listingDlg, next, excludedPhaseIds)
+            onConfirm={(next) => {
+              applyListing(listingDlg, next)
               const phaseCount = phasesOf(listingDlg).length
-              const exCount = excludedPhaseIds?.length ?? 0
-              const applied = phaseCount - exCount
-              toast.success(`${listingDlg.name} set to ${next}${!listingDlg.isPhase && phaseCount ? ` — ${applied} phase${applied !== 1 ? "s" : ""} changed${exCount ? `, ${exCount} excluded` : ""}` : ""}`)
+              toast.success(`${listingDlg.name} set to ${next}${!listingDlg.isPhase && phaseCount ? ` — with its ${phaseCount} phase${phaseCount !== 1 ? "s" : ""}` : ""}`)
               setListingDlg(null)
             }}
           />
@@ -1062,16 +1060,10 @@ function PhaseCascadeList({ phases, tagOf, next, nextCls, excluded, onToggle }: 
   )
 }
 
-export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (next: ProjListingStatus, excludedPhaseIds?: string[]) => void }) {
+export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (next: ProjListingStatus) => void }) {
   // Destination is picked — defaults to the flip of current; picking the current status
   // still runs, aligning any mismatched phases (data may lack integrity).
   const [target, setTarget] = useState<ProjListingStatus>(r.listingStatus === "Active" ? "Hidden" : "Active")
-  const [excluded, setExcluded] = useState<Set<string>>(new Set())
-  const toggle = (id: string) => setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
-  const includedPhases = phases.filter((p) => !excluded.has(p.id))
-  const propsOf = (rows: ProjectRow[]) => rows.reduce((s, x) => s + x.groupedProps + x.detailedProps, 0)
-  const impactedProps = propsOf([r, ...includedPhases])
-  const verb = target === "Active" ? "shown" : "hidden"
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl">
@@ -1138,56 +1130,39 @@ export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           })}
         </div>
 
-        {/* Impact cells — properties shown/hidden + entities in scope */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className={cn("rounded-md border px-2.5 py-1.5", target === "Active" ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50")}>
-            <div className={cn("flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide", target === "Active" ? "text-emerald-600" : "text-red-600")}>
-              {target === "Active" ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}{verb} on Website &amp; E-realty
-            </div>
-            <div className="mt-0.5 text-xs text-foreground"><span className="font-semibold">{impactedProps}</span> propert{impactedProps !== 1 ? "ies" : "y"}</div>
-          </div>
-          <div className="rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Total impacted</div>
-            <div className="mt-0.5 text-xs text-foreground"><span className="font-semibold">{1 + includedPhases.length}</span> project/phase{1 + includedPhases.length !== 1 ? "s" : ""}</div>
-          </div>
-        </div>
+        {/* Listing hides/shows the project or phase altogether — no property counts */}
+        <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          {r.isPhase
+            ? <>This phase will be {target === "Active" ? "shown on" : "hidden from"} Website and E-realty altogether.</>
+            : <>The main project{phases.length > 0 ? <> and its <span className="font-medium text-foreground">{phases.length}</span> phase{phases.length > 1 ? "s" : ""}</> : null} will be {target === "Active" ? "shown on" : "hidden from"} Website and E-realty altogether.</>}
+        </p>
 
-        {/* Main + EVERY phase, each with current → destination and its property impact —
+        {/* Main + EVERY phase with current → destination — all change together, none excludable;
             listed even when already at the destination (rerunning aligns mismatches) */}
         {!r.isPhase && phases.length > 0 && (
           <div className="space-y-1.5">
             <p className="text-xs text-muted-foreground">
-              Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — untick a phase to exclude it:
+              Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — all change together:
             </p>
             <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
-              {[r, ...phases].map((p, i) => {
-                const excludable = p.id !== r.id
-                const isExcluded = excludable && excluded.has(p.id)
-                return (
-                  <div key={p.id} className={cn("space-y-1.5 px-3 py-2.5", i > 0 && "border-t border-border/70", excludable && "bg-muted/20", isExcluded && "opacity-45")}>
-                    <div className="flex items-center gap-2.5">
-                      {excludable && <Checkbox checked={!isExcluded} onCheckedChange={() => toggle(p.id)} className="h-4 w-4 flex-shrink-0" />}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
-                        <IdTag value={p.id} />
-                      </div>
-                      <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
-                      <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                      <Tag value={target} cls={LISTING_COLORS[target]} />
-                    </div>
-                    <div className={cn("text-[11px] text-muted-foreground", excludable && "pl-7")}>
-                      <span className="font-medium text-foreground">{p.groupedProps + p.detailedProps}</span> properties will be {verb}
-                    </div>
+              {[r, ...phases].map((p, i) => (
+                <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2.5", i > 0 && "border-t border-border/70", p.id !== r.id && "bg-muted/20")}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                    <IdTag value={p.id} />
                   </div>
-                )
-              })}
+                  <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+                  <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                  <Tag value={target} cls={LISTING_COLORS[target]} />
+                </div>
+              ))}
             </div>
           </div>
         )}
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={() => onConfirm(target, [...excluded])}>Change to {target}</Button>
+          <Button size="sm" onClick={() => onConfirm(target)}>Change to {target}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
