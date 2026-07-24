@@ -1543,12 +1543,12 @@ function DestSelector({ value, onChange, lockedDevName, excludeProjectId, exclud
 // ── Bulk Change Listing Status — unit counts by sale type + destination tree ──
 
 const LISTING_META: Record<string, { icon: React.ElementType; cls: string; note: string }> = {
-  Published: { icon: Eye, cls: "border-emerald-300 bg-emerald-50 text-emerald-700", note: "Visible and bookable on the website and E-realty." },
+  Published: { icon: Eye, cls: "border-emerald-300 bg-emerald-50 text-emerald-700", note: "Visible on Website and E-realty." },
   Hidden: { icon: EyeOff, cls: "border-red-300 bg-red-50 text-red-700", note: "Hidden from the website and E-realty." },
 }
 
-// Sale-type unit buckets — Primary splits by entry type, each with its own light tone
-const UNIT_BUCKETS: { key: string; match: (g: GroupedProperty) => boolean; cls: string }[] = [
+// Sale-type buckets — Primary splits by entry type, each with its own light tone
+const SALE_TYPE_BUCKETS: { key: string; match: (g: GroupedProperty) => boolean; cls: string }[] = [
   { key: "Launch", match: g => g.saleType === "Launch", cls: "border-yellow-200 bg-yellow-50 text-yellow-700" },
   { key: "Primary Automatic", match: g => g.saleType === "Primary" && g.entryType === "Automatic", cls: "border-blue-200 bg-blue-50 text-blue-700" },
   { key: "Primary Manual", match: g => g.saleType === "Primary" && g.entryType === "Manual", cls: "border-blue-200 bg-blue-50 text-blue-700" },
@@ -1557,13 +1557,18 @@ const UNIT_BUCKETS: { key: string; match: (g: GroupedProperty) => boolean; cls: 
   { key: "Rentals", match: g => g.saleType === "Rental", cls: "border-red-200 bg-red-50 text-red-600" },
 ]
 
-const unitsOf = (gs: GroupedProperty[]) => gs.reduce((s, g) => s + g.totalUnits, 0)
+/** Plain-text sale-type breakdown, count first: "2 Launch Properties · 1 Resale Property". */
+const saleTypeBreakdown = (gs: GroupedProperty[]) =>
+  SALE_TYPE_BUCKETS.map(b => ({ n: gs.filter(b.match).length, key: b.key }))
+    .filter(x => x.n > 0)
+    .map(x => `${x.n} ${x.key} Propert${x.n !== 1 ? "ies" : "y"}`)
+    .join(" · ")
 
 /**
- * Bulk Change Listing Status — pick Published / Hidden at the top, see the total
- * selected units broken down by sale type, then by developer → project → phase.
- * Developer totals equal the sum of their projects + phases; a main project only
- * shows a count for units linked directly to it (none when all sit under phases).
+ * Bulk Change Listing Status — pick Published / Hidden at the top, see the selected
+ * properties broken down by sale type, then by developer → project → phase.
+ * Developer counts equal the sum of their projects + phases; a main project only
+ * shows counts for properties linked directly to it (none when all sit under phases).
  * Only properties not already at the destination status are changed.
  */
 function BulkListingDialog({ groups, onClose, onApply }: {
@@ -1573,7 +1578,6 @@ function BulkListingDialog({ groups, onClose, onApply }: {
 }) {
   const [target, setTarget] = useState("")
   const changing = target ? groups.filter(g => g.listingStatus !== target) : groups
-  const totalUnits = unitsOf(groups)
 
   // developer → project (direct groups + phases) tree of the selection
   const tree = useMemo(() => {
@@ -1594,8 +1598,9 @@ function BulkListingDialog({ groups, onClose, onApply }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups])
 
-  const unitChip = (n: number) => (
-    <span className="shrink-0 text-xs tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{n.toLocaleString()}</span> units</span>
+  // Plain muted text at each node — colored tags stay in the totals row above only
+  const nodeBreakdown = (gs: GroupedProperty[]) => (
+    <span className="max-w-[60%] shrink-0 text-right text-[11px] leading-4 tabular-nums text-muted-foreground">{saleTypeBreakdown(gs)}</span>
   )
 
   return (
@@ -1604,7 +1609,7 @@ function BulkListingDialog({ groups, onClose, onApply }: {
         <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
           <DialogTitle>Change Listing Status</DialogTitle>
           <DialogDescription>
-            Set the listing status for the selected grouped properties — only properties not already at that status will change.
+            Set Listing status to show or hide the selected properties.
           </DialogDescription>
         </DialogHeader>
 
@@ -1645,18 +1650,18 @@ function BulkListingDialog({ groups, onClose, onApply }: {
             </div>
           )}
 
-          {/* Units selected — total + breakdown by sale type */}
+          {/* Properties selected — total + breakdown by sale type (colored tags live here only) */}
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Units selected</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Properties selected</p>
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="inline-flex items-center rounded-md border border-border bg-muted/60 px-2 py-0.5 text-xs font-semibold text-foreground">
-                Total {totalUnits.toLocaleString()} units
+                Total {groups.length.toLocaleString()} Properties
               </span>
-              {UNIT_BUCKETS.map(b => {
-                const n = unitsOf(groups.filter(b.match))
+              {SALE_TYPE_BUCKETS.map(b => {
+                const n = groups.filter(b.match).length
                 return n > 0 ? (
                   <span key={b.key} className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium", b.cls)}>
-                    {b.key} {n.toLocaleString()}
+                    {n.toLocaleString()} {b.key} Propert{n !== 1 ? "ies" : "y"}
                   </span>
                 ) : null
               })}
@@ -1667,7 +1672,7 @@ function BulkListingDialog({ groups, onClose, onApply }: {
           <div className="space-y-3">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Breakdown by developer, project and phase</p>
             {tree.map(dev => {
-              const devUnits = unitsOf([...dev.projects.values()].flatMap(p => [...p.direct, ...[...p.phases.values()].flatMap(ph => ph.groups)]))
+              const devGroups = [...dev.projects.values()].flatMap(p => [...p.direct, ...[...p.phases.values()].flatMap(ph => ph.groups)])
               return (
                 <div key={dev.id} className="rounded-xl border border-border overflow-hidden">
                   <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-muted/50 border-b border-border">
@@ -1676,7 +1681,7 @@ function BulkListingDialog({ groups, onClose, onApply }: {
                       <span className="text-sm font-semibold text-foreground truncate">{dev.name}</span>
                       <span className="font-mono text-[10px] text-muted-foreground">{dev.id}</span>
                     </div>
-                    {unitChip(devUnits)}
+                    {nodeBreakdown(devGroups)}
                   </div>
                   {[...dev.projects.values()].map(p => (
                     <div key={p.id} className="border-b border-border/70 last:border-b-0">
@@ -1685,8 +1690,8 @@ function BulkListingDialog({ groups, onClose, onApply }: {
                           <span className="text-xs font-medium text-foreground truncate">{p.name}</span>
                           <span className="font-mono text-[10px] text-muted-foreground">{p.id}</span>
                         </div>
-                        {/* count only for units linked directly to the main project */}
-                        {p.direct.length > 0 ? unitChip(unitsOf(p.direct)) : null}
+                        {/* counts only for properties linked directly to the main project */}
+                        {p.direct.length > 0 ? nodeBreakdown(p.direct) : null}
                       </div>
                       {[...p.phases.values()].map(ph => (
                         <div key={ph.id} className="flex items-center justify-between gap-3 pl-8 pr-4 py-1.5">
@@ -1694,7 +1699,7 @@ function BulkListingDialog({ groups, onClose, onApply }: {
                             <span className="text-xs text-muted-foreground truncate">{ph.name}</span>
                             <span className="font-mono text-[10px] text-muted-foreground">{ph.id}</span>
                           </div>
-                          {unitChip(unitsOf(ph.groups))}
+                          {nodeBreakdown(ph.groups)}
                         </div>
                       ))}
                     </div>

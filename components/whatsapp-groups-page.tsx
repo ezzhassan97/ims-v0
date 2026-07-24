@@ -489,7 +489,7 @@ const GROUP_TYPES: WaGroupLabel[] = ["Developer", "Product", "Internal", "Other"
  * and the group is created on a chosen connected phone.
  */
 function CreateGroupDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (group: WaGroup) => void }) {
-  type GroupMember = WaContact & { source: "Nawy" | "Developer" }
+  type GroupMember = WaContact & { source: "Nawy" | "Developer"; title?: string }
   const devOptions = DEVELOPERS.map((d) => ({ id: String(d.id), name: d.name, status: d.listingStatus }))
   const [groupType, setGroupType] = useState<WaGroupLabel | "">("")
   const [devId, setDevId] = useState("")
@@ -499,15 +499,16 @@ function CreateGroupDialog({ onClose, onCreate }: { onClose: () => void; onCreat
   const [groupImage, setGroupImage] = useState("")
   const [roles, setRoles] = useState<Record<string, WaContact["role"]>>({})
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  const [collapsed, setCollapsed] = useState<Set<"dev" | "nawy">>(new Set())
   const imgRef = useRef<HTMLInputElement>(null)
 
   const dev = groupType === "Developer" ? DEVELOPERS.find((d) => String(d.id) === devId) : undefined
   const phone = CONNECTED_PHONES.find((p) => p.id === phoneId)!
   // Nawy default contacts always auto-join; a linked developer adds its own contacts too
-  const members: GroupMember[] = [
-    ...WA_CONTACTS.map((c) => ({ ...c, source: "Nawy" as const })),
-    ...(dev ? devContactsFor(dev.id, null).map((c) => ({ id: c.id, name: c.name, phone: c.phone, role: "Member" as const, source: "Developer" as const })) : []),
-  ].map((m) => ({ ...m, role: roles[m.id] ?? m.role }))
+  const withRole = (m: GroupMember) => ({ ...m, role: roles[m.id] ?? m.role })
+  const devMembers: GroupMember[] = (dev ? devContactsFor(dev.id, null).map((c) => ({ id: c.id, name: c.name, phone: c.phone, title: c.title, role: "Member" as const, source: "Developer" as const })) : []).map(withRole)
+  const nawyMembers: GroupMember[] = WA_CONTACTS.map((c) => ({ ...c, source: "Nawy" as const })).map(withRole)
+  const members: GroupMember[] = [...devMembers, ...nawyMembers]
   const included = members.filter((m) => !excluded.has(m.id))
   const admins = included.filter((m) => m.role === "Admin").length
 
@@ -518,6 +519,56 @@ function CreateGroupDialog({ onClose, onCreate }: { onClose: () => void; onCreat
   }
   const toggleExcluded = (id: string) =>
     setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  const memberRow = (c: GroupMember) => {
+    const isEx = excluded.has(c.id)
+    return (
+      <div key={c.id} className={cn("flex items-center gap-2.5 px-3 py-2.5", isEx && "opacity-45")}>
+        <Checkbox checked={!isEx} onCheckedChange={() => toggleExcluded(c.id)} className="h-4 w-4 flex-shrink-0" />
+        <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">
+          {c.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
+          <p className="truncate text-[10px] text-muted-foreground">
+            {c.title && <>{c.title} · </>}<span className="font-mono">{c.phone}</span>
+          </p>
+        </div>
+        <div className="flex flex-shrink-0 overflow-hidden rounded-md border border-border text-[11px] font-medium">
+          {(["Admin", "Member"] as const).map((r) => (
+            <button
+              key={r} type="button" disabled={isEx} onClick={() => setRoles((prev) => ({ ...prev, [c.id]: r }))}
+              className={cn("px-2 py-1 transition-colors", c.role === r ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  /** Collapsible contact section — Developer contacts on top, Nawy contacts below. */
+  const memberSection = (key: "dev" | "nawy", label: string, list: GroupMember[]) => {
+    if (list.length === 0) return null
+    const isCollapsed = collapsed.has(key)
+    const joining = list.filter((m) => !excluded.has(m.id)).length
+    return (
+      <div className="overflow-hidden rounded-lg border border-border">
+        <button
+          type="button"
+          onClick={() => setCollapsed((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })}
+          className="flex w-full items-center gap-2 bg-muted/50 px-3 py-2.5 text-left transition-colors hover:bg-muted/70"
+        >
+          {isCollapsed ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />}
+          <span className="text-sm font-semibold text-foreground">{label}</span>
+          <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{list.length}</span>
+          <span className="ml-auto text-[11px] text-muted-foreground">{joining} of {list.length} joining</span>
+        </button>
+        {!isCollapsed && <div className="divide-y divide-border/70 border-t border-border">{list.map(memberRow)}</div>}
+      </div>
+    )
+  }
 
   const displayImage = groupImage || dev?.logo || img(groupName.trim() ? groupName.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() : "WG", "334155")
   const canCreate = groupType !== "" && groupName.trim() !== "" && (groupType !== "Developer" || !!dev) && included.length > 0
@@ -546,9 +597,10 @@ function CreateGroupDialog({ onClose, onCreate }: { onClose: () => void; onCreat
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader><DialogTitle>Create WhatsApp Group</DialogTitle></DialogHeader>
+      <DialogContent className="flex flex-col gap-0 p-0 sm:!max-w-xl" style={{ maxHeight: "90vh" }}>
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-4"><DialogTitle>Create WhatsApp Group</DialogTitle></DialogHeader>
 
+        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
         {/* Type + connected phone */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
@@ -592,49 +644,17 @@ function CreateGroupDialog({ onClose, onCreate }: { onClose: () => void; onCreat
           </div>
         </div>
 
-        {/* Contacts auto-joining the group */}
-        <div className="space-y-1.5">
+        {/* Contacts auto-joining the group — developer contacts first, Nawy defaults below */}
+        <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
             <span className="font-semibold text-foreground">{included.length} of {members.length}</span> contact{members.length !== 1 ? "s" : ""} will join automatically ({admins} admin{admins !== 1 ? "s" : ""}) — untick to exclude:
           </p>
-          <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
-            {members.map((c, i) => {
-              const isEx = excluded.has(c.id)
-              return (
-                <div key={c.id} className={cn("flex items-center gap-2.5 px-3 py-2.5", i > 0 && "border-t border-border/70", isEx && "opacity-45")}>
-                  <Checkbox checked={!isEx} onCheckedChange={() => toggleExcluded(c.id)} className="h-4 w-4 flex-shrink-0" />
-                  <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">
-                    {c.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
-                      <span className={cn(
-                        "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded border px-1.5 py-px text-[10px] font-medium",
-                        c.source === "Nawy" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-blue-200 bg-blue-50 text-blue-700",
-                      )}>
-                        {c.source}
-                      </span>
-                    </div>
-                    <p className="font-mono text-[10px] text-muted-foreground">{c.phone}</p>
-                  </div>
-                  <div className="flex flex-shrink-0 overflow-hidden rounded-md border border-border text-[11px] font-medium">
-                    {(["Admin", "Member"] as const).map((r) => (
-                      <button
-                        key={r} type="button" disabled={isEx} onClick={() => setRoles((prev) => ({ ...prev, [c.id]: r }))}
-                        className={cn("px-2 py-1 transition-colors", c.role === r ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
-                      >
-                        {r}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          {memberSection("dev", "Developer Contacts", devMembers)}
+          {memberSection("nawy", "Nawy Contacts", nawyMembers)}
+        </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" disabled={!canCreate} onClick={create}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />Create Group
