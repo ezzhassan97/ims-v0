@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
   Search, SlidersHorizontal, ArrowUpDown, ArrowUp, ArrowDown, Columns3, Plus, Copy, Check, ChevronDown, Download,
   ArrowRight, Home, ChevronRight, Pencil, ChevronUp, MoreHorizontal, MessageCircle,
-  ChevronLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Eye, FileText, Globe, ToggleRight, Users, HelpCircle,
+  ChevronLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Eye, EyeOff, FileText, Globe, ToggleRight, Users, HelpCircle,
   Image as ImageIcon, Group as GroupIcon, GripVertical, Trash2, Save, X, UploadCloud,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -1054,7 +1054,8 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
   onClose: () => void
   onConfirm: (value: DevListingStatus | DevOrg[]) => void
 }) {
-  const next: DevListingStatus = dev.listingStatus === "Active" ? "Hidden" : "Active"
+  // Listing: pick the destination status — defaults to the flip of the current one
+  const [target, setTarget] = useState<DevListingStatus>(dev.listingStatus === "Active" ? "Hidden" : "Active")
   const [orgs, setOrgs] = useState<DevOrg[]>(dev.organizations)
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const toggleOrg = (o: DevOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
@@ -1066,10 +1067,16 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
   const flat = impacted
     .filter((p) => !p.isPhase)
     .flatMap((m) => [m, ...impacted.filter((p) => p.isPhase && p.mainProject?.id === m.id)])
-  const included = kind === "orgs" ? flat.filter((p) => !excluded.has(p.id)) : flat
+  // Listing: only projects/phases not already at the destination actually change
+  const changing = flat.filter((p) => p.listingStatus !== target)
+  const unchanged = flat.filter((p) => p.listingStatus === target)
+  const changingMains = changing.filter((p) => !p.isPhase).length
+  const changingPhases = changing.length - changingMains
+  const included = kind === "orgs" ? flat.filter((p) => !excluded.has(p.id)) : changing
   const mainsIncl = included.filter((p) => !p.isPhase).length
   const phasesIncl = included.length - mainsIncl
-  const canSave = kind === "listing" || orgs.length > 0
+  // Listing: picking the current status is a no-op — nothing to confirm
+  const canSave = kind === "listing" ? target !== dev.listingStatus : orgs.length > 0
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -1078,11 +1085,50 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
         <p className="text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{dev.name}</span> <IdTag value={String(dev.id)} />{" "}
           {kind === "listing" ? (
-            <>will change from <StoryBadge value={dev.listingStatus} /> to <StoryBadge value={next} />.</>
+            <>is currently <StoryBadge value={dev.listingStatus} /> — pick the status to change to.</>
           ) : (
             <>will get the selected organizations.</>
           )}
         </p>
+
+        {/* Listing: Active on the left, Hidden on the right — each colors up when selected */}
+        {kind === "listing" && (
+          <div className="grid grid-cols-2 gap-2">
+            {(["Active", "Hidden"] as DevListingStatus[]).map((s) => {
+              const selected = target === s
+              const Icon = s === "Active" ? Eye : EyeOff
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setTarget(s)}
+                  className={cn(
+                    "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                    selected
+                      ? s === "Active"
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                        : "border-red-300 bg-red-50 text-red-700"
+                      : "border-border hover:bg-muted",
+                  )}
+                >
+                  <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      {s}
+                      {dev.listingStatus === s && (
+                        <span className="inline-flex items-center rounded border border-border bg-muted px-1 py-0 text-[9px] font-medium leading-4 text-muted-foreground">Current</span>
+                      )}
+                    </span>
+                    <span className="block text-[11px] leading-snug opacity-80">
+                      {s === "Active" ? "Visible on Website and E-realty." : "Hidden from the website and E-realty."}
+                    </span>
+                  </span>
+                  {selected && <Check className="h-4 w-4 shrink-0" />}
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         {kind === "orgs" && (
           <div className="flex gap-2">
@@ -1099,48 +1145,108 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
         )}
 
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
-          This change cascades to <span className="font-semibold">{mainsIncl}</span> project{mainsIncl !== 1 ? "s" : ""} and{" "}
-          <span className="font-semibold">{phasesIncl}</span> phase{phasesIncl !== 1 ? "s" : ""} under this developer
-          {kind === "orgs" && excluded.size > 0 ? <> — <span className="font-semibold">{excluded.size}</span> excluded</> : null}.
+          {kind === "listing" ? (
+            <>
+              Changing to <span className="font-semibold">{target}</span> cascades to <span className="font-semibold">{changingMains}</span> project{changingMains !== 1 ? "s" : ""} and{" "}
+              <span className="font-semibold">{changingPhases}</span> phase{changingPhases !== 1 ? "s" : ""} under this developer
+              {unchanged.length > 0 ? <> — <span className="font-semibold">{unchanged.length}</span> already {target}</> : null}.
+            </>
+          ) : (
+            <>
+              This change cascades to <span className="font-semibold">{mainsIncl}</span> project{mainsIncl !== 1 ? "s" : ""} and{" "}
+              <span className="font-semibold">{phasesIncl}</span> phase{phasesIncl !== 1 ? "s" : ""} under this developer
+              {excluded.size > 0 ? <> — <span className="font-semibold">{excluded.size}</span> excluded</> : null}.
+            </>
+          )}
         </div>
 
         {flat.length > 0 ? (
-          <div className="space-y-1.5">
-            <p className="text-xs text-muted-foreground">
-              {kind === "orgs"
-                ? "All projects and phases are included by default — untick a row to exclude it from this change:"
-                : "Projects and phases inheriting this change — grouped by main project, read only:"}
-            </p>
-            <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
-              {flat.map((p, i) => (
-                <div
-                  key={p.id}
-                  className={cn(
-                    "flex items-center gap-2.5 px-3 py-2",
-                    i > 0 && "border-t border-border/70",
-                    p.isPhase && "bg-muted/20 pl-9",
-                    kind === "orgs" && excluded.has(p.id) && "opacity-45",
-                  )}
-                >
-                  {kind === "orgs" && (
+          kind === "orgs" ? (
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">All projects and phases are included by default — untick a row to exclude it from this change:</p>
+              <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
+                {flat.map((p, i) => (
+                  <div
+                    key={p.id}
+                    className={cn(
+                      "flex items-center gap-2.5 px-3 py-2",
+                      i > 0 && "border-t border-border/70",
+                      p.isPhase && "bg-muted/20 pl-9",
+                      excluded.has(p.id) && "opacity-45",
+                    )}
+                  >
                     <Checkbox checked={!excluded.has(p.id)} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
-                    <IdTag value={p.id} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                      <IdTag value={p.id} />
+                    </div>
+                    <span className={cn(
+                      "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-px text-[10px] font-medium",
+                      p.isPhase ? "border-border bg-muted text-muted-foreground" : "border-blue-200 bg-blue-100 text-blue-700",
+                    )}>
+                      {p.isPhase ? "Phase" : "Main Project"}
+                    </span>
+                    {/* Listing status shown so the user sees each project/phase's state */}
+                    <StoryBadge value={p.listingStatus} />
                   </div>
-                  <span className={cn(
-                    "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-px text-[10px] font-medium",
-                    p.isPhase ? "border-border bg-muted text-muted-foreground" : "border-blue-200 bg-blue-100 text-blue-700",
-                  )}>
-                    {p.isPhase ? "Phase" : "Main Project"}
-                  </span>
-                  {/* Listing status shown for both actions so the user sees each project/phase's state */}
-                  <StoryBadge value={p.listingStatus} />
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Listing: split by the picked destination — changing on top, already-there below */
+            <div className="space-y-3">
+              {changing.length > 0 ? (
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">
+                    Will change to <span className="font-medium text-foreground">{target}</span> — grouped by main project, current status shown:
+                  </p>
+                  <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
+                    {changing.map((p, i) => (
+                      <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70", p.isPhase && "bg-muted/20 pl-9")}>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                          <IdTag value={p.id} />
+                        </div>
+                        <span className={cn(
+                          "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-px text-[10px] font-medium",
+                          p.isPhase ? "border-border bg-muted text-muted-foreground" : "border-blue-200 bg-blue-100 text-blue-700",
+                        )}>
+                          {p.isPhase ? "Phase" : "Main Project"}
+                        </span>
+                        <StoryBadge value={p.listingStatus} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
+                  Every project and phase under this developer is already {target} — only the developer's own status changes.
+                </p>
+              )}
+              {unchanged.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">Already {target} — no change:</p>
+                  <div className="max-h-36 overflow-y-auto rounded-lg border border-border opacity-70">
+                    {unchanged.map((p, i) => (
+                      <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70", p.isPhase && "bg-muted/20 pl-9")}>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                          <IdTag value={p.id} />
+                        </div>
+                        <span className={cn(
+                          "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-px text-[10px] font-medium",
+                          p.isPhase ? "border-border bg-muted text-muted-foreground" : "border-blue-200 bg-blue-100 text-blue-700",
+                        )}>
+                          {p.isPhase ? "Phase" : "Main Project"}
+                        </span>
+                        <StoryBadge value={p.listingStatus} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
         ) : (
           <p className="text-xs text-muted-foreground">No projects are linked to this developer yet.</p>
         )}
@@ -1150,11 +1256,11 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
           <Button
             size="sm" disabled={!canSave}
             onClick={() => {
-              onConfirm(kind === "listing" ? next : orgs)
+              onConfirm(kind === "listing" ? target : orgs)
               toast.success(`${dev.name} updated — cascaded to ${mainsIncl} project${mainsIncl !== 1 ? "s" : ""} and ${phasesIncl} phase${phasesIncl !== 1 ? "s" : ""}${kind === "orgs" && excluded.size > 0 ? ` (${excluded.size} excluded)` : ""}`)
             }}
           >
-            {kind === "listing" ? `Change to ${next}` : "Apply"}
+            {kind === "listing" ? `Change to ${target}` : "Apply"}
           </Button>
         </DialogFooter>
       </DialogContent>
