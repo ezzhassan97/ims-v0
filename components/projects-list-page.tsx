@@ -1429,12 +1429,11 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   // type's Primary properties get hidden, `entryVal`'s get shown. Only phases whose current
   // type differs from the destination are impacted; excluded phases are skipped in the counts.
   const fromEntry: ProjEntryType = entryVal === "Automatic" ? "Manual" : "Automatic"
-  // Data may lack integrity: a main can be one type while its phases differ. "Impacted" = any
-  // entity whose current type differs from the chosen destination — the main may or may not be one.
-  const mainImpacted = targets.filter((t) => t.entryType !== entryVal)
-  const entryPhasesNeeding = impacted.filter((p) => p.entryType !== entryVal)
-  const includedEntryPhases = entryPhasesNeeding.filter((p) => !excludedPhases.has(p.id))
-  const entryChangingCount = mainImpacted.length + includedEntryPhases.length
+  // Data may lack integrity: even an entity already at the destination type can hold
+  // mis-flagged properties (hidden Availables of the destination type, shown ones of the
+  // other). Rerunning fixes them — so every target and phase is always in scope.
+  const includedEntryPhases = impacted.filter((p) => !excludedPhases.has(p.id))
+  const entryChangingCount = targets.length + includedEntryPhases.length
   // hidden = outgoing (`fromEntry`) type's properties · shown = incoming (`entryVal`) type's properties
   const entryCounts = (rows: ProjectRow[]) => ({
     hiddenG: rows.reduce((s, x) => s + x.primaryByEntry[fromEntry].grouped, 0),
@@ -1442,8 +1441,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
     shownG: rows.reduce((s, x) => s + x.primaryByEntry[entryVal].grouped, 0),
     shownD: rows.reduce((s, x) => s + x.primaryByEntry[entryVal].detailed, 0),
   })
-  const totalCounts = entryCounts([...mainImpacted, ...includedEntryPhases])
-  const mainCounts = entryCounts(mainImpacted)
+  const totalCounts = entryCounts([...targets, ...includedEntryPhases])
 
   // Change Developer / Change Area — property titles are auto-generated from attributes
   // including developer + area, so changing either regenerates the titles of every property
@@ -1563,18 +1561,6 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
               </div>
               <EntryImpactPair fromType={fromEntry} toType={entryVal} c={totalCounts} />
             </div>
-            {impacted.length > 0 && (
-              <div className="space-y-1.5">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Main project only</div>
-                {mainImpacted.length > 0 ? (
-                  <EntryImpactPair fromType={fromEntry} toType={entryVal} c={mainCounts} />
-                ) : (
-                  <p className="rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground">
-                    The main project is already <span className="font-medium text-foreground">{entryVal}</span> — not affected; only mismatched phases below change.
-                  </p>
-                )}
-              </div>
-            )}
           </>
         )}
         {kind === "parent" && (
@@ -1706,48 +1692,46 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           </div>
         )}
 
-        {/* Entry kind: only phases that actually need the change; each excludable, with listing
-            status, current → destination, and its own hidden/shown property counts */}
+        {/* Entry kind: the main project and EVERY phase, each with its own shown/hide impact —
+            listed even when already at the destination type, since rerunning fixes mis-flagged
+            properties. Phases stay excludable; the main isn't. */}
         {kind === "entry" && (
-          entryPhasesNeeding.length > 0 ? (
-            <div className="space-y-1.5">
-              <p className="text-xs text-muted-foreground">
-                Phases that will change ({includedEntryPhases.length} of {entryPhasesNeeding.length}) — untick to exclude a phase from the cascade:
-              </p>
-              <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
-                {entryPhasesNeeding.map((p, i) => {
-                  const isExcluded = excludedPhases.has(p.id)
-                  const pc = entryCounts([p])
-                  return (
-                    <div key={p.id} className={cn("space-y-1.5 px-3 py-2.5", i > 0 && "border-t border-border/70", isExcluded && "opacity-45")}>
-                      <div className="flex items-center gap-2.5">
-                        <Checkbox checked={!isExcluded} onCheckedChange={() => toggleExcludedPhase(p.id)} className="h-4 w-4 flex-shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-foreground">{targets.length > 1 ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
-                          <IdTag value={p.id} />
-                        </div>
-                        <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
-                        <div className="flex flex-shrink-0 items-center gap-1">
-                          <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
-                          <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-                          <Tag value={entryVal} cls={ENTRY_COLORS[entryVal]} />
-                        </div>
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">
+              {impacted.length > 0
+                ? <>Main project and its {impacted.length} phase{impacted.length > 1 ? "s" : ""} with their impacted properties — untick a phase to exclude it:</>
+                : <>Impacted properties:</>}
+            </p>
+            <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
+              {[...targets, ...impacted].map((p, i) => {
+                const excludable = impacted.includes(p)
+                const isExcluded = excludable && excludedPhases.has(p.id)
+                const pc = entryCounts([p])
+                return (
+                  <div key={p.id} className={cn("space-y-1.5 px-3 py-2.5", i > 0 && "border-t border-border/70", excludable && "bg-muted/20", isExcluded && "opacity-45")}>
+                    <div className="flex items-center gap-2.5">
+                      {excludable && <Checkbox checked={!isExcluded} onCheckedChange={() => toggleExcludedPhase(p.id)} className="h-4 w-4 flex-shrink-0" />}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{p.isPhase && targets.length > 1 ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
+                        <IdTag value={p.id} />
                       </div>
-                      <div className="pl-7 text-[11px] text-muted-foreground">
-                        <span className="text-emerald-600">Shown</span> <span className="font-medium text-foreground">{pc.shownG + pc.shownD}</span>
-                        <span className="mx-1.5 text-border">|</span>
-                        <span className="text-red-600">Hidden</span> <span className="font-medium text-foreground">{pc.hiddenG + pc.hiddenD}</span>
+                      <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+                      <div className="flex flex-shrink-0 items-center gap-1">
+                        <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
+                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Tag value={entryVal} cls={ENTRY_COLORS[entryVal]} />
                       </div>
                     </div>
-                  )
-                })}
-              </div>
+                    <div className={cn("text-[11px] text-muted-foreground", excludable && "pl-7")}>
+                      <span className="text-emerald-600">Shown</span> <span className="font-medium text-foreground">{pc.shownG + pc.shownD}</span>
+                      <span className="mx-1.5 text-border">|</span>
+                      <span className="text-red-600">Hidden</span> <span className="font-medium text-foreground">{pc.hiddenG + pc.hiddenD}</span>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-          ) : impacted.length > 0 ? (
-            <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              All {impacted.length} phase{impacted.length > 1 ? "s are" : " is"} already <span className="font-medium text-foreground">{entryVal}</span> — no phase needs changing.
-            </p>
-          ) : null
+          </div>
         )}
 
         <DialogFooter>
