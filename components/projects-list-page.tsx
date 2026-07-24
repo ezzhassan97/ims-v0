@@ -1170,15 +1170,20 @@ export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
 }
 
 /**
- * Change Primary Status — the primary status drives the listing (Publish/Unpublish)
- * of Grouped Properties and the status of the detailed properties under them
- * (Available / Sold Off / Hold / Archived). Only Primary & Launch properties are
- * impacted — never Resale, Nawy Now or Rental. Each from→to transition cascades
- * differently; leaving Launch always requires the launch end date (EOI flagging).
+ * Change Primary Status — the destination drives what happens to the properties
+ * under the project/phase, per sale-type bucket:
+ *  - Launch properties: listing only — Shown when the destination is Launch,
+ *    Hidden otherwise (sale status never changes).
+ *  - Primary Manual / Primary Automatic: On-Sale → Available + Shown;
+ *    On-Hold → Hold + Hidden; Sold-Off → Sold + Hidden; a Launch destination
+ *    leaves them unchanged unless the optional hide toggle is on.
+ *  - Resale, Nawy Now and Rental are never affected.
+ * Terminology: Primary Automatic counts Properties · Detailed Properties;
+ * Launch and Primary Manual count Properties only.
  */
 export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (s: ProjPrimaryStatus, excludedPhaseIds?: string[]) => void }) {
   const from = r.primaryStatus
-  const [next, setNext] = useState<ProjPrimaryStatus | "">("")
+  const [target, setTarget] = useState<ProjPrimaryStatus | "">("")
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const [endDate, setEndDate] = useState("")
   const [hideAvailable, setHideAvailable] = useState(false)
@@ -1187,92 +1192,67 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
 
   const cascading = !r.isPhase && phases.length > 0
   const includedPhases = cascading ? phases.filter((p) => !excluded.has(p.id)) : []
-  const impactedRows = [r, ...includedPhases]
+  const scope = [r, ...includedPhases]
+  const leavingLaunch = from === "Launch" && target !== "" && target !== "Launch"
+  const canSave = target !== "" && (!leavingLaunch || !!endDate)
 
-  // grouped + detailed counts everywhere — never just a statement
-  type PC = { grouped: number; detailed: number }
-  const ZERO: PC = { grouped: 0, detailed: 0 }
-  const add = (a: PC, b: PC): PC => ({ grouped: a.grouped + b.grouped, detailed: a.detailed + b.detailed })
-  const statusSum = (rows: ProjectRow[], k: keyof ProjectRow["primaryStatusProps"]): PC =>
-    rows.reduce((s, x) => add(s, x.primaryStatusProps[k]), ZERO)
-  const launch = statusSum(impactedRows, "launch")
-  const available = statusSum(impactedRows, "available")
-  const onHold = statusSum(impactedRows, "onHold")
-  const fmtPC = (c: PC) => <><span className="font-semibold">{c.grouped}</span> grouped · <span className="font-semibold">{c.detailed}</span> detailed</>
+  // Per-bucket property counts — Launch & Primary Manual are Properties only;
+  // Primary Automatic also carries Detailed Properties
+  const buckets = (rows: ProjectRow[]) => ({
+    launch: rows.reduce((s, x) => s + x.primaryStatusProps.launch.grouped, 0),
+    pm: rows.reduce((s, x) => s + x.primaryByEntry.Manual.grouped, 0),
+    pa: rows.reduce((s, x) => s + x.primaryByEntry.Automatic.grouped, 0),
+    paD: rows.reduce((s, x) => s + x.primaryByEntry.Automatic.detailed, 0),
+  })
 
-  const changed = next !== "" && next !== from
-  const leavingLaunch = from === "Launch" && changed
-  const canApply = changed && (!leavingLaunch || endDate !== "")
-
-  /** Properties touched by a fromS → to transition for the given rows (each phase judged by ITS own status). */
-  const impactOf = (fromS: ProjPrimaryStatus, to: ProjPrimaryStatus, rows: ProjectRow[]): PC => {
-    if (fromS === to) return ZERO
-    const l = statusSum(rows, "launch"), a = statusSum(rows, "available"), h = statusSum(rows, "onHold")
-    if (fromS === "Launch") return to === "On-Sale" ? l : add(l, a)
-    if (fromS === "On-Sale") {
-      if (to === "Launch") return hideAvailable ? add(l, a) : l
-      if (to === "On-Hold") return a
-      return add(a, h) // Sold-Off
-    }
-    if (fromS === "On-Hold") {
-      if (to === "On-Sale") return h
-      if (to === "Sold-Off") return add(a, h)
-      return l // Launch
-    }
-    return ZERO // from Sold-Off — no automatic cascade
+  const PTONE: Record<string, string> = {
+    Available: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    Hold: "border-amber-200 bg-amber-50 text-amber-700",
+    Sold: "border-red-200 bg-red-50 text-red-700",
+    Shown: "border-emerald-200 bg-emerald-100 text-emerald-700",
+    Hidden: "border-red-200 bg-red-100 text-red-700",
   }
-  const totalImpact = changed ? impactedRows.reduce((s, x) => add(s, impactOf(x.primaryStatus, next as ProjPrimaryStatus, [x])), ZERO) : ZERO
-  const mainImpact = changed ? impactOf(from, next as ProjPrimaryStatus, [r]) : ZERO
+  const ptag = (v: string) => <span className={cn("mx-0.5 inline-flex items-center rounded border px-1 py-0 align-[1px] text-[9px] font-medium leading-4", PTONE[v])}>{v}</span>
 
-  // What this exact from → to transition does to the properties underneath
-  type Effect = { kind: "hide" | "show" | "change" | "none"; node: React.ReactNode }
-  const effects: Effect[] = []
-  if (changed) {
-    if (from === "Launch") {
-      effects.push({ kind: "hide", node: <>Hide (Unpublish) {fmtPC(launch)} Launch properties</> })
-      if (next === "On-Hold") effects.push({ kind: "change", node: <>{fmtPC(available)} Available Primary properties become <Tag value="On-Hold" cls={PRIMARY_COLORS["On-Hold"]} /></> })
-      if (next === "Sold-Off") effects.push({ kind: "change", node: <>{fmtPC(available)} Available Primary properties become <Tag value="Sold-Off" cls={PRIMARY_COLORS["Sold-Off"]} /></> })
-    } else if (from === "On-Sale") {
-      if (next === "Launch") {
-        effects.push({ kind: "show", node: <>Show (Publish) {fmtPC(launch)} Launch properties</> })
-        if (hideAvailable) effects.push({ kind: "hide", node: <>Hide (Unpublish) {fmtPC(available)} Available Primary properties</> })
-      }
-      if (next === "On-Hold") {
-        effects.push({ kind: "change", node: <>{fmtPC(available)} Available Primary properties become <Tag value="On-Hold" cls={PRIMARY_COLORS["On-Hold"]} /></> })
-        effects.push({ kind: "hide", node: <>Their <span className="font-semibold">{available.grouped}</span> Grouped properties are hidden (Unpublished)</> })
-      }
-      if (next === "Sold-Off") {
-        effects.push({ kind: "change", node: <>{fmtPC(add(available, onHold))} Available &amp; On-Hold properties become <Tag value="Sold-Off" cls={PRIMARY_COLORS["Sold-Off"]} /></> })
-        effects.push({ kind: "hide", node: <>Their <span className="font-semibold">{available.grouped + onHold.grouped}</span> Grouped Primary properties are hidden (Unpublished)</> })
-      }
-    } else if (from === "On-Hold") {
-      if (next === "On-Sale") {
-        effects.push({ kind: "change", node: <>{fmtPC(onHold)} On-Hold Primary properties become <b>Available</b></> })
-        effects.push({ kind: "show", node: <>Their <span className="font-semibold">{onHold.grouped}</span> Grouped properties are published (Shown)</> })
-      }
-      if (next === "Sold-Off") {
-        effects.push({ kind: "change", node: <>{fmtPC(add(available, onHold))} Primary properties of any status become <Tag value="Sold-Off" cls={PRIMARY_COLORS["Sold-Off"]} /></> })
-        effects.push({ kind: "hide", node: <>Their <span className="font-semibold">{available.grouped + onHold.grouped}</span> Grouped properties are hidden (Unpublished)</> })
-      }
-      if (next === "Launch") effects.push({ kind: "show", node: <>Show (Publish) {fmtPC(launch)} Launch properties</> })
-    } else {
-      effects.push({ kind: "none", node: <>No automatic cascading property changes for this transition.</> })
+  // What happens per bucket at the destination — only buckets with properties, only changed attributes
+  type Outcome = { bucket: string; countText: string; sale?: string; listing?: "Shown" | "Hidden" }
+  const outcomesFor = (rows: ProjectRow[], to: ProjPrimaryStatus | ""): Outcome[] => {
+    if (!to) return []
+    const b = buckets(rows)
+    const out: Outcome[] = []
+    if (b.launch > 0) {
+      out.push({ bucket: "Launch", countText: `${b.launch} Propert${b.launch !== 1 ? "ies" : "y"}`, listing: to === "Launch" ? "Shown" : "Hidden" })
     }
+    const primaryEffect: { sale?: string; listing?: "Shown" | "Hidden" } | null =
+      to === "On-Sale" ? { sale: "Available", listing: "Shown" }
+      : to === "On-Hold" ? { sale: "Hold", listing: "Hidden" }
+      : to === "Sold-Off" ? { sale: "Sold", listing: "Hidden" }
+      : to === "Launch" && hideAvailable ? { listing: "Hidden" }
+      : null
+    if (primaryEffect) {
+      if (b.pm > 0) out.push({ bucket: "Primary Manual", countText: `${b.pm} Propert${b.pm !== 1 ? "ies" : "y"}`, ...primaryEffect })
+      if (b.pa > 0 || b.paD > 0) out.push({ bucket: "Primary Automatic", countText: `${b.pa} Propert${b.pa !== 1 ? "ies" : "y"} · ${b.paD} Detailed Propert${b.paD !== 1 ? "ies" : "y"}`, ...primaryEffect })
+    }
+    return out
   }
-  const EFFECT_ICON: Record<Effect["kind"], React.ReactNode> = {
-    hide: <EyeOff className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-red-600" />,
-    show: <Eye className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-emerald-600" />,
-    change: <Repeat className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-600" />,
-    none: <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />,
+  const totalOutcomes = outcomesFor(scope, target)
+
+  /** Per-row bucket counts, honoring the terminology rule — zeros skipped. */
+  const bucketLine = (row: ProjectRow) => {
+    const b = buckets([row])
+    const parts: string[] = []
+    if (b.launch > 0) parts.push(`Launch ${b.launch}`)
+    if (b.pm > 0) parts.push(`Primary Manual ${b.pm}`)
+    if (b.pa > 0 || b.paD > 0) parts.push(`Primary Automatic ${b.pa} (${b.paD} Detailed)`)
+    return parts.length > 0 ? parts.join("  ·  ") : "No Launch or Primary properties"
   }
-  const parentDevStatus = PROJECT_DEVELOPERS.find((d) => d.id === r.developer.id)?.status
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader><DialogTitle>Change Primary Status</DialogTitle></DialogHeader>
 
-        {/* Context: project/phase + listing status, parent (for phases), developer */}
+        {/* Rich context — name/ID/listing, parent for phases, developer, current primary + entry type */}
         <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
           <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{r.developer.logo}</span>
           <div className="min-w-0 flex-1 space-y-1">
@@ -1283,8 +1263,8 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
             </div>
             {r.isPhase && r.mainProject && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Parent</span>
-                <a href={`/projects/${r.mainProject.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-foreground hover:text-primary hover:underline">{r.mainProject.name}</a>
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Main project</span>
+                <span className="text-xs font-medium text-foreground">{r.mainProject.name}</span>
                 <IdTag value={r.mainProject.id} />
               </div>
             )}
@@ -1292,58 +1272,63 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
               <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer</span>
               <a href={`/developers/${r.developer.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-foreground hover:text-primary hover:underline">{r.developer.name}</a>
               <IdTag value={r.developer.id} />
-              {parentDevStatus && <Tag value={parentDevStatus} cls={LISTING_COLORS[parentDevStatus]} />}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Current primary status</span>
+              <Tag value={from} cls={PRIMARY_COLORS[from]} />
+              <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">Entry type</span>
+              <Tag value={r.entryType} cls={ENTRY_COLORS[r.entryType]} />
             </div>
           </div>
         </div>
 
-        {/* Current status on the left → destination picked from a dropdown on the right */}
-        <div className="flex items-end gap-3">
-          <div className="space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Current Status</div>
-            <div className="flex h-8 items-center"><Tag value={from} cls={PRIMARY_COLORS[from]} /></div>
-          </div>
-          <ArrowRight className="mb-2 h-4 w-4 flex-shrink-0 text-muted-foreground" />
-          <div className="flex-1 space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Change to<span className="ml-0.5 text-red-500">*</span></div>
-            <FilterSelect
-              label="Select new status…"
-              value={next}
-              options={PRIMARY_STATUSES.filter((s) => s !== from)}
-              onChange={(v) => setNext(v as ProjPrimaryStatus | "")}
-              className="w-full" width="w-full"
-            />
+        {/* Destination — the four primary statuses side by side */}
+        <div>
+          <div className="mb-1.5 text-xs font-medium text-foreground">Change primary status to</div>
+          <div className="grid grid-cols-4 gap-2">
+            {(["Launch", "On-Sale", "On-Hold", "Sold-Off"] as ProjPrimaryStatus[]).map((s) => (
+              <button
+                key={s} type="button" onClick={() => setTarget(s)}
+                className={cn(
+                  "flex flex-col items-center justify-center gap-1 rounded-lg border py-2 transition-colors",
+                  target === s ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+                )}
+              >
+                <Tag value={s} cls={PRIMARY_COLORS[s]} />
+                {from === s && <span className="text-[10px] text-muted-foreground">(current)</span>}
+              </button>
+            ))}
           </div>
         </div>
 
-        {changed && (
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              What happens with <Tag value={from} cls={PRIMARY_COLORS[from]} /> <ArrowRight className="inline h-3 w-3" /> <Tag value={next} cls={PRIMARY_COLORS[next as ProjPrimaryStatus]} />
-            </div>
-            <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
-              {effects.map((e, i) => (
-                <div key={i} className="flex items-start gap-2 text-xs leading-4 text-amber-900">{EFFECT_ICON[e.kind]}<span>{e.node}</span></div>
-              ))}
-              <p className="pt-0.5 text-[11px] text-amber-700/80">
-                Only Primary and Launch properties are impacted — Resale, Nawy Now and Rental properties are not touched.
+        {/* What happens to the properties — per sale-type bucket, with counts */}
+        {target === "" ? (
+          <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            Pick a destination status to see what happens to the properties.
+          </p>
+        ) : (
+          <div className="space-y-1 rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              What happens to the properties{cascading ? ` — main + ${includedPhases.length} phase${includedPhases.length !== 1 ? "s" : ""}` : ""}
+            </p>
+            {totalOutcomes.length > 0 ? (
+              <>
+                {totalOutcomes.map((o) => (
+                  <p key={o.bucket} className="text-[11px] leading-5 text-muted-foreground">
+                    <span className="font-medium text-foreground">{o.bucket}</span>{" "}
+                    <span className="font-medium text-foreground">{o.countText}</span> →
+                    {o.sale && <> Sale Status {ptag(o.sale)}</>}
+                    {o.sale && o.listing && " ·"}
+                    {o.listing && <> Listing {ptag(o.listing)}</>}
+                  </p>
+                ))}
+              </>
+            ) : (
+              <p className="text-[11px] leading-5 text-muted-foreground">
+                No properties change{target === "Launch" ? " — tick the option below to also hide the Available Primary properties" : ""}.
               </p>
-            </div>
-            {/* Totals recompute as phases are excluded */}
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="rounded-md border border-border bg-muted/30 px-2.5 py-1.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Total impacted{cascading ? ` — main + ${includedPhases.length} phase${includedPhases.length !== 1 ? "s" : ""}` : ""}
-                </div>
-                <div className="mt-0.5 text-xs text-foreground">{fmtPC(totalImpact)} properties</div>
-              </div>
-              {cascading && (
-                <div className="rounded-md border border-border bg-muted/30 px-2.5 py-1.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Main project only</div>
-                  <div className="mt-0.5 text-xs text-foreground">{fmtPC(mainImpact)} properties</div>
-                </div>
-              )}
-            </div>
+            )}
+            <p className="text-[10px] text-muted-foreground/80">Resale, Nawy Now and Rental properties are never affected.</p>
           </div>
         )}
 
@@ -1358,48 +1343,45 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         )}
 
-        {/* On-Sale → Launch: optionally hide the Available Primary properties (left unchanged by default) */}
-        {from === "On-Sale" && next === "Launch" && (
+        {/* Launch destination: optionally hide the Primary properties (left unchanged by default) */}
+        {target === "Launch" && (
           <label className={cn(
             "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
             hideAvailable ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
           )}>
             <Checkbox checked={hideAvailable} onCheckedChange={() => setHideAvailable((v) => !v)} className="h-4 w-4" />
             <span className="text-sm text-foreground">
-              Also hide (Unpublish) the <span className="font-semibold">{available.grouped + available.detailed}</span> Available Primary properties
+              Also hide (Unpublish) the Available Primary properties
               <span className="block text-xs text-muted-foreground">Left unchanged by default</span>
             </span>
           </label>
         )}
 
-        {cascading && changed && (
+        {/* Main + EVERY phase — entry type, current → destination, per-row bucket counts;
+            phases excludable */}
+        {cascading && (
           <div className="space-y-1.5">
             <p className="text-xs text-muted-foreground">
-              <span className="font-semibold text-foreground">{includedPhases.length} of {phases.length}</span> phase{phases.length > 1 ? "s" : ""} will become {next} — untick to exclude:
+              Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — untick a phase to exclude it:
             </p>
-            {/* max-h-96: a main project can have many phases */}
             <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
-              {phases.map((p, i) => {
-                const isEx = excluded.has(p.id)
-                const pImpact = impactOf(p.primaryStatus, next as ProjPrimaryStatus, [p])
+              {[r, ...phases].map((p, i) => {
+                const excludable = p.id !== r.id
+                const isExcluded = excludable && excluded.has(p.id)
                 return (
-                  <div key={p.id} className={cn("space-y-1 px-3 py-2.5", i > 0 && "border-t border-border/70", isEx && "opacity-45")}>
+                  <div key={p.id} className={cn("space-y-1 px-3 py-2.5", i > 0 && "border-t border-border/70", excludable && "bg-muted/20", isExcluded && "opacity-45")}>
                     <div className="flex items-center gap-2.5">
-                      <Checkbox checked={!isEx} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />
+                      {excludable && <Checkbox checked={!isExcluded} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />}
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
                         <IdTag value={p.id} />
                       </div>
-                      <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
-                      <div className="flex flex-shrink-0 items-center gap-1">
-                        <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
-                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-                        <Tag value={next} cls={PRIMARY_COLORS[next as ProjPrimaryStatus]} />
-                      </div>
+                      <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
+                      <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
+                      <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                      {target !== "" ? <Tag value={target} cls={PRIMARY_COLORS[target]} /> : <span className="text-[10px] text-muted-foreground">pick status</span>}
                     </div>
-                    <div className="pl-7 text-[11px] text-muted-foreground">
-                      Impacts <span className="font-semibold text-foreground">{pImpact.grouped}</span> grouped · <span className="font-semibold text-foreground">{pImpact.detailed}</span> detailed properties
-                    </div>
+                    <div className={cn("text-[11px] text-muted-foreground", excludable && "pl-7")}>{bucketLine(p)}</div>
                   </div>
                 )
               })}
@@ -1409,7 +1391,9 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={!canApply} onClick={() => onConfirm(next as ProjPrimaryStatus, [...excluded])}>{changed ? `Change to ${next}` : "Change Status"}</Button>
+          <Button size="sm" disabled={!canSave} onClick={() => onConfirm(target as ProjPrimaryStatus, cascading ? [...excluded] : undefined)}>
+            {target === "" ? "Change" : `Change to ${target}`}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
