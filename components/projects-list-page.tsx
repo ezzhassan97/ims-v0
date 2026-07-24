@@ -1009,17 +1009,23 @@ function CoverageCard({ icon, label, covered, total }: { icon: React.ReactNode; 
   )
 }
 
-/** Hidden (outgoing type) vs Shown (incoming type) property counts — used across the Change Entry Type impact sections. */
+/** Shown / Hidden / Total property counts (single combined numbers) — Change Entry Type impact cells. */
 function EntryImpactPair({ fromType, toType, c }: { fromType: string; toType: string; c: { hiddenG: number; hiddenD: number; shownG: number; shownD: number } }) {
+  const hidden = c.hiddenG + c.hiddenD
+  const shown = c.shownG + c.shownD
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <div className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5">
-        <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-red-600"><EyeOff className="h-3 w-3" />Hidden · {fromType}</div>
-        <div className="mt-0.5 text-xs text-foreground"><span className="font-semibold">{c.hiddenG}</span> grouped · <span className="font-semibold">{c.hiddenD}</span> detailed</div>
-      </div>
+    <div className="grid grid-cols-3 gap-2">
       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5">
         <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-600"><Eye className="h-3 w-3" />Shown · {toType}</div>
-        <div className="mt-0.5 text-xs text-foreground"><span className="font-semibold">{c.shownG}</span> grouped · <span className="font-semibold">{c.shownD}</span> detailed</div>
+        <div className="mt-0.5 text-xs text-foreground"><span className="font-semibold">{shown}</span> propert{shown !== 1 ? "ies" : "y"}</div>
+      </div>
+      <div className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5">
+        <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-red-600"><EyeOff className="h-3 w-3" />Hidden · {fromType}</div>
+        <div className="mt-0.5 text-xs text-foreground"><span className="font-semibold">{hidden}</span> propert{hidden !== 1 ? "ies" : "y"}</div>
+      </div>
+      <div className="rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Total impacted</div>
+        <div className="mt-0.5 text-xs text-foreground"><span className="font-semibold">{shown + hidden}</span> propert{shown + hidden !== 1 ? "ies" : "y"}</div>
       </div>
     </div>
   )
@@ -1315,7 +1321,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           )}>
             <Checkbox checked={hideAvailable} onCheckedChange={() => setHideAvailable((v) => !v)} className="h-4 w-4" />
             <span className="text-sm text-foreground">
-              Also hide (Unpublish) the <span className="font-semibold">{available}</span> Available Primary properties
+              Also hide (Unpublish) the <span className="font-semibold">{available.grouped + available.detailed}</span> Available Primary properties
               <span className="block text-xs text-muted-foreground">Left unchanged by default</span>
             </span>
           </label>
@@ -1494,6 +1500,18 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
               <p className="text-[10px] text-muted-foreground">Parent options are limited to main projects under this developer.</p>
             </div>
           </div>
+        ) : kind === "orgs" && targets.length === 1 ? (
+          /* Change Organizations: compact context — name, ID, current listing status + current orgs */
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-foreground">{targets[0].name}</p>
+              <IdTag value={targets[0].id} />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />
+              {targets[0].organizations.map((o) => <OrgChip key={o} org={o} />)}
+            </div>
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground">
             {targets.length === 1 ? (
@@ -1535,9 +1553,9 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
             </div>
 
             <p className="text-sm text-foreground">
-              Setting the entry type to <Tag value={entryVal} cls={ENTRY_COLORS[entryVal]} /> will{" "}
-              <span className="font-semibold text-emerald-600">show</span> the Primary {entryVal} properties and{" "}
-              <span className="font-semibold text-red-600">hide</span> the {fromEntry} ones.
+              Setting Entry Type to <Tag value={entryVal} cls={ENTRY_COLORS[entryVal]} /> will{" "}
+              <span className="font-semibold text-emerald-600">show</span> the Available Primary {entryVal} properties and{" "}
+              <span className="font-semibold text-red-600">hide</span> the Available Primary {fromEntry} properties from Website and E-realty.
             </p>
             <div className="space-y-1.5">
               <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -1607,10 +1625,10 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           </div>
         )}
         {kind === "orgs" && (
-          <div className="space-y-2">
+          <div className="flex gap-2">
             {(["Nawy", "Partners"] as ProjOrg[]).map((o) => (
               <label key={o} className={cn(
-                "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
+                "flex flex-1 cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
                 orgs.includes(o) ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
               )}>
                 <Checkbox checked={orgs.includes(o)} onCheckedChange={() => toggleOrg(o)} className="h-4 w-4" />
@@ -1667,10 +1685,10 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           </>
         )}
 
-        {/* Organizations: read-only phases-inherit list */}
+        {/* Organizations: phases inherit and can't be excluded — shown read-only with their current orgs */}
         {kind === "orgs" && impacted.length > 0 && (
           <div className="space-y-1.5">
-            <p className="text-xs text-muted-foreground">Phases inheriting this change ({impacted.length}) — read only:</p>
+            <p className="text-xs text-muted-foreground">Phases inheriting this change ({impacted.length}) — phases can't be excluded:</p>
             <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
               {impacted.map((p, i) => (
                 <div key={p.id} className={cn("flex items-center gap-2 px-3 py-2", i > 0 && "border-t border-border/70")}>
@@ -1678,7 +1696,10 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                     <p className="truncate text-sm font-medium text-foreground">{p.isPhase && targets.length > 1 ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
                     <IdTag value={p.id} />
                   </div>
-                  <span className="max-w-36 flex-shrink-0 truncate text-xs text-muted-foreground">{phaseCurrent(p)}</span>
+                  <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+                  <div className="flex flex-shrink-0 items-center gap-1">
+                    {p.organizations.map((o) => <OrgChip key={o} org={o} />)}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1713,9 +1734,9 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                         </div>
                       </div>
                       <div className="pl-7 text-[11px] text-muted-foreground">
-                        <span className="text-red-600">Hidden</span> {pc.hiddenG} grouped · {pc.hiddenD} detailed
+                        <span className="text-emerald-600">Shown</span> <span className="font-medium text-foreground">{pc.shownG + pc.shownD}</span>
                         <span className="mx-1.5 text-border">|</span>
-                        <span className="text-emerald-600">Shown</span> {pc.shownG} grouped · {pc.shownD} detailed
+                        <span className="text-red-600">Hidden</span> <span className="font-medium text-foreground">{pc.hiddenG + pc.hiddenD}</span>
                       </div>
                     </div>
                   )

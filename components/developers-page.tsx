@@ -1082,7 +1082,9 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
       phasesChanging.forEach((ph) => listingRows.push({ p: ph, context: false }))
     }
   }
-  const included = kind === "orgs" ? flat.filter((p) => !excluded.has(p.id)) : changing
+  // Orgs: only main projects are excludable — phases always follow their main
+  const orgRowExcluded = (p: (typeof flat)[number]) => excluded.has(p.id) || (p.isPhase && !!p.mainProject && excluded.has(p.mainProject.id))
+  const included = kind === "orgs" ? flat.filter((p) => !orgRowExcluded(p)) : changing
   const mainsIncl = included.filter((p) => !p.isPhase).length
   const phasesIncl = included.length - mainsIncl
   // Listing always runs — picking the current status still aligns any mismatched projects/phases
@@ -1100,7 +1102,10 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
           {kind === "listing" ? (
             <StoryBadge value={dev.listingStatus} />
           ) : (
-            <div className="flex items-center gap-1.5">{dev.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
+            <div className="flex items-center gap-1.5">
+              <StoryBadge value={dev.listingStatus} />
+              {dev.organizations.map((o) => <OrgChip key={o} org={o} />)}
+            </div>
           )}
         </div>
 
@@ -1172,7 +1177,7 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
         {flat.length > 0 ? (
           kind === "orgs" ? (
             <div className="space-y-1.5">
-              <p className="text-xs text-muted-foreground">All projects and phases are included by default — untick a row to exclude it from this change:</p>
+              <p className="text-xs text-muted-foreground">All projects are included by default — untick a main project to exclude it with its phases (phases can't be excluded individually):</p>
               <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
                 {flat.map((p, i) => (
                   <div
@@ -1181,10 +1186,10 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
                       "flex items-center gap-2.5 px-3 py-2",
                       i > 0 && "border-t border-border/70",
                       p.isPhase && "bg-muted/20 pl-9",
-                      excluded.has(p.id) && "opacity-45",
+                      orgRowExcluded(p) && "opacity-45",
                     )}
                   >
-                    <Checkbox checked={!excluded.has(p.id)} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />
+                    {!p.isPhase && <Checkbox checked={!excluded.has(p.id)} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />}
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
                       <IdTag value={p.id} />
