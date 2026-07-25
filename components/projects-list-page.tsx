@@ -1170,14 +1170,18 @@ export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
 }
 
 /**
- * Change Primary Status — the destination drives what happens to the properties
- * under the project/phase, per sale-type bucket:
- *  - Launch properties: listing only — Shown when the destination is Launch,
- *    Hidden otherwise (sale status never changes).
- *  - Primary Manual / Primary Automatic: On-Sale → Available + Shown;
- *    On-Hold → Hold + Hidden; Sold-Off → Sold + Hidden; a Launch destination
- *    leaves them unchanged unless the optional hide toggle is on.
- *  - Resale, Nawy Now and Rental are never affected.
+ * Change Primary Status — the destination drives what happens to the properties,
+ * always stating All vs Available scope per bucket:
+ *  - Launch dest: Available Launch Properties → Shown; optional toggle hides the
+ *    Available Primary properties (counts shown for Automatic + Manual); optional
+ *    Launch Start Date (max 2 months back — when EOI collection started).
+ *  - On-Sale: ALL Launch Properties → Hidden; Available Primary properties are
+ *    published per each project's entry type (Automatic entry publishes the
+ *    Automatic bucket, Manual publishes Manual).
+ *  - On-Hold / Sold-Off: ALL Launch Properties → Hidden; Available Primary
+ *    Automatic + Manual → Sale Status Hold / Sold-Off + Hidden.
+ *  - Leaving Launch always requires the Launch End Date (EOI flagging on Nawy
+ *    Sales Portal). Resale, Nawy Now and Rental are never affected.
  * Terminology: Primary Automatic counts Properties · Detailed Properties;
  * Launch and Primary Manual count Properties only.
  */
@@ -1186,6 +1190,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   const [target, setTarget] = useState<ProjPrimaryStatus | "">("")
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const [endDate, setEndDate] = useState("")
+  const [startDate, setStartDate] = useState("")
   const [hideAvailable, setHideAvailable] = useState(false)
   const toggleExcluded = (id: string) =>
     setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -1193,45 +1198,57 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   const cascading = !r.isPhase && phases.length > 0
   const includedPhases = cascading ? phases.filter((p) => !excluded.has(p.id)) : []
   const scope = [r, ...includedPhases]
+  const devStatus = PROJECT_DEVELOPERS.find((d) => d.id === r.developer.id)?.status
   const leavingLaunch = from === "Launch" && target !== "" && target !== "Launch"
   const canSave = target !== "" && (!leavingLaunch || !!endDate)
+  // Launch Start Date can't sit more than 2 months in the past
+  const minStart = (() => { const d = new Date(); d.setMonth(d.getMonth() - 2); return d.toISOString().slice(0, 10) })()
 
-  // Per-bucket property counts — Launch & Primary Manual are Properties only;
-  // Primary Automatic also carries Detailed Properties
-  const buckets = (rows: ProjectRow[]) => ({
-    launch: rows.reduce((s, x) => s + x.primaryStatusProps.launch.grouped, 0),
-    pm: rows.reduce((s, x) => s + x.primaryByEntry.Manual.grouped, 0),
-    pa: rows.reduce((s, x) => s + x.primaryByEntry.Automatic.grouped, 0),
+  // Per-bucket counts; the entry-matched pair follows each project's own entry type (On-Sale rule)
+  const sums = (rows: ProjectRow[]) => ({
+    launchAll: rows.reduce((s, x) => s + x.primaryStatusProps.launch.grouped, 0),
+    paG: rows.reduce((s, x) => s + x.primaryByEntry.Automatic.grouped, 0),
     paD: rows.reduce((s, x) => s + x.primaryByEntry.Automatic.detailed, 0),
+    pmG: rows.reduce((s, x) => s + x.primaryByEntry.Manual.grouped, 0),
+    paMatchG: rows.filter((x) => x.entryType === "Automatic").reduce((s, x) => s + x.primaryByEntry.Automatic.grouped, 0),
+    paMatchD: rows.filter((x) => x.entryType === "Automatic").reduce((s, x) => s + x.primaryByEntry.Automatic.detailed, 0),
+    pmMatchG: rows.filter((x) => x.entryType === "Manual").reduce((s, x) => s + x.primaryByEntry.Manual.grouped, 0),
   })
+  const b = sums(scope)
 
   const PTONE: Record<string, string> = {
-    Available: "border-emerald-200 bg-emerald-50 text-emerald-700",
     Hold: "border-amber-200 bg-amber-50 text-amber-700",
-    Sold: "border-red-200 bg-red-50 text-red-700",
+    "Sold-Off": "border-red-200 bg-red-50 text-red-700",
     Shown: "border-emerald-200 bg-emerald-100 text-emerald-700",
+    Published: "border-emerald-200 bg-emerald-100 text-emerald-700",
     Hidden: "border-red-200 bg-red-100 text-red-700",
   }
   const ptag = (v: string) => <span className={cn("mx-0.5 inline-flex items-center rounded border px-1 py-0 align-[1px] text-[9px] font-medium leading-4", PTONE[v])}>{v}</span>
+  const props = (n: number) => `${n} Propert${n !== 1 ? "ies" : "y"}`
+  const paText = (g: number, d: number) => `${g} Propert${g !== 1 ? "ies" : "y"} · ${d} Detailed Propert${d !== 1 ? "ies" : "y"}`
 
-  // What happens per bucket at the destination — only buckets with properties, only changed attributes
-  type Outcome = { bucket: string; countText: string; sale?: string; listing?: "Shown" | "Hidden" }
+  // What happens per bucket at the destination — All vs Available always stated
+  type Outcome = { label: string; countText: string; sale?: string; listing: "Shown" | "Hidden" | "Published" }
   const outcomesFor = (rows: ProjectRow[], to: ProjPrimaryStatus | ""): Outcome[] => {
     if (!to) return []
-    const b = buckets(rows)
+    const s = sums(rows)
     const out: Outcome[] = []
-    if (b.launch > 0) {
-      out.push({ bucket: "Launch", countText: `${b.launch} Propert${b.launch !== 1 ? "ies" : "y"}`, listing: to === "Launch" ? "Shown" : "Hidden" })
+    if (to === "Launch") {
+      if (s.launchAll > 0) out.push({ label: "Available Launch Properties", countText: props(s.launchAll), listing: "Shown" })
+      if (hideAvailable) {
+        if (s.paG > 0 || s.paD > 0) out.push({ label: "Available Primary Automatic", countText: paText(s.paG, s.paD), listing: "Hidden" })
+        if (s.pmG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmG), listing: "Hidden" })
+      }
+      return out
     }
-    const primaryEffect: { sale?: string; listing?: "Shown" | "Hidden" } | null =
-      to === "On-Sale" ? { sale: "Available", listing: "Shown" }
-      : to === "On-Hold" ? { sale: "Hold", listing: "Hidden" }
-      : to === "Sold-Off" ? { sale: "Sold", listing: "Hidden" }
-      : to === "Launch" && hideAvailable ? { listing: "Hidden" }
-      : null
-    if (primaryEffect) {
-      if (b.pm > 0) out.push({ bucket: "Primary Manual", countText: `${b.pm} Propert${b.pm !== 1 ? "ies" : "y"}`, ...primaryEffect })
-      if (b.pa > 0 || b.paD > 0) out.push({ bucket: "Primary Automatic", countText: `${b.pa} Propert${b.pa !== 1 ? "ies" : "y"} · ${b.paD} Detailed Propert${b.paD !== 1 ? "ies" : "y"}`, ...primaryEffect })
+    if (s.launchAll > 0) out.push({ label: "All Launch Properties", countText: props(s.launchAll), listing: "Hidden" })
+    if (to === "On-Sale") {
+      if (s.paMatchG > 0 || s.paMatchD > 0) out.push({ label: "Available Primary Automatic", countText: paText(s.paMatchG, s.paMatchD), listing: "Published" })
+      if (s.pmMatchG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmMatchG), listing: "Published" })
+    } else {
+      const sale = to === "On-Hold" ? "Hold" : "Sold-Off"
+      if (s.paG > 0 || s.paD > 0) out.push({ label: "Available Primary Automatic", countText: paText(s.paG, s.paD), sale, listing: "Hidden" })
+      if (s.pmG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmG), sale, listing: "Hidden" })
     }
     return out
   }
@@ -1239,11 +1256,11 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
 
   /** Per-row bucket counts, honoring the terminology rule — zeros skipped. */
   const bucketLine = (row: ProjectRow) => {
-    const b = buckets([row])
+    const s = sums([row])
     const parts: string[] = []
-    if (b.launch > 0) parts.push(`Launch ${b.launch}`)
-    if (b.pm > 0) parts.push(`Primary Manual ${b.pm}`)
-    if (b.pa > 0 || b.paD > 0) parts.push(`Primary Automatic ${b.pa} (${b.paD} Detailed)`)
+    if (s.launchAll > 0) parts.push(`Launch ${s.launchAll}`)
+    if (s.pmG > 0) parts.push(`Primary Manual ${s.pmG}`)
+    if (s.paG > 0 || s.paD > 0) parts.push(`Primary Automatic ${s.paG} (${s.paD} Detailed)`)
     return parts.length > 0 ? parts.join("  ·  ") : "No Launch or Primary properties"
   }
 
@@ -1252,7 +1269,8 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader><DialogTitle>Change Primary Status</DialogTitle></DialogHeader>
 
-        {/* Rich context — name/ID/listing, parent for phases, developer, current primary + entry type */}
+        {/* Rich context — name/ID/listing, parent for phases, developer + its listing status,
+            current primary + entry type */}
         <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
           <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{r.developer.logo}</span>
           <div className="min-w-0 flex-1 space-y-1">
@@ -1272,6 +1290,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
               <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer</span>
               <a href={`/developers/${r.developer.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-foreground hover:text-primary hover:underline">{r.developer.name}</a>
               <IdTag value={r.developer.id} />
+              {devStatus && <Tag value={devStatus} cls={LISTING_COLORS[devStatus]} />}
             </div>
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Current primary status</span>
@@ -1301,7 +1320,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         </div>
 
-        {/* What happens to the properties — per sale-type bucket, with counts */}
+        {/* What happens to the properties — per bucket, All vs Available always stated */}
         {target === "" ? (
           <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
             Pick a destination status to see what happens to the properties.
@@ -1312,23 +1331,53 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
               What happens to the properties{cascading ? ` — main + ${includedPhases.length} phase${includedPhases.length !== 1 ? "s" : ""}` : ""}
             </p>
             {totalOutcomes.length > 0 ? (
-              <>
-                {totalOutcomes.map((o) => (
-                  <p key={o.bucket} className="text-[11px] leading-5 text-muted-foreground">
-                    <span className="font-medium text-foreground">{o.bucket}</span>{" "}
-                    <span className="font-medium text-foreground">{o.countText}</span> →
-                    {o.sale && <> Sale Status {ptag(o.sale)}</>}
-                    {o.sale && o.listing && " ·"}
-                    {o.listing && <> Listing {ptag(o.listing)}</>}
-                  </p>
-                ))}
-              </>
+              totalOutcomes.map((o) => (
+                <p key={o.label} className="text-[11px] leading-5 text-muted-foreground">
+                  <span className="font-medium text-foreground">{o.label}</span>{" "}
+                  <span className="font-medium text-foreground">{o.countText}</span> →
+                  {o.sale && <> Sale Status {ptag(o.sale)}</>}
+                  {o.sale && " ·"}
+                  <> Listing {ptag(o.listing)}</>
+                </p>
+              ))
             ) : (
               <p className="text-[11px] leading-5 text-muted-foreground">
                 No properties change{target === "Launch" ? " — tick the option below to also hide the Available Primary properties" : ""}.
               </p>
             )}
+            {target === "On-Sale" && (
+              <p className="text-[10px] text-muted-foreground/80">
+                Only the Available Primary properties matching each project's entry type are published.
+              </p>
+            )}
             <p className="text-[10px] text-muted-foreground/80">Resale, Nawy Now and Rental properties are never affected.</p>
+          </div>
+        )}
+
+        {/* Launch destination: optional hide of the Available Primary properties, with counts */}
+        {target === "Launch" && (
+          <label className={cn(
+            "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
+            hideAvailable ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
+          )}>
+            <Checkbox checked={hideAvailable} onCheckedChange={() => setHideAvailable((v) => !v)} className="h-4 w-4" />
+            <span className="text-sm text-foreground">
+              Also hide (Unpublish) the Available Primary Properties
+              <span className="block text-xs text-muted-foreground">
+                Primary Automatic {paText(b.paG, b.paD)} · Primary Manual {props(b.pmG)} — left unchanged by default
+              </span>
+            </span>
+          </label>
+        )}
+
+        {/* Launch destination: optional start date — when this launch started collecting EOIs */}
+        {target === "Launch" && (
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Launch Start Date <span className="font-normal text-muted-foreground">(optional)</span></div>
+            <Input type="date" min={minStart} value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 w-52 text-sm" />
+            <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
+              The date this launch started collecting EOIs — can't be more than 2 months in the past.
+            </p>
           </div>
         )}
 
@@ -1338,23 +1387,9 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
             <div className="text-xs font-medium text-foreground">Launch End Date<span className="ml-0.5 text-red-500">*</span></div>
             <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 w-52 text-sm" />
             <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
-              The launch end date is needed to flag the EOIs collected on this launch after this date on Nawy Sales Portal.
+              The date this launch stopped collecting EOIs — Nawy Sales Portal will be notified to flag EOIs collected after this date.
             </p>
           </div>
-        )}
-
-        {/* Launch destination: optionally hide the Primary properties (left unchanged by default) */}
-        {target === "Launch" && (
-          <label className={cn(
-            "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
-            hideAvailable ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
-          )}>
-            <Checkbox checked={hideAvailable} onCheckedChange={() => setHideAvailable((v) => !v)} className="h-4 w-4" />
-            <span className="text-sm text-foreground">
-              Also hide (Unpublish) the Available Primary properties
-              <span className="block text-xs text-muted-foreground">Left unchanged by default</span>
-            </span>
-          </label>
         )}
 
         {/* Main + EVERY phase — entry type, current → destination, per-row bucket counts;
