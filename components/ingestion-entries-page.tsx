@@ -105,7 +105,7 @@ function ProjectsCell({ projects }: { projects: IngestionEntry["projects"] }) {
  * Shared Data Ingestion entries table — Automatic Sheets Entries & Manual Grouped
  * Entries are the same experience with different titles, stages and file types.
  */
-export function IngestionEntriesPage({ mode }: { mode: IngestionMode }) {
+export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; onView?: (entry: IngestionEntry) => void }) {
   const rows = mode === "sheets" ? SHEET_ENTRIES : MANUAL_ENTRIES
   const stages = mode === "sheets" ? [...SHEET_STAGES] : [...MANUAL_STAGES]
   const fileTypes = mode === "sheets" ? [...SHEET_FILE_TYPES] : [...MANUAL_FILE_TYPES]
@@ -307,7 +307,7 @@ export function IngestionEntriesPage({ mode }: { mode: IngestionMode }) {
                           <button className="flex h-full w-12 items-center justify-center text-muted-foreground hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem onClick={() => toast.info("Entry details page is coming soon")}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => (onView ? onView(e) : toast.info("Entry details page is coming soon"))}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => toast.success(`${e.fileName} exported`)}><Download className="mr-2 h-3.5 w-3.5" />Export</DropdownMenuItem>
                         </DropdownMenuContent>
