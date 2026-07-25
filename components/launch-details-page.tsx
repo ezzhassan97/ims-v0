@@ -649,7 +649,7 @@ function fmtLaunchDate(iso: string) {
   if (isNaN(d.getTime())) return iso
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) + ", " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
 }
-function IdCopy({ value }: { value: string }) {
+export function IdCopy({ value }: { value: string }) {
   return (
     <span className="group/id inline-flex items-center gap-1 font-mono text-[10px] text-foreground">
       {value}
@@ -697,7 +697,7 @@ function validateOfferingForm(f: OfferingForm): Record<string, string> {
 }
 
 /** Read-only context cell — same look as the grouped card's EntityCell. */
-function OfferingCtxCell({ label, icon, value, sub }: { label: string; icon: React.ReactNode; value: string; sub?: React.ReactNode }) {
+export function OfferingCtxCell({ label, icon, value, sub }: { label: string; icon: React.ReactNode; value: string; sub?: React.ReactNode }) {
   return (
     <div className="min-w-0">
       <div className="mb-0.5 flex items-center gap-1 text-xs text-muted-foreground">{icon}<span>{label}</span></div>

@@ -25,7 +25,8 @@ import { FloorPlansPage } from "@/components/floor-plans-page"
 import { PropertiesConfigurationsPage } from "@/components/properties-configurations-page"
 import { IngestionEntriesPage } from "@/components/ingestion-entries-page"
 import { SheetEntryDetailsPage } from "@/components/sheet-entry-details-page"
-import type { IngestionEntry } from "@/lib/ingestion-mock"
+import { ManualEntryDetailsPage } from "@/components/manual-entry-details-page"
+import type { IngestionEntry, IngestionMode } from "@/lib/ingestion-mock"
 import { GroupedPropertyDetails, type GroupDetailPayload } from "@/components/grouped-properties-page"
 import { CreatePropertyPage } from "@/components/create-property-page"
 import type { Variation } from "@/components/additional-info-tab"
@@ -36,14 +37,16 @@ export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [groupDetail, setGroupDetail] = useState<GroupDetailPayload | null>(null)
   const [createProperty, setCreateProperty] = useState<Variation | null>(null)
-  const [sheetEntry, setSheetEntry] = useState<IngestionEntry | null>(null)
+  const [sheetEntry, setSheetEntry] = useState<{ entry: IngestionEntry; mode: IngestionMode } | null>(null)
 
   const renderContent = () => {
     if (createProperty) {
       return <CreatePropertyPage variation={createProperty} onBack={() => setCreateProperty(null)} />
     }
     if (sheetEntry) {
-      return <SheetEntryDetailsPage entry={sheetEntry} onBack={() => setSheetEntry(null)} />
+      return sheetEntry.mode === "sheets"
+        ? <SheetEntryDetailsPage entry={sheetEntry.entry} onBack={() => setSheetEntry(null)} />
+        : <ManualEntryDetailsPage entry={sheetEntry.entry} onBack={() => setSheetEntry(null)} />
     }
     if (groupDetail) {
       return <GroupedPropertyDetails group={groupDetail.group} allRows={groupDetail.allRows} index={groupDetail.index} onBack={() => setGroupDetail(null)} />
@@ -86,9 +89,9 @@ export function AppShell() {
         return <FloorPlansPage />
       // key: both pages render the same component — without it React keeps one instance and leaks filter state across them
       case "Automatic Sheets Entries":
-        return <IngestionEntriesPage key="sheets" mode="sheets" onView={setSheetEntry} />
+        return <IngestionEntriesPage key="sheets" mode="sheets" onView={(e) => setSheetEntry({ entry: e, mode: "sheets" })} />
       case "Manual Grouped Entries":
-        return <IngestionEntriesPage key="manual" mode="manual" />
+        return <IngestionEntriesPage key="manual" mode="manual" onView={(e) => setSheetEntry({ entry: e, mode: "manual" })} />
       case "Properties Configurations":
         return <PropertiesConfigurationsPage />
       case "Validation Rules":

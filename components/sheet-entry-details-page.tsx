@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react"
 import {
-  ArrowLeft, Boxes, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Columns3, Eye, EyeOff, FileText,
-  Grid3X3, GripVertical, Info, LayoutTemplate, Maximize2, Pencil, Plus, RefreshCw, ScanSearch, Search,
-  Shuffle, Sparkles, Trash2, TriangleAlert, Wallet, Wand2, X,
+  ArrowLeft, Banknote, Bath, BedDouble, Boxes, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft,
+  ChevronRight, Columns3, Eye, EyeOff, FileText, Grid3X3, GripVertical, Home, Info, LayoutTemplate,
+  Maximize2, Paintbrush, Pencil, Plus, RefreshCw, Ruler, ScanSearch, Search, Shuffle, Sparkles, Trash2,
+  TriangleAlert, Wallet, Wand2, X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -19,14 +20,17 @@ import { ColorTag } from "@/components/projects-list-page"
 import { LinkedPlanCard, PAYMENT_PLAN_GROUPS, type PlanCardData } from "@/components/all-properties-page"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
 import { FullscreenViewer } from "@/components/render-images-page"
+import { FilePreviewDialog, type PreviewFile } from "@/components/file-preview-dialog"
+import { OfferingCtxCell, IdCopy } from "@/components/launch-details-page"
+import { FloorPlanCard, FLOOR_PLANS0, type FloorPlan } from "@/components/floor-plans-page"
 import type { IngestionEntry } from "@/lib/ingestion-mock"
 
 /* ------------------------------------------------------------------ */
 /* Constants & mock sheet data                                         */
 /* ------------------------------------------------------------------ */
 
-const TAG = "inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium"
-const FP_IMG = "/placeholder.jpg"
+export const TAG = "inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium"
+export const FP_IMG = "/placeholder.jpg"
 
 // Images step intentionally excluded — cover/render images are assigned inside Grouping.
 const STEPS = [
@@ -46,7 +50,7 @@ const STAGE_TO_STEP: Record<string, number> = {
   Formatting: 4, Review: 5, "Payment Plans": 6, "Floor Plans": 7, Grouping: 8, Finalized: 8,
 }
 
-interface SheetRow {
+export interface SheetRow {
   unit: string
   phase: string
   buildingType: string
@@ -66,7 +70,7 @@ const TYPE_CODES = ["I-VILLA R", "I-VILLA S", "I-VILLA T", "I-VILLA U", "I-VILLA
 const CATEGORIES = ["Villa", "I-Villa Roof Garden", "I-Villa Sky Garden"]
 const AREAS = [180, 220, 210, 210, 229, 189, 197, 188, 183, 129, 123, 199, 180, 213, 210, 160, 229, 198]
 
-const SHEET_ROWS: SheetRow[] = Array.from({ length: 18 }, (_, i) => ({
+export const SHEET_ROWS: SheetRow[] = Array.from({ length: 18 }, (_, i) => ({
   unit: UNIT_IDS[i % UNIT_IDS.length],
   phase: i % 7 === 0 ? "M-CRWN" : "M-IV-A",
   buildingType: i % 5 === 4 ? "C" : "A",
@@ -91,7 +95,7 @@ const ROW_TONE: Record<SheetRow["tone"], string> = {
 /* Small shared pieces                                                 */
 /* ------------------------------------------------------------------ */
 
-function SectionCard({ title, count, right, children, className }: {
+export function SectionCard({ title, count, right, children, className }: {
   title?: string; count?: string; right?: React.ReactNode; children: React.ReactNode; className?: string
 }) {
   return (
@@ -111,7 +115,7 @@ function SectionCard({ title, count, right, children, className }: {
 }
 
 /** Numbered-column mini sheet grid used by every step's preview. */
-function MiniSheet({ cols, rows, renderCell, toneOf, maxHeight = "max-h-[420px]" }: {
+export function MiniSheet({ cols, rows, renderCell, toneOf, maxHeight = "max-h-[420px]" }: {
   cols: string[]
   rows: SheetRow[]
   renderCell: (col: string, r: SheetRow, i: number) => React.ReactNode
@@ -144,7 +148,7 @@ function MiniSheet({ cols, rows, renderCell, toneOf, maxHeight = "max-h-[420px]"
   )
 }
 
-function StatTile({ label, value, total, alert }: { label: string; value: string; total?: string; alert?: boolean }) {
+export function StatTile({ label, value, total, alert }: { label: string; value: string; total?: string; alert?: boolean }) {
   return (
     <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2">
       <p className="text-xs font-semibold text-foreground">{label}</p>
@@ -163,7 +167,7 @@ const UNIT_BREAKDOWN = [
   { label: "Missing units", count: 16, cls: "border-red-200 bg-red-50 text-red-700" },
 ]
 
-function UnitBreakdownChips() {
+export function UnitBreakdownChips() {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {UNIT_BREAKDOWN.map((b) => (
@@ -174,16 +178,210 @@ function UnitBreakdownChips() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Shared cards — used by both the sheets and manual wizards           */
+/* ------------------------------------------------------------------ */
+
+/** Review issue card (blocking red / warning amber). Eye toggle renders only when a handler is given. */
+export function ReviewIssueCard({ issue, dimmed, onToggleVisibility }: { issue: ReviewIssue; dimmed?: boolean; onToggleVisibility?: () => void }) {
+  return (
+    <div className={cn("rounded-xl border p-3", issue.blocking ? "border-red-200 bg-red-50/40" : "border-amber-200 bg-amber-50/40", dimmed && "opacity-50")}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className={cn("flex items-center gap-1.5 text-sm font-semibold", issue.blocking ? "text-red-600" : "text-amber-600")}>
+            {issue.title}
+            {onToggleVisibility && (
+              <button onClick={onToggleVisibility} className="text-current opacity-70 hover:opacity-100">
+                {dimmed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            )}
+          </p>
+          <IdTag value={issue.id} />
+        </div>
+        <span className={cn(TAG, issue.blocking ? "border-red-200 bg-white text-red-600" : "border-amber-300 bg-white text-amber-700")}>{issue.units} Units</span>
+      </div>
+      <p className="mt-1.5 text-sm text-muted-foreground">{issue.description}</p>
+    </div>
+  )
+}
+
+/**
+ * Grouped-property card — same structure as the launch offering card
+ * (header strip: IDs · tags · icon actions → status-dot title + keywords → OfferingCtxCell grid).
+ */
+export interface GroupedCardCell { icon: React.ReactNode; label: string; value: string; sub?: React.ReactNode }
+
+export function GroupedPropertyCard({ propertyId, metadataId, tags, actions, title, keywords, cells, tint, selectable, selected, onToggle, children }: {
+  propertyId?: string | null
+  metadataId?: string | null
+  tags?: React.ReactNode
+  actions?: React.ReactNode
+  title: string
+  keywords?: string
+  cells: GroupedCardCell[]
+  tint?: "warn" | "error" | null
+  selectable?: boolean
+  selected?: boolean
+  onToggle?: () => void
+  children?: React.ReactNode
+}) {
+  const tintBg = tint === "warn" ? "bg-amber-50/40" : tint === "error" ? "bg-red-50/40" : undefined
+  return (
+    <div className={cn("flex flex-col overflow-hidden rounded-xl border bg-card",
+      tint === "warn" ? "border-amber-300" : tint === "error" ? "border-red-300" : "border-border")}>
+      {/* Section 1 — IDs · tags · icon actions */}
+      <div className={cn("flex items-center gap-3 border-b border-border px-4 py-2", tintBg)}>
+        <div className="flex min-w-0 items-center gap-2.5 text-[10px] text-muted-foreground">
+          {selectable && <Checkbox className="h-4 w-4" checked={selected} onCheckedChange={onToggle} />}
+          {propertyId ? (
+            <>
+              <span className="flex items-center gap-1">Property ID: <IdCopy value={propertyId} /></span>
+              {metadataId && <><span>·</span><span className="flex items-center gap-1">Metadata ID: <IdCopy value={metadataId} /></span></>}
+            </>
+          ) : (
+            <span className="italic">Draft property</span>
+          )}
+        </div>
+        <div className="flex flex-1 items-center justify-end gap-2">{tags}</div>
+        {actions && <div className="flex shrink-0 items-center gap-1 border-l border-border pl-2">{actions}</div>}
+      </div>
+
+      {/* Section 2 — status dot · title · keywords */}
+      <div className={cn("border-b border-border px-4 py-2", tintBg)}>
+        <div className="flex items-center gap-2">
+          <span className={cn("h-2 w-2 shrink-0 rounded-full", tint === "error" ? "bg-red-500" : tint === "warn" ? "bg-amber-500" : "bg-emerald-500")} />
+          <h3 className="truncate text-sm font-semibold">{title}</h3>
+        </div>
+        {keywords && <p className="mt-0.5 pl-4 text-xs text-muted-foreground line-clamp-1">{keywords}</p>}
+      </div>
+
+      {/* Section 3 — main info grid */}
+      <div className={cn("px-4 py-2.5", tintBg)}>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 lg:grid-cols-4">
+          {cells.map((c, i) => <OfferingCtxCell key={`${c.label}-${i}`} label={c.label} icon={c.icon} value={c.value} sub={c.sub} />)}
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /* Step 1 — Initial Setup                                              */
 /* ------------------------------------------------------------------ */
 
-function StepInitialSetup({ entry }: { entry: IngestionEntry }) {
-  const [prevIdx, setPrevIdx] = useState(0)
+/**
+ * File preview — the uploaded entry file (Sheet / Image / PDF / Text).
+ * Sheets get the tabbed grid preview; other types open the shared FilePreviewDialog
+ * (same viewer as WhatsApp Media).
+ */
+export function FilePreviewCard({ entry }: { entry: IngestionEntry }) {
   const [preview, setPreview] = useState<"input" | "output">("output")
+  const [viewerOpen, setViewerOpen] = useState(false)
   const mains = entry.projects.filter((p) => p.main === null)
   const [hiddenTabs, setHiddenTabs] = useState<Set<string>>(new Set())
   const [activeTab, setActiveTab] = useState(mains[0]?.id)
   const tabCounts = useMemo(() => mains.map((m, i) => ({ ...m, count: [119, 56, 76, 56][i % 4] })), [mains])
+
+  const ext = entry.fileName.split(".").pop()?.toUpperCase() ?? ""
+  const isSheet = entry.fileType === "Sheet"
+  const previewFile: PreviewFile = {
+    id: entry.id,
+    name: entry.fileName,
+    ext,
+    typeGroup: isSheet ? "Sheet" : entry.fileType === "Image" ? "Image" : "Document",
+    url: entry.fileType === "Image" ? "/aerial-view-masterplan-residential-development-blu.jpg" : undefined,
+  }
+
+  if (!isSheet) {
+    return (
+      <SectionCard
+        title="File preview"
+        right={<Button variant="outline" size="sm" className="h-8 gap-1.5 border-primary text-primary" onClick={() => setViewerOpen(true)}><Eye className="h-3.5 w-3.5" />Open preview</Button>}
+      >
+        <button className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-muted/40" onClick={() => setViewerOpen(true)}>
+          {entry.fileType === "Image" ? (
+            <img src={previewFile.url} alt={entry.fileName} className="h-24 w-36 flex-shrink-0 rounded-lg border border-border object-cover" />
+          ) : (
+            <span className="flex h-24 w-36 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40">
+              <FileText className="h-10 w-10 text-muted-foreground" />
+            </span>
+          )}
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-semibold text-foreground">{entry.fileName}</span>
+            <span className="mt-1 flex items-center gap-1.5">
+              <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>{ext}</span>
+              <ColorTag value={entry.fileType} />
+            </span>
+            <span className="mt-1 block text-xs text-muted-foreground">Click to open the full preview</span>
+          </span>
+        </button>
+        {viewerOpen && <FilePreviewDialog file={previewFile} onClose={() => setViewerOpen(false)} />}
+      </SectionCard>
+    )
+  }
+
+  return (
+    <SectionCard
+      title="File preview"
+      count="220 Units"
+      right={
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setViewerOpen(true)}><Maximize2 className="h-4 w-4" /></Button>
+          <div className="flex rounded-lg border border-border p-0.5">
+            {(["input", "output"] as const).map((m) => (
+              <button key={m} onClick={() => setPreview(m)} className={cn("rounded-md px-3 py-1 text-sm font-medium capitalize", preview === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>{m}</button>
+            ))}
+          </div>
+        </div>
+      }
+    >
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-4">
+        {tabCounts.map((t) => {
+          const hidden = hiddenTabs.has(t.id)
+          return (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={cn("flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium",
+                activeTab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
+                hidden && "opacity-50 line-through")}
+            >
+              <span
+                role="button"
+                onClick={(e) => { e.stopPropagation(); setHiddenTabs((prev) => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n }) }}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                {hidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </span>
+              {t.name}
+              <span className="rounded-full border border-border bg-muted px-1.5 text-[11px]">{t.count}</span>
+            </button>
+          )
+        })}
+      </div>
+      <MiniSheet
+        cols={["Unit ID", "Unit Type Code", "Category", "Project", "Delivery", "Area"]}
+        rows={SHEET_ROWS.slice(0, 14)}
+        toneOf={() => ""}
+        renderCell={(c, r) => {
+          switch (c) {
+            case "Unit ID": return <span className="font-medium text-foreground">{r.phase === "M-CRWN" ? "M-CRWN-" : "M-IV-A-"}{r.unit}</span>
+            case "Unit Type Code": return r.typeCode
+            case "Category": return r.category
+            case "Project": return "MV The Villas"
+            case "Delivery": return r.delivery
+            case "Area": return r.area || "—"
+            default: return null
+          }
+        }}
+      />
+      {viewerOpen && <FilePreviewDialog file={previewFile} onClose={() => setViewerOpen(false)} />}
+    </SectionCard>
+  )
+}
+
+export function StepInitialSetup({ entry }: { entry: IngestionEntry }) {
+  const [prevIdx, setPrevIdx] = useState(0)
 
   return (
     <div className="space-y-4">
@@ -267,62 +465,7 @@ function StepInitialSetup({ entry }: { entry: IngestionEntry }) {
         </div>
       </SectionCard>
 
-      {/* Sheet preview with project tabs */}
-      <SectionCard
-        title="Sheet preview"
-        count="220 Units"
-        right={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => toast.info("Fullscreen preview is coming soon")}><Maximize2 className="h-4 w-4" /></Button>
-            <div className="flex rounded-lg border border-border p-0.5">
-              {(["input", "output"] as const).map((m) => (
-                <button key={m} onClick={() => setPreview(m)} className={cn("rounded-md px-3 py-1 text-sm font-medium capitalize", preview === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>{m}</button>
-              ))}
-            </div>
-          </div>
-        }
-      >
-        <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-4">
-          {tabCounts.map((t) => {
-            const hidden = hiddenTabs.has(t.id)
-            return (
-              <button
-                key={t.id}
-                onClick={() => setActiveTab(t.id)}
-                className={cn("flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium",
-                  activeTab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
-                  hidden && "opacity-50 line-through")}
-              >
-                <span
-                  role="button"
-                  onClick={(e) => { e.stopPropagation(); setHiddenTabs((prev) => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n }) }}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  {hidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </span>
-                {t.name}
-                <span className="rounded-full border border-border bg-muted px-1.5 text-[11px]">{t.count}</span>
-              </button>
-            )
-          })}
-        </div>
-        <MiniSheet
-          cols={["Unit ID", "Unit Type Code", "Category", "Project", "Delivery", "Area"]}
-          rows={SHEET_ROWS.slice(0, 14)}
-          toneOf={() => ""}
-          renderCell={(c, r) => {
-            switch (c) {
-              case "Unit ID": return <span className="font-medium text-foreground">{r.phase === "M-CRWN" ? "M-CRWN-" : "M-IV-A-"}{r.unit}</span>
-              case "Unit Type Code": return r.typeCode
-              case "Category": return r.category
-              case "Project": return "MV The Villas"
-              case "Delivery": return r.delivery
-              case "Area": return r.area || "—"
-              default: return null
-            }
-          }}
-        />
-      </SectionCard>
+      <FilePreviewCard entry={entry} />
     </div>
   )
 }
@@ -752,9 +895,9 @@ function StepFormatting() {
 /* Step 6 — Review                                                     */
 /* ------------------------------------------------------------------ */
 
-interface ReviewIssue { title: string; id: string; units: number; description: string; blocking: boolean }
+export interface ReviewIssue { title: string; id: string; units: number; description: string; blocking: boolean }
 
-const REVIEW_ISSUES: ReviewIssue[] = [
+export const REVIEW_ISSUES: ReviewIssue[] = [
   { title: "Same Unit ID", id: "21932190", units: 2, description: "Duplicate unit IDs found, causing conflicts in property identification.", blocking: true },
   { title: "Area is not assigned", id: "21932190", units: 2, description: "Unit has no area value entered, leaving key data incomplete.", blocking: true },
   { title: "Area is not assigned", id: "21932190", units: 2, description: "Unit has no area value entered, leaving key data incomplete.", blocking: true },
@@ -767,21 +910,7 @@ function StepReview() {
   const toggle = (i: number) => setHidden((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })
 
   const issueCard = (issue: ReviewIssue, i: number) => (
-    <div key={i} className={cn("rounded-xl border p-3", issue.blocking ? "border-red-200 bg-red-50/40" : "border-amber-200 bg-amber-50/40", hidden.has(i) && "opacity-50")}>
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className={cn("flex items-center gap-1.5 text-sm font-semibold", issue.blocking ? "text-red-600" : "text-amber-600")}>
-            {issue.title}
-            <button onClick={() => toggle(i)} className="text-current opacity-70 hover:opacity-100">
-              {hidden.has(i) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-            </button>
-          </p>
-          <IdTag value={issue.id} />
-        </div>
-        <span className={cn(TAG, issue.blocking ? "border-red-200 bg-white text-red-600" : "border-amber-300 bg-white text-amber-700")}>{issue.units} Units</span>
-      </div>
-      <p className="mt-1.5 text-sm text-muted-foreground">{issue.description}</p>
-    </div>
+    <ReviewIssueCard key={i} issue={issue} dimmed={hidden.has(i)} onToggleVisibility={() => toggle(i)} />
   )
 
   return (
@@ -916,16 +1045,10 @@ function StepPaymentPlans() {
 /* Step 8 — Floor Plans                                                */
 /* ------------------------------------------------------------------ */
 
-interface EntryFloorPlan { name: string; id: string; units: number; area: string; bath: number; bed: number }
-
-const ENTRY_FLOOR_PLANS: EntryFloorPlan[] = [
-  { name: "Villa SV - 93810", id: "9290123", units: 23, area: "65 - 100 SQM", bath: 3, bed: 4 },
-  { name: "APT-980-93810", id: "9290123", units: 126, area: "65 - 100 SQM", bath: 3, bed: 4 },
-]
-
 function StepFloorPlans() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [fullscreen, setFullscreen] = useState<string | null>(null)
+  const [panelPlans, setPanelPlans] = useState<FloorPlan[]>(() => FLOOR_PLANS0.slice(0, 2))
   const rows = SHEET_ROWS.slice(0, 8)
   const toggle = (u: string) => setSelected((prev) => { const n = new Set(prev); n.has(u) ? n.delete(u) : n.add(u); return n })
 
@@ -1002,29 +1125,15 @@ function StepFloorPlans() {
           <StatTile label="Floor Plans used" value="7" total="12" />
           <StatTile label="Units Linked to Plans" value="122" total="280" alert />
         </div>
-        {ENTRY_FLOOR_PLANS.map((fp, i) => (
-          <div key={i} className="rounded-xl border border-border bg-card p-3">
-            <div className="relative">
-              <button className="block h-44 w-full overflow-hidden rounded-lg border border-border" onClick={() => setFullscreen(`panel-${i}`)}>
-                <img src={FP_IMG} alt={fp.name} className="h-full w-full object-cover" />
-              </button>
-              <Button variant="outline" size="icon" className="absolute right-2 top-2 h-7 w-7 bg-card" onClick={() => toast.info("Edit floor plan is coming soon")}><Pencil className="h-3.5 w-3.5" /></Button>
-            </div>
-            <div className="mt-2 flex items-start justify-between gap-2">
-              <div>
-                <p className="text-sm font-bold text-foreground">{fp.name}</p>
-                <IdTag value={fp.id} />
-              </div>
-              <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>{fp.units} Units</span>
-            </div>
-            <div className="mt-1.5 flex flex-wrap gap-1"><ColorTag value="Project" /><ColorTag value="Phase name" /><ColorTag value="Property type" /></div>
-            <p className="mt-1.5 border-t border-border pt-1.5 text-xs text-muted-foreground">Villa, Building name, #45, Has Garden</p>
-            <div className="mt-1.5 flex items-center justify-between text-xs text-foreground">
-              <span><b>Area:</b> {fp.area}</span>
-              <span><b>Bathroom:</b> {fp.bath}</span>
-              <span><b>Bedroom:</b> {fp.bed}</span>
-            </div>
-          </div>
+        {/* Real floor-plan cards — same component as the Floor Plans page */}
+        {panelPlans.map((fp) => (
+          <FloorPlanCard
+            key={fp.id}
+            fp={fp}
+            onView={() => setFullscreen(fp.id)}
+            onDelete={() => { setPanelPlans((prev) => prev.filter((x) => x.id !== fp.id)); toast.success("Floor plan removed") }}
+            onStatusChange={(s) => setPanelPlans((prev) => prev.map((x) => (x.id === fp.id ? { ...x, status: s } : x)))}
+          />
         ))}
       </div>
 
@@ -1042,33 +1151,35 @@ interface GroupResult { name: string; units: number; isNew: boolean; id: string 
 function GroupResultCard({ g }: { g: GroupResult }) {
   const [devNaming, setDevNaming] = useState(g.isNew)
   const [fullscreen, setFullscreen] = useState(false)
+  const cells: GroupedCardCell[] = [
+    { icon: <Home className="h-3 w-3" />, label: "Property type", value: "Apartments - Studio" },
+    { icon: <CalendarDays className="h-3 w-3" />, label: "Delivery type", value: "Off-plan" },
+    { icon: <Paintbrush className="h-3 w-3" />, label: "Finishing", value: "Semi-finished" },
+    { icon: <Ruler className="h-3 w-3" />, label: "Area", value: "96 - 102 SQM" },
+    { icon: <Bath className="h-3 w-3" />, label: "Bathroom", value: "3" },
+    { icon: <BedDouble className="h-3 w-3" />, label: "Bedroom", value: "4" },
+    { icon: <Banknote className="h-3 w-3" />, label: "Price Range", value: "4,800,000 - 6,900,000" },
+  ]
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h4 className="text-base font-bold text-foreground">{g.name}</h4>
-            <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>{g.units} Units</span>
-            {g.isNew && <span className={cn(TAG, "border-emerald-200 bg-emerald-100 text-emerald-700")}>New</span>}
-          </div>
-          <IdTag value={g.id} />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Developer naming</span>
+    <GroupedPropertyCard
+      propertyId={g.id}
+      title={g.name}
+      keywords="Proximity to schools, payment plans up to 8 years, ready-to-move options."
+      cells={cells}
+      tags={
+        <>
+          <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>{g.units} Units</span>
+          {g.isNew && <span className={cn(TAG, "border-emerald-200 bg-emerald-100 text-emerald-700")}>New</span>}
+        </>
+      }
+      actions={
+        <span className="flex items-center gap-2 pl-1 text-xs text-muted-foreground">
+          Developer naming
           <Switch checked={devNaming} onCheckedChange={setDevNaming} />
-        </div>
-      </div>
-      <p className="mt-1.5 text-sm text-muted-foreground"><b className="text-foreground">Description:</b> Proximity to schools, payment plans up to 8 years, ready-to-move options.</p>
-      <div className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1.5 text-sm text-foreground md:grid-cols-3">
-        <span><b>Property type:</b> Apartments - Studio</span>
-        <span><b>Delivery type:</b> Off-plan</span>
-        <span><b>Finishing:</b> Semi-finished</span>
-        <span><b>Area:</b> 96 - 102 SQM</span>
-        <span><b>Bathroom:</b> 3</span>
-        <span><b>Bedroom:</b> 4</span>
-        <span className="md:col-span-3"><b>Price Range:</b> 4,800,000 - 6,900,000</span>
-      </div>
-      <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3">
+        </span>
+      }
+    >
+      <div className="grid grid-cols-1 gap-4 border-t border-border px-4 py-3 md:grid-cols-3">
         <div>
           <p className="mb-1.5 text-sm font-semibold text-foreground">Images:</p>
           <div className="flex items-center gap-1.5">
@@ -1095,7 +1206,7 @@ function GroupResultCard({ g }: { g: GroupResult }) {
           <p className="text-sm text-foreground"><b>Offers:</b> 2 Offers</p>
         </div>
       </div>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <UnitBreakdownChips />
           <span className={cn(TAG, "border-blue-200 bg-blue-50 text-blue-700")}>Returned <b>9</b></span>
@@ -1103,7 +1214,7 @@ function GroupResultCard({ g }: { g: GroupResult }) {
         <Button variant="outline" size="sm" className="h-8 border-primary font-semibold text-primary" onClick={() => toast.success(`Missing units marked for ${g.name}`)}>Mark missing units</Button>
       </div>
       {fullscreen && <FullscreenViewer images={[FP_IMG]} startIndex={0} label={g.name} onClose={() => setFullscreen(false)} />}
-    </div>
+    </GroupedPropertyCard>
   )
 }
 
@@ -1217,6 +1328,76 @@ function StepGrouping({ entry }: { entry: IngestionEntry }) {
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
 
+/* Shared wizard chrome — used by both the sheets and manual entry details pages. */
+export type WizardStep = { key: string; icon: React.ComponentType<{ className?: string }> }
+
+export function WizardStepper({ steps, step, onStep }: { steps: readonly WizardStep[]; step: number; onStep: (i: number) => void }) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-border bg-card px-6 py-4">
+      <div className="flex min-w-max items-start">
+        {steps.map((s, i) => {
+          const done = i < step
+          const active = i === step
+          const Icon = s.icon
+          return (
+            <div key={s.key} className="flex items-start">
+              {i > 0 && <div className={cn("mt-5 h-0.5 w-10 lg:w-14", i <= step ? "bg-emerald-500" : "bg-border")} />}
+              <button onClick={() => onStep(i)} className="group flex w-24 flex-col items-center gap-1.5">
+                <span className={cn("flex h-10 w-10 items-center justify-center rounded-lg border transition-colors",
+                  done ? "border-emerald-500 bg-emerald-500 text-white" :
+                  active ? "border-primary bg-card text-primary" :
+                  "border-border bg-card text-muted-foreground group-hover:border-primary/50")}>
+                  {done ? <CheckCircle2 className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
+                </span>
+                <span className={cn("text-center text-xs", active ? "font-semibold text-primary" : done ? "text-emerald-600" : "text-muted-foreground")}>{s.key}</span>
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+export function WizardHeader({ entry, listLabel, pageLabel, onBack }: { entry: IngestionEntry; listLabel: string; pageLabel: string; onBack: () => void }) {
+  return (
+    <>
+      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <button onClick={onBack} className="inline-flex items-center gap-1 hover:text-foreground hover:underline"><ArrowLeft className="h-3.5 w-3.5" />{listLabel}</button>
+        <span>/</span>
+        <span className="font-medium text-foreground">{pageLabel}</span>
+      </div>
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">{entry.fileName}</h1>
+        <IdTag value={entry.id} />
+      </div>
+    </>
+  )
+}
+
+export function EntryContextStrip({ entry }: { entry: IngestionEntry }) {
+  return (
+    <div className="grid grid-cols-2 gap-4 rounded-xl border border-border bg-card p-4 md:grid-cols-4">
+      <div><p className="text-sm font-semibold text-foreground">Entry ID</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.id}</p></div>
+      <div><p className="text-sm font-semibold text-foreground">Developer</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.developer.name}</p></div>
+      <div><p className="text-sm font-semibold text-foreground">Property category</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.categories.join(", ")}</p></div>
+      <div><p className="text-sm font-semibold text-foreground">Projects</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.projects.filter((p) => p.main === null).map((p) => p.name).join(", ")}</p></div>
+    </div>
+  )
+}
+
+export function WizardFooter({ backLabel = "Back", nextLabel = "Next", onBack, onNext }: { backLabel?: string; nextLabel?: string; onBack: () => void; onNext: () => void }) {
+  return (
+    <div className="sticky bottom-0 z-30 flex items-center justify-between border-t border-border bg-card px-6 py-3">
+      <Button variant="outline" onClick={onBack}>{backLabel}</Button>
+      <div className="flex items-center gap-2">
+        <Button variant="outline" className="border-primary text-primary" onClick={() => toast.success("Draft saved")}>Save as draft</Button>
+        <Button onClick={onNext}>{nextLabel}</Button>
+      </div>
+    </div>
+  )
+}
+
 export function SheetEntryDetailsPage({ entry, onBack }: { entry: IngestionEntry; onBack: () => void }) {
   const [step, setStep] = useState(() => STAGE_TO_STEP[entry.stage] ?? 0)
 
@@ -1231,50 +1412,9 @@ export function SheetEntryDetailsPage({ entry, onBack }: { entry: IngestionEntry
   return (
     <div className="flex min-h-screen flex-col bg-secondary/40">
       <div className="flex-1 space-y-4 p-6">
-        {/* In-page breadcrumb — buttons, no routing */}
-        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <button onClick={onBack} className="inline-flex items-center gap-1 hover:text-foreground hover:underline"><ArrowLeft className="h-3.5 w-3.5" />Automatic Sheets Entries</button>
-          <span>/</span>
-          <span className="font-medium text-foreground">Sheets processing</span>
-        </div>
-
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">{entry.fileName}</h1>
-          <IdTag value={entry.id} />
-        </div>
-
-        {/* Stepper */}
-        <div className="overflow-x-auto rounded-xl border border-border bg-card px-6 py-4">
-          <div className="flex min-w-max items-start">
-            {STEPS.map((s, i) => {
-              const done = i < step
-              const active = i === step
-              const Icon = s.icon
-              return (
-                <div key={s.key} className="flex items-start">
-                  {i > 0 && <div className={cn("mt-5 h-0.5 w-10 lg:w-14", i <= step ? "bg-emerald-500" : "bg-border")} />}
-                  <button onClick={() => setStep(i)} className="group flex w-24 flex-col items-center gap-1.5">
-                    <span className={cn("flex h-10 w-10 items-center justify-center rounded-lg border transition-colors",
-                      done ? "border-emerald-500 bg-emerald-500 text-white" :
-                      active ? "border-primary bg-card text-primary" :
-                      "border-border bg-card text-muted-foreground group-hover:border-primary/50")}>
-                      {done ? <CheckCircle2 className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
-                    </span>
-                    <span className={cn("text-center text-xs", active ? "font-semibold text-primary" : done ? "text-emerald-600" : "text-muted-foreground")}>{s.key}</span>
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Context strip */}
-        <div className="grid grid-cols-2 gap-4 rounded-xl border border-border bg-card p-4 md:grid-cols-4">
-          <div><p className="text-sm font-semibold text-foreground">Entry ID</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.id}</p></div>
-          <div><p className="text-sm font-semibold text-foreground">Developer</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.developer.name}</p></div>
-          <div><p className="text-sm font-semibold text-foreground">Property category</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.categories.join(", ")}</p></div>
-          <div><p className="text-sm font-semibold text-foreground">Projects</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.projects.filter((p) => p.main === null).map((p) => p.name).join(", ")}</p></div>
-        </div>
+        <WizardHeader entry={entry} listLabel="Automatic Sheets Entries" pageLabel="Sheets processing" onBack={onBack} />
+        <WizardStepper steps={STEPS} step={step} onStep={setStep} />
+        <EntryContextStrip entry={entry} />
 
         {step === 0 && <StepInitialSetup entry={entry} />}
         {step === 1 && <StepSheetPreparation />}
@@ -1287,14 +1427,7 @@ export function SheetEntryDetailsPage({ entry, onBack }: { entry: IngestionEntry
         {step === 8 && <StepGrouping entry={entry} />}
       </div>
 
-      {/* Wizard footer */}
-      <div className="sticky bottom-0 z-30 flex items-center justify-between border-t border-border bg-card px-6 py-3">
-        <Button variant="outline" onClick={back}>Back</Button>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" className="border-primary text-primary" onClick={() => toast.success("Draft saved")}>Save as draft</Button>
-          <Button onClick={next}>{step === STEPS.length - 1 ? "Finalize" : "Next"}</Button>
-        </div>
-      </div>
+      <WizardFooter onBack={back} onNext={next} nextLabel={step === STEPS.length - 1 ? "Finalize" : "Next"} />
     </div>
   )
 }
