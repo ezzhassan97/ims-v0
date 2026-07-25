@@ -61,7 +61,7 @@ import { cn } from "@/lib/utils"
 type RenderSource = "Brochure Extraction" | "Uploaded"
 type SaleType = "Launch" | "Primary" | "Resale" | "Nawy Now" | "Rental"
 
-interface RenderImage {
+export interface RenderImage {
   id: string
   url: string
   caption: string
@@ -143,7 +143,7 @@ const SALE_TYPES: SaleType[] = ["Launch", "Primary", "Resale", "Nawy Now", "Rent
 const BASE_TS = new Date("2026-05-20").getTime()
 
 // Deterministic mock builder (no Math.random → SSR-safe)
-const RENDER_IMAGES: RenderImage[] = Array.from({ length: 28 }, (_, i) => {
+export const RENDER_IMAGES: RenderImage[] = Array.from({ length: 28 }, (_, i) => {
   const project = PROJECTS[i % PROJECTS.length]
   const dev = DEVELOPERS.find((d) => d.id === project.devId)!
   const main = project.parentId ? PROJECTS.find((p) => p.id === project.parentId)! : project
@@ -346,7 +346,7 @@ export function FullscreenViewer({ images, startIndex, onClose, label, caption }
 }
 
 // ── Image card ─────────────────────────────────────────────────────────────────
-function RenderCard({
+export function RenderCard({
   img,
   selected,
   onSelect,

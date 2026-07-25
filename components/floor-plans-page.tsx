@@ -28,7 +28,7 @@ type FpUnitType = "Apartment" | "Villa" | "Townhouse" | "Duplex" | "Studio" | "P
 type FpExt = "PNG" | "JPG" | "PDF"
 type FpStatus = "Active" | "Hidden"
 
-interface FloorPlan {
+export interface FloorPlan {
   id: string
   imageUrl: string
   unitType: FpUnitType
@@ -97,7 +97,7 @@ const BEDS: Record<FpUnitType, number[]> = {
   Apartment: [1, 2, 3], Villa: [3, 4, 5], Townhouse: [3, 4], Duplex: [3, 4], Studio: [0], Penthouse: [3, 4],
 }
 
-const FLOOR_PLANS0: FloorPlan[] = Array.from({ length: 20 }, (_, i) => {
+export const FLOOR_PLANS0: FloorPlan[] = Array.from({ length: 20 }, (_, i) => {
   const project = PROJECTS[i % PROJECTS.length]
   const dev = DEVELOPERS.find((d) => d.id === project.devId)!
   const unitType = UNIT_TYPES[i % UNIT_TYPES.length]
@@ -151,7 +151,7 @@ const bedLabel = (n: number) => (n === 0 ? "Studio" : `${n} BR`)
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
-function FloorPlanCard({ fp, onView, onDelete, onStatusChange }: {
+export function FloorPlanCard({ fp, onView, onDelete, onStatusChange }: {
   fp: FloorPlan; onView: () => void; onDelete: () => void; onStatusChange: (s: FpStatus) => void
 }) {
   return (
