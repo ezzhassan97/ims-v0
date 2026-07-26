@@ -737,7 +737,7 @@ function ProjStatusTag({ status }: { status?: "Active" | "Hidden" }) {
  *  - single (default): same rows, no checkboxes — clicking the main row picks the main
  *    project, clicking a phase picks that phase; the picked row is highlighted.
  */
-export function ProjectTreeSelect({ label = "Project", projects, value, onChange, values = [], onValuesChange, multi = false, className }: {
+export function ProjectTreeSelect({ label = "Project", projects, value, onChange, values = [], onValuesChange, multi = false, className, valueExtra }: {
   label?: string
   projects: ProjectTreeNode[]
   /** Single mode */
@@ -748,6 +748,8 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
   onValuesChange?: (ids: string[]) => void
   multi?: boolean
   className?: string
+  /** Rendered inside the trigger, right of the selected label (e.g. status tags). */
+  valueExtra?: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState("")
@@ -818,6 +820,7 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
         )}
       >
         <span className="truncate text-left">{triggerLabel}</span>
+        {valueExtra && <span className="ml-auto flex flex-shrink-0 items-center gap-1">{valueExtra}</span>}
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
 

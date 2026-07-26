@@ -192,6 +192,7 @@ function UnitsCell({ u }: { u: { available: number; total: number } }) {
 const PROJ_COLS = [
   { id: "name", label: "Project / Phase Name", width: 240 },
   { id: "mainProject", label: "Main Project", width: 180 },
+  { id: "childType", label: "Child Type", width: 130 },
   { id: "developer", label: "Developer", width: 200 },
   { id: "listingStatus", label: "Listing Status", width: 130 },
   { id: "primaryStatus", label: "Primary Status", width: 130 },
@@ -502,6 +503,15 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             </div>
           </div>
         )
+      case "childType": {
+        const t = r.isPhase ? "Phase" : r.isSubProject ? "Sub-Project" : "Main Project"
+        const cls = r.isPhase
+          ? "border-blue-200 bg-blue-50 text-blue-700"
+          : r.isSubProject
+            ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+            : "border-border bg-muted/40 text-muted-foreground"
+        return <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", cls)}>{t}</span>
+      }
       case "mainProject":
         return r.mainProject ? (
           <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
@@ -2357,8 +2367,8 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
     const row = v ? mains.find((m) => m.id === v.id) : null
     // Launch can't be picked at creation — clamp the phase default to On-Sale
     if (row && level === "phase") { setEntryF(row.entryType); setPrimaryF(row.primaryStatus === "Launch" ? "On-Sale" : row.primaryStatus) }
-    // Sub-projects inherit the parent's developer as a starting point — still editable
-    if (row && level === "sub") setDevId(row.developer.id)
+    // Sub-projects inherit the parent's developer and listing status as a starting point — still editable
+    if (row && level === "sub") { setDevId(row.developer.id); setListingF(row.listingStatus) }
   }
   const pickLevel = (key: "main" | "phase" | "sub") => {
     setLevel(key)
@@ -2422,7 +2432,8 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
       const n = PROJECTS.filter((p) => p.isPhase && p.mainProject?.id === parentRow.id).length + 1
       onSave({
         ...base,
-        // Inherited from the parent: developer, location, organizations. Listing starts Hidden (base).
+        // Inherited from the parent: developer, location, organizations, listing status
+        listingStatus: parentRow.listingStatus,
         organizations: parentRow.organizations,
         entryType: entryF,
         primaryStatus: primaryF,
@@ -2579,6 +2590,13 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   value={parentSel}
                   onChange={pickParent}
                   className="w-full"
+                  valueExtra={parentRow && (
+                    <>
+                      <Tag value={parentRow.listingStatus} cls={LISTING_COLORS[parentRow.listingStatus]} />
+                      <Tag value={parentRow.primaryStatus} cls={PRIMARY_COLORS[parentRow.primaryStatus]} />
+                      <Tag value={parentRow.entryType} cls={ENTRY_COLORS[parentRow.entryType]} />
+                    </>
+                  )}
                 />
                 <p className="text-[11px] text-muted-foreground">
                   {level === "phase"
@@ -2606,6 +2624,10 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   </div>
                 </div>
                 <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Listing Status <span className="font-normal text-muted-foreground">(inherited)</span></div>
+                  <TagSelect value={parentRow.listingStatus} options={[]} colors={LISTING_COLORS} onChange={() => {}} disabled />
+                </div>
+                <div className="space-y-1.5">
                   <div className="text-xs font-medium text-foreground">Primary Status</div>
                   <TagSelect value={primaryF} options={["On-Sale", "On-Hold", "Sold-Off"]} colors={PRIMARY_COLORS} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} />
                 </div>
@@ -2613,6 +2635,7 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">Entry Type <EntryTypeInfo /></div>
                   <TagSelect value={entryF} options={["Automatic", "Manual"]} colors={ENTRY_COLORS} onChange={(v) => setEntryF(v as ProjEntryType)} />
                 </div>
+                <div />
                 {phaseStatusAlert && (
                   <div className="col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
                     The parent project is <span className="font-semibold">{parentRow.primaryStatus}</span> — creating an{" "}
@@ -2694,8 +2717,7 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
               </span>
             ) : level === "phase" ? (
               <span>
-                <span className="font-semibold">Developer, Location and Organizations</span> are inherited from the parent project, and{" "}
-                <span className="font-semibold">Listing Status</span> will be <span className="font-semibold">Hidden</span> by default upon creation.
+                <span className="font-semibold">Developer, Location, Organizations and Listing Status</span> are inherited from the parent project.
               </span>
             ) : (
               <span>
