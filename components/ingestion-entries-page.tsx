@@ -4,7 +4,7 @@ import { Fragment, useMemo, useState } from "react"
 import {
   Archive, ArrowDown, ArrowUp, ArrowUpDown, Boxes, Building2, CheckCircle2, ChevronDown, ChevronsDownUp,
   ChevronsUpDown, Clock, Download, Eye, FileSpreadsheet, FileStack, FileText, FolderTree, Group as GroupIcon,
-  MoreHorizontal, Rows3, ScanSearch, Timer, User as UserIcon,
+  MoreHorizontal, ScanSearch, Timer, User as UserIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -17,10 +17,11 @@ import { FilePreviewDialog, type PreviewFile } from "@/components/file-preview-d
 import { cn } from "@/lib/utils"
 import {
   TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FiltersDrawer, FilterDrawerField,
-  FloatingBulkBar, BulkBarButton, MultiSortControl, ColumnsSheet, IdTag, COL_SEP, type SortLevel,
+  FloatingBulkBar, BulkBarButton, MultiSortControl, ColumnsSheet, IdTag, COL_SEP, ProjectTreeSelect,
+  type SortLevel, type ProjectTreeNode,
 } from "@/components/table-kit"
 import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
-import { PROJECT_DEVELOPERS } from "@/lib/projects-mock"
+import { PROJECT_DEVELOPERS, PROJECTS } from "@/lib/projects-mock"
 import {
   SHEET_ENTRIES, MANUAL_ENTRIES, SHEET_STAGES, MANUAL_STAGES, SHEET_FILE_TYPES, MANUAL_FILE_TYPES,
   type IngestionEntry, type IngestionMode,
@@ -64,6 +65,13 @@ function sortVal(e: IngestionEntry, k: string) {
 /** White (uncolored) value tag — Projects & Property Categories cells. */
 const WHITE_TAG = "border-border bg-card text-foreground"
 
+/** Shared searchable project tree — same ids the entry mocks link to. */
+const PROJECT_TREE: ProjectTreeNode[] = PROJECTS.filter((p) => !p.isPhase).map((p) => ({
+  id: p.id,
+  name: p.name,
+  phases: PROJECTS.filter((ph) => ph.isPhase && ph.mainProject?.id === p.id).map((ph) => ({ id: ph.id, name: ph.name })),
+}))
+
 type GroupByKey = "none" | "developer" | "stage" | "user" | "fileType" | "source"
 const GROUP_LABEL: Record<GroupByKey, string> = {
   none: "Group by", developer: "Developer", stage: "Stage", user: "User", fileType: "File Type", source: "Source",
@@ -102,7 +110,7 @@ function finalizedPreviewFile(e: IngestionEntry): PreviewFile {
   return { id: e.id, name: `${e.fileName.replace(/\.[^.]+$/, "")}-finalized.xlsx`, ext: "XLSX", typeGroup: "Sheet", size: 2_100_000 }
 }
 
-function StatCard({ icon, label, value, total }: { icon: React.ReactNode; label: string; value: number | string; total?: number }) {
+function StatCard({ icon, label, value, total }: { icon: React.ReactNode; label: string; value: React.ReactNode; total?: number }) {
   return (
     <div className="rounded-lg border border-border bg-card p-3">
       <div className="mb-1 flex items-center gap-2">{icon}<span className="truncate text-xs text-muted-foreground">{label}</span></div>
@@ -158,6 +166,7 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
 
   const [q, setQ] = useState("")
   const [developerF, setDeveloperF] = useState<string[]>([])
+  const [projectF, setProjectF] = useState<string[]>([])
   const [stageF, setStageF] = useState<string[]>([])
   const [fileTypeF, setFileTypeF] = useState("")
   const [sourceF, setSourceF] = useState("")
@@ -177,14 +186,15 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
   const [summaryEntry, setSummaryEntry] = useState<IngestionEntry | null>(null)
   const [archiveDlg, setArchiveDlg] = useState<{ entries: IngestionEntry[]; ignored: number } | null>(null)
 
-  const activeFilterCount = [fileTypeF, sourceF].filter(Boolean).length + [developerF, stageF, categoryF].filter((a) => a.length > 0).length
-  const clearAllFilters = () => { setDeveloperF([]); setStageF([]); setFileTypeF(""); setSourceF(""); setCategoryF([]); setPage(1) }
+  const activeFilterCount = [fileTypeF, sourceF].filter(Boolean).length + [developerF, projectF, stageF, categoryF].filter((a) => a.length > 0).length
+  const clearAllFilters = () => { setDeveloperF([]); setProjectF([]); setStageF([]); setFileTypeF(""); setSourceF(""); setCategoryF([]); setPage(1) }
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
     let out = rows.filter((e) => {
       if (needle && !`${e.fileName} ${e.id}`.toLowerCase().includes(needle)) return false
       if (developerF.length > 0 && !developerF.includes(e.developer.id)) return false
+      if (projectF.length > 0 && !e.projects.some((p) => projectF.includes(p.id))) return false
       if (stageF.length > 0 && !stageF.includes(e.stage)) return false
       if (fileTypeF && e.fileType !== fileTypeF) return false
       if (sourceF && e.source !== sourceF) return false
@@ -201,7 +211,7 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
       })
     }
     return out
-  }, [rows, q, developerF, stageF, fileTypeF, sourceF, categoryF, sorts])
+  }, [rows, q, developerF, projectF, stageF, fileTypeF, sourceF, categoryF, sorts])
 
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
 
@@ -380,13 +390,22 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
         </div>
 
         {/* Analytics — dynamic with the applied filters; property & time cards read finalized entries */}
-        <div className={cn("grid grid-cols-2 gap-3", mode === "sheets" ? "md:grid-cols-4" : "md:grid-cols-4 xl:grid-cols-7")}>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatCard icon={<FileStack className="h-4 w-4 text-primary" />} label="Total Entries" value={filtered.length} />
           <StatCard icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} label="Finalized Entries" value={fin.length} />
           <StatCard icon={<Building2 className="h-4 w-4 text-blue-600" />} label="Developers" value={finDevelopers} />
           <StatCard icon={<FolderTree className="h-4 w-4 text-purple-600" />} label="Parent Projects" value={finParents} />
-          <StatCard icon={<Boxes className="h-4 w-4 text-amber-500" />} label="Grouped Properties" value={groupedProps} />
-          {mode === "sheets" && <StatCard icon={<Rows3 className="h-4 w-4 text-cyan-600" />} label="Detailed Properties" value={detailedProps} />}
+          <StatCard
+            icon={<Boxes className="h-4 w-4 text-amber-500" />}
+            label="Properties"
+            value={mode === "sheets" ? (
+              <>
+                {groupedProps} <span className="text-sm font-medium text-muted-foreground">Grouped</span>
+                <span className="mx-1 text-muted-foreground">·</span>
+                {detailedProps} <span className="text-sm font-medium text-muted-foreground">Detailed</span>
+              </>
+            ) : groupedProps}
+          />
           <StatCard icon={<Clock className="h-4 w-4 text-muted-foreground" />} label="Avg Total Time" value={fmtDur(avgOf((e) => e.totalTimeSec))} />
           <StatCard icon={<Timer className="h-4 w-4 text-muted-foreground" />} label="Avg Active Time" value={fmtDur(avgOf((e) => e.activeTimeSec))} />
         </div>
@@ -416,6 +435,7 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
           filters={
             <>
               <FilterMultiSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-44" />
+              <ProjectTreeSelect multi projects={PROJECT_TREE} values={projectF} onValuesChange={(v) => { setProjectF(v); setPage(1) }} className="w-48" />
               <FilterMultiSelect label="Stage" value={stageF} options={stages} onChange={(v) => { setStageF(v); setPage(1) }} className="w-44" />
               <FilterSelect label="File Type" value={fileTypeF} options={fileTypes} onChange={(v) => { setFileTypeF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Source" value={sourceF} options={["WhatsApp", "Device"]} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-36" />
@@ -513,6 +533,9 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
         <FiltersDrawer open={showFilters} onClose={() => setShowFilters(false)} activeCount={activeFilterCount} onClear={clearAllFilters}>
           <FilterDrawerField label="Developer">
             <FilterMultiSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Project">
+            <ProjectTreeSelect multi projects={PROJECT_TREE} values={projectF} onValuesChange={(v) => { setProjectF(v); setPage(1) }} className="w-full" />
           </FilterDrawerField>
           <FilterDrawerField label="Stage">
             <FilterMultiSelect label="Stage" value={stageF} options={stages} onChange={(v) => { setStageF(v); setPage(1) }} className="w-full" width="w-full" />
