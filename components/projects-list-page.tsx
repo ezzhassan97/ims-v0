@@ -1117,10 +1117,12 @@ export function ListingStatusDialog({ r, phases, parentListing, onClose, onConfi
         <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
           <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{r.developer.logo}</span>
           <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex w-full flex-wrap items-center gap-1.5">
               <span className="text-sm font-semibold text-foreground">{r.name}</span>
               <IdTag value={r.id} />
-              <Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} />
+              <span className="ml-auto flex flex-shrink-0 items-center">
+                <Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} />
+              </span>
             </div>
             {r.isPhase && r.mainProject && (
               <div className="flex flex-wrap items-center gap-1.5">
@@ -1976,19 +1978,17 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
             <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{targets[0].developer.logo}</span>
             <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex w-full flex-wrap items-center gap-1.5">
                 <span className="text-sm font-semibold text-foreground">{targets[0].name}</span>
                 <IdTag value={targets[0].id} />
+                <span className="ml-auto flex flex-shrink-0 items-center gap-1.5">
+                  <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />
+                  <Tag value={targets[0].entryType} cls={ENTRY_COLORS[targets[0].entryType]} />
+                </span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 <a href={`/developers/${targets[0].developer.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-foreground hover:text-primary hover:underline">{targets[0].developer.name}</a>
                 <IdTag value={targets[0].developer.id} />
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Listing</span>
-                <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />
-                <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">Current entry type</span>
-                <Tag value={targets[0].entryType} cls={ENTRY_COLORS[targets[0].entryType]} />
               </div>
             </div>
           </div>
@@ -1997,28 +1997,36 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
           <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
             <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{targets[0].developer.logo}</span>
             <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex w-full flex-wrap items-center gap-1.5">
                 <span className="text-sm font-semibold text-foreground">{targets[0].name}</span>
                 <IdTag value={targets[0].id} />
-                <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />
-                <Tag value={targets[0].primaryStatus} cls={PRIMARY_COLORS[targets[0].primaryStatus]} />
-                <Tag value={targets[0].entryType} cls={ENTRY_COLORS[targets[0].entryType]} />
+                <span className="ml-auto flex flex-shrink-0 items-center gap-1.5">
+                  <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />
+                  <Tag value={targets[0].primaryStatus} cls={PRIMARY_COLORS[targets[0].primaryStatus]} />
+                  <Tag value={targets[0].entryType} cls={ENTRY_COLORS[targets[0].entryType]} />
+                </span>
               </div>
               {currentParent && (
-                <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex w-full flex-wrap items-center gap-1.5">
                   <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Parent Project:</span>
                   <span className="text-xs font-medium text-foreground">{currentParent.name}</span>
                   <IdTag value={currentParent.id} />
-                  <Tag value={currentParent.listingStatus} cls={LISTING_COLORS[currentParent.listingStatus]} />
-                  <Tag value={currentParent.primaryStatus} cls={PRIMARY_COLORS[currentParent.primaryStatus]} />
-                  <Tag value={currentParent.entryType} cls={ENTRY_COLORS[currentParent.entryType]} />
+                  <span className="ml-auto flex flex-shrink-0 items-center gap-1.5">
+                    <Tag value={currentParent.listingStatus} cls={LISTING_COLORS[currentParent.listingStatus]} />
+                    <Tag value={currentParent.primaryStatus} cls={PRIMARY_COLORS[currentParent.primaryStatus]} />
+                    <Tag value={currentParent.entryType} cls={ENTRY_COLORS[currentParent.entryType]} />
+                  </span>
                 </div>
               )}
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex w-full flex-wrap items-center gap-1.5">
                 <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer</span>
                 <a href={`/developers/${targets[0].developer.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-foreground hover:text-primary hover:underline">{targets[0].developer.name}</a>
                 <IdTag value={targets[0].developer.id} />
-                {parentDevStatus && <Tag value={parentDevStatus} cls={LISTING_COLORS[parentDevStatus]} />}
+                {parentDevStatus && (
+                  <span className="ml-auto flex flex-shrink-0 items-center">
+                    <Tag value={parentDevStatus} cls={LISTING_COLORS[parentDevStatus]} />
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -2170,11 +2178,14 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                     <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
                   </div>
                 )}
-                {/* A Launch phase under a Sold-Off/On-Hold parent: it has an active launch — flag for after the move */}
+                {/* A Launch phase under a Sold-Off/On-Hold parent — same tag layout as the other notes */}
                 {launchUnderClosed && newParent && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
-                    Note: <span className="font-semibold">{targets[0]?.name}</span> has an <span className="font-semibold">active launch</span> and is being moved under a{" "}
-                    <span className="font-semibold">{newParent.primaryStatus}</span> parent project — its primary status will need to be changed after the move.
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+                    Note: <span className="font-semibold">{targets[0]?.name}</span> is
+                    <Tag value="Launch" cls={PRIMARY_COLORS.Launch} />
+                    while <span className="font-semibold">{newParent.name}</span> is
+                    <Tag value={newParent.primaryStatus} cls={PRIMARY_COLORS[newParent.primaryStatus]} />
+                    — it has an active launch; change its primary status after the move.
                   </div>
                 )}
                 {/* Primary differs: note only — nothing changes from this popup */}

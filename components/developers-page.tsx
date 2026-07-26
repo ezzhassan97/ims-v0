@@ -53,6 +53,21 @@ function sortVal(d: Developer, key: SortKey): string | number {
   }
 }
 
+/** Primary status tag — same tones as the projects table. */
+const PRIMARY_TONES: Record<string, string> = {
+  Launch: "border-green-200 bg-green-50 text-green-700",
+  "On-Sale": "border-emerald-200 bg-emerald-100 text-emerald-700",
+  "On-Hold": "border-orange-200 bg-orange-50 text-orange-700",
+  "Sold-Off": "border-red-200 bg-red-50 text-red-600",
+}
+function PrimaryTag({ value }: { value: string }) {
+  return (
+    <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium", PRIMARY_TONES[value] ?? "border-border bg-muted text-muted-foreground")}>
+      {value}
+    </span>
+  )
+}
+
 /** Organization tag — light tones like the rest of the tag system (Nawy light green, Partners light blue). */
 function OrgChip({ org }: { org: string }) {
   return (
@@ -143,6 +158,7 @@ export function DevelopersPage() {
   useEffect(() => { setGroupPages({}) }, [groupBy, q, statusF, priorityF, orgF, waF])
   const [sorts, setSorts] = useState<{ key: SortKey; dir: "asc" | "desc" }[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [bulkPriority, setBulkPriority] = useState(false)
   const lastClickedRef = useRef<number | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -433,7 +449,21 @@ export function DevelopersPage() {
           onClear={() => setSelectedIds(new Set())}
         >
           <BulkBarButton icon={<Download className="h-3.5 w-3.5 text-zinc-400" />} onClick={exportSelected}>Export</BulkBarButton>
+          <BulkBarButton icon={<ArrowUpDown className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => setBulkPriority(true)}>Change Priority</BulkBarButton>
         </FloatingBulkBar>
+
+        {bulkPriority && (
+          <BulkPriorityDialog
+            devs={rows.filter((d) => selectedIds.has(d.id))}
+            onClose={() => setBulkPriority(false)}
+            onConfirm={(dest, changed) => {
+              setRows((rs) => rs.map((d) => (selectedIds.has(d.id) ? { ...d, priority: dest } : d)))
+              toast.success(`${selectedIds.size} developer${selectedIds.size !== 1 ? "s" : ""} set to ${dest} priority (${changed} changed)`)
+              setSelectedIds(new Set())
+              setBulkPriority(false)
+            }}
+          />
+        )}
 
         {devDlg && (
           <DevCascadeDialog
@@ -1043,6 +1073,74 @@ function projectsOfDeveloper(devName: string) {
   })
 }
 
+/** Bulk Change Priority — destination on top, selected developers listed current → destination. */
+function BulkPriorityDialog({ devs, onClose, onConfirm }: {
+  devs: Developer[]
+  onClose: () => void
+  onConfirm: (dest: DevPriority, changed: number) => void
+}) {
+  const [dest, setDest] = useState<DevPriority | "">("")
+  const changed = dest ? devs.filter((d) => d.priority !== dest).length : 0
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="flex flex-col gap-0 p-0 sm:!max-w-2xl" style={{ maxHeight: "85vh" }}>
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-4"><DialogTitle>Change Priority</DialogTitle></DialogHeader>
+        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          {/* Destination priority — drives the per-row arrows below */}
+          <div>
+            <div className="mb-1.5 text-xs font-medium text-foreground">Change priority to</div>
+            <div className="grid grid-cols-5 gap-2">
+              {PRIORITY_OPTS.map((p) => (
+                <button
+                  key={p} type="button" onClick={() => setDest(p)}
+                  className={cn(
+                    "flex items-center justify-center rounded-lg border py-2 transition-colors",
+                    dest === p ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+                  )}
+                >
+                  <StoryBadge value={p} />
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{devs.length}</span> developer{devs.length !== 1 ? "s" : ""} selected
+            {dest !== "" && <> · <span className="font-medium text-foreground">{changed}</span> will change</>}
+          </p>
+          <div className="max-h-80 overflow-y-auto rounded-lg border border-border">
+            {devs.map((d, i) => {
+              const changes = dest !== "" && d.priority !== dest
+              return (
+                <div key={d.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70")}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{d.name}</p>
+                    <IdTag value={String(d.id)} />
+                  </div>
+                  <StoryBadge value={d.priority} />
+                  {dest !== "" && (
+                    changes ? (
+                      <>
+                        <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                        <StoryBadge value={dest} />
+                      </>
+                    ) : (
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>
+                    )
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={dest === ""} onClick={() => dest !== "" && onConfirm(dest, changed)}>Change Priority</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 /**
  * Developer cascade dialog — Change Listing Status / Change Organizations.
  * The impacted list is grouped by main project (phases nested under it).
@@ -1186,23 +1284,21 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
                       "flex items-center gap-2.5 px-3 py-2",
                       i > 0 && "border-t border-border/70",
                       p.isPhase && "bg-muted/20 pl-9",
-                      orgRowExcluded(p) && "opacity-45",
                     )}
                   >
+                    {/* checkbox stays full-opacity even when the row is excluded */}
                     {!p.isPhase && <Checkbox checked={!excluded.has(p.id)} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
-                      <IdTag value={p.id} />
-                    </div>
-                    <span className={cn(
-                      "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-px text-[10px] font-medium",
-                      p.isPhase ? "border-border bg-muted text-muted-foreground" : "border-blue-200 bg-blue-100 text-blue-700",
-                    )}>
-                      {p.isPhase ? "Phase" : "Main Project"}
-                    </span>
-                    {/* current organizations of each project / phase */}
-                    <div className="flex flex-shrink-0 items-center gap-1">
-                      {p.organizations.map((o) => <OrgChip key={o} org={o} />)}
+                    <div className={cn("flex min-w-0 flex-1 items-center gap-2.5", orgRowExcluded(p) && "opacity-45")}>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                        <IdTag value={p.id} />
+                      </div>
+                      <StoryBadge value={p.listingStatus} />
+                      <PrimaryTag value={p.primaryStatus} />
+                      {/* current organizations of each project / phase */}
+                      <div className="flex flex-shrink-0 items-center gap-1">
+                        {p.organizations.map((o) => <OrgChip key={o} org={o} />)}
+                      </div>
                     </div>
                   </div>
                 ))}
