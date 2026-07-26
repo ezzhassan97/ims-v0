@@ -4,7 +4,7 @@ import { Fragment, useMemo, useState } from "react"
 import {
   Archive, ArrowDown, ArrowUp, ArrowUpDown, Boxes, Building2, CheckCircle2, ChevronDown, ChevronsDownUp,
   ChevronsUpDown, Clock, Download, Eye, FileSpreadsheet, FileStack, FileText, FolderTree, Group as GroupIcon,
-  MoreHorizontal, ScanSearch, Timer, User as UserIcon,
+  MoreHorizontal, Rows3, ScanSearch, Timer, User as UserIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -390,24 +390,14 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
         </div>
 
         {/* Analytics — dynamic with the applied filters; property & time cards read finalized entries */}
-        {/* One row on xl: 6 single cards + the double-width Properties card = 8 columns */}
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+        {/* One row on xl: 8 cards on sheets, 7 on manual (no Detailed Properties there) */}
+        <div className={cn("grid grid-cols-2 gap-3 md:grid-cols-4", mode === "sheets" ? "xl:grid-cols-8" : "xl:grid-cols-7")}>
           <StatCard icon={<FileStack className="h-4 w-4 text-primary" />} label="Total Entries" value={filtered.length} />
           <StatCard icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} label="Finalized Entries" value={fin.length} />
           <StatCard icon={<Building2 className="h-4 w-4 text-blue-600" />} label="Developers" value={finDevelopers} />
           <StatCard icon={<FolderTree className="h-4 w-4 text-purple-600" />} label="Parent Projects" value={finParents} />
-          <StatCard
-            className="col-span-2"
-            icon={<Boxes className="h-4 w-4 text-amber-500" />}
-            label="Properties"
-            value={mode === "sheets" ? (
-              <>
-                {groupedProps.toLocaleString("en-US")} <span className="text-sm font-medium text-muted-foreground">Grouped</span>
-                <span className="mx-1 text-muted-foreground">·</span>
-                {detailedProps.toLocaleString("en-US")} <span className="text-sm font-medium text-muted-foreground">Detailed</span>
-              </>
-            ) : groupedProps.toLocaleString("en-US")}
-          />
+          <StatCard icon={<Boxes className="h-4 w-4 text-amber-500" />} label="Grouped Properties" value={groupedProps.toLocaleString("en-US")} />
+          {mode === "sheets" && <StatCard icon={<Rows3 className="h-4 w-4 text-cyan-600" />} label="Detailed Properties" value={detailedProps.toLocaleString("en-US")} />}
           <StatCard icon={<Clock className="h-4 w-4 text-muted-foreground" />} label="Avg Total Time" value={fmtDur(avgOf((e) => e.totalTimeSec))} />
           <StatCard icon={<Timer className="h-4 w-4 text-muted-foreground" />} label="Avg Active Time" value={fmtDur(avgOf((e) => e.activeTimeSec))} />
         </div>
