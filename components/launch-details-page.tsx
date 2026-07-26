@@ -251,6 +251,8 @@ interface Launch {
   projectId?: string
   /** Already-created project in the system — undefined ⇒ "New". */
   existingProject?: { id: string; name: string }
+  /** The listing project created/linked on ingestion — target of View Project. */
+  listingProject?: { id: string; name: string }
   area: string
   areaId?: string
   aiUpdates?: { count: number; lastAt: string }
@@ -1359,6 +1361,15 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
+              {/* View Project — the Listing Project details page, ingested launches only */}
+              <DropdownMenuItem
+                disabled={ingestionStatus !== "Ingested" || !launch.listingProject}
+                className={cn((ingestionStatus !== "Ingested" || !launch.listingProject) && "opacity-40")}
+                onClick={() => ingestionStatus === "Ingested" && launch.listingProject && window.open(`/projects/${launch.listingProject.id}`, "_blank", "noopener,noreferrer")}
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />View Project
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger disabled={ingestionStatus === "Ingested"} className={cn(ingestionStatus === "Ingested" && "opacity-40")}>
                   <ShieldCheck className="h-4 w-4 mr-2" />Approval
@@ -1613,7 +1624,13 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                     </ul>
                   </button>
 
-                  {/* Option 2 — create a new phase/project */}
+                  {/* Option 2 — create a new phase/project — WhatsApp launches only;
+                      Manual launches always link to the existing entity */}
+                  {launch.source !== "WhatsApp" ? (
+                    <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                      Manual launches always link to the existing {entity} — creating a new one is available for WhatsApp launches only.
+                    </p>
+                  ) : (
                   <button
                     type="button"
                     onClick={() => setIngestMode("new")}
@@ -1641,6 +1658,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                       </div>
                     )}
                   </button>
+                  )}
                 </div>
               )
             })()}

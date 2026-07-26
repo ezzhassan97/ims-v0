@@ -40,6 +40,7 @@ import {
   Plus,
   MoreHorizontal,
   Eye,
+  ExternalLink,
   Archive,
   Rocket,
   CheckCircle,
@@ -62,9 +63,10 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { LaunchDetailsPage } from "@/components/launch-details-page"
+import { PROJECTS } from "@/lib/projects-mock"
 import {
   TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, DateRangeFilter,
-  FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, ColumnsSheet, ProjectTreeSelect, GroupPager,
+  FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, ColumnsSheet, ProjectTreeSelect, DeveloperSelect, GroupPager,
   type ManagedColumn, type ProjectTreeNode, type ProjectTreeSelection,
 } from "@/components/table-kit"
 import { cn } from "@/lib/utils"
@@ -122,7 +124,6 @@ const LAUNCH_COLS: (ManagedColumn & { width: number })[] = [
   { id: "area", label: "Area", width: 130 },
   { id: "approval", label: "Approval", width: 140 },
   { id: "ingestion", label: "Ingestion Status", width: 140 },
-  { id: "listing", label: "Listing Status", width: 130 },
   { id: "launchStatus", label: "Launch Status", width: 130 },
   { id: "existingProject", label: "Existing Project", width: 170 },
   { id: "listingProject", label: "Listing Project", width: 170 },
@@ -395,9 +396,6 @@ const APPROVAL_TONE: Record<Launch["approvalStatus"], keyof typeof CHIP_TONES> =
 const INGESTION_TONE: Record<Launch["ingestionStatus"], keyof typeof CHIP_TONES> = {
   "Ingested": "green", "Not Ingested": "grey",
 }
-const LISTING_TONE: Record<Launch["listingStatus"], keyof typeof CHIP_TONES> = {
-  "Active": "green", "Hidden": "red",
-}
 const LAUNCH_STATUS_TONE: Record<Launch["launchStatus"], keyof typeof CHIP_TONES> = {
   "Active": "green", "Upcoming": "blue", "Closed": "purple",
 }
@@ -413,6 +411,15 @@ function formatDate(dateString: string | null | undefined) {
 
 // ─── Create dialog ─────────────────────────────────────────────────────────────
 
+/** Existing-project picker data — system projects grouped main → phases with listing statuses. */
+function sysProjectTree(devId?: string): ProjectTreeNode[] {
+  return PROJECTS.filter((p) => !p.isPhase && (!devId || p.developer.id === devId)).map((p) => ({
+    id: p.id, name: p.name, status: p.listingStatus,
+    phases: PROJECTS.filter((ph) => ph.isPhase && ph.mainProject?.id === p.id).map((ph) => ({ id: ph.id, name: ph.name, status: ph.listingStatus })),
+  }))
+}
+const SYS_DEVELOPERS = [...new Map(PROJECTS.map((p) => [p.developer.id, { id: p.developer.id, name: p.developer.name }])).values()]
+
 function LaunchFormDialog({
   open,
   onOpenChange,
@@ -426,6 +433,11 @@ function LaunchFormDialog({
   scope?: { name: string; isPhase: boolean; mainProject?: string; developer?: string; area?: string; phases?: string[] }
 }) {
   const [form, setForm] = useState<Omit<Launch, "id" | "createdAt" | "updatedAt">>({ ...EMPTY_FORM })
+  // New launch vs linking to an already-existing system project/phase
+  const [mode, setMode] = useState<"new" | "existing">("new")
+  const [exDevId, setExDevId] = useState("")
+  const [exSel, setExSel] = useState<ProjectTreeSelection>(null)
+  const exRow = exSel ? PROJECTS.find((p) => p.id === exSel.id) : undefined
 
   const set = (key: keyof typeof form, value: unknown) =>
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -433,6 +445,7 @@ function LaunchFormDialog({
   // Prefill + lock from the scope every time the dialog opens
   useEffect(() => {
     if (!open) return
+    setMode("new"); setExDevId(""); setExSel(null)
     if (scope) {
       setForm({
         ...EMPTY_FORM,
@@ -455,6 +468,51 @@ function LaunchFormDialog({
           <DialogTitle>Create Launch</DialogTitle>
         </DialogHeader>
 
+        {/* New launch vs already-existing project — existing fills the Existing Project column */}
+        {!scope && (
+          <div className="flex gap-2">
+            {([["new", "New Launch", "A brand-new project or phase is created on ingestion."], ["existing", "Already Existing Project", "Link this launch to a project or phase that already exists."]] as const).map(([k, label, desc]) => (
+              <button
+                key={k} type="button" onClick={() => setMode(k)}
+                className={cn(
+                  "flex-1 rounded-lg border p-3 text-left transition-colors",
+                  mode === k ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+                )}
+              >
+                <span className="block text-sm font-medium text-foreground">{label}</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">{desc}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!scope && mode === "existing" ? (
+          <div className="grid grid-cols-2 gap-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Developer</Label>
+              <DeveloperSelect developers={SYS_DEVELOPERS} value={exDevId} onChange={(v) => { setExDevId(v); setExSel(null) }} placeholder="Select developer…" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Project / Phase</Label>
+              <ProjectTreeSelect projects={sysProjectTree(exDevId || undefined)} value={exSel} onChange={setExSel} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Area <span className="text-[10px] font-normal text-muted-foreground">(from the selected project)</span></Label>
+              <Input value={exRow?.area ?? ""} disabled placeholder="—" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Type</Label>
+              <select
+                value={form.type}
+                onChange={(e) => set("type", e.target.value as Launch["type"])}
+                className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+              >
+                <option value="Launch">Launch</option>
+                <option value="Release">Release</option>
+              </select>
+            </div>
+          </div>
+        ) : (
         <div className="grid grid-cols-2 gap-4 py-2">
           <div className="space-y-1.5">
             <Label>Developer</Label>
@@ -572,10 +630,34 @@ function LaunchFormDialog({
             </select>
           </div>
         </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={() => { onSave(form); onOpenChange(false) }}>Create Launch</Button>
+          <Button
+            disabled={!scope && mode === "existing" && (!exDevId || !exSel)}
+            onClick={() => {
+              if (!scope && mode === "existing" && exSel && exRow) {
+                const isPhase = exSel.kind === "phase"
+                onSave({
+                  ...form,
+                  developer: { name: exRow.developer.name, logo: LOGO, id: exRow.developer.id },
+                  projectLevel: isPhase ? "Phase" : "Main Project",
+                  projectNameEn: isPhase ? exRow.mainProject?.name ?? exRow.name : exRow.name,
+                  phase: isPhase ? exRow.name : "",
+                  projectId: exRow.id,
+                  area: exRow.area,
+                  areaId: AREA_ID[exRow.area] ?? "",
+                  existingProject: { id: exRow.id, name: exRow.name },
+                })
+              } else {
+                onSave(form)
+              }
+              onOpenChange(false)
+            }}
+          >
+            Create Launch
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1126,6 +1208,20 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
     </DropdownMenuItem>
   )
 
+  /** Opens the Listing Project details page — only meaningful once the launch is ingested. */
+  const viewProjectItem = (l: Launch) => {
+    const enabled = l.ingestionStatus === "Ingested" && !!l.listingProject
+    return (
+      <DropdownMenuItem
+        disabled={!enabled}
+        className={cn(!enabled && "opacity-40")}
+        onClick={() => enabled && window.open(`/projects/${l.listingProject!.id}`, "_blank", "noopener,noreferrer")}
+      >
+        <ExternalLink className="h-4 w-4 mr-2" />View Project
+      </DropdownMenuItem>
+    )
+  }
+
   const toggleListingItem = (l: Launch) => (
     <DropdownMenuItem onClick={() => {
       const next = l.listingStatus === "Active" ? "Hidden" : "Active"
@@ -1147,6 +1243,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {viewItem(l)}
+            {viewProjectItem(l)}
             <DropdownMenuSeparator />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={dimApproval} className={cn(dimApproval && "opacity-40")}>
@@ -1182,6 +1279,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {viewItem(l)}
+            {viewProjectItem(l)}
             <DropdownMenuSeparator />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger><Activity className="h-4 w-4 mr-2" />Launch Status</DropdownMenuSubTrigger>
@@ -1207,6 +1305,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {viewItem(l)}
+            {viewProjectItem(l)}
           {toggleListingItem(l)}
           <DropdownMenuSeparator />
           <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDialog({ kind: "close", launch: l })}>
@@ -1255,7 +1354,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
       )
       case "approval": return <Chip tone={APPROVAL_TONE[l.approvalStatus]}>{l.approvalStatus}</Chip>
       case "ingestion": return <Chip tone={INGESTION_TONE[l.ingestionStatus]}>{l.ingestionStatus}</Chip>
-      case "listing": return <Chip tone={LISTING_TONE[l.listingStatus]}>{l.listingStatus}</Chip>
       case "launchStatus": return <Chip tone={LAUNCH_STATUS_TONE[l.launchStatus]}>{l.launchStatus}</Chip>
       case "existingProject": return l.existingProject ? (
         <div className="flex flex-col">
