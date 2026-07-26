@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ExternalLink, Eye, EyeOff, GitBranch, ImagePlus, Info, MoreHorizontal, Download, FileText, Globe, Repeat, ToggleRight, Layers, Building2,
-  Group as GroupIcon, MapPin, Plus, Tag as TagIcon, Map as MapIcon, Upload, X,
+  Group as GroupIcon, ListChecks, MapPin, Plus, Tag as TagIcon, Map as MapIcon, Upload, X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -267,6 +267,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [mapOpen, setMapOpen] = useState(false)
+  const [dataCheck, setDataCheck] = useState<DataCheckKind | null>(null)
   const [projGeo, setProjGeo] = useState<GeoRef[]>(PROJECT_GEO0)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [listingDlg, setListingDlg] = useState<ProjectRow | null>(null)
@@ -308,9 +309,9 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
     const targetIds = new Set(targets.map((t) => t.id))
     const excluded = new Set(excludedPhaseIds ?? [])
     setRows((rs) => {
-      // Parent moves encode the landing type + primary sync: "phase:PRJ-x:sync|keep" | "sub:PRJ-x:keep" | PROMOTE_TO_MAIN
-      const [moveAs, moveParentId, moveSync] = kind === "parent" && typeof value === "string" && value.includes(":")
-        ? (value as string).split(":") : ["", "", ""]
+      // Parent moves encode the landing type: "phase:PRJ-x" | "sub:PRJ-x" | PROMOTE_TO_MAIN
+      const [moveAs, moveParentId] = kind === "parent" && typeof value === "string" && value.includes(":")
+        ? (value as string).split(":") : ["", ""]
       const parent = moveParentId ? rs.find((y) => y.id === moveParentId) : null
       return rs.map((x) => {
         const hit = targetIds.has(x.id) || (x.isPhase && !!x.mainProject && targetIds.has(x.mainProject.id))
@@ -323,10 +324,9 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           if (value === PROMOTE_TO_MAIN) return { ...x, isPhase: false, isSubProject: false, mainProject: null }
           if (!parent) return x
           if (moveAs === "phase") {
-            // Phases MUST inherit developer, location and organizations. Listing only
-            // follows DOWN (a hidden parent hides the phase; an active parent changes
-            // nothing). Primary follows a Sold-Off/On-Hold parent when the user kept
-            // the sync ticked.
+            // Phases MUST inherit developer, location and organizations. Listing is the
+            // only status that cascades — a hidden parent hides the phase; an active
+            // parent changes nothing. Primary/entry are never touched from this action.
             return {
               ...x, isPhase: true, isSubProject: false,
               mainProject: { id: parent.id, name: parent.name },
@@ -334,7 +334,6 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               district: parent.district, area: parent.area, subarea: parent.subarea,
               organizations: parent.organizations,
               listingStatus: parent.listingStatus === "Hidden" ? "Hidden" : x.listingStatus,
-              ...(moveSync === "sync" ? { primaryStatus: parent.primaryStatus } : {}),
             }
           }
           // Sub-project: independent — only the location follows the parent
@@ -723,9 +722,20 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             }
             cta={!embedded ? (
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setUploadOpen(true)}>
-                  <Upload className="h-3.5 w-3.5" />Upload Polygons
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5">
+                      <ListChecks className="h-3.5 w-3.5" />Data Checks<ChevronDown className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setDataCheck("listing")}><ToggleRight className="mr-2 h-3.5 w-3.5" />Listing Status Check</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setDataCheck("primary")}><TagIcon className="mr-2 h-3.5 w-3.5" />Primary Status Check</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setDataCheck("orgs")}><Globe className="mr-2 h-3.5 w-3.5" />Organization Check</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setDataCheck("location")}><MapPin className="mr-2 h-3.5 w-3.5" />Location Check</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setDataCheck("developer")}><Building2 className="mr-2 h-3.5 w-3.5" />Developer Check</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setMapOpen(true)}>
                   <MapIcon className="h-3.5 w-3.5" />Map
                 </Button>
@@ -827,11 +837,18 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           )}
         </TableCard>
 
+        {dataCheck && <DataCheckDialog kind={dataCheck} rows={rows} onClose={() => setDataCheck(null)} />}
+
         {mapOpen && (
           <GlobalMapDialog
             title="Projects Map"
             entities={projGeo}
             locations={PROJECT_MAP_LOCATIONS}
+            headerExtra={
+              <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setUploadOpen(true)}>
+                <Upload className="h-3.5 w-3.5" />Upload Polygons
+              </Button>
+            }
             onClose={() => setMapOpen(false)}
             onSave={(updated) => {
               setProjGeo(updated)
@@ -1887,14 +1904,11 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   const currentParent = targets[0]?.mainProject ? allRows.find((x) => x.id === targets[0]!.mainProject!.id) : undefined
   /** Same type + same parent = nothing to do. */
   const parentNoChange = parentMode !== "promote" && parentMode === parentCurrentType && parentId === targets[0]?.mainProject?.id
+  // No cascading runs from this popup except listing (a hidden parent hides the phase).
+  // Primary/entry mismatches are surfaced as notes with a recommendation only.
   const closedParent = parentMode === "phase" && newParent
     && (newParent.primaryStatus === "Sold-Off" || newParent.primaryStatus === "On-Hold")
-  // An ON-SALE phase landing under a Sold-Off/On-Hold parent moves its primary status
-  // (and its properties) to match — user can untick to keep it unchanged.
-  const primarySyncTarget = closedParent && targets[0]?.primaryStatus === "On-Sale" ? newParent!.primaryStatus : null
-  // A LAUNCH phase can't auto-follow — it has an active launch; flag it for after the move.
   const launchUnderClosed = !!closedParent && targets[0]?.primaryStatus === "Launch"
-  const [syncPrimary, setSyncPrimary] = useState(true)
   const [excludedPhases, setExcludedPhases] = useState<Set<string>>(new Set())
   const toggleExcludedPhase = (id: string) => setExcludedPhases((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleOrg = (o: ProjOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
@@ -2084,7 +2098,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                   { key: "promote" as const, label: "Main project (no parent)", icon: Building2 },
                 ]).map(({ key, label, icon: Icon }) => (
                   <button
-                    key={key} type="button" onClick={() => { setParentMode(key); setSyncPrimary(true) }}
+                    key={key} type="button" onClick={() => setParentMode(key)}
                     className={cn(
                       "flex flex-1 items-center justify-center gap-1.5 rounded-lg border py-2 text-sm font-medium transition-colors",
                       parentMode === key ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/40" : "border-border text-muted-foreground hover:border-muted-foreground/40",
@@ -2103,7 +2117,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                   {/* DeveloperSelect renders name + listing-status tag + ID — reused here for main projects */}
                   <DeveloperSelect
                     developers={parentOptions} value={parentId}
-                    onChange={(v) => { setParentId(v); setSyncPrimary(true) }}
+                    onChange={setParentId}
                     placeholder="Select parent project…"
                     valueExtra={newParent && (
                       <>
@@ -2147,66 +2161,38 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                     </div>
                   </div>
                 )}
-                {/* An Active phase can't sit under a Hidden parent — its listing follows down */}
+                {/* Listing is the ONLY auto-cascade: a hidden parent hides the phase — shown as from → to */}
                 {parentMode === "phase" && newParent && newParent.listingStatus === "Hidden" && targets[0]?.listingStatus === "Active" && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
-                    <span className="font-semibold">{newParent.name}</span> is <span className="font-semibold">Hidden</span> — this phase's listing status will change to <span className="font-semibold">Hidden</span> accordingly.
-                  </div>
-                )}
-                {/* Sold-Off/On-Hold parent: the phase's primary status follows too — opt-out row card */}
-                {primarySyncTarget && targets[0] && (
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-muted-foreground">
-                      Moving under a <span className="font-medium text-foreground">{primarySyncTarget}</span> parent also changes this phase's primary status and its properties — untick to keep it unchanged:
-                    </p>
-                    <div className="rounded-lg border border-border">
-                      <div className="space-y-1 px-3 py-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <Checkbox checked={syncPrimary} onCheckedChange={() => setSyncPrimary((v) => !v)} className="h-4 w-4 flex-shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-foreground">{targets[0].name}</p>
-                            <IdTag value={targets[0].id} />
-                          </div>
-                          <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />
-                          <Tag value={targets[0].entryType} cls={ENTRY_COLORS[targets[0].entryType]} />
-                          <Tag value={targets[0].primaryStatus} cls={PRIMARY_COLORS[targets[0].primaryStatus]} />
-                          <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                          {syncPrimary
-                            ? <Tag value={primarySyncTarget} cls={PRIMARY_COLORS[primarySyncTarget]} />
-                            : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
-                        </div>
-                        {syncPrimary && (
-                          <div className="pl-7 text-[10px] text-muted-foreground">
-                            Properties Impacted: <span className="font-medium text-foreground">{targets[0].primaryStatusProps.launch.grouped}</span> Launch,{" "}
-                            <span className="font-medium text-foreground">{targets[0].primaryByEntry.Automatic.grouped}</span> Primary Automatic,{" "}
-                            <span className="font-medium text-foreground">{targets[0].primaryByEntry.Manual.grouped}</span> Primary Manual
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+                    <span className="font-semibold">{newParent.name}</span> is <span className="font-semibold">Hidden</span> — this phase's listing status will change
+                    <Tag value="Active" cls={LISTING_COLORS.Active} />
+                    <ArrowRight className="h-3.5 w-3.5 flex-shrink-0" />
+                    <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
                   </div>
                 )}
                 {/* A Launch phase under a Sold-Off/On-Hold parent: it has an active launch — flag for after the move */}
                 {launchUnderClosed && newParent && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
-                    <span className="font-semibold">{targets[0]?.name}</span> has an <span className="font-semibold">active launch</span> and is being moved under a{" "}
+                    Note: <span className="font-semibold">{targets[0]?.name}</span> has an <span className="font-semibold">active launch</span> and is being moved under a{" "}
                     <span className="font-semibold">{newParent.primaryStatus}</span> parent project — its primary status will need to be changed after the move.
                   </div>
                 )}
-                {/* Primary differs in other combinations: informational only */}
-                {parentMode === "phase" && newParent && !primarySyncTarget && !launchUnderClosed && newParent.primaryStatus !== targets[0]?.primaryStatus && (
+                {/* Primary differs: note only — nothing changes from this popup */}
+                {parentMode === "phase" && newParent && !launchUnderClosed && newParent.primaryStatus !== targets[0]?.primaryStatus && (
                   <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
-                    Primary status differs — <span className="font-semibold">{targets[0]?.name}</span> is
+                    Note: <span className="font-semibold">{targets[0]?.name}</span> is
                     <Tag value={targets[0]?.primaryStatus ?? ""} cls={PRIMARY_COLORS[targets[0]?.primaryStatus as ProjPrimaryStatus]} />
                     while <span className="font-semibold">{newParent.name}</span> is
                     <Tag value={newParent.primaryStatus} cls={PRIMARY_COLORS[newParent.primaryStatus]} />
-                    — it keeps its own primary status; change it afterwards if needed.
+                    {closedParent && (
+                      <>— recommended to change it to <Tag value={newParent.primaryStatus} cls={PRIMARY_COLORS[newParent.primaryStatus]} /> after the move.</>
+                    )}
                   </div>
                 )}
-                {/* Entry type differs: informational — the phase keeps its own entry type */}
+                {/* Entry type differs: note only — the phase keeps its own entry type */}
                 {parentMode === "phase" && newParent && newParent.entryType !== targets[0]?.entryType && (
                   <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
-                    Entry type differs — <span className="font-semibold">{targets[0]?.name}</span> is
+                    Note: <span className="font-semibold">{targets[0]?.name}</span> is
                     <Tag value={targets[0]?.entryType ?? ""} cls={ENTRY_COLORS[targets[0]?.entryType as ProjEntryType]} />
                     while <span className="font-semibold">{newParent.name}</span> is
                     <Tag value={newParent.entryType} cls={ENTRY_COLORS[newParent.entryType]} />
@@ -2372,7 +2358,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
               // Picking a subarea still cascades its parent area
               : kind === "location" ? (areaPick!.level === "Area" ? areaPick!.name : areaPick!.parent!)
               : kind === "entry" ? entryVal
-              : kind === "parent" ? (parentMode === "promote" ? PROMOTE_TO_MAIN : `${parentMode}:${parentId}:${primarySyncTarget && syncPrimary ? "sync" : "keep"}`)
+              : kind === "parent" ? (parentMode === "promote" ? PROMOTE_TO_MAIN : `${parentMode}:${parentId}`)
               : orgs,
               kind === "entry" || kind === "developer" ? [...excludedPhases] : undefined,
             )}
@@ -2446,6 +2432,107 @@ function EntryTypeInfo() {
         <p><span className="font-semibold">Manual:</span> Property data comes as unstructured data with no unit IDs.</p>
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+// ── Data integrity checks — run over mains and their phases ───────────────────
+type DataCheckKind = "listing" | "primary" | "orgs" | "location" | "developer"
+const CHECK_META: Record<DataCheckKind, { title: string; rule: string }> = {
+  listing: { title: "Listing Status Check", rule: "Hidden main projects must not have Active phases — a phase can't be shown while its parent is hidden." },
+  primary: { title: "Primary Status Check", rule: "On-Sale mains need at least one On-Sale or Launch phase; On-Hold and Sold-Off mains expect every phase to share the same status." },
+  orgs: { title: "Organization Check", rule: "Phases must carry the same organizations as their main project." },
+  location: { title: "Location Check", rule: "Phases must share their main project's location." },
+  developer: { title: "Developer Check", rule: "Phases must have the same developer as their main project." },
+}
+
+function DataCheckDialog({ kind, rows, onClose }: { kind: DataCheckKind; rows: ProjectRow[]; onClose: () => void }) {
+  const mains = rows.filter((r) => !r.isPhase && !r.isSubProject)
+  const orgKey = (o: ProjOrg[]) => [...o].sort().join(",")
+  const violations = mains.flatMap((main) => {
+    const ph = rows.filter((x) => x.isPhase && x.mainProject?.id === main.id)
+    if (ph.length === 0) return []
+    if (kind === "listing") {
+      const bad = main.listingStatus === "Hidden" ? ph.filter((p) => p.listingStatus === "Active") : []
+      return bad.length ? [{ main, phases: bad, note: "Hidden main project with Active phases" }] : []
+    }
+    if (kind === "primary") {
+      if (main.primaryStatus === "On-Sale") {
+        const ok = ph.some((p) => p.primaryStatus === "On-Sale" || p.primaryStatus === "Launch")
+        return ok ? [] : [{ main, phases: ph, note: "On-Sale main with no On-Sale or Launch phase" }]
+      }
+      if (main.primaryStatus === "On-Hold" || main.primaryStatus === "Sold-Off") {
+        const bad = ph.filter((p) => p.primaryStatus !== main.primaryStatus)
+        return bad.length ? [{ main, phases: bad, note: `${main.primaryStatus} main with phases in a different primary status` }] : []
+      }
+      return []
+    }
+    if (kind === "orgs") {
+      const bad = ph.filter((p) => orgKey(p.organizations) !== orgKey(main.organizations))
+      return bad.length ? [{ main, phases: bad, note: "Phases with different organizations than the main project" }] : []
+    }
+    if (kind === "location") {
+      const bad = ph.filter((p) => p.area !== main.area || p.district !== main.district)
+      return bad.length ? [{ main, phases: bad, note: "Phases in a different location than the main project" }] : []
+    }
+    const bad = ph.filter((p) => p.developer.id !== main.developer.id)
+    return bad.length ? [{ main, phases: bad, note: "Phases with a different developer than the main project" }] : []
+  })
+  const meta = CHECK_META[kind]
+  const cellFor = (r: ProjectRow) =>
+    kind === "listing" ? <Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} />
+    : kind === "primary" ? <Tag value={r.primaryStatus} cls={PRIMARY_COLORS[r.primaryStatus]} />
+    : kind === "orgs" ? <div className="flex gap-1">{r.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
+    : kind === "location" ? <span className="text-xs text-muted-foreground">{r.area} · {r.district}</span>
+    : <span className="text-xs text-muted-foreground">{r.developer.name}</span>
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-2xl" style={{ maxHeight: "85vh" }}>
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-4">
+          <DialogTitle className="flex items-center gap-2">
+            {meta.title}
+            <span className={cn(
+              "rounded-md border px-2 py-0.5 text-xs font-medium",
+              violations.length ? "border-red-200 bg-red-50 text-red-600" : "border-emerald-200 bg-emerald-100 text-emerald-700",
+            )}>
+              {violations.length ? `${violations.length} issue${violations.length > 1 ? "s" : ""}` : "All clear"}
+            </span>
+          </DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 space-y-3 overflow-y-auto px-6 py-4">
+          <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">{meta.rule}</p>
+          {violations.length === 0 ? (
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-700">
+              No issues found — {mains.length} main project{mains.length !== 1 ? "s" : ""} checked.
+            </p>
+          ) : (
+            violations.map((v) => (
+              <div key={v.main.id} className="rounded-lg border border-border">
+                <div className="flex items-center gap-2.5 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{v.main.name}</p>
+                    <IdTag value={v.main.id} />
+                  </div>
+                  {cellFor(v.main)}
+                </div>
+                <p className="border-t border-border/70 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800">{v.note}</p>
+                {v.phases.map((p) => (
+                  <div key={p.id} className="flex items-center gap-2.5 border-t border-border/70 bg-muted/20 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                      <IdTag value={p.id} />
+                    </div>
+                    {cellFor(p)}
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+        <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
+          <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

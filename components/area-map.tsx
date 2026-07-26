@@ -435,12 +435,14 @@ export function MapDrawDialog({ name, level, entityId, pin: pin0, polygon: polyg
 }
 
 // ── Global map (90% dialog): all layers, toggle / edit / re-link ──────────────
-export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSave, onClose }: {
+export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSave, onClose, headerExtra }: {
   entities: GeoRef[]
   locations: MapLocation[]
   title?: string
   onSave: (updated: GeoRef[]) => void
   onClose: () => void
+  /** Rendered at the right end of the dialog header, before the close button. */
+  headerExtra?: React.ReactNode
 }) {
   // Levels present in this map (e.g. District/Area/Subarea, or Project/Phase)
   const levels = [...new Set(entities.map((e) => e.level))]
@@ -538,6 +540,7 @@ export function GlobalMapDialog({ entities, locations, title = "Areas Map", onSa
         <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
           <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
           <span className="hidden text-xs text-muted-foreground sm:block">Toggle layers, click a pin or polygon to select it, then edit its geometry or re-link it.</span>
+          {headerExtra && <div className="ml-auto mr-8 flex items-center gap-2">{headerExtra}</div>}
         </div>
 
         <div className="flex min-h-0 flex-1">
