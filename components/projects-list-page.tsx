@@ -309,7 +309,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
     const targetIds = new Set(targets.map((t) => t.id))
     const excluded = new Set(excludedPhaseIds ?? [])
     setRows((rs) => {
-      const parent = kind === "parent" ? rs.find((y) => y.id === value) : null
+      // Parent moves encode the landing type: "phase:PRJ-x" | "sub:PRJ-x" | PROMOTE_TO_MAIN
+      const [moveAs, moveParentId] = kind === "parent" && typeof value === "string" && value.includes(":")
+        ? (value as string).split(":") : ["", ""]
+      const parent = moveParentId ? rs.find((y) => y.id === moveParentId) : null
       return rs.map((x) => {
         const hit = targetIds.has(x.id) || (x.isPhase && !!x.mainProject && targetIds.has(x.mainProject.id))
         if (!hit || excluded.has(x.id)) return x
@@ -319,7 +322,24 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         if (kind === "parent") {
           // Promote the phase/sub-project to a standalone main project (unlinked from any parent)
           if (value === PROMOTE_TO_MAIN) return { ...x, isPhase: false, isSubProject: false, mainProject: null }
-          return parent ? { ...x, mainProject: { id: parent.id, name: parent.name } } : x
+          if (!parent) return x
+          if (moveAs === "phase") {
+            // Phases MUST inherit developer, location, organizations and listing from the parent
+            return {
+              ...x, isPhase: true, isSubProject: false,
+              mainProject: { id: parent.id, name: parent.name },
+              developer: parent.developer,
+              district: parent.district, area: parent.area, subarea: parent.subarea,
+              organizations: parent.organizations,
+              listingStatus: parent.listingStatus,
+            }
+          }
+          // Sub-project: independent — only the location follows the parent
+          return {
+            ...x, isPhase: false, isSubProject: true,
+            mainProject: { id: parent.id, name: parent.name },
+            district: parent.district, area: parent.area, subarea: parent.subarea,
+          }
         }
         return { ...x, organizations: value as ProjOrg[] }
       })
@@ -841,6 +861,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           <ListingStatusDialog
             r={listingDlg}
             phases={phasesOf(listingDlg)}
+            parentListing={listingDlg.mainProject ? rows.find((p) => p.id === listingDlg.mainProject!.id)?.listingStatus : undefined}
             onClose={() => setListingDlg(null)}
             onConfirm={(next) => {
               applyListing(listingDlg, next)
@@ -900,9 +921,13 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               const t = cascadeDlg.targets
               const exCount = excludedPhaseIds?.length ?? 0
               toast.success(
-                t.length === 1 && t[0].isPhase
-                  ? (cascadeDlg.kind === "parent" && value === PROMOTE_TO_MAIN ? `${t[0].name} promoted to a main project` : `${t[0].name} updated`)
-                  : `${t.length} main project${t.length > 1 ? "s" : ""} updated with their phases${exCount > 0 ? ` (${exCount} excluded)` : ""}`,
+                cascadeDlg.kind === "parent"
+                  ? value === PROMOTE_TO_MAIN
+                    ? `${t[0].name} promoted to a main project`
+                    : `${t[0].name} moved as a ${String(value).startsWith("sub:") ? "sub-project" : "phase"}`
+                  : t.length === 1 && t[0].isPhase
+                    ? `${t[0].name} updated`
+                    : `${t.length} main project${t.length > 1 ? "s" : ""} updated with their phases${exCount > 0 ? ` (${exCount} excluded)` : ""}`,
               )
               setCascadeDlg(null)
               setSelectedIds(new Set())
@@ -1064,10 +1089,13 @@ function PhaseCascadeList({ phases, tagOf, next, nextCls, excluded, onToggle }: 
   )
 }
 
-export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (next: ProjListingStatus) => void }) {
+export function ListingStatusDialog({ r, phases, parentListing, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; parentListing?: ProjListingStatus; onClose: () => void; onConfirm: (next: ProjListingStatus) => void }) {
+  // A phase can't be shown while its parent project is hidden (the parent hides
+  // everything under it) — hiding a phase under a shown parent is always fine.
+  const activeLocked = r.isPhase && parentListing === "Hidden"
   // Destination is picked — defaults to the flip of current; picking the current status
   // still runs, aligning any mismatched phases (data may lack integrity).
-  const [target, setTarget] = useState<ProjListingStatus>(r.listingStatus === "Active" ? "Hidden" : "Active")
+  const [target, setTarget] = useState<ProjListingStatus>(activeLocked ? "Hidden" : r.listingStatus === "Active" ? "Hidden" : "Active")
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl">
@@ -1101,15 +1129,18 @@ export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
         <div className="grid grid-cols-2 gap-2">
           {(["Active", "Hidden"] as ProjListingStatus[]).map((s) => {
             const selected = target === s
+            const locked = s === "Active" && activeLocked
             const Icon = s === "Active" ? Eye : EyeOff
             return (
               <button
                 key={s}
                 type="button"
-                onClick={() => setTarget(s)}
+                disabled={locked}
+                onClick={() => !locked && setTarget(s)}
                 className={cn(
                   "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
-                  selected
+                  locked ? "cursor-not-allowed border-border opacity-45"
+                  : selected
                     ? s === "Active"
                       ? "border-emerald-300 bg-emerald-50 text-emerald-700"
                       : "border-red-300 bg-red-50 text-red-700"
@@ -1133,6 +1164,12 @@ export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
             )
           })}
         </div>
+
+        {activeLocked && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+            The parent project <span className="font-semibold">{r.mainProject?.name}</span> is <span className="font-semibold">Hidden</span> — a phase can't be shown while its parent is hidden. Show the parent project first.
+          </div>
+        )}
 
         {/* Listing hides/shows the project or phase altogether — no property counts */}
         <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
@@ -1841,17 +1878,19 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   const [orgs, setOrgs] = useState<ProjOrg[]>(targets[0]?.organizations ?? ["Nawy"])
   const [entryVal, setEntryVal] = useState<ProjEntryType>(targets[0]?.entryType === "Automatic" ? "Manual" : "Automatic")
   const [parentId, setParentId] = useState(targets[0]?.mainProject?.id ?? "")
-  const [parentMode, setParentMode] = useState<"reparent" | "promote">("reparent")
-  // Phases reparent within the SAME developer; sub-projects keep their own developer,
-  // so any main project can be their parent.
-  const isSub = targets.length === 1 && !!targets[0]?.isSubProject
+  // Move as: phase (inherits from the parent), sub-project (independent, location only),
+  // or promote to a standalone main project. Defaults to the row's current type.
+  const parentCurrentType: "phase" | "sub" = targets[0]?.isSubProject ? "sub" : "phase"
+  const [parentMode, setParentMode] = useState<"phase" | "sub" | "promote">(parentCurrentType)
   const parentDevStatus = PROJECT_DEVELOPERS.find((d) => d.id === targets[0]?.developer.id)?.status
+  // Any main project can be the parent — landing as a phase ADOPTS its developer anyway,
+  // and sub-projects keep their own. Only the row itself is excluded.
   const parentOptions = allRows
-    .filter((x) =>
-      !x.isPhase && !x.isSubProject
-      && (isSub || x.developer.id === targets[0]?.developer.id)
-      && x.id !== targets[0]?.mainProject?.id && x.id !== targets[0]?.id)
+    .filter((x) => !x.isPhase && !x.isSubProject && x.id !== targets[0]?.id)
     .map((x) => ({ id: x.id, name: x.name, status: x.listingStatus }))
+  const newParent = allRows.find((x) => x.id === parentId)
+  /** Same type + same parent = nothing to do. */
+  const parentNoChange = parentMode !== "promote" && parentMode === parentCurrentType && parentId === targets[0]?.mainProject?.id
   const [excludedPhases, setExcludedPhases] = useState<Set<string>>(new Set())
   const toggleExcludedPhase = (id: string) => setExcludedPhases((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleOrg = (o: ProjOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
@@ -1868,7 +1907,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
     : kind === "location" ? !!areaPick
     // Picking the current type is allowed — phases with mismatched data still get corrected
     : kind === "entry" ? true
-    : kind === "parent" ? (parentMode === "promote" ? !!targets[0]?.mainProject : (!!parentId && parentId !== targets[0]?.mainProject?.id))
+    : kind === "parent" ? (parentMode === "promote" ? !!targets[0]?.mainProject : (!!parentId && !parentNoChange))
     : orgs.length > 0
   const phaseCurrent = (p: ProjectRow) =>
     kind === "developer" ? p.developer.name
@@ -1952,9 +1991,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                 {parentDevStatus && <Tag value={parentDevStatus} cls={LISTING_COLORS[parentDevStatus]} />}
               </div>
               <p className="text-[10px] text-muted-foreground">
-                {isSub
-                  ? "Any main project can be the parent — sub-projects keep their own developer."
-                  : "Parent options are limited to main projects under this developer."}
+                Move it as a <span className="font-medium">Phase</span> (inherits from the parent), a <span className="font-medium">Sub-Project</span> (independent — only the location follows), or promote it to a main project.
               </p>
             </div>
           </div>
@@ -2026,10 +2063,11 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
         {kind === "parent" && (
           <>
             <div>
-              <div className="mb-1.5 text-xs font-medium text-foreground">Change to</div>
+              <div className="mb-1.5 text-xs font-medium text-foreground">Move as</div>
               <div className="flex gap-2">
                 {([
-                  { key: "reparent" as const, label: "Another parent project", icon: GitBranch },
+                  { key: "phase" as const, label: "Phase", icon: Layers },
+                  { key: "sub" as const, label: "Sub-Project", icon: GitBranch },
                   { key: "promote" as const, label: "Main project (no parent)", icon: Building2 },
                 ]).map(({ key, label, icon: Icon }) => (
                   <button
@@ -2040,20 +2078,64 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                     )}
                   >
                     <Icon className="h-3.5 w-3.5" />{label}
+                    {key === parentCurrentType && <span className="text-[10px] font-normal text-muted-foreground">(current)</span>}
                   </button>
                 ))}
               </div>
             </div>
-            {parentMode === "reparent" ? (
-              <div className="space-y-1.5">
-                <div className="text-xs font-medium text-foreground">Parent Project <span className="font-normal text-muted-foreground">{isSub ? "· any main project" : `· only projects under ${targets[0]?.developer.name}`}</span></div>
-                {/* DeveloperSelect renders name + listing-status tag + ID — reused here for main projects */}
-                <DeveloperSelect developers={parentOptions} value={parentId} onChange={setParentId} placeholder="Select parent project…" />
-                {parentOptions.length === 0 && <p className="text-[11px] text-muted-foreground">No other main projects{isSub ? "" : " under this developer"}.</p>}
-              </div>
+            {parentMode !== "promote" ? (
+              <>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Parent Project <span className="font-normal text-muted-foreground">· any main project</span></div>
+                  {/* DeveloperSelect renders name + listing-status tag + ID — reused here for main projects */}
+                  <DeveloperSelect developers={parentOptions} value={parentId} onChange={setParentId} placeholder="Select parent project…" />
+                  {parentNoChange && <p className="text-[11px] text-muted-foreground">Already a {parentCurrentType === "sub" ? "sub-project" : "phase"} under this parent — pick another parent or another type.</p>}
+                </div>
+                {/* Landing as a PHASE: these follow the new parent as a must — shown before confirming */}
+                {parentMode === "phase" && newParent && (
+                  <>
+                    <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+                      <p className="text-[11px] text-muted-foreground">As a phase it inherits these from <span className="font-medium text-foreground">{newParent.name}</span>:</p>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer</p>
+                          <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">{newParent.developer.name} <IdTag value={newParent.developer.id} /></div>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Location</p>
+                          <p className="text-sm font-medium text-foreground">{newParent.area} · {newParent.district}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Organizations</p>
+                          <div className="flex gap-1 pt-0.5">{newParent.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Listing Status</p>
+                          <div className="pt-0.5"><Tag value={newParent.listingStatus} cls={LISTING_COLORS[newParent.listingStatus]} /></div>
+                        </div>
+                      </div>
+                    </div>
+                    {newParent.primaryStatus !== targets[0]?.primaryStatus && (
+                      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+                        Primary status differs — <span className="font-semibold">{targets[0]?.name}</span> is
+                        <Tag value={targets[0]?.primaryStatus ?? ""} cls={PRIMARY_COLORS[targets[0]?.primaryStatus as ProjPrimaryStatus]} />
+                        while <span className="font-semibold">{newParent.name}</span> is
+                        <Tag value={newParent.primaryStatus} cls={PRIMARY_COLORS[newParent.primaryStatus]} />
+                        — the moved {parentCurrentType === "sub" ? "sub-project" : "phase"} keeps its own primary status; change it afterwards if needed.
+                      </div>
+                    )}
+                  </>
+                )}
+                {/* Landing as a SUB-PROJECT: independent — only the location follows */}
+                {parentMode === "sub" && newParent && (
+                  <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-xs leading-5 text-blue-800">
+                    Sub-projects stay independent — own developer, organizations and statuses. Only the location (<span className="font-medium">{newParent.area} · {newParent.district}</span>) comes from <span className="font-medium">{newParent.name}</span>, and the main project's cascading actions never touch it.
+                  </p>
+                )}
+              </>
             ) : (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
-                <span className="font-medium">{targets[0]?.name}</span> will be promoted to a standalone <span className="font-medium">main project</span> and unlinked from <span className="font-medium">{targets[0]?.mainProject?.name}</span>.
+                <span className="font-medium">{targets[0]?.name}</span> will be promoted to a standalone <span className="font-medium">main project</span> and unlinked from <span className="font-medium">{targets[0]?.mainProject?.name}</span> — it keeps its current developer, organizations and statuses.
               </div>
             )}
           </>
@@ -2203,13 +2285,13 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
               // Picking a subarea still cascades its parent area
               : kind === "location" ? (areaPick!.level === "Area" ? areaPick!.name : areaPick!.parent!)
               : kind === "entry" ? entryVal
-              : kind === "parent" ? (parentMode === "promote" ? PROMOTE_TO_MAIN : parentId)
+              : kind === "parent" ? (parentMode === "promote" ? PROMOTE_TO_MAIN : `${parentMode}:${parentId}`)
               : orgs,
               kind === "entry" || kind === "developer" ? [...excludedPhases] : undefined,
             )}
           >
             {kind === "parent"
-              ? (parentMode === "promote" ? "Promote to main project" : isSub ? "Move sub-project" : "Move phase")
+              ? (parentMode === "promote" ? "Promote to main project" : parentMode === "sub" ? "Move as Sub-Project" : "Move as Phase")
               : `Apply to ${targets.length} project${targets.length > 1 ? "s" : ""}`}
           </Button>
         </DialogFooter>
@@ -2362,7 +2444,7 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
     setParentSel(v)
     const row = v ? mains.find((m) => m.id === v.id) : null
     // Launch can't be picked at creation — clamp the phase default to On-Sale
-    if (row && level === "phase") { setEntryF(row.entryType); setPrimaryF(row.primaryStatus === "Launch" ? "On-Sale" : row.primaryStatus) }
+    if (row && level === "phase") { setEntryF(row.entryType); setPrimaryF(row.primaryStatus === "Launch" ? "On-Sale" : row.primaryStatus); setListingF(row.listingStatus) }
     // Sub-projects inherit the parent's developer and listing status as a starting point — still editable
     if (row && level === "sub") { setDevId(row.developer.id); setListingF(row.listingStatus) }
   }
@@ -2428,8 +2510,9 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
       const n = PROJECTS.filter((p) => p.isPhase && p.mainProject?.id === parentRow.id).length + 1
       onSave({
         ...base,
-        // Inherited from the parent: developer, location, organizations, listing status
-        listingStatus: parentRow.listingStatus,
+        // Inherited from the parent: developer, location, organizations. Listing is locked
+        // to Hidden under a hidden parent; user-picked otherwise.
+        listingStatus: parentRow.listingStatus === "Hidden" ? "Hidden" : listingF,
         organizations: parentRow.organizations,
         entryType: entryF,
         primaryStatus: primaryF,
@@ -2620,8 +2703,18 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Listing Status <span className="font-normal text-muted-foreground">(inherited)</span></div>
-                  <TagSelect value={parentRow.listingStatus} options={[]} colors={LISTING_COLORS} onChange={() => {}} disabled />
+                  <div className="text-xs font-medium text-foreground">
+                    Listing Status{" "}
+                    {parentRow.listingStatus === "Hidden"
+                      ? <span className="font-normal text-muted-foreground">(locked — the parent project is Hidden)</span>
+                      : <span className="font-normal text-muted-foreground">(inherited — editable)</span>}
+                  </div>
+                  {/* A phase can't be shown under a hidden parent; under a shown parent it can still be hidden */}
+                  {parentRow.listingStatus === "Hidden" ? (
+                    <TagSelect value="Hidden" options={[]} colors={LISTING_COLORS} onChange={() => {}} disabled />
+                  ) : (
+                    <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <div className="text-xs font-medium text-foreground">Primary Status</div>
@@ -2713,7 +2806,7 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
               </span>
             ) : level === "phase" ? (
               <span>
-                <span className="font-semibold">Developer, Location, Organizations and Listing Status</span> are inherited from the parent project.
+                <span className="font-semibold">Developer, Location and Organizations</span> are inherited from the parent project — a phase can't be shown while its parent is Hidden.
               </span>
             ) : (
               <span>

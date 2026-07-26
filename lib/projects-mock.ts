@@ -211,6 +211,58 @@ function buildRows(): ProjectRow[] {
         updatedAt: isoDate(i * 6 + p + 4, 16),
       })
     }
+
+    // A couple of sub-projects — linked to a main but independent: own developer,
+    // organizations and statuses; only the location comes from the parent.
+    if (i === 1 || i === 4) {
+      const seed = i * 9 + 4
+      rows.push({
+        id: `${projectId}-S1`,
+        name: i === 1 ? "Marina Walk" : "Garden Offices",
+        isPhase: false,
+        isSubProject: true,
+        mainProject: { id: projectId, name },
+        developer: DEVELOPERS[(i + 2) % DEVELOPERS.length],
+        district,
+        area,
+        subarea: `${SUBAREAS[i % SUBAREAS.length]} · Annex`,
+        listingStatus: i === 4 ? "Hidden" : "Active",
+        primaryStatus: i === 4 ? "On-Hold" : "On-Sale",
+        entryType: i === 1 ? "Manual" : "Automatic",
+        organizations: orgsFor(seed),
+        category: CATEGORIES[i % CATEGORIES.length],
+        projectType: PROJECT_TYPES[i % PROJECT_TYPES.length],
+        projectSubtype: PROJECT_SUBTYPES[seed % PROJECT_SUBTYPES.length],
+        constructionStatus: CONSTRUCTION[seed % 3],
+        manualRank: seed % 4 === 0 ? null : (seed % 15) + 1,
+        autoRank: (seed % 20) + 1,
+        areaKm2: Number((0.3 + (i % 3) * 0.1).toFixed(2)),
+        galleryImages: GALLERY_POOL.slice(0, seed % 4),
+        brochureCount: seed % 3,
+        listingMasterplan: seed % 4 !== 2,
+        gisMasterplan: seed % 3 !== 1,
+        seoDescription: seed % 3 !== 0,
+        buildingsCount: 2 + (seed % 9),
+        groupedProps: 2 + (seed % 9),
+        detailedProps: 12 + ((seed * 13) % 70),
+        primaryByEntry: {
+          Automatic: { grouped: 1 + ((seed * 2) % 8), detailed: 8 + ((seed * 5) % 40) },
+          Manual: { grouped: 1 + ((seed * 3) % 7), detailed: 6 + ((seed * 4) % 35) },
+        },
+        primaryStatusProps: {
+          launch: { grouped: 1 + (seed % 4), detailed: 2 + ((seed * 3) % 10) },
+          available: { grouped: 1 + ((seed * 2) % 6), detailed: 5 + ((seed * 5) % 20) },
+          onHold: { grouped: seed % 3, detailed: seed % 6 },
+          soldOff: { grouped: seed % 4, detailed: (seed * 4) % 12 },
+        },
+        primaryUnits: { available: 4 + ((seed * 3) % 30), total: 15 + ((seed * 7) % 60) },
+        resaleUnits: { available: (seed * 2) % 14, total: ((seed * 2) % 14) + (seed % 20) },
+        nawyNowUnits: { available: seed % 8, total: (seed % 8) + ((seed * 3) % 10) },
+        rentalUnits: { available: seed % 6, total: (seed % 6) + ((seed * 2) % 9) },
+        createdAt: isoDate(i * 6 + 5, 11),
+        updatedAt: isoDate(i * 6 + 7, 15),
+      })
+    }
   })
   return rows
 }
