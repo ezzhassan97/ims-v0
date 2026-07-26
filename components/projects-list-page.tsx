@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -1169,29 +1170,141 @@ export function ListingStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   )
 }
 
+// ── Launches linked to a project/phase (mock) — a project can hold several
+// launches/releases but only ONE is active at a time; primary-status moves in
+// and out of Launch are tied to them. All entries here are already Ingested.
+
+export type ProjLaunch = {
+  id: string
+  name: string
+  type: "Launch" | "Release"
+  source: "WhatsApp" | "Manual"
+  launchStatus: "Active" | "Upcoming" | "Closed"
+  startDate?: string
+  endDate?: string
+  /** Launches collect EOIs; Releases don't. */
+  eoiAmount?: number
+  eoiByType?: { type: string; count: number }[]
+  availableLaunchProps: number
+}
+
+const LAUNCH_TYPE_TONE: Record<ProjLaunch["type"], string> = {
+  Launch: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  Release: "border-purple-200 bg-purple-50 text-purple-700",
+}
+const LAUNCH_STATUS_TONE: Record<ProjLaunch["launchStatus"], string> = {
+  Active: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Upcoming: "border-blue-200 bg-blue-50 text-blue-700",
+  Closed: "border-border bg-muted text-muted-foreground",
+}
+
+/** Deterministic mock: rows currently in Launch always carry one Active launch. */
+function launchesFor(r: ProjectRow): ProjLaunch[] {
+  const seed = [...r.id].reduce((s, c) => s + c.charCodeAt(0), 0)
+  const isLaunch = r.primaryStatus === "Launch"
+  const n = isLaunch ? 1 + (seed % 2) : seed % 3
+  return Array.from({ length: n }, (_, i) => {
+    const type: ProjLaunch["type"] = (seed + i) % 3 === 2 ? "Release" : "Launch"
+    const eoi = type === "Launch" ? 80 + ((seed * 7 + i * 31) % 240) : undefined
+    const apt = eoi ? Math.round(eoi * 0.5) : 0
+    const villa = eoi ? Math.round(eoi * 0.3) : 0
+    return {
+      id: `LNCH-${1000 + ((seed * 13 + i * 47) % 900)}`,
+      name: `${r.name} ${type} ${i + 1}`,
+      type,
+      source: (seed + i) % 2 === 0 ? "WhatsApp" : "Manual",
+      launchStatus: isLaunch && i === 0 ? "Active" : (seed + i) % 2 === 0 ? "Upcoming" : "Closed",
+      startDate: (seed + i) % 2 === 0 ? "2026-06-15" : undefined,
+      endDate: undefined,
+      eoiAmount: eoi,
+      eoiByType: eoi ? [
+        { type: "Apartment", count: apt },
+        { type: "Villa", count: villa },
+        { type: "Chalet", count: eoi - apt - villa },
+      ].filter((x) => x.count > 0) : undefined,
+      availableLaunchProps: 2 + ((seed + i * 5) % 6),
+    }
+  })
+}
+
+/** Full launch summary side drawer — mirrors the launch ingestion summary. */
+function LaunchSummaryDrawer({ launch, project, onClose }: { launch: ProjLaunch; project: ProjectRow; onClose: () => void }) {
+  const field = (label: string, value: React.ReactNode) => (
+    <div className="min-w-0">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <div className="mt-0.5 text-sm text-foreground">{value}</div>
+    </div>
+  )
+  return (
+    <Sheet open onOpenChange={(o) => { if (!o) onClose() }}>
+      <SheetContent side="right" className="!w-[480px] !max-w-[95vw] p-0 flex flex-col">
+        <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
+          <SheetTitle className="flex items-center gap-2 text-base">{launch.name} <IdTag value={launch.id} /></SheetTitle>
+          <SheetDescription className="text-xs">Launch summary — details, dates and EOIs collected.</SheetDescription>
+        </SheetHeader>
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", LAUNCH_TYPE_TONE[launch.type])}>{launch.type}</span>
+            <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", LAUNCH_STATUS_TONE[launch.launchStatus])}>{launch.launchStatus}</span>
+            <span className="inline-flex items-center rounded-md border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{launch.source}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-border p-3">
+            {field("Developer", <span className="flex items-center gap-1.5">{project.developer.name} <IdTag value={project.developer.id} /></span>)}
+            {field("Listing project", <span className="flex items-center gap-1.5">{project.name} <IdTag value={project.id} /></span>)}
+            {field("Launch start date", launch.startDate ? fmtDateTime(`${launch.startDate}T00:00:00`).split(",")[0] : <span className="text-muted-foreground">Not set</span>)}
+            {field("Launch end date", launch.endDate ? fmtDateTime(`${launch.endDate}T00:00:00`).split(",")[0] : <span className="text-muted-foreground">Not set</span>)}
+            {field("Available launch properties", <span className="font-semibold">{launch.availableLaunchProps}</span>)}
+            {field("Entry type", <Tag value={project.entryType} cls={ENTRY_COLORS[project.entryType]} />)}
+          </div>
+          {launch.type === "Launch" ? (
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">EOIs collected</p>
+                <span className="text-sm font-semibold text-foreground">{launch.eoiAmount}</span>
+              </div>
+              <div className="divide-y divide-border/70 rounded-md border border-border">
+                {(launch.eoiByType ?? []).map((e) => (
+                  <div key={e.type} className="flex items-center justify-between px-3 py-1.5">
+                    <span className="text-xs text-foreground">{e.type}</span>
+                    <span className="text-xs font-semibold tabular-nums text-foreground">{e.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Releases don't collect EOIs.</p>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
 /**
- * Change Primary Status — the destination drives what happens to the properties,
- * always stating All vs Available scope per bucket:
- *  - Launch dest: Available Launch Properties → Shown; optional toggle hides the
- *    Available Primary properties (counts shown for Automatic + Manual); optional
- *    Launch Start Date (max 2 months back — when EOI collection started).
- *  - On-Sale: ALL Launch Properties → Hidden; Available Primary properties are
- *    published per each project's entry type (Automatic entry publishes the
- *    Automatic bucket, Manual publishes Manual).
- *  - On-Hold / Sold-Off: ALL Launch Properties → Hidden; Available Primary
- *    Automatic + Manual → Sale Status Hold / Sold-Off + Hidden.
- *  - Leaving Launch always requires the Launch End Date (EOI flagging on Nawy
- *    Sales Portal). Resale, Nawy Now and Rental are never affected.
+ * Change Primary Status — tied to the launches linked to the project/phase:
+ *  - Moving OUT of Launch closes the currently Active launch/release — its
+ *    compact card (id, type, start date, EOIs by property type for Launches)
+ *    is shown with a full-summary drawer; the end date is mandatory.
+ *  - Moving INTO Launch requires picking WHICH ingested linked launch to
+ *    activate (only one can be active at a time); the Available Launch
+ *    Properties count and the start-date prefill come from that selection.
+ *  - On-Sale publishes the Available Primary bucket matching each project's
+ *    entry type; On-Hold / Sold-Off set Hold / Sold-Off + Hidden on both
+ *    Primary buckets; Sold-Off is irreversible in bulk.
  * Terminology: Primary Automatic counts Properties · Detailed Properties;
  * Launch and Primary Manual count Properties only.
  */
 export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (s: ProjPrimaryStatus, excludedPhaseIds?: string[]) => void }) {
   const from = r.primaryStatus
+  const linkedLaunches = useMemo(() => launchesFor(r), [r])
+  const activeLaunch = linkedLaunches.find((l) => l.launchStatus === "Active")
   const [target, setTarget] = useState<ProjPrimaryStatus | "">("")
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
-  const [endDate, setEndDate] = useState("")
-  const [startDate, setStartDate] = useState("")
+  const [selLaunchId, setSelLaunchId] = useState("")
+  const [startDate, setStartDate] = useState(activeLaunch?.startDate ?? "")
+  const [endDate, setEndDate] = useState(activeLaunch?.endDate ?? "")
   const [hideAvailable, setHideAvailable] = useState(false)
+  const [drawerLaunch, setDrawerLaunch] = useState<ProjLaunch | null>(null)
   const toggleExcluded = (id: string) =>
     setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
@@ -1199,12 +1312,14 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   const includedPhases = cascading ? phases.filter((p) => !excluded.has(p.id)) : []
   const scope = [r, ...includedPhases]
   const devStatus = PROJECT_DEVELOPERS.find((d) => d.id === r.developer.id)?.status
+  const selLaunch = linkedLaunches.find((l) => l.id === selLaunchId)
   const leavingLaunch = from === "Launch" && target !== "" && target !== "Launch"
-  const canSave = target !== "" && (!leavingLaunch || !!endDate)
+  const canSave = target !== ""
+    && (!leavingLaunch || !!endDate)
+    && (target !== "Launch" || !!selLaunch)
   // Launch Start Date can't sit more than 2 months in the past
   const minStart = (() => { const d = new Date(); d.setMonth(d.getMonth() - 2); return d.toISOString().slice(0, 10) })()
 
-  // Per-bucket counts; the entry-matched pair follows each project's own entry type (On-Sale rule)
   const sums = (rows: ProjectRow[]) => ({
     launchAll: rows.reduce((s, x) => s + x.primaryStatusProps.launch.grouped, 0),
     paG: rows.reduce((s, x) => s + x.primaryByEntry.Automatic.grouped, 0),
@@ -1226,6 +1341,8 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   const ptag = (v: string) => <span className={cn("mx-0.5 inline-flex items-center rounded border px-1 py-0 align-[1px] text-[9px] font-medium leading-4", PTONE[v])}>{v}</span>
   const props = (n: number) => `${n} Propert${n !== 1 ? "ies" : "y"}`
   const paText = (g: number, d: number) => `${g} Propert${g !== 1 ? "ies" : "y"} · ${d} Detailed Propert${d !== 1 ? "ies" : "y"}`
+  // The hide toggle follows the entry type of the project/phase being changed
+  const hideCaption = r.entryType === "Automatic" ? `Primary Automatic ${paText(b.paG, b.paD)}` : `Primary Manual ${props(b.pmG)}`
 
   // What happens per bucket at the destination — All vs Available always stated
   type Outcome = { label: string; countText: string; sale?: string; listing: "Shown" | "Hidden" | "Published" }
@@ -1234,10 +1351,10 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
     const s = sums(rows)
     const out: Outcome[] = []
     if (to === "Launch") {
-      if (s.launchAll > 0) out.push({ label: "Available Launch Properties", countText: props(s.launchAll), listing: "Shown" })
+      if (selLaunch) out.push({ label: "Available Launch Properties", countText: props(selLaunch.availableLaunchProps), listing: "Shown" })
       if (hideAvailable) {
-        if (s.paG > 0 || s.paD > 0) out.push({ label: "Available Primary Automatic", countText: paText(s.paG, s.paD), listing: "Hidden" })
-        if (s.pmG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmG), listing: "Hidden" })
+        if (r.entryType === "Automatic" && (s.paG > 0 || s.paD > 0)) out.push({ label: "Available Primary Automatic", countText: paText(s.paG, s.paD), listing: "Hidden" })
+        if (r.entryType === "Manual" && s.pmG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmG), listing: "Hidden" })
       }
       return out
     }
@@ -1263,6 +1380,10 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
     if (s.paG > 0 || s.paD > 0) parts.push(`Primary Automatic ${s.paG} (${s.paD} Detailed)`)
     return parts.length > 0 ? parts.join("  ·  ") : "No Launch or Primary properties"
   }
+
+  const launchTypeTag = (l: ProjLaunch) => (
+    <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[l.type])}>{l.type}</span>
+  )
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -1320,6 +1441,82 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         </div>
 
+        {/* Moving INTO Launch: pick which ingested linked launch to activate */}
+        {target === "Launch" && (
+          linkedLaunches.length === 0 ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+              No launch is linked to this {r.isPhase ? "phase" : "project"} — create and ingest a launch from the Launches flow to be able to set it to <span className="font-semibold">Launch</span>.
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">
+                Select the launch to activate — ingested launches linked to this {r.isPhase ? "phase" : "project"} (only one can be active at a time):
+              </p>
+              <div className="max-h-48 overflow-y-auto rounded-lg border border-border">
+                {linkedLaunches.map((l, i) => {
+                  const selected = selLaunchId === l.id
+                  return (
+                    <button
+                      key={l.id} type="button"
+                      onClick={() => { setSelLaunchId(l.id); setStartDate(l.startDate ?? "") }}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors",
+                        i > 0 && "border-t border-border/70",
+                        selected ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : "hover:bg-muted/40",
+                      )}
+                    >
+                      <span className={cn("flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border", selected ? "border-primary" : "border-muted-foreground/40")}>
+                        {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="flex items-center gap-1.5 truncate text-sm font-medium text-foreground">{l.name}</p>
+                        <div className="flex items-center gap-1.5">
+                          <IdTag value={l.id} />
+                          {l.startDate && <span className="text-[10px] text-muted-foreground">· starts {l.startDate}</span>}
+                        </div>
+                      </div>
+                      {launchTypeTag(l)}
+                      <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[l.launchStatus])}>
+                        {l.launchStatus === "Active" ? "Currently active" : l.launchStatus}
+                      </span>
+                      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{l.availableLaunchProps}</span> Available</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        )}
+
+        {/* Moving OUT of Launch: the currently Active launch/release being closed */}
+        {leavingLaunch && activeLaunch && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">Active {activeLaunch.type.toLowerCase()} that will be closed:</p>
+            <div className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">{activeLaunch.name}</p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <IdTag value={activeLaunch.id} />
+                  {activeLaunch.startDate && <span className="text-[10px] text-muted-foreground">· started {activeLaunch.startDate}</span>}
+                  {activeLaunch.type === "Launch" && (
+                    <span className="text-[10px] text-muted-foreground">
+                      · <span className="font-semibold text-foreground">{activeLaunch.eoiAmount}</span> EOIs
+                      {" ("}{(activeLaunch.eoiByType ?? []).map((e) => `${e.type} ${e.count}`).join(" · ")}{")"}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {launchTypeTag(activeLaunch)}
+              <button
+                type="button" title="View launch details" onClick={() => setDrawerLaunch(activeLaunch)}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <Eye className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* What happens to the properties — per bucket, All vs Available always stated */}
         {target === "" ? (
           <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
@@ -1342,38 +1539,39 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
               ))
             ) : (
               <p className="text-[11px] leading-5 text-muted-foreground">
-                No properties change{target === "Launch" ? " — tick the option below to also hide the Available Primary properties" : ""}.
+                {target === "Launch" && !selLaunch && linkedLaunches.length > 0
+                  ? "Select the launch to activate to see the impacted properties."
+                  : "No properties change."}
               </p>
             )}
-            {target === "On-Sale" && (
-              <p className="text-[10px] text-muted-foreground/80">
-                Only the Available Primary properties matching each project's entry type are published.
-              </p>
-            )}
-            <p className="text-[10px] text-muted-foreground/80">Resale, Nawy Now and Rental properties are never affected.</p>
           </div>
         )}
 
-        {/* Launch destination: optional hide of the Available Primary properties, with counts */}
-        {target === "Launch" && (
+        {/* Sold-Off is irreversible in bulk */}
+        {target === "Sold-Off" && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-700">
+            <span className="font-semibold">This action can't be undone.</span> Sold-Off properties won't return in bulk — only by sheets ingestion for Primary Automatic projects or manual updates for Manual ones.
+          </div>
+        )}
+
+        {/* Launch destination: optional hide of the Available Primary properties (entry-matched) */}
+        {target === "Launch" && linkedLaunches.length > 0 && (
           <label className={cn(
             "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
             hideAvailable ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
           )}>
             <Checkbox checked={hideAvailable} onCheckedChange={() => setHideAvailable((v) => !v)} className="h-4 w-4" />
             <span className="text-sm text-foreground">
-              Also hide (Unpublish) the Available Primary Properties
-              <span className="block text-xs text-muted-foreground">
-                Primary Automatic {paText(b.paG, b.paD)} · Primary Manual {props(b.pmG)} — left unchanged by default
-              </span>
+              Hide (Unpublish) the Available Primary Properties
+              <span className="block text-xs text-muted-foreground">{hideCaption} — left unchanged by default</span>
             </span>
           </label>
         )}
 
-        {/* Launch destination: optional start date — when this launch started collecting EOIs */}
-        {target === "Launch" && (
+        {/* Launch destination: start date follows the selected launch (prefilled when it has one) */}
+        {target === "Launch" && selLaunch && (
           <div className="space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Launch Start Date <span className="font-normal text-muted-foreground">(optional)</span></div>
+            <div className="text-xs font-medium text-foreground">Launch Start Date <span className="font-normal text-muted-foreground">(optional — from {selLaunch.id})</span></div>
             <Input type="date" min={minStart} value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 w-52 text-sm" />
             <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
               The date this launch started collecting EOIs — can't be more than 2 months in the past.
@@ -1381,11 +1579,19 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         )}
 
-        {/* Leaving Launch always requires the launch end date (flags EOIs on Nawy Sales Portal) */}
+        {/* Leaving Launch: both dates visible — the end date is mandatory (flags EOIs on Nawy Sales Portal) */}
         {leavingLaunch && (
           <div className="space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Launch End Date<span className="ml-0.5 text-red-500">*</span></div>
-            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 w-52 text-sm" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-foreground">Launch Start Date <span className="font-normal text-muted-foreground">(optional)</span></div>
+                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 w-full text-sm" />
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-foreground">Launch End Date<span className="ml-0.5 text-red-500">*</span></div>
+                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 w-full text-sm" />
+              </div>
+            </div>
             <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
               The date this launch stopped collecting EOIs — Nawy Sales Portal will be notified to flag EOIs collected after this date.
             </p>
@@ -1424,12 +1630,17 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         )}
 
+        {/* One disclaimer for every destination, at the bottom */}
+        <p className="text-[11px] text-muted-foreground">Resale, Nawy Now and Rental properties are never affected by primary status changes.</p>
+
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" disabled={!canSave} onClick={() => onConfirm(target as ProjPrimaryStatus, cascading ? [...excluded] : undefined)}>
             {target === "" ? "Change" : `Change to ${target}`}
           </Button>
         </DialogFooter>
+
+        {drawerLaunch && <LaunchSummaryDrawer launch={drawerLaunch} project={r} onClose={() => setDrawerLaunch(null)} />}
       </DialogContent>
     </Dialog>
   )
