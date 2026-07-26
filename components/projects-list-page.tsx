@@ -1370,10 +1370,10 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   }
   const totalOutcomes = outcomesFor(scope, target)
 
-  /** Per-phase line for cascade targets — mirrors the what-happens buckets for that phase. */
-  const phaseOutcomeLine = (p: ProjectRow) => {
-    const os = outcomesFor([p], target)
-    return os.length > 0 ? os.map((o) => `${o.label} ${o.countText}`).join("  ·  ") : "No properties affected"
+  /** Per-row impacted counts — compact fixed format. */
+  const phaseCountsLine = (row: ProjectRow) => {
+    const s = sums([row])
+    return `Properties Impacted: ${s.launchAll} Launch, ${s.paG} Primary Automatic, ${s.pmG} Primary Manual`
   }
 
   // Phases listed for awareness on Launch / On-Sale — the ones NOT already at the destination
@@ -1385,8 +1385,10 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader><DialogTitle>Change Primary Status</DialogTitle></DialogHeader>
+      <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-2xl" style={{ maxHeight: "90vh" }}>
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-4"><DialogTitle>Change Primary Status</DialogTitle></DialogHeader>
+
+        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
 
         {/* Rich context — name/ID/listing, parent for phases, developer + its listing status,
             current primary + entry type */}
@@ -1549,19 +1551,22 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           )}>
             <Checkbox checked={hideAvailable} onCheckedChange={() => setHideAvailable((v) => !v)} className="h-4 w-4" />
             <EyeOff className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="text-sm text-foreground">
+            <span className="min-w-0 flex-1 text-xs font-medium text-foreground">
               Hide (Unpublish) the Available Primary Properties
-              <span className="block text-xs text-muted-foreground">
-                {bMain.paG + bMain.pmG} Available Primary Properties — Primary Automatic {bMain.paG} · Primary Manual {bMain.pmG}
+              <span className="block text-[11px] font-normal text-muted-foreground">
+                {bMain.paG} Primary Automatic, {bMain.pmG} Primary Manual
               </span>
             </span>
+            {hideAvailable && (
+              <span className="ml-auto inline-flex shrink-0 items-center rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-600">Hidden</span>
+            )}
           </label>
         )}
 
         {/* 4 — what happens to the properties */}
         {target === "" ? (
           <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Pick a destination status to see what happens to the properties and this project's phases.
+            Launch Properties and Primary Properties in this {r.isPhase ? "Phase" : "Project and its Phases"} will be affected accordingly.
           </p>
         ) : (
           <div className="space-y-1 rounded-lg border border-border bg-muted/20 px-3 py-2.5">
@@ -1619,8 +1624,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
                         <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
                         <Tag value={target} cls={PRIMARY_COLORS[target]} />
                       </div>
-                      {/* per-phase counts mirror the what-happens buckets */}
-                      <div className={cn("text-[11px] text-muted-foreground", excludable && "pl-7")}>{phaseOutcomeLine(p)}</div>
+                      <div className={cn("text-[10px] text-muted-foreground", excludable && "pl-7")}>{phaseCountsLine(p)}</div>
                     </div>
                   )
                 })}
@@ -1647,10 +1651,9 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           ) : null
         )}
 
-        {/* One disclaimer for every destination, at the bottom */}
-        <p className="text-[11px] text-muted-foreground">Resale, Nawy Now and Rental properties are never affected by primary status changes.</p>
+        </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" disabled={!canSave} onClick={() => onConfirm(target as ProjPrimaryStatus, cascading && cascadeToPhases ? [...excluded] : undefined)}>
             {target === "" ? "Change" : `Change to ${target}`}
