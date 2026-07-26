@@ -1270,11 +1270,11 @@ function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">{l.name}</p>
           <IdTag value={l.id} />
+          <div className="text-[11px] tabular-nums text-muted-foreground">
+            EOI {l.eoiAmount ? <span className="font-semibold text-foreground">{eoiRangeText(l)}</span> : "—"}
+          </div>
         </div>
-        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-          EOI {l.eoiAmount ? <span className="font-semibold text-foreground">{eoiRangeText(l)}</span> : "—"}
-        </span>
-        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{l.availableLaunchProps}</span> Available</span>
+        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{l.availableLaunchProps}</span> Properties</span>
         <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[l.type])}>{l.type}</span>
         <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[l.launchStatus])}>
           {l.launchStatus === "Active" ? "Currently active" : l.launchStatus}
@@ -1519,12 +1519,12 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
       <ExternalLink className="h-3.5 w-3.5" />
     </span>
   )
-  /** Tag order: Listing → Primary → Entry. */
+  /** Tag order: Listing → Entry → Primary, so the current primary sits next to the arrow. */
   const rowTags = (p: ProjectRow) => (
     <>
       <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
-      <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
       <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
+      <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
     </>
   )
 
