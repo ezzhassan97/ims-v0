@@ -79,7 +79,7 @@ function buildEntries(mode: IngestionMode): IngestionEntry[] {
       updatedAt: iso(i * 3 + 2, 15),
       finalizedAt: stage === "Finalized" ? iso(i * 3 + 4, 11) : null,
       groupedProperties: 6 + (i % 9),
-      detailedProperties: 180 + i * 17,
+      detailedProperties: 5400 + i * 470,
       totalTimeSec: 6600 + i * 540,
       activeTimeSec: 2400 + i * 210,
     }

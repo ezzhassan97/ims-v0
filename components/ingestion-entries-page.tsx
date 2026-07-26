@@ -110,10 +110,10 @@ function finalizedPreviewFile(e: IngestionEntry): PreviewFile {
   return { id: e.id, name: `${e.fileName.replace(/\.[^.]+$/, "")}-finalized.xlsx`, ext: "XLSX", typeGroup: "Sheet", size: 2_100_000 }
 }
 
-function StatCard({ icon, label, value, total }: { icon: React.ReactNode; label: string; value: React.ReactNode; total?: number }) {
+function StatCard({ icon, label, value, total, className }: { icon: React.ReactNode; label: string; value: React.ReactNode; total?: number; className?: string }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="mb-1 flex items-center gap-2">{icon}<span className="truncate text-xs text-muted-foreground">{label}</span></div>
+    <div className={cn("rounded-lg border border-border bg-card p-3", className)}>
+      <div className="mb-1 flex items-center gap-2">{icon}<span title={label} className="truncate text-xs text-muted-foreground">{label}</span></div>
       <p className="text-xl font-bold leading-6 text-foreground">
         {value}{total !== undefined && <span className="text-sm font-medium text-muted-foreground">/{total}</span>}
       </p>
@@ -390,21 +390,23 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
         </div>
 
         {/* Analytics — dynamic with the applied filters; property & time cards read finalized entries */}
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {/* One row on xl: 6 single cards + the double-width Properties card = 8 columns */}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
           <StatCard icon={<FileStack className="h-4 w-4 text-primary" />} label="Total Entries" value={filtered.length} />
           <StatCard icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} label="Finalized Entries" value={fin.length} />
           <StatCard icon={<Building2 className="h-4 w-4 text-blue-600" />} label="Developers" value={finDevelopers} />
           <StatCard icon={<FolderTree className="h-4 w-4 text-purple-600" />} label="Parent Projects" value={finParents} />
           <StatCard
+            className="col-span-2"
             icon={<Boxes className="h-4 w-4 text-amber-500" />}
             label="Properties"
             value={mode === "sheets" ? (
               <>
-                {groupedProps} <span className="text-sm font-medium text-muted-foreground">Grouped</span>
+                {groupedProps.toLocaleString("en-US")} <span className="text-sm font-medium text-muted-foreground">Grouped</span>
                 <span className="mx-1 text-muted-foreground">·</span>
-                {detailedProps} <span className="text-sm font-medium text-muted-foreground">Detailed</span>
+                {detailedProps.toLocaleString("en-US")} <span className="text-sm font-medium text-muted-foreground">Detailed</span>
               </>
-            ) : groupedProps}
+            ) : groupedProps.toLocaleString("en-US")}
           />
           <StatCard icon={<Clock className="h-4 w-4 text-muted-foreground" />} label="Avg Total Time" value={fmtDur(avgOf((e) => e.totalTimeSec))} />
           <StatCard icon={<Timer className="h-4 w-4 text-muted-foreground" />} label="Avg Active Time" value={fmtDur(avgOf((e) => e.activeTimeSec))} />
