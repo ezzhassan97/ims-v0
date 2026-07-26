@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -431,15 +432,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           setRows((rs) => [row, ...rs])
           toast.success(`${row.name} created`)
           setCreating(false)
-          // New phase under a parent that isn't On-Sale → surface the parent's
-          // Change Primary Status popup (the exact same dialog) right away.
-          const parent = row.isPhase && row.mainProject ? rows.find((p) => p.id === row.mainProject!.id) : undefined
-          if (parent && parent.primaryStatus !== "On-Sale") {
-            setPrimaryDlg(parent)
-            return
-          }
           setSelected(row) // straight to the details page to complete the rest
         }}
+        parentPhasesOf={phasesOf}
+        onParentPrimaryChange={(parent, next, excludedPhaseIds) => applyPrimary(parent, next, excludedPhaseIds)}
       />
     )
   }
@@ -1278,7 +1274,7 @@ function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {
             {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
           </span>
         )}
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <p className="truncate text-sm font-medium text-foreground">{l.name}</p>
           <IdTag value={l.id} />
         </div>
@@ -1991,7 +1987,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
         {kind === "entry" && (
           <>
             <div>
-              <div className="mb-1.5 text-xs font-medium text-foreground">Change entry type to</div>
+              <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-foreground">Change entry type to <EntryTypeInfo /></div>
               <div className="flex gap-2">
                 {(["Automatic", "Manual"] as ProjEntryType[]).map((s) => (
                   <button
@@ -2263,6 +2259,21 @@ function BulkClassificationDialog({ count, onClose, onConfirm }: { count: number
  * asked for; everything else takes defaults (see the blue note) and is completed
  * from the details page the user lands on after creation.
  */
+/** Hover explainer for what Automatic vs Manual entry means — reused wherever entry type is picked. */
+function EntryTypeInfo() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs space-y-1 text-xs">
+        <p><span className="font-semibold">Automatic:</span> Property data comes as structured sheets or tables with unit IDs.</p>
+        <p><span className="font-semibold">Manual:</span> Property data comes as unstructured data with no unit IDs.</p>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 /** Status dropdown whose value and options render as the colored tags. */
 function TagSelect({ value, options, colors, onChange, disabled }: {
   value: string
@@ -2307,7 +2318,13 @@ function TagSelect({ value, options, colors, onChange, disabled }: {
   )
 }
 
-function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: ProjectRow) => void }) {
+function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange }: {
+  onBack: () => void
+  onSave: (r: ProjectRow) => void
+  /** Live phases of a main project — feeds the parent's Change Primary Status popup. */
+  parentPhasesOf: (r: ProjectRow) => ProjectRow[]
+  onParentPrimaryChange: (r: ProjectRow, next: ProjPrimaryStatus, excludedPhaseIds?: string[]) => void
+}) {
   const [level, setLevel] = useState<"main" | "phase" | "sub">("main")
   const [cover, setCover] = useState<string | null>(null)
   const [nameEn, setNameEn] = useState("")
@@ -2338,7 +2355,8 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
   const pickParent = (v: ProjectTreeSelection) => {
     setParentSel(v)
     const row = v ? mains.find((m) => m.id === v.id) : null
-    if (row && level === "phase") { setEntryF(row.entryType); setPrimaryF(row.primaryStatus) }
+    // Launch can't be picked at creation — clamp the phase default to On-Sale
+    if (row && level === "phase") { setEntryF(row.entryType); setPrimaryF(row.primaryStatus === "Launch" ? "On-Sale" : row.primaryStatus) }
     // Sub-projects inherit the parent's developer as a starting point — still editable
     if (row && level === "sub") setDevId(row.developer.id)
   }
@@ -2351,10 +2369,20 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
   const phaseStatusAlert = level === "phase" && parentRow
     && (parentRow.primaryStatus === "Sold-Off" || parentRow.primaryStatus === "On-Hold")
     && primaryF === "On-Sale"
+  // Going live on creation needs a cover to show on the website
+  const coverRequired = level !== "phase" && listingF === "Active"
   const canSave = nameEn.trim() && nameAr.trim()
+    && (!coverRequired || !!cover)
     && (level === "main" ? orgs.length > 0 && devId && !!loc
       : level === "phase" ? !!parentRow
       : !!parentRow && !!devId && orgs.length > 0)
+  // Phase with a primary status different from its parent → surface the parent's
+  // Change Primary Status popup BEFORE creating (change it, or dismiss to proceed as is).
+  const [parentDlg, setParentDlg] = useState<ProjectRow | null>(null)
+  const tryCreate = () => {
+    if (level === "phase" && parentRow && parentRow.primaryStatus !== primaryF) { setParentDlg(parentRow); return }
+    create()
+  }
 
   const create = () => {
     const stamp = new Date().toISOString()
@@ -2414,7 +2442,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
         ...base,
         entryType: entryF,
         listingStatus: listingF,
-        // Primary is fixed On-Sale at creation (base) — editable later from the details page
+        primaryStatus: primaryF,
         id: `${parentRow.id}-S${n}`,
         name: nameEn.trim(),
         isPhase: false,
@@ -2434,6 +2462,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
       ...base,
       entryType: entryF,
       listingStatus: listingF,
+      primaryStatus: primaryF,
       id: `PRJ-${String(nextNum).padStart(4, "0")}`,
       name: nameEn.trim(),
       isPhase: false,
@@ -2481,9 +2510,14 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
             ))}
           </div>
 
-          {/* Cover image — optional */}
+          {/* Cover image — optional unless the project goes live (Active listing) on creation */}
           <div className="space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Cover Image <span className="font-normal text-muted-foreground">(optional)</span></div>
+            <div className="text-xs font-medium text-foreground">
+              Cover Image{" "}
+              {coverRequired
+                ? <><span className="text-red-500">*</span> <span className="font-normal text-muted-foreground">(required — Listing Status is Active)</span></>
+                : <span className="font-normal text-muted-foreground">(optional)</span>}
+            </div>
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setCover(URL.createObjectURL(f)) }} />
             {/* Banner-sized cover, full card width */}
             {cover ? (
@@ -2527,11 +2561,11 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
                   <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Primary Status <span className="font-normal text-muted-foreground">(editable later)</span></div>
-                  <TagSelect value="On-Sale" options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
+                  <div className="text-xs font-medium text-foreground">Primary Status</div>
+                  <TagSelect value={primaryF} options={["On-Sale", "On-Hold", "Sold-Off"]} colors={PRIMARY_COLORS} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} />
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Entry Type</div>
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">Entry Type <EntryTypeInfo /></div>
                   <TagSelect value={entryF} options={["Automatic", "Manual"]} colors={ENTRY_COLORS} onChange={(v) => setEntryF(v as ProjEntryType)} />
                 </div>
                 <div />
@@ -2573,10 +2607,10 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
                 </div>
                 <div className="space-y-1.5">
                   <div className="text-xs font-medium text-foreground">Primary Status</div>
-                  <TagSelect value={primaryF} options={["Launch", "On-Sale", "On-Hold", "Sold-Off"]} colors={PRIMARY_COLORS} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} />
+                  <TagSelect value={primaryF} options={["On-Sale", "On-Hold", "Sold-Off"]} colors={PRIMARY_COLORS} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} />
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Entry Type</div>
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">Entry Type <EntryTypeInfo /></div>
                   <TagSelect value={entryF} options={["Automatic", "Manual"]} colors={ENTRY_COLORS} onChange={(v) => setEntryF(v as ProjEntryType)} />
                 </div>
                 {phaseStatusAlert && (
@@ -2605,11 +2639,11 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
                   <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Primary Status <span className="font-normal text-muted-foreground">(editable later)</span></div>
-                  <TagSelect value="On-Sale" options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
+                  <div className="text-xs font-medium text-foreground">Primary Status</div>
+                  <TagSelect value={primaryF} options={["On-Sale", "On-Hold", "Sold-Off"]} colors={PRIMARY_COLORS} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} />
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Entry Type</div>
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">Entry Type <EntryTypeInfo /></div>
                   <TagSelect value={entryF} options={["Automatic", "Manual"]} colors={ENTRY_COLORS} onChange={(v) => setEntryF(v as ProjEntryType)} />
                 </div>
                 <div />
@@ -2656,9 +2690,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
             <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
             {level === "main" ? (
               <span>
-                <span className="font-semibold">Entry Type</span> defaults to <span className="font-semibold">Automatic</span> entry (data comes as sheets),{" "}
-                <span className="font-semibold">Listing Status</span> defaults to <span className="font-semibold">Hidden</span>, and{" "}
-                <span className="font-semibold">Primary Status</span> will be <span className="font-semibold">On-Sale</span> — it can be edited later along with other data like the project map location.
+                The remaining data — like the project map location — can be added later from the details page.
               </span>
             ) : level === "phase" ? (
               <span>
@@ -2668,18 +2700,32 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
             ) : (
               <span>
                 <span className="font-semibold">Sub-Projects are independent:</span> changing the main project's entry type, listing status or primary status{" "}
-                <span className="font-semibold">never cascades</span> to them — only the location comes from the parent.{" "}
-                <span className="font-semibold">Primary Status</span> starts as <span className="font-semibold">On-Sale</span> and can be changed later.
+                <span className="font-semibold">never cascades</span> to them — only the location comes from the parent.
               </span>
             )}
           </div>
 
           <div className="flex justify-end gap-2 border-t border-border pt-4">
             <Button variant="outline" size="sm" onClick={onBack}>Cancel</Button>
-            <Button size="sm" disabled={!canSave} onClick={create}>Create {level === "phase" ? "Phase" : level === "sub" ? "Sub-Project" : "Project"}</Button>
+            <Button size="sm" disabled={!canSave} onClick={tryCreate}>Create {level === "phase" ? "Phase" : level === "sub" ? "Sub-Project" : "Project"}</Button>
           </div>
         </div>
       </div>
+
+      {/* Phase primary differs from the parent's — the parent's regular Change Primary
+          Status popup opens BEFORE creation: apply a change, or dismiss to proceed as is. */}
+      {parentDlg && (
+        <PrimaryStatusDialog
+          r={parentDlg}
+          phases={parentPhasesOf(parentDlg)}
+          onClose={() => { setParentDlg(null); create() }}
+          onConfirm={(next, excludedPhaseIds) => {
+            onParentPrimaryChange(parentDlg, next, excludedPhaseIds)
+            setParentDlg(null)
+            create()
+          }}
+        />
+      )}
     </div>
   )
 }
