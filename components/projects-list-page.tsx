@@ -192,7 +192,6 @@ function UnitsCell({ u }: { u: { available: number; total: number } }) {
 const PROJ_COLS = [
   { id: "name", label: "Project / Phase Name", width: 240 },
   { id: "mainProject", label: "Main Project", width: 180 },
-  { id: "childType", label: "Child Type", width: 130 },
   { id: "developer", label: "Developer", width: 200 },
   { id: "listingStatus", label: "Listing Status", width: 130 },
   { id: "primaryStatus", label: "Primary Status", width: 130 },
@@ -309,9 +308,9 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
     const targetIds = new Set(targets.map((t) => t.id))
     const excluded = new Set(excludedPhaseIds ?? [])
     setRows((rs) => {
-      // Parent moves encode the landing type: "phase:PRJ-x" | "sub:PRJ-x" | PROMOTE_TO_MAIN
-      const [moveAs, moveParentId] = kind === "parent" && typeof value === "string" && value.includes(":")
-        ? (value as string).split(":") : ["", ""]
+      // Parent moves encode the landing type + primary sync: "phase:PRJ-x:sync|keep" | "sub:PRJ-x:keep" | PROMOTE_TO_MAIN
+      const [moveAs, moveParentId, moveSync] = kind === "parent" && typeof value === "string" && value.includes(":")
+        ? (value as string).split(":") : ["", "", ""]
       const parent = moveParentId ? rs.find((y) => y.id === moveParentId) : null
       return rs.map((x) => {
         const hit = targetIds.has(x.id) || (x.isPhase && !!x.mainProject && targetIds.has(x.mainProject.id))
@@ -324,14 +323,18 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           if (value === PROMOTE_TO_MAIN) return { ...x, isPhase: false, isSubProject: false, mainProject: null }
           if (!parent) return x
           if (moveAs === "phase") {
-            // Phases MUST inherit developer, location, organizations and listing from the parent
+            // Phases MUST inherit developer, location and organizations. Listing only
+            // follows DOWN (a hidden parent hides the phase; an active parent changes
+            // nothing). Primary follows a Sold-Off/On-Hold parent when the user kept
+            // the sync ticked.
             return {
               ...x, isPhase: true, isSubProject: false,
               mainProject: { id: parent.id, name: parent.name },
               developer: parent.developer,
               district: parent.district, area: parent.area, subarea: parent.subarea,
               organizations: parent.organizations,
-              listingStatus: parent.listingStatus,
+              listingStatus: parent.listingStatus === "Hidden" ? "Hidden" : x.listingStatus,
+              ...(moveSync === "sync" ? { primaryStatus: parent.primaryStatus } : {}),
             }
           }
           // Sub-project: independent — only the location follows the parent
@@ -505,20 +508,12 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               <p className="truncate font-medium text-foreground">{r.name}</p>
               <div className="flex items-center gap-1.5">
                 <IdTag value={r.id} />
+                {r.isPhase && <span className="inline-flex items-center rounded border border-blue-200 bg-blue-50 px-1 py-0 text-[9px] font-medium leading-4 text-blue-700">Phase</span>}
                 {r.isSubProject && <span className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1 py-0 text-[9px] font-medium leading-4 text-indigo-700">Sub-Project</span>}
               </div>
             </div>
           </div>
         )
-      case "childType": {
-        const t = r.isPhase ? "Phase" : r.isSubProject ? "Sub-Project" : "Main Project"
-        const cls = r.isPhase
-          ? "border-blue-200 bg-blue-50 text-blue-700"
-          : r.isSubProject
-            ? "border-indigo-200 bg-indigo-50 text-indigo-700"
-            : "border-border bg-muted/40 text-muted-foreground"
-        return <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", cls)}>{t}</span>
-      }
       case "mainProject":
         return r.mainProject ? (
           <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
@@ -1889,8 +1884,16 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
     .filter((x) => !x.isPhase && !x.isSubProject && x.id !== targets[0]?.id)
     .map((x) => ({ id: x.id, name: x.name, status: x.listingStatus }))
   const newParent = allRows.find((x) => x.id === parentId)
+  const currentParent = targets[0]?.mainProject ? allRows.find((x) => x.id === targets[0]!.mainProject!.id) : undefined
   /** Same type + same parent = nothing to do. */
   const parentNoChange = parentMode !== "promote" && parentMode === parentCurrentType && parentId === targets[0]?.mainProject?.id
+  // Landing as a phase under a Sold-Off/On-Hold parent also moves the phase's primary
+  // status (and its properties) to match — user can untick to keep it unchanged.
+  const primarySyncTarget = parentMode === "phase" && newParent
+    && (newParent.primaryStatus === "Sold-Off" || newParent.primaryStatus === "On-Hold")
+    && newParent.primaryStatus !== targets[0]?.primaryStatus
+    ? newParent.primaryStatus : null
+  const [syncPrimary, setSyncPrimary] = useState(true)
   const [excludedPhases, setExcludedPhases] = useState<Set<string>>(new Set())
   const toggleExcludedPhase = (id: string) => setExcludedPhases((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleOrg = (o: ProjOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
@@ -1983,16 +1986,24 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                 <span className="text-sm font-semibold text-foreground">{targets[0].name}</span>
                 <IdTag value={targets[0].id} />
                 <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />
+                <Tag value={targets[0].primaryStatus} cls={PRIMARY_COLORS[targets[0].primaryStatus]} />
+                <Tag value={targets[0].entryType} cls={ENTRY_COLORS[targets[0].entryType]} />
               </div>
+              {currentParent && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Current parent</span>
+                  <span className="text-xs font-medium text-foreground">{currentParent.name}</span>
+                  <IdTag value={currentParent.id} />
+                  <Tag value={currentParent.listingStatus} cls={LISTING_COLORS[currentParent.listingStatus]} />
+                  <Tag value={currentParent.primaryStatus} cls={PRIMARY_COLORS[currentParent.primaryStatus]} />
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer</span>
                 <a href={`/developers/${targets[0].developer.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-foreground hover:text-primary hover:underline">{targets[0].developer.name}</a>
                 <IdTag value={targets[0].developer.id} />
                 {parentDevStatus && <Tag value={parentDevStatus} cls={LISTING_COLORS[parentDevStatus]} />}
               </div>
-              <p className="text-[10px] text-muted-foreground">
-                Move it as a <span className="font-medium">Phase</span> (inherits from the parent), a <span className="font-medium">Sub-Project</span> (independent — only the location follows), or promote it to a main project.
-              </p>
             </div>
           </div>
         ) : kind === "orgs" && targets.length === 1 ? (
@@ -2071,7 +2082,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                   { key: "promote" as const, label: "Main project (no parent)", icon: Building2 },
                 ]).map(({ key, label, icon: Icon }) => (
                   <button
-                    key={key} type="button" onClick={() => setParentMode(key)}
+                    key={key} type="button" onClick={() => { setParentMode(key); setSyncPrimary(true) }}
                     className={cn(
                       "flex flex-1 items-center justify-center gap-1.5 rounded-lg border py-2 text-sm font-medium transition-colors",
                       parentMode === key ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/40" : "border-border text-muted-foreground hover:border-muted-foreground/40",
@@ -2088,48 +2099,94 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                 <div className="space-y-1.5">
                   <div className="text-xs font-medium text-foreground">Parent Project <span className="font-normal text-muted-foreground">· any main project</span></div>
                   {/* DeveloperSelect renders name + listing-status tag + ID — reused here for main projects */}
-                  <DeveloperSelect developers={parentOptions} value={parentId} onChange={setParentId} placeholder="Select parent project…" />
+                  <DeveloperSelect developers={parentOptions} value={parentId} onChange={(v) => { setParentId(v); setSyncPrimary(true) }} placeholder="Select parent project…" />
                   {parentNoChange && <p className="text-[11px] text-muted-foreground">Already a {parentCurrentType === "sub" ? "sub-project" : "phase"} under this parent — pick another parent or another type.</p>}
                 </div>
-                {/* Landing as a PHASE: these follow the new parent as a must — shown before confirming */}
-                {parentMode === "phase" && newParent && (
-                  <>
-                    <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
-                      <p className="text-[11px] text-muted-foreground">As a phase it inherits these from <span className="font-medium text-foreground">{newParent.name}</span>:</p>
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer</p>
-                          <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">{newParent.developer.name} <IdTag value={newParent.developer.id} /></div>
-                        </div>
+                {/* What it inherits from the new parent — phases take dev/location/orgs, subs take location only */}
+                {newParent && (
+                  <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+                    <p className="text-[11px] text-muted-foreground">
+                      As a {parentMode === "phase" ? "phase" : "sub-project"} it inherits {parentMode === "phase" ? "these" : "only the location"} from <span className="font-medium text-foreground">{newParent.name}</span>:
+                    </p>
+                    <div className={cn("grid gap-x-6 gap-y-2.5", parentMode === "phase" ? "grid-cols-3" : "grid-cols-1")}>
+                      {parentMode === "phase" && (
+                        <>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer</p>
+                            <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">{newParent.developer.name} <IdTag value={newParent.developer.id} /></div>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Location</p>
+                            <p className="text-sm font-medium text-foreground">{newParent.area} · {newParent.district}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Organizations</p>
+                            <div className="flex gap-1 pt-0.5">{newParent.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
+                          </div>
+                        </>
+                      )}
+                      {parentMode === "sub" && (
                         <div>
                           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Location</p>
                           <p className="text-sm font-medium text-foreground">{newParent.area} · {newParent.district}</p>
                         </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Organizations</p>
-                          <div className="flex gap-1 pt-0.5">{newParent.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {/* An Active phase can't sit under a Hidden parent — its listing follows down */}
+                {parentMode === "phase" && newParent && newParent.listingStatus === "Hidden" && targets[0]?.listingStatus === "Active" && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+                    <span className="font-semibold">{newParent.name}</span> is <span className="font-semibold">Hidden</span> — this phase's listing status will change to <span className="font-semibold">Hidden</span> accordingly.
+                  </div>
+                )}
+                {/* Sold-Off/On-Hold parent: the phase's primary status follows too — opt-out row card */}
+                {primarySyncTarget && targets[0] && (
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground">
+                      Moving under a <span className="font-medium text-foreground">{primarySyncTarget}</span> parent also changes this phase's primary status and its properties — untick to keep it unchanged:
+                    </p>
+                    <div className="rounded-lg border border-border">
+                      <div className="space-y-1 px-3 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <Checkbox checked={syncPrimary} onCheckedChange={() => setSyncPrimary((v) => !v)} className="h-4 w-4 flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-foreground">{targets[0].name}</p>
+                            <IdTag value={targets[0].id} />
+                          </div>
+                          <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />
+                          <Tag value={targets[0].entryType} cls={ENTRY_COLORS[targets[0].entryType]} />
+                          <Tag value={targets[0].primaryStatus} cls={PRIMARY_COLORS[targets[0].primaryStatus]} />
+                          <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                          {syncPrimary
+                            ? <Tag value={primarySyncTarget} cls={PRIMARY_COLORS[primarySyncTarget]} />
+                            : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
                         </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Listing Status</p>
-                          <div className="pt-0.5"><Tag value={newParent.listingStatus} cls={LISTING_COLORS[newParent.listingStatus]} /></div>
-                        </div>
+                        {syncPrimary && (
+                          <div className="pl-7 text-[10px] text-muted-foreground">
+                            Properties Impacted: <span className="font-medium text-foreground">{targets[0].primaryStatusProps.launch.grouped}</span> Launch,{" "}
+                            <span className="font-medium text-foreground">{targets[0].primaryByEntry.Automatic.grouped}</span> Primary Automatic,{" "}
+                            <span className="font-medium text-foreground">{targets[0].primaryByEntry.Manual.grouped}</span> Primary Manual
+                          </div>
+                        )}
                       </div>
                     </div>
-                    {newParent.primaryStatus !== targets[0]?.primaryStatus && (
-                      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
-                        Primary status differs — <span className="font-semibold">{targets[0]?.name}</span> is
-                        <Tag value={targets[0]?.primaryStatus ?? ""} cls={PRIMARY_COLORS[targets[0]?.primaryStatus as ProjPrimaryStatus]} />
-                        while <span className="font-semibold">{newParent.name}</span> is
-                        <Tag value={newParent.primaryStatus} cls={PRIMARY_COLORS[newParent.primaryStatus]} />
-                        — the moved {parentCurrentType === "sub" ? "sub-project" : "phase"} keeps its own primary status; change it afterwards if needed.
-                      </div>
-                    )}
-                  </>
+                  </div>
                 )}
-                {/* Landing as a SUB-PROJECT: independent — only the location follows */}
-                {parentMode === "sub" && newParent && (
+                {/* Primary differs but the parent is On-Sale/Launch: informational only */}
+                {parentMode === "phase" && newParent && !primarySyncTarget && newParent.primaryStatus !== targets[0]?.primaryStatus && (
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+                    Primary status differs — <span className="font-semibold">{targets[0]?.name}</span> is
+                    <Tag value={targets[0]?.primaryStatus ?? ""} cls={PRIMARY_COLORS[targets[0]?.primaryStatus as ProjPrimaryStatus]} />
+                    while <span className="font-semibold">{newParent.name}</span> is
+                    <Tag value={newParent.primaryStatus} cls={PRIMARY_COLORS[newParent.primaryStatus]} />
+                    — it keeps its own primary status; change it afterwards if needed.
+                  </div>
+                )}
+                {/* Sub-project disclaimer — short and to the point */}
+                {parentMode === "sub" && (
                   <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-xs leading-5 text-blue-800">
-                    Sub-projects stay independent — own developer, organizations and statuses. Only the location (<span className="font-medium">{newParent.area} · {newParent.district}</span>) comes from <span className="font-medium">{newParent.name}</span>, and the main project's cascading actions never touch it.
+                    Sub-Projects don't inherit the developer, organizations, listing status or primary status from the parent project — only the location is inherited.
                   </p>
                 )}
               </>
@@ -2285,7 +2342,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
               // Picking a subarea still cascades its parent area
               : kind === "location" ? (areaPick!.level === "Area" ? areaPick!.name : areaPick!.parent!)
               : kind === "entry" ? entryVal
-              : kind === "parent" ? (parentMode === "promote" ? PROMOTE_TO_MAIN : `${parentMode}:${parentId}`)
+              : kind === "parent" ? (parentMode === "promote" ? PROMOTE_TO_MAIN : `${parentMode}:${parentId}:${primarySyncTarget && syncPrimary ? "sync" : "keep"}`)
               : orgs,
               kind === "entry" || kind === "developer" ? [...excludedPhases] : undefined,
             )}
@@ -2506,8 +2563,10 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
       createdAt: stamp,
       updatedAt: stamp,
     }
+    // Ids are one flat PRJ-XXXX sequence — no -P/-S suffixes for phases or sub-projects.
+    const nextNum = Math.max(...PROJECTS.map((p) => Number(p.id.slice(4)))) + 1
+    const newId = `PRJ-${String(nextNum).padStart(4, "0")}`
     if (level === "phase" && parentRow) {
-      const n = PROJECTS.filter((p) => p.isPhase && p.mainProject?.id === parentRow.id).length + 1
       onSave({
         ...base,
         // Inherited from the parent: developer, location, organizations. Listing is locked
@@ -2516,7 +2575,7 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
         organizations: parentRow.organizations,
         entryType: entryF,
         primaryStatus: primaryF,
-        id: `${parentRow.id}-P${n}`,
+        id: newId,
         name: nameEn.trim(),
         isPhase: true,
         mainProject: { id: parentRow.id, name: parentRow.name },
@@ -2527,13 +2586,12 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
     }
     if (level === "sub" && parentRow) {
       const subDev = PROJECT_DEVELOPERS.find((d) => d.id === devId)!
-      const n = PROJECTS.filter((p) => p.isSubProject && p.mainProject?.id === parentRow.id).length + 1
       onSave({
         ...base,
         entryType: entryF,
         listingStatus: listingF,
         primaryStatus: primaryF,
-        id: `${parentRow.id}-S${n}`,
+        id: newId,
         name: nameEn.trim(),
         isPhase: false,
         isSubProject: true,
@@ -2547,13 +2605,12 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
     // District is deduced from the (parent) area — mock pairs them by index
     const areaName = loc!.level === "Area" ? loc!.name : loc!.parent!
     const idx = AREAS.indexOf(areaName)
-    const nextNum = Math.max(...mains.map((p) => Number(p.id.slice(4)))) + 1
     onSave({
       ...base,
       entryType: entryF,
       listingStatus: listingF,
       primaryStatus: primaryF,
-      id: `PRJ-${String(nextNum).padStart(4, "0")}`,
+      id: newId,
       name: nameEn.trim(),
       isPhase: false,
       mainProject: null,

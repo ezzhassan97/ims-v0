@@ -106,11 +106,14 @@ function isoDate(dayOffset: number, hour = 9) {
 
 function buildRows(): ProjectRow[] {
   const rows: ProjectRow[] = []
+  // One flat id sequence for every level — no -P/-S suffixes, all ids are PRJ-XXXX.
+  let nextId = 0
+  const takeId = () => `PRJ-${String(++nextId).padStart(4, "0")}`
   PROJECT_NAMES.forEach((name, i) => {
     const dev = DEVELOPERS[i % DEVELOPERS.length]
     const area = AREAS[i % AREAS.length]
     const district = DISTRICTS[i % DISTRICTS.length]
-    const projectId = `PRJ-${String(i + 1).padStart(4, "0")}`
+    const projectId = takeId()
     const project: ProjectRow = {
       id: projectId,
       name,
@@ -162,7 +165,7 @@ function buildRows(): ProjectRow[] {
     for (let p = 0; p < phaseCount; p++) {
       const seed = i * 7 + p + 1
       rows.push({
-        id: `${projectId}-P${p + 1}`,
+        id: takeId(),
         name: `Phase ${p + 1}`,
         isPhase: true,
         mainProject: { id: projectId, name },
@@ -217,7 +220,7 @@ function buildRows(): ProjectRow[] {
     if (i === 1 || i === 4) {
       const seed = i * 9 + 4
       rows.push({
-        id: `${projectId}-S1`,
+        id: takeId(),
         name: i === 1 ? "Marina Walk" : "Garden Offices",
         isPhase: false,
         isSubProject: true,
