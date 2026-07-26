@@ -487,12 +487,15 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
                 <span className="w-5 flex-shrink-0" />
               )
             )}
-            <span className={cn("flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border", r.isPhase ? "border-border bg-muted text-muted-foreground" : "border-primary/20 bg-primary/10 text-primary")}>
-              {r.isPhase ? <Layers className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
+            <span className={cn("flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border", r.isPhase || r.isSubProject ? "border-border bg-muted text-muted-foreground" : "border-primary/20 bg-primary/10 text-primary")}>
+              {r.isPhase ? <Layers className="h-4 w-4" /> : r.isSubProject ? <GitBranch className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
             </span>
             <div className="min-w-0">
               <p className="truncate font-medium text-foreground">{r.name}</p>
-              <IdTag value={r.id} />
+              <div className="flex items-center gap-1.5">
+                <IdTag value={r.id} />
+                {r.isSubProject && <span className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1 py-0 text-[9px] font-medium leading-4 text-indigo-700">Sub-Project</span>}
+              </div>
             </div>
           </div>
         )
@@ -1551,6 +1554,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
               <span className="text-sm font-semibold text-foreground">{r.name}</span>
               <IdTag value={r.id} />
               <Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} />
+              <Tag value={r.entryType} cls={ENTRY_COLORS[r.entryType]} />
             </div>
             {r.isPhase && r.mainProject && (
               <div className="flex flex-wrap items-center gap-1.5">
@@ -1565,12 +1569,9 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
               <IdTag value={r.developer.id} />
               {devStatus && <Tag value={devStatus} cls={LISTING_COLORS[devStatus]} />}
             </div>
-            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Current primary status</span>
-              <Tag value={from} cls={PRIMARY_COLORS[from]} />
-              <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">Entry type</span>
-              <Tag value={r.entryType} cls={ENTRY_COLORS[r.entryType]} />
-            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap justify-end gap-1">
+            {r.organizations.map((o) => <OrgChip key={o} org={o} />)}
           </div>
         </div>
 
@@ -2256,7 +2257,7 @@ function BulkClassificationDialog({ count, onClose, onConfirm }: { count: number
  * from the details page the user lands on after creation.
  */
 function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: ProjectRow) => void }) {
-  const [level, setLevel] = useState<"main" | "phase">("main")
+  const [level, setLevel] = useState<"main" | "phase" | "sub">("main")
   const [cover, setCover] = useState<string | null>(null)
   const [nameEn, setNameEn] = useState("")
   const [nameAr, setNameAr] = useState("")
@@ -2268,6 +2269,10 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
   const [projectSubtype, setProjectSubtype] = useState("")
   const [construction, setConstruction] = useState("")
   const [orgs, setOrgs] = useState<ProjOrg[]>([])
+  // Phase/sub statuses — phases default from the parent on selection
+  const [entryF, setEntryF] = useState<ProjEntryType>("Automatic")
+  const [primaryF, setPrimaryF] = useState<ProjPrimaryStatus>("On-Sale")
+  const [listingF, setListingF] = useState<ProjListingStatus>("Hidden")
   const fileRef = useRef<HTMLInputElement>(null)
 
   const toggleOrg = (o: ProjOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
@@ -2279,7 +2284,19 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
 
   const mains = PROJECTS.filter((p) => !p.isPhase)
   const parentRow = parentSel ? mains.find((m) => m.id === parentSel.id) : null
-  const canSave = nameEn.trim() && nameAr.trim() && orgs.length > 0 && (level === "phase" ? !!parentRow : devId && !!loc)
+  const pickParent = (v: ProjectTreeSelection) => {
+    setParentSel(v)
+    const row = v ? mains.find((m) => m.id === v.id) : null
+    if (row && level === "phase") { setEntryF(row.entryType); setPrimaryF(row.primaryStatus) }
+  }
+  /** Parent Sold-Off/On-Hold + On-Sale phase = live phase under a closed parent — warn. */
+  const phaseStatusAlert = level === "phase" && parentRow
+    && (parentRow.primaryStatus === "Sold-Off" || parentRow.primaryStatus === "On-Hold")
+    && primaryF === "On-Sale"
+  const canSave = nameEn.trim() && nameAr.trim()
+    && (level === "main" ? orgs.length > 0 && devId && !!loc
+      : level === "phase" ? !!parentRow
+      : !!parentRow && !!devId && orgs.length > 0)
 
   const create = () => {
     const stamp = new Date().toISOString()
@@ -2319,11 +2336,34 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
       const n = PROJECTS.filter((p) => p.isPhase && p.mainProject?.id === parentRow.id).length + 1
       onSave({
         ...base,
+        // Inherited from the parent: developer, location, organizations, listing status
+        listingStatus: parentRow.listingStatus,
+        organizations: parentRow.organizations,
+        entryType: entryF,
+        primaryStatus: primaryF,
         id: `${parentRow.id}-P${n}`,
         name: nameEn.trim(),
         isPhase: true,
         mainProject: { id: parentRow.id, name: parentRow.name },
         developer: parentRow.developer,
+        district: parentRow.district, area: parentRow.area, subarea: parentRow.subarea,
+      })
+      return
+    }
+    if (level === "sub" && parentRow) {
+      const subDev = PROJECT_DEVELOPERS.find((d) => d.id === devId)!
+      const n = PROJECTS.filter((p) => p.isSubProject && p.mainProject?.id === parentRow.id).length + 1
+      onSave({
+        ...base,
+        entryType: entryF,
+        listingStatus: listingF,
+        primaryStatus: primaryF,
+        id: `${parentRow.id}-S${n}`,
+        name: nameEn.trim(),
+        isPhase: false,
+        isSubProject: true,
+        mainProject: { id: parentRow.id, name: parentRow.name },
+        developer: subDev,
         district: parentRow.district, area: parentRow.area, subarea: parentRow.subarea,
       })
       return
@@ -2360,7 +2400,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
         </div>
         <div className="mx-auto w-full max-w-4xl">
           <h1 className="text-2xl font-bold text-foreground">Add Project</h1>
-          <p className="text-sm text-muted-foreground">Create a new main project or a phase under an existing project</p>
+          <p className="text-sm text-muted-foreground">Create a new main project, a phase, or an independent sub-project under an existing project</p>
         </div>
         <div className="mx-auto w-full max-w-4xl space-y-4 rounded-xl border border-border bg-card p-6">
           {/* Level toggle */}
@@ -2368,6 +2408,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
             {([
               { key: "main", label: "Main Project", icon: Building2 },
               { key: "phase", label: "Phase", icon: Layers },
+              { key: "sub", label: "Sub-Project", icon: GitBranch },
             ] as const).map(({ key, label, icon: Icon }) => (
               <button
                 key={key} type="button" onClick={() => setLevel(key)}
@@ -2430,11 +2471,80 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
                   label="Select parent project…"
                   projects={mains.map((m) => ({ id: m.id, name: m.name, status: m.listingStatus, phases: [] }))}
                   value={parentSel}
-                  onChange={setParentSel}
+                  onChange={pickParent}
                   className="w-full"
                 />
-                <p className="text-[11px] text-muted-foreground">Developer and location are inherited from the parent project</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {level === "phase"
+                    ? "Developer, location, organizations and listing status are inherited from the parent project"
+                    : "Location is inherited from the parent project — developer, organizations and statuses are this sub-project's own"}
+                </p>
               </div>
+            )}
+
+            {/* Phase: inherited fields shown read-only + editable entry/primary */}
+            {level === "phase" && parentRow && (
+              <>
+                <div className="col-span-2 grid grid-cols-2 gap-x-6 gap-y-2.5 rounded-lg border border-border bg-muted/20 p-3">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer (inherited)</p>
+                    <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">{parentRow.developer.name} <IdTag value={parentRow.developer.id} /></div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Location (inherited)</p>
+                    <p className="text-sm font-medium text-foreground">{parentRow.area} · {parentRow.district}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Organizations (inherited)</p>
+                    <div className="flex gap-1 pt-0.5">{parentRow.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Listing Status (inherited)</p>
+                    <div className="pt-0.5"><Tag value={parentRow.listingStatus} cls={LISTING_COLORS[parentRow.listingStatus]} /></div>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Entry Type</div>
+                  <FilterSelect label="Entry type…" value={entryF} options={["Automatic", "Manual"]} onChange={(v) => setEntryF(v as ProjEntryType)} className="w-full" width="w-full" />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Primary Status</div>
+                  <FilterSelect label="Primary status…" value={primaryF} options={["Launch", "On-Sale", "On-Hold", "Sold-Off"]} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} className="w-full" width="w-full" />
+                </div>
+                {phaseStatusAlert && (
+                  <div className="col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+                    The parent project is <span className="font-semibold">{parentRow.primaryStatus}</span> — creating an{" "}
+                    <span className="font-semibold">On-Sale</span> phase under it makes this phase live while the parent isn't. Double-check before proceeding.
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Sub-project: own developer/statuses, location from parent */}
+            {level === "sub" && (
+              <>
+                <div className="space-y-1.5">
+                  {req("Developer")}
+                  <DeveloperSelect developers={PROJECT_DEVELOPERS} value={devId} onChange={setDevId} />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Location <span className="font-normal text-muted-foreground">(from the parent)</span></div>
+                  <Input value={parentRow ? `${parentRow.area} · ${parentRow.district}` : ""} disabled placeholder="—" className="h-9 text-sm" />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Entry Type</div>
+                  <FilterSelect label="Entry type…" value={entryF} options={["Automatic", "Manual"]} onChange={(v) => setEntryF(v as ProjEntryType)} className="w-full" width="w-full" />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Listing Status</div>
+                  <FilterSelect label="Listing status…" value={listingF} options={["Active", "Hidden"]} onChange={(v) => setListingF(v as ProjListingStatus)} className="w-full" width="w-full" />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Primary Status</div>
+                  <FilterSelect label="Primary status…" value={primaryF} options={["Launch", "On-Sale", "On-Hold", "Sold-Off"]} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} className="w-full" width="w-full" />
+                </div>
+                <div />
+              </>
             )}
 
             <div className="space-y-1.5">
@@ -2454,6 +2564,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
               <FilterSelect label="Select status…" value={construction} options={["Off-plan", "Under Construction", "Completed"]} onChange={setConstruction} className="w-full" width="w-full" />
             </div>
 
+            {level !== "phase" && (
             <div className="col-span-2 space-y-1.5">
               {req("Organizations")}
               <div className="flex gap-2">
@@ -2468,22 +2579,35 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
                 ))}
               </div>
             </div>
+            )}
           </div>
 
-          {/* Everything else takes defaults — completed later from the details page */}
+          {/* Per-level defaults note */}
           <div className="flex gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
             <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-            <span>
-              <span className="font-semibold">Entry Type</span> will be <span className="font-semibold">Automatic</span> (assuming properties data comes as sheets),{" "}
-              <span className="font-semibold">Listing Status</span> will be <span className="font-semibold">Hidden</span>,{" "}
-              <span className="font-semibold">Primary Status</span> will be <span className="font-semibold">On-Sale</span>, and the map location can be added later —
-              after creation you land on the project details page to change or add anything.
-            </span>
+            {level === "main" ? (
+              <span>
+                <span className="font-semibold">Entry Type</span> will be <span className="font-semibold">Automatic</span> (assuming properties data comes as sheets),{" "}
+                <span className="font-semibold">Listing Status</span> will be <span className="font-semibold">Hidden</span>,{" "}
+                <span className="font-semibold">Primary Status</span> will be <span className="font-semibold">On-Sale</span>, and the map location can be added later —
+                after creation you land on the project details page to change or add anything.
+              </span>
+            ) : level === "phase" ? (
+              <span>
+                <span className="font-semibold">Developer, location, organizations and listing status</span> are inherited from the parent project and can't be changed here —
+                after creation you land on the phase details page to complete anything else.
+              </span>
+            ) : (
+              <span>
+                <span className="font-semibold">Sub-Projects are independent:</span> changing the main project's entry type, listing status or primary status{" "}
+                <span className="font-semibold">never cascades</span> to them — only the location comes from the parent.
+              </span>
+            )}
           </div>
 
           <div className="flex justify-end gap-2 border-t border-border pt-4">
             <Button variant="outline" size="sm" onClick={onBack}>Cancel</Button>
-            <Button size="sm" disabled={!canSave} onClick={create}>Create {level === "phase" ? "Phase" : "Project"}</Button>
+            <Button size="sm" disabled={!canSave} onClick={create}>Create {level === "phase" ? "Phase" : level === "sub" ? "Sub-Project" : "Project"}</Button>
           </div>
         </div>
       </div>

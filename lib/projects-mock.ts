@@ -15,6 +15,8 @@ export interface ProjectRow {
   id: string
   name: string
   isPhase: boolean
+  /** Linked to a main project but independent — excluded from its cascading actions. */
+  isSubProject?: boolean
   mainProject: { id: string; name: string } | null
   developer: { id: string; name: string; logo: string }
   district: string
