@@ -1282,17 +1282,16 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: ProjLaunch;
 
 /**
  * Change Primary Status — tied to the launches linked to the project/phase:
- *  - Moving OUT of Launch closes the currently Active launch/release — its
- *    compact card (id, type, start date, EOIs by property type for Launches)
- *    is shown with a full-summary drawer; the end date is mandatory.
+ *  - Moving OUT of Launch closes the currently Active launch/release (compact
+ *    card + summary drawer); the end date is mandatory.
  *  - Moving INTO Launch requires picking WHICH ingested linked launch to
- *    activate (only one can be active at a time); the Available Launch
- *    Properties count and the start-date prefill come from that selection.
- *  - On-Sale publishes the Available Primary bucket matching each project's
- *    entry type; On-Hold / Sold-Off set Hold / Sold-Off + Hidden on both
- *    Primary buckets; Sold-Off is irreversible in bulk.
- * Terminology: Primary Automatic counts Properties · Detailed Properties;
- * Launch and Primary Manual count Properties only.
+ *    activate; counts and the start-date prefill follow that selection.
+ *  - Launch / On-Sale destinations do NOT cascade to phases — phases not
+ *    already at the destination are listed for awareness only. On-Hold /
+ *    Sold-Off cascade to phases (excludable) and Sold-Off is irreversible
+ *    in bulk.
+ * Terminology: Primary Automatic outcome lines carry Properties · Detailed
+ * Properties; Launch and Primary Manual carry Properties only.
  */
 export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (s: ProjPrimaryStatus, excludedPhaseIds?: string[]) => void }) {
   const from = r.primaryStatus
@@ -1309,8 +1308,10 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
     setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   const cascading = !r.isPhase && phases.length > 0
-  const includedPhases = cascading ? phases.filter((p) => !excluded.has(p.id)) : []
-  const scope = [r, ...includedPhases]
+  // Launch and On-Sale never touch the phases' primary status — only On-Hold / Sold-Off cascade
+  const cascadeToPhases = target === "On-Hold" || target === "Sold-Off"
+  const includedPhases = cascading && cascadeToPhases ? phases.filter((p) => !excluded.has(p.id)) : []
+  const scope = cascadeToPhases ? [r, ...includedPhases] : [r]
   const devStatus = PROJECT_DEVELOPERS.find((d) => d.id === r.developer.id)?.status
   const selLaunch = linkedLaunches.find((l) => l.id === selLaunchId)
   const leavingLaunch = from === "Launch" && target !== "" && target !== "Launch"
@@ -1329,7 +1330,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
     paMatchD: rows.filter((x) => x.entryType === "Automatic").reduce((s, x) => s + x.primaryByEntry.Automatic.detailed, 0),
     pmMatchG: rows.filter((x) => x.entryType === "Manual").reduce((s, x) => s + x.primaryByEntry.Manual.grouped, 0),
   })
-  const b = sums(scope)
+  const bMain = sums([r])
 
   const PTONE: Record<string, string> = {
     Hold: "border-amber-200 bg-amber-50 text-amber-700",
@@ -1341,8 +1342,6 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   const ptag = (v: string) => <span className={cn("mx-0.5 inline-flex items-center rounded border px-1 py-0 align-[1px] text-[9px] font-medium leading-4", PTONE[v])}>{v}</span>
   const props = (n: number) => `${n} Propert${n !== 1 ? "ies" : "y"}`
   const paText = (g: number, d: number) => `${g} Propert${g !== 1 ? "ies" : "y"} · ${d} Detailed Propert${d !== 1 ? "ies" : "y"}`
-  // The hide toggle follows the entry type of the project/phase being changed
-  const hideCaption = r.entryType === "Automatic" ? `Primary Automatic ${paText(b.paG, b.paD)}` : `Primary Manual ${props(b.pmG)}`
 
   // What happens per bucket at the destination — All vs Available always stated
   type Outcome = { label: string; countText: string; sale?: string; listing: "Shown" | "Hidden" | "Published" }
@@ -1353,8 +1352,8 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
     if (to === "Launch") {
       if (selLaunch) out.push({ label: "Available Launch Properties", countText: props(selLaunch.availableLaunchProps), listing: "Shown" })
       if (hideAvailable) {
-        if (r.entryType === "Automatic" && (s.paG > 0 || s.paD > 0)) out.push({ label: "Available Primary Automatic", countText: paText(s.paG, s.paD), listing: "Hidden" })
-        if (r.entryType === "Manual" && s.pmG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmG), listing: "Hidden" })
+        if (s.paG > 0 || s.paD > 0) out.push({ label: "Available Primary Automatic", countText: paText(s.paG, s.paD), listing: "Hidden" })
+        if (s.pmG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmG), listing: "Hidden" })
       }
       return out
     }
@@ -1371,15 +1370,14 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   }
   const totalOutcomes = outcomesFor(scope, target)
 
-  /** Per-row bucket counts, honoring the terminology rule — zeros skipped. */
-  const bucketLine = (row: ProjectRow) => {
-    const s = sums([row])
-    const parts: string[] = []
-    if (s.launchAll > 0) parts.push(`Launch ${s.launchAll}`)
-    if (s.pmG > 0) parts.push(`Primary Manual ${s.pmG}`)
-    if (s.paG > 0 || s.paD > 0) parts.push(`Primary Automatic ${s.paG} (${s.paD} Detailed)`)
-    return parts.length > 0 ? parts.join("  ·  ") : "No Launch or Primary properties"
+  /** Per-phase line for cascade targets — mirrors the what-happens buckets for that phase. */
+  const phaseOutcomeLine = (p: ProjectRow) => {
+    const os = outcomesFor([p], target)
+    return os.length > 0 ? os.map((o) => `${o.label} ${o.countText}`).join("  ·  ") : "No properties affected"
   }
+
+  // Phases listed for awareness on Launch / On-Sale — the ones NOT already at the destination
+  const phasesNotAtTarget = target !== "" && !cascadeToPhases ? phases.filter((p) => p.primaryStatus !== target) : []
 
   const launchTypeTag = (l: ProjLaunch) => (
     <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[l.type])}>{l.type}</span>
@@ -1387,7 +1385,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader><DialogTitle>Change Primary Status</DialogTitle></DialogHeader>
 
         {/* Rich context — name/ID/listing, parent for phases, developer + its listing status,
@@ -1441,7 +1439,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         </div>
 
-        {/* Moving INTO Launch: pick which ingested linked launch to activate */}
+        {/* 1 — launch linkage: picker (into Launch) or the active launch being closed (out of Launch) */}
         {target === "Launch" && (
           linkedLaunches.length === 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
@@ -1487,8 +1485,6 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
             </div>
           )
         )}
-
-        {/* Moving OUT of Launch: the currently Active launch/release being closed */}
         {leavingLaunch && activeLaunch && (
           <div className="space-y-1.5">
             <p className="text-xs text-muted-foreground">Active {activeLaunch.type.toLowerCase()} that will be closed:</p>
@@ -1517,15 +1513,60 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         )}
 
-        {/* What happens to the properties — per bucket, All vs Available always stated */}
+        {/* 2 — launch date fields + disclaimers, directly below the launch list/card */}
+        {target === "Launch" && selLaunch && (
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Launch Start Date <span className="font-normal text-muted-foreground">(optional — from {selLaunch.id})</span></div>
+            <Input type="date" min={minStart} value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 w-52 text-sm" />
+            <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
+              The date this launch started collecting EOIs — can't be more than 2 months in the past.
+            </p>
+          </div>
+        )}
+        {leavingLaunch && (
+          <div className="space-y-1.5">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-foreground">Launch Start Date <span className="font-normal text-muted-foreground">(optional)</span></div>
+                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 w-full text-sm" />
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-foreground">Launch End Date<span className="ml-0.5 text-red-500">*</span></div>
+                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 w-full text-sm" />
+              </div>
+            </div>
+            <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
+              The date this launch stopped collecting EOIs — Nawy Sales Portal will be notified to flag EOIs collected after this date.
+            </p>
+          </div>
+        )}
+
+        {/* 3 — optionally hide the Available Primary properties (Launch destination) */}
+        {target === "Launch" && linkedLaunches.length > 0 && (
+          <label className={cn(
+            "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
+            hideAvailable ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
+          )}>
+            <Checkbox checked={hideAvailable} onCheckedChange={() => setHideAvailable((v) => !v)} className="h-4 w-4" />
+            <EyeOff className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="text-sm text-foreground">
+              Hide (Unpublish) the Available Primary Properties
+              <span className="block text-xs text-muted-foreground">
+                {bMain.paG + bMain.pmG} Available Primary Properties — Primary Automatic {bMain.paG} · Primary Manual {bMain.pmG}
+              </span>
+            </span>
+          </label>
+        )}
+
+        {/* 4 — what happens to the properties */}
         {target === "" ? (
           <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Pick a destination status to see what happens to the properties.
+            Pick a destination status to see what happens to the properties and this project's phases.
           </p>
         ) : (
           <div className="space-y-1 rounded-lg border border-border bg-muted/20 px-3 py-2.5">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              What happens to the properties{cascading ? ` — main + ${includedPhases.length} phase${includedPhases.length !== 1 ? "s" : ""}` : ""}
+              What happens to the properties{cascading && cascadeToPhases ? ` — main + ${includedPhases.length} phase${includedPhases.length !== 1 ? "s" : ""}` : ""}
             </p>
             {totalOutcomes.length > 0 ? (
               totalOutcomes.map((o) => (
@@ -1554,80 +1595,56 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         )}
 
-        {/* Launch destination: optional hide of the Available Primary properties (entry-matched) */}
-        {target === "Launch" && linkedLaunches.length > 0 && (
-          <label className={cn(
-            "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
-            hideAvailable ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
-          )}>
-            <Checkbox checked={hideAvailable} onCheckedChange={() => setHideAvailable((v) => !v)} className="h-4 w-4" />
-            <span className="text-sm text-foreground">
-              Hide (Unpublish) the Available Primary Properties
-              <span className="block text-xs text-muted-foreground">{hideCaption} — left unchanged by default</span>
-            </span>
-          </label>
-        )}
-
-        {/* Launch destination: start date follows the selected launch (prefilled when it has one) */}
-        {target === "Launch" && selLaunch && (
-          <div className="space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Launch Start Date <span className="font-normal text-muted-foreground">(optional — from {selLaunch.id})</span></div>
-            <Input type="date" min={minStart} value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 w-52 text-sm" />
-            <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
-              The date this launch started collecting EOIs — can't be more than 2 months in the past.
-            </p>
-          </div>
-        )}
-
-        {/* Leaving Launch: both dates visible — the end date is mandatory (flags EOIs on Nawy Sales Portal) */}
-        {leavingLaunch && (
-          <div className="space-y-1.5">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <div className="text-xs font-medium text-foreground">Launch Start Date <span className="font-normal text-muted-foreground">(optional)</span></div>
-                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 w-full text-sm" />
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs font-medium text-foreground">Launch End Date<span className="ml-0.5 text-red-500">*</span></div>
-                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 w-full text-sm" />
-              </div>
-            </div>
-            <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
-              The date this launch stopped collecting EOIs — Nawy Sales Portal will be notified to flag EOIs collected after this date.
-            </p>
-          </div>
-        )}
-
-        {/* Main + EVERY phase — entry type, current → destination, per-row bucket counts;
-            phases excludable */}
-        {cascading && (
-          <div className="space-y-1.5">
-            <p className="text-xs text-muted-foreground">
-              Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — untick a phase to exclude it:
-            </p>
-            <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
-              {[r, ...phases].map((p, i) => {
-                const excludable = p.id !== r.id
-                const isExcluded = excludable && excluded.has(p.id)
-                return (
-                  <div key={p.id} className={cn("space-y-1 px-3 py-2.5", i > 0 && "border-t border-border/70", excludable && "bg-muted/20", isExcluded && "opacity-45")}>
-                    <div className="flex items-center gap-2.5">
-                      {excludable && <Checkbox checked={!isExcluded} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
-                        <IdTag value={p.id} />
+        {/* 5 — main & phases, only after a destination is picked */}
+        {cascading && target !== "" && (
+          cascadeToPhases ? (
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">
+                Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — untick a phase to exclude it:
+              </p>
+              <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
+                {[r, ...phases].map((p, i) => {
+                  const excludable = p.id !== r.id
+                  const isExcluded = excludable && excluded.has(p.id)
+                  return (
+                    <div key={p.id} className={cn("space-y-1 px-3 py-2.5", i > 0 && "border-t border-border/70", excludable && "bg-muted/20", isExcluded && "opacity-45")}>
+                      <div className="flex items-center gap-2.5">
+                        {excludable && <Checkbox checked={!isExcluded} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                          <IdTag value={p.id} />
+                        </div>
+                        <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
+                        <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
+                        <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                        <Tag value={target} cls={PRIMARY_COLORS[target]} />
                       </div>
-                      <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
-                      <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
-                      <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                      {target !== "" ? <Tag value={target} cls={PRIMARY_COLORS[target]} /> : <span className="text-[10px] text-muted-foreground">pick status</span>}
+                      {/* per-phase counts mirror the what-happens buckets */}
+                      <div className={cn("text-[11px] text-muted-foreground", excludable && "pl-7")}>{phaseOutcomeLine(p)}</div>
                     </div>
-                    <div className={cn("text-[11px] text-muted-foreground", excludable && "pl-7")}>{bucketLine(p)}</div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
-          </div>
+          ) : phasesNotAtTarget.length > 0 ? (
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">
+                Phases under this main project that are not <span className="font-medium text-foreground">{target}</span> — their primary status won't change:
+              </p>
+              <div className="max-h-60 overflow-y-auto rounded-lg border border-border">
+                {phasesNotAtTarget.map((p, i) => (
+                  <div key={p.id} className={cn("flex items-center gap-2.5 bg-muted/20 px-3 py-2.5", i > 0 && "border-t border-border/70")}>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                      <IdTag value={p.id} />
+                    </div>
+                    <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
+                    <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null
         )}
 
         {/* One disclaimer for every destination, at the bottom */}
@@ -1635,7 +1652,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={!canSave} onClick={() => onConfirm(target as ProjPrimaryStatus, cascading ? [...excluded] : undefined)}>
+          <Button size="sm" disabled={!canSave} onClick={() => onConfirm(target as ProjPrimaryStatus, cascading && cascadeToPhases ? [...excluded] : undefined)}>
             {target === "" ? "Change" : `Change to ${target}`}
           </Button>
         </DialogFooter>
