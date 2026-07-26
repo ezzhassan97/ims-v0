@@ -317,8 +317,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         if (kind === "location") return { ...x, area: value as string }
         if (kind === "entry") return { ...x, entryType: value as ProjEntryType }
         if (kind === "parent") {
-          // Promote the phase to a standalone main project (unlinked from any parent)
-          if (value === PROMOTE_TO_MAIN) return { ...x, isPhase: false, mainProject: null }
+          // Promote the phase/sub-project to a standalone main project (unlinked from any parent)
+          if (value === PROMOTE_TO_MAIN) return { ...x, isPhase: false, isSubProject: false, mainProject: null }
           return parent ? { ...x, mainProject: { id: parent.id, name: parent.name } } : x
         }
         return { ...x, organizations: value as ProjOrg[] }
@@ -373,7 +373,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       if (listingF && r.listingStatus !== listingF) return false
       if (primaryF.length > 0 && !primaryF.includes(r.primaryStatus)) return false
       if (entryF && r.entryType !== entryF) return false
-      if (levelF && (r.isPhase ? "Phase" : "Main Project") !== levelF) return false
+      if (levelF && (r.isPhase ? "Phase" : r.isSubProject ? "Sub-Project" : "Main Project") !== levelF) return false
       if (coordF && (geoOf(r.id)?.pin ? "Added" : "Missing") !== coordF) return false
       if (polyF && (geoOf(r.id)?.polygon ? "Added" : "Missing") !== polyF) return false
       if (listingMpF && (r.listingMasterplan ? "Uploaded" : "Missing") !== listingMpF) return false
@@ -595,10 +595,11 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               <DropdownMenuItem onClick={() => setListingDlg(r)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setPrimaryDlg(r)}><TagIcon className="mr-2 h-3.5 w-3.5" />Change Primary Status</DropdownMenuItem>
               <DropdownMenuSeparator />
-              {/* Phases: only Change Parent Project. Mains: Change Developer / Area / Organizations */}
-              {r.isPhase ? (
+              {/* Phases: only Change Parent Project. Sub-projects: parent + the main-type actions. Mains: Developer / Area / Organizations */}
+              {(r.isPhase || r.isSubProject) && (
                 <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "parent", targets: [r], ignored: 0 })}><GitBranch className="mr-2 h-3.5 w-3.5" />Change Parent Project</DropdownMenuItem>
-              ) : (
+              )}
+              {!r.isPhase && (
                 <>
                   <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "developer", targets: [r], ignored: 0 })}><Building2 className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "location", targets: [r], ignored: 0 })}><MapPin className="mr-2 h-3.5 w-3.5" />Change Area</DropdownMenuItem>
@@ -651,7 +652,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               <FilterSelect label="Listing Status" value={listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v); setPage(1) }} className="w-40" />
               <FilterMultiSelect label="Primary Status" value={primaryF} options={PRIMARY_STATUSES} onChange={(v) => { setPrimaryF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Entry Type" value={entryF} options={["Automatic", "Manual"]} onChange={(v) => { setEntryF(v); setPage(1) }} className="w-36" />
-              <FilterSelect label="Level" value={levelF} options={["Main Project", "Phase"]} onChange={(v) => { setLevelF(v); setPage(1) }} className="w-36" />
+              <FilterSelect label="Level" value={levelF} options={["Main Project", "Phase", "Sub-Project"]} onChange={(v) => { setLevelF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Coordinates" value={coordF} options={["Added", "Missing"]} onChange={(v) => { setCoordF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Polygons" value={polyF} options={["Added", "Missing"]} onChange={(v) => { setPolyF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Listing Masterplan" value={listingMpF} options={["Uploaded", "Missing"]} onChange={(v) => { setListingMpF(v); setPage(1) }} className="w-40" />
@@ -957,7 +958,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             <FilterSelect label="Entry Type" value={entryF} options={["Automatic", "Manual"]} onChange={(v) => { setEntryF(v); setPage(1) }} className="w-full" width="w-full" />
           </FilterDrawerField>
           <FilterDrawerField label="Level">
-            <FilterSelect label="Level" value={levelF} options={["Main Project", "Phase"]} onChange={(v) => { setLevelF(v); setPage(1) }} className="w-full" width="w-full" />
+            <FilterSelect label="Level" value={levelF} options={["Main Project", "Phase", "Sub-Project"]} onChange={(v) => { setLevelF(v); setPage(1) }} className="w-full" width="w-full" />
           </FilterDrawerField>
           <FilterDrawerField label="Coordinates">
             <FilterSelect label="Coordinates" value={coordF} options={["Added", "Missing"]} onChange={(v) => { setCoordF(v); setPage(1) }} className="w-full" width="w-full" />
@@ -1841,10 +1842,15 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   const [entryVal, setEntryVal] = useState<ProjEntryType>(targets[0]?.entryType === "Automatic" ? "Manual" : "Automatic")
   const [parentId, setParentId] = useState(targets[0]?.mainProject?.id ?? "")
   const [parentMode, setParentMode] = useState<"reparent" | "promote">("reparent")
-  // Parent options are scoped to the SAME developer as the phase; each carries its listing status
+  // Phases reparent within the SAME developer; sub-projects keep their own developer,
+  // so any main project can be their parent.
+  const isSub = targets.length === 1 && !!targets[0]?.isSubProject
   const parentDevStatus = PROJECT_DEVELOPERS.find((d) => d.id === targets[0]?.developer.id)?.status
   const parentOptions = allRows
-    .filter((x) => !x.isPhase && x.developer.id === targets[0]?.developer.id && x.id !== targets[0]?.mainProject?.id)
+    .filter((x) =>
+      !x.isPhase && !x.isSubProject
+      && (isSub || x.developer.id === targets[0]?.developer.id)
+      && x.id !== targets[0]?.mainProject?.id && x.id !== targets[0]?.id)
     .map((x) => ({ id: x.id, name: x.name, status: x.listingStatus }))
   const [excludedPhases, setExcludedPhases] = useState<Set<string>>(new Set())
   const toggleExcludedPhase = (id: string) => setExcludedPhases((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -1945,7 +1951,11 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                 <IdTag value={targets[0].developer.id} />
                 {parentDevStatus && <Tag value={parentDevStatus} cls={LISTING_COLORS[parentDevStatus]} />}
               </div>
-              <p className="text-[10px] text-muted-foreground">Parent options are limited to main projects under this developer.</p>
+              <p className="text-[10px] text-muted-foreground">
+                {isSub
+                  ? "Any main project can be the parent — sub-projects keep their own developer."
+                  : "Parent options are limited to main projects under this developer."}
+              </p>
             </div>
           </div>
         ) : kind === "orgs" && targets.length === 1 ? (
@@ -2036,10 +2046,10 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
             </div>
             {parentMode === "reparent" ? (
               <div className="space-y-1.5">
-                <div className="text-xs font-medium text-foreground">Parent Project <span className="font-normal text-muted-foreground">· only projects under {targets[0]?.developer.name}</span></div>
+                <div className="text-xs font-medium text-foreground">Parent Project <span className="font-normal text-muted-foreground">{isSub ? "· any main project" : `· only projects under ${targets[0]?.developer.name}`}</span></div>
                 {/* DeveloperSelect renders name + listing-status tag + ID — reused here for main projects */}
                 <DeveloperSelect developers={parentOptions} value={parentId} onChange={setParentId} placeholder="Select parent project…" />
-                {parentOptions.length === 0 && <p className="text-[11px] text-muted-foreground">No other main projects under this developer.</p>}
+                {parentOptions.length === 0 && <p className="text-[11px] text-muted-foreground">No other main projects{isSub ? "" : " under this developer"}.</p>}
               </div>
             ) : (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
@@ -2199,7 +2209,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
             )}
           >
             {kind === "parent"
-              ? (parentMode === "promote" ? "Promote to main project" : "Move phase")
+              ? (parentMode === "promote" ? "Promote to main project" : isSub ? "Move sub-project" : "Move phase")
               : `Apply to ${targets.length} project${targets.length > 1 ? "s" : ""}`}
           </Button>
         </DialogFooter>
