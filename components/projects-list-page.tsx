@@ -2196,7 +2196,6 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                     <Tag value={targets[0]?.entryType ?? ""} cls={ENTRY_COLORS[targets[0]?.entryType as ProjEntryType]} />
                     while <span className="font-semibold">{newParent.name}</span> is
                     <Tag value={newParent.entryType} cls={ENTRY_COLORS[newParent.entryType]} />
-                    — it keeps its own entry type.
                   </div>
                 )}
                 {/* Sub-project disclaimer — short and to the point */}
