@@ -31,6 +31,11 @@ export interface IngestionEntry {
   createdAt: string
   updatedAt: string
   finalizedAt: string | null
+  /** Analytics (meaningful for finalized entries) */
+  groupedProperties: number
+  detailedProperties: number
+  totalTimeSec: number
+  activeTimeSec: number
 }
 
 const USERS = ["Ezz Hassan", "Sara Adel", "Omar Farouk", "Nour ElDin", "Youssef Kamal"]
@@ -73,6 +78,10 @@ function buildEntries(mode: IngestionMode): IngestionEntry[] {
       createdAt: iso(i * 3, 9),
       updatedAt: iso(i * 3 + 2, 15),
       finalizedAt: stage === "Finalized" ? iso(i * 3 + 4, 11) : null,
+      groupedProperties: 6 + (i % 9),
+      detailedProperties: 180 + i * 17,
+      totalTimeSec: 6600 + i * 540,
+      activeTimeSec: 2400 + i * 210,
     }
   })
 }

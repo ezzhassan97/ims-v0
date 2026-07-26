@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ChevronLeft, ChevronRight, FileImage, FileSpreadsheet, FileText, FileVideo, Play, ZoomIn, ZoomOut } from "lucide-react"
+import { ChevronLeft, ChevronRight, Download, FileImage, FileSpreadsheet, FileText, FileVideo, Play, ZoomIn, ZoomOut } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { IdTag } from "@/components/table-kit"
@@ -249,6 +249,20 @@ export function FilePreviewDialog({ file, onClose }: { file: PreviewFile; onClos
           <IdTag value={file.id} />
           <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium", TYPE_TONE[file.typeGroup])}>{file.typeGroup}</span>
           {size && <span className="font-mono text-[11px] text-muted-foreground">{size}</span>}
+          <Button
+            variant="outline"
+            size="icon"
+            className="ml-auto h-7 w-7"
+            title="Download file"
+            onClick={() => {
+              const a = document.createElement("a")
+              a.href = file.url ?? "/placeholder.jpg"
+              a.download = file.name
+              a.click()
+            }}
+          >
+            <Download className="h-3.5 w-3.5" />
+          </Button>
         </div>
         {/* Body by type */}
         {file.typeGroup === "Image" && <ImagePane file={file} />}
