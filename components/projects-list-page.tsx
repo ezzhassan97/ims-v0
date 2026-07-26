@@ -431,6 +431,13 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           setRows((rs) => [row, ...rs])
           toast.success(`${row.name} created`)
           setCreating(false)
+          // New phase under a parent that isn't On-Sale → surface the parent's
+          // Change Primary Status popup (the exact same dialog) right away.
+          const parent = row.isPhase && row.mainProject ? rows.find((p) => p.id === row.mainProject!.id) : undefined
+          if (parent && parent.primaryStatus !== "On-Sale") {
+            setPrimaryDlg(parent)
+            return
+          }
           setSelected(row) // straight to the details page to complete the rest
         }}
       />
@@ -2256,6 +2263,50 @@ function BulkClassificationDialog({ count, onClose, onConfirm }: { count: number
  * asked for; everything else takes defaults (see the blue note) and is completed
  * from the details page the user lands on after creation.
  */
+/** Status dropdown whose value and options render as the colored tags. */
+function TagSelect({ value, options, colors, onChange, disabled }: {
+  value: string
+  options: string[]
+  colors: Record<string, string>
+  onChange: (v: string) => void
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener("mousedown", h)
+    return () => document.removeEventListener("mousedown", h)
+  }, [])
+  return (
+    <div ref={ref} className="relative w-full">
+      <button
+        type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "flex h-9 w-full items-center justify-between rounded-md border border-input bg-white px-2.5",
+          disabled ? "cursor-not-allowed bg-muted/40" : "hover:bg-muted/40",
+        )}
+      >
+        <Tag value={value} cls={colors[value]} />
+        {!disabled && <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", open && "rotate-180")} />}
+      </button>
+      {open && (
+        <div className="absolute left-0 top-10 z-50 w-full rounded-md border border-border bg-popover p-1 shadow-md">
+          {options.map((o) => (
+            <button
+              key={o} type="button"
+              onClick={() => { onChange(o); setOpen(false) }}
+              className={cn("flex w-full items-center rounded px-2 py-1.5 hover:bg-muted", value === o && "bg-primary/5")}
+            >
+              <Tag value={o} cls={colors[o]} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: ProjectRow) => void }) {
   const [level, setLevel] = useState<"main" | "phase" | "sub">("main")
   const [cover, setCover] = useState<string | null>(null)
@@ -2288,6 +2339,13 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
     setParentSel(v)
     const row = v ? mains.find((m) => m.id === v.id) : null
     if (row && level === "phase") { setEntryF(row.entryType); setPrimaryF(row.primaryStatus) }
+    // Sub-projects inherit the parent's developer as a starting point — still editable
+    if (row && level === "sub") setDevId(row.developer.id)
+  }
+  const pickLevel = (key: "main" | "phase" | "sub") => {
+    setLevel(key)
+    setParentSel(null); setDevId(""); setOrgs([])
+    setEntryF("Automatic"); setPrimaryF("On-Sale"); setListingF("Hidden")
   }
   /** Parent Sold-Off/On-Hold + On-Sale phase = live phase under a closed parent — warn. */
   const phaseStatusAlert = level === "phase" && parentRow
@@ -2336,8 +2394,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
       const n = PROJECTS.filter((p) => p.isPhase && p.mainProject?.id === parentRow.id).length + 1
       onSave({
         ...base,
-        // Inherited from the parent: developer, location, organizations, listing status
-        listingStatus: parentRow.listingStatus,
+        // Inherited from the parent: developer, location, organizations. Listing starts Hidden (base).
         organizations: parentRow.organizations,
         entryType: entryF,
         primaryStatus: primaryF,
@@ -2357,7 +2414,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
         ...base,
         entryType: entryF,
         listingStatus: listingF,
-        primaryStatus: primaryF,
+        // Primary is fixed On-Sale at creation (base) — editable later from the details page
         id: `${parentRow.id}-S${n}`,
         name: nameEn.trim(),
         isPhase: false,
@@ -2375,6 +2432,8 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
     const nextNum = Math.max(...mains.map((p) => Number(p.id.slice(4)))) + 1
     onSave({
       ...base,
+      entryType: entryF,
+      listingStatus: listingF,
       id: `PRJ-${String(nextNum).padStart(4, "0")}`,
       name: nameEn.trim(),
       isPhase: false,
@@ -2411,7 +2470,7 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
               { key: "sub", label: "Sub-Project", icon: GitBranch },
             ] as const).map(({ key, label, icon: Icon }) => (
               <button
-                key={key} type="button" onClick={() => setLevel(key)}
+                key={key} type="button" onClick={() => pickLevel(key)}
                 className={cn(
                   "flex flex-1 items-center justify-center gap-2 rounded-lg border py-2.5 text-sm font-medium transition-colors",
                   level === key ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/40" : "border-border text-muted-foreground hover:border-muted-foreground/40",
@@ -2463,6 +2522,19 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
                   <AreaTreeSelect tree={AREA_TREE} value={loc} onChange={setLoc} />
                   <p className="text-[11px] text-muted-foreground">District is deduced from the selected area</p>
                 </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Listing Status</div>
+                  <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Primary Status <span className="font-normal text-muted-foreground">(editable later)</span></div>
+                  <TagSelect value="On-Sale" options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Entry Type</div>
+                  <TagSelect value={entryF} options={["Automatic", "Manual"]} colors={ENTRY_COLORS} onChange={(v) => setEntryF(v as ProjEntryType)} />
+                </div>
+                <div />
               </>
             ) : (
               <div className="col-span-2 space-y-1.5">
@@ -2482,10 +2554,10 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
               </div>
             )}
 
-            {/* Phase: inherited fields shown read-only + editable entry/primary */}
+            {/* Phase: inherited fields shown read-only + editable primary/entry */}
             {level === "phase" && parentRow && (
               <>
-                <div className="col-span-2 grid grid-cols-2 gap-x-6 gap-y-2.5 rounded-lg border border-border bg-muted/20 p-3">
+                <div className="col-span-2 grid grid-cols-3 gap-x-6 gap-y-2.5 rounded-lg border border-border bg-muted/20 p-3">
                   <div>
                     <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer (inherited)</p>
                     <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">{parentRow.developer.name} <IdTag value={parentRow.developer.id} /></div>
@@ -2498,18 +2570,14 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
                     <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Organizations (inherited)</p>
                     <div className="flex gap-1 pt-0.5">{parentRow.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
                   </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Listing Status (inherited)</p>
-                    <div className="pt-0.5"><Tag value={parentRow.listingStatus} cls={LISTING_COLORS[parentRow.listingStatus]} /></div>
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Entry Type</div>
-                  <FilterSelect label="Entry type…" value={entryF} options={["Automatic", "Manual"]} onChange={(v) => setEntryF(v as ProjEntryType)} className="w-full" width="w-full" />
                 </div>
                 <div className="space-y-1.5">
                   <div className="text-xs font-medium text-foreground">Primary Status</div>
-                  <FilterSelect label="Primary status…" value={primaryF} options={["Launch", "On-Sale", "On-Hold", "Sold-Off"]} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} className="w-full" width="w-full" />
+                  <TagSelect value={primaryF} options={["Launch", "On-Sale", "On-Hold", "Sold-Off"]} colors={PRIMARY_COLORS} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Entry Type</div>
+                  <TagSelect value={entryF} options={["Automatic", "Manual"]} colors={ENTRY_COLORS} onChange={(v) => setEntryF(v as ProjEntryType)} />
                 </div>
                 {phaseStatusAlert && (
                   <div className="col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
@@ -2520,28 +2588,29 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
               </>
             )}
 
-            {/* Sub-project: own developer/statuses, location from parent */}
+            {/* Sub-project: developer starts from the parent but stays editable; location from parent */}
             {level === "sub" && (
               <>
                 <div className="space-y-1.5">
                   {req("Developer")}
                   <DeveloperSelect developers={PROJECT_DEVELOPERS} value={devId} onChange={setDevId} />
+                  <p className="text-[11px] text-muted-foreground">Starts as the parent's developer — change it if this sub-project has its own</p>
                 </div>
                 <div className="space-y-1.5">
                   <div className="text-xs font-medium text-foreground">Location <span className="font-normal text-muted-foreground">(from the parent)</span></div>
                   <Input value={parentRow ? `${parentRow.area} · ${parentRow.district}` : ""} disabled placeholder="—" className="h-9 text-sm" />
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Entry Type</div>
-                  <FilterSelect label="Entry type…" value={entryF} options={["Automatic", "Manual"]} onChange={(v) => setEntryF(v as ProjEntryType)} className="w-full" width="w-full" />
-                </div>
-                <div className="space-y-1.5">
                   <div className="text-xs font-medium text-foreground">Listing Status</div>
-                  <FilterSelect label="Listing status…" value={listingF} options={["Active", "Hidden"]} onChange={(v) => setListingF(v as ProjListingStatus)} className="w-full" width="w-full" />
+                  <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Primary Status</div>
-                  <FilterSelect label="Primary status…" value={primaryF} options={["Launch", "On-Sale", "On-Hold", "Sold-Off"]} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} className="w-full" width="w-full" />
+                  <div className="text-xs font-medium text-foreground">Primary Status <span className="font-normal text-muted-foreground">(editable later)</span></div>
+                  <TagSelect value="On-Sale" options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">Entry Type</div>
+                  <TagSelect value={entryF} options={["Automatic", "Manual"]} colors={ENTRY_COLORS} onChange={(v) => setEntryF(v as ProjEntryType)} />
                 </div>
                 <div />
               </>
@@ -2587,20 +2656,20 @@ function AddProjectPage({ onBack, onSave }: { onBack: () => void; onSave: (r: Pr
             <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
             {level === "main" ? (
               <span>
-                <span className="font-semibold">Entry Type</span> will be <span className="font-semibold">Automatic</span> (assuming properties data comes as sheets),{" "}
-                <span className="font-semibold">Listing Status</span> will be <span className="font-semibold">Hidden</span>,{" "}
-                <span className="font-semibold">Primary Status</span> will be <span className="font-semibold">On-Sale</span>, and the map location can be added later —
-                after creation you land on the project details page to change or add anything.
+                <span className="font-semibold">Entry Type</span> defaults to <span className="font-semibold">Automatic</span> entry (data comes as sheets),{" "}
+                <span className="font-semibold">Listing Status</span> defaults to <span className="font-semibold">Hidden</span>, and{" "}
+                <span className="font-semibold">Primary Status</span> will be <span className="font-semibold">On-Sale</span> — it can be edited later along with other data like the project map location.
               </span>
             ) : level === "phase" ? (
               <span>
-                <span className="font-semibold">Developer, location, organizations and listing status</span> are inherited from the parent project and can't be changed here —
-                after creation you land on the phase details page to complete anything else.
+                <span className="font-semibold">Developer, Location and Organizations</span> are inherited from the parent project, and{" "}
+                <span className="font-semibold">Listing Status</span> will be <span className="font-semibold">Hidden</span> by default upon creation.
               </span>
             ) : (
               <span>
                 <span className="font-semibold">Sub-Projects are independent:</span> changing the main project's entry type, listing status or primary status{" "}
-                <span className="font-semibold">never cascades</span> to them — only the location comes from the parent.
+                <span className="font-semibold">never cascades</span> to them — only the location comes from the parent.{" "}
+                <span className="font-semibold">Primary Status</span> starts as <span className="font-semibold">On-Sale</span> and can be changed later.
               </span>
             )}
           </div>
