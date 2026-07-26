@@ -1180,12 +1180,15 @@ export type ProjLaunch = {
   type: "Launch" | "Release"
   source: "WhatsApp" | "Manual"
   launchStatus: "Active" | "Upcoming" | "Closed"
+  createdAt: string
   startDate?: string
   endDate?: string
-  /** Launches collect EOIs; Releases don't. */
+  /** Launches collect EOIs — amounts in EGP, not counts. Releases don't. */
   eoiAmount?: number
-  eoiByType?: { type: string; count: number }[]
+  eoiByType?: { type: string; amount: number }[]
   availableLaunchProps: number
+  plans: { name: string; planType: string; dp: string; duration: string }[]
+  offerings: { name: string; propertyType: string; grossAreaRange: string; priceRange: string }[]
 }
 
 const LAUNCH_TYPE_TONE: Record<ProjLaunch["type"], string> = {
@@ -1197,6 +1200,7 @@ const LAUNCH_STATUS_TONE: Record<ProjLaunch["launchStatus"], string> = {
   Upcoming: "border-blue-200 bg-blue-50 text-blue-700",
   Closed: "border-border bg-muted text-muted-foreground",
 }
+const fmtEgp = (n: number) => `${(n / 1_000_000).toFixed(1)}M EGP`
 
 /** Deterministic mock: rows currently in Launch always carry one Active launch. */
 function launchesFor(r: ProjectRow): ProjLaunch[] {
@@ -1205,7 +1209,7 @@ function launchesFor(r: ProjectRow): ProjLaunch[] {
   const n = isLaunch ? 1 + (seed % 2) : seed % 3
   return Array.from({ length: n }, (_, i) => {
     const type: ProjLaunch["type"] = (seed + i) % 3 === 2 ? "Release" : "Launch"
-    const eoi = type === "Launch" ? 80 + ((seed * 7 + i * 31) % 240) : undefined
+    const eoi = type === "Launch" ? (2 + ((seed * 7 + i * 31) % 38)) * 1_000_000 : undefined
     const apt = eoi ? Math.round(eoi * 0.5) : 0
     const villa = eoi ? Math.round(eoi * 0.3) : 0
     return {
@@ -1214,66 +1218,155 @@ function launchesFor(r: ProjectRow): ProjLaunch[] {
       type,
       source: (seed + i) % 2 === 0 ? "WhatsApp" : "Manual",
       launchStatus: isLaunch && i === 0 ? "Active" : (seed + i) % 2 === 0 ? "Upcoming" : "Closed",
+      createdAt: `2026-0${3 + (i % 3)}-${String(10 + (seed % 18))}`,
       startDate: (seed + i) % 2 === 0 ? "2026-06-15" : undefined,
       endDate: undefined,
       eoiAmount: eoi,
       eoiByType: eoi ? [
-        { type: "Apartment", count: apt },
-        { type: "Villa", count: villa },
-        { type: "Chalet", count: eoi - apt - villa },
-      ].filter((x) => x.count > 0) : undefined,
+        { type: "Apartment", amount: apt },
+        { type: "Villa", amount: villa },
+        { type: "Chalet", amount: eoi - apt - villa },
+      ].filter((x) => x.amount > 0) : undefined,
       availableLaunchProps: 2 + ((seed + i * 5) % 6),
+      plans: [
+        { name: "Standard Plan", planType: "Equal Installments", dp: "10%", duration: `${6 + (seed % 3)} years` },
+        { name: "Extended Plan", planType: "Backloaded", dp: "5%", duration: `${8 + (seed % 3)} years` },
+      ].slice(0, 1 + ((seed + i) % 2)),
+      offerings: [
+        { name: "Apartments", propertyType: "Apartment", grossAreaRange: "110–180 SQM", priceRange: `${5 + (seed % 4)}M – ${9 + (seed % 5)}M` },
+        { name: "Villas", propertyType: "Villa", grossAreaRange: "220–340 SQM", priceRange: `${14 + (seed % 5)}M – ${22 + (seed % 6)}M` },
+      ].slice(0, 1 + ((seed + i + 1) % 2)),
     }
   })
 }
 
-/** Full launch summary side drawer — mirrors the launch ingestion summary. */
+/** One launch row — name, ID, created at, EOI amount, available count, type, status, view. */
+function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {
+  l: ProjLaunch
+  radio?: boolean
+  selected?: boolean
+  onSelect?: () => void
+  onView: () => void
+  topBorder?: boolean
+}) {
+  const inner = (
+    <>
+      {radio && (
+        <span className={cn("flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border", selected ? "border-primary" : "border-muted-foreground/40")}>
+          {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-foreground">{l.name}</p>
+        <div className="flex items-center gap-1.5">
+          <IdTag value={l.id} />
+          <span className="text-[10px] text-muted-foreground">· Created {l.createdAt}</span>
+        </div>
+      </div>
+      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+        EOI {l.eoiAmount ? <span className="font-semibold text-foreground">{fmtEgp(l.eoiAmount)}</span> : "—"}
+      </span>
+      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{l.availableLaunchProps}</span> Available</span>
+      <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[l.type])}>{l.type}</span>
+      <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[l.launchStatus])}>
+        {l.launchStatus === "Active" ? "Currently active" : l.launchStatus}
+      </span>
+      <span
+        role="button" title="View launch details"
+        onClick={(e) => { e.stopPropagation(); onView() }}
+        className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <Eye className="h-3.5 w-3.5" />
+      </span>
+    </>
+  )
+  const cls = cn(
+    "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors",
+    topBorder && "border-t border-border/70",
+    radio && (selected ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : "hover:bg-muted/40"),
+  )
+  return radio ? (
+    <button type="button" onClick={onSelect} className={cls}>{inner}</button>
+  ) : (
+    <div className={cls}>{inner}</div>
+  )
+}
+
+/** Launch summary side drawer — mirrors the launch ingestion summary layout. */
 function LaunchSummaryDrawer({ launch, project, onClose }: { launch: ProjLaunch; project: ProjectRow; onClose: () => void }) {
-  const field = (label: string, value: React.ReactNode) => (
-    <div className="min-w-0">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <div className="mt-0.5 text-sm text-foreground">{value}</div>
-    </div>
+  const cell = (label: string, value: React.ReactNode) => (
+    <div><p className="text-[10px] uppercase text-muted-foreground">{label}</p><div className="text-sm font-medium text-foreground">{value}</div></div>
   )
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose() }}>
-      <SheetContent side="right" className="!w-[480px] !max-w-[95vw] p-0 flex flex-col">
+      <SheetContent side="right" className="!w-[520px] !max-w-[95vw] p-0 flex flex-col">
         <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
           <SheetTitle className="flex items-center gap-2 text-base">{launch.name} <IdTag value={launch.id} /></SheetTitle>
-          <SheetDescription className="text-xs">Launch summary — details, dates and EOIs collected.</SheetDescription>
+          <SheetDescription className="flex items-center gap-1.5 text-xs">
+            <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[launch.type])}>{launch.type}</span>
+            <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[launch.launchStatus])}>{launch.launchStatus}</span>
+            <span className="inline-flex items-center rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{launch.source}</span>
+          </SheetDescription>
         </SheetHeader>
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", LAUNCH_TYPE_TONE[launch.type])}>{launch.type}</span>
-            <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", LAUNCH_STATUS_TONE[launch.launchStatus])}>{launch.launchStatus}</span>
-            <span className="inline-flex items-center rounded-md border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{launch.source}</span>
+          {/* Project details — same sectioned layout as the ingestion summary */}
+          <div className="rounded-lg border border-border">
+            <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project Details</p>
+            <div className="grid grid-cols-3 gap-x-6 gap-y-2 px-4 py-3 text-sm">
+              {cell("Developer", launch && project.developer.name)}
+              {cell(project.isPhase ? "Phase" : "Project", project.name)}
+              {cell("Area", project.area)}
+              {cell("Level", project.isPhase ? "Phase" : "Main Project")}
+              {cell("Listing Status", <Tag value={project.listingStatus} cls={LISTING_COLORS[project.listingStatus]} />)}
+              {cell("Type", launch.type)}
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-border p-3">
-            {field("Developer", <span className="flex items-center gap-1.5">{project.developer.name} <IdTag value={project.developer.id} /></span>)}
-            {field("Listing project", <span className="flex items-center gap-1.5">{project.name} <IdTag value={project.id} /></span>)}
-            {field("Launch start date", launch.startDate ? fmtDateTime(`${launch.startDate}T00:00:00`).split(",")[0] : <span className="text-muted-foreground">Not set</span>)}
-            {field("Launch end date", launch.endDate ? fmtDateTime(`${launch.endDate}T00:00:00`).split(",")[0] : <span className="text-muted-foreground">Not set</span>)}
-            {field("Available launch properties", <span className="font-semibold">{launch.availableLaunchProps}</span>)}
-            {field("Entry type", <Tag value={project.entryType} cls={ENTRY_COLORS[project.entryType]} />)}
-          </div>
-          {launch.type === "Launch" ? (
-            <div className="space-y-2 rounded-lg border border-border p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">EOIs collected</p>
-                <span className="text-sm font-semibold text-foreground">{launch.eoiAmount}</span>
-              </div>
-              <div className="divide-y divide-border/70 rounded-md border border-border">
-                {(launch.eoiByType ?? []).map((e) => (
-                  <div key={e.type} className="flex items-center justify-between px-3 py-1.5">
-                    <span className="text-xs text-foreground">{e.type}</span>
-                    <span className="text-xs font-semibold tabular-nums text-foreground">{e.count}</span>
-                  </div>
-                ))}
+
+          {/* Launch details */}
+          <div className="rounded-lg border border-border">
+            <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Launch Details</p>
+            <div className="grid grid-cols-3 gap-x-6 gap-y-2 px-4 py-3 text-sm">
+              {cell("General EOI", launch.eoiAmount ? fmtEgp(launch.eoiAmount) : "—")}
+              {cell("Start Date", launch.startDate || "—")}
+              {cell("End Date", launch.endDate || "—")}
+              <div className="col-span-3">
+                <p className="text-[10px] uppercase text-muted-foreground">EOI by Property Type</p>
+                <p className="text-sm font-medium text-foreground">
+                  {(launch.eoiByType ?? []).length > 0
+                    ? (launch.eoiByType ?? []).map((e) => `${e.type}: ${fmtEgp(e.amount)}`).join(" · ")
+                    : "—"}
+                </p>
               </div>
             </div>
-          ) : (
-            <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Releases don't collect EOIs.</p>
-          )}
+          </div>
+
+          {/* Payment plans */}
+          <div className="rounded-lg border border-border">
+            <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment Plans ({launch.plans.length})</p>
+            <div className="divide-y divide-border">
+              {launch.plans.map((p) => (
+                <div key={p.name} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+                  <span className="font-medium">{p.name}</span>
+                  <span className="text-xs text-muted-foreground">{p.planType} · DP {p.dp} · {p.duration}</span>
+                </div>
+              ))}
+              {launch.plans.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">No payment plans</p>}
+            </div>
+          </div>
+
+          {/* Property offerings */}
+          <div className="rounded-lg border border-border">
+            <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Property Offerings ({launch.offerings.length})</p>
+            <div className="divide-y divide-border">
+              {launch.offerings.map((o) => (
+                <div key={o.name} className="flex items-center justify-between px-4 py-2 text-sm">
+                  <span className="font-medium">{o.name}</span>
+                  <span className="text-xs text-muted-foreground">{o.propertyType} · {o.grossAreaRange} · {o.priceRange} EGP</span>
+                </div>
+              ))}
+              {launch.offerings.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">No property offerings</p>}
+            </div>
+          </div>
         </div>
       </SheetContent>
     </Sheet>
@@ -1282,43 +1375,64 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: ProjLaunch;
 
 /**
  * Change Primary Status — tied to the launches linked to the project/phase:
- *  - Moving OUT of Launch closes the currently Active launch/release (compact
- *    card + summary drawer); the end date is mandatory.
- *  - Moving INTO Launch requires picking WHICH ingested linked launch to
- *    activate; counts and the start-date prefill follow that selection.
- *  - Launch / On-Sale destinations do NOT cascade to phases — phases not
- *    already at the destination are listed for awareness only. On-Hold /
- *    Sold-Off cascade to phases (excludable) and Sold-Off is irreversible
- *    in bulk.
- * Terminology: Primary Automatic outcome lines carry Properties · Detailed
- * Properties; Launch and Primary Manual carry Properties only.
+ *  - Moving OUT of Launch closes the currently Active launch/release; the end
+ *    date is mandatory. Moving INTO Launch picks WHICH ingested linked launch
+ *    to activate.
+ *  - Phase cascade depends on from → to: On-Hold/Sold-Off destinations cascade
+ *    (opt-out); On-Sale from On-Hold/Sold-Off recovers matching phases
+ *    (opt-in, unselected by default — the Sold-Off recovery never touches
+ *    Primary properties); Launch and other On-Sale moves list phases for
+ *    awareness only.
  */
 export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (s: ProjPrimaryStatus, excludedPhaseIds?: string[]) => void }) {
   const from = r.primaryStatus
   const linkedLaunches = useMemo(() => launchesFor(r), [r])
   const activeLaunch = linkedLaunches.find((l) => l.launchStatus === "Active")
   const [target, setTarget] = useState<ProjPrimaryStatus | "">("")
-  const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  const [selectedPhases, setSelectedPhases] = useState<Set<string>>(new Set())
   const [selLaunchId, setSelLaunchId] = useState("")
   const [startDate, setStartDate] = useState(activeLaunch?.startDate ?? "")
   const [endDate, setEndDate] = useState(activeLaunch?.endDate ?? "")
   const [hideAvailable, setHideAvailable] = useState(false)
   const [drawerLaunch, setDrawerLaunch] = useState<ProjLaunch | null>(null)
-  const toggleExcluded = (id: string) =>
-    setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   const cascading = !r.isPhase && phases.length > 0
-  // Launch and On-Sale never touch the phases' primary status — only On-Hold / Sold-Off cascade
-  const cascadeToPhases = target === "On-Hold" || target === "Sold-Off"
-  const includedPhases = cascading && cascadeToPhases ? phases.filter((p) => !excluded.has(p.id)) : []
-  const scope = cascadeToPhases ? [r, ...includedPhases] : [r]
+  // How the phases participate for a given destination
+  const phaseModeFor = (to: ProjPrimaryStatus | "") =>
+    to === "" ? "none"
+    : to === "On-Hold" || to === "Sold-Off" ? "optout"
+    : to === "On-Sale" && from === "On-Hold" ? "optin"
+    : to === "On-Sale" && from === "Sold-Off" ? "optinSoldOff"
+    : "info"
+  const eligibleFor = (to: ProjPrimaryStatus | "") => {
+    const mode = phaseModeFor(to)
+    if (mode === "optout") return phases
+    if (mode === "optin") return phases.filter((p) => p.primaryStatus === "On-Hold")
+    if (mode === "optinSoldOff") return phases.filter((p) => p.primaryStatus === "Sold-Off")
+    if (to === "On-Sale" && from === "Launch") return phases.filter((p) => p.primaryStatus === "Launch")
+    return phases.filter((p) => p.primaryStatus !== to)
+  }
+  const phaseMode = phaseModeFor(target)
+  const eligiblePhases = cascading ? eligibleFor(target) : []
+  const selectable = phaseMode === "optout" || phaseMode === "optin" || phaseMode === "optinSoldOff"
+  const includedPhases = selectable ? eligiblePhases.filter((p) => selectedPhases.has(p.id)) : []
+  const scope = selectable ? [r, ...includedPhases] : [r]
+
+  const pickTarget = (s: ProjPrimaryStatus) => {
+    setTarget(s)
+    setHideAvailable(false)
+    // opt-out cascades start fully selected; opt-in recoveries start empty
+    setSelectedPhases(phaseModeFor(s) === "optout" ? new Set(phases.map((p) => p.id)) : new Set())
+  }
+  const togglePhase = (id: string) =>
+    setSelectedPhases((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+
   const devStatus = PROJECT_DEVELOPERS.find((d) => d.id === r.developer.id)?.status
   const selLaunch = linkedLaunches.find((l) => l.id === selLaunchId)
   const leavingLaunch = from === "Launch" && target !== "" && target !== "Launch"
   const canSave = target !== ""
     && (!leavingLaunch || !!endDate)
     && (target !== "Launch" || !!selLaunch)
-  // Launch Start Date can't sit more than 2 months in the past
   const minStart = (() => { const d = new Date(); d.setMonth(d.getMonth() - 2); return d.toISOString().slice(0, 10) })()
 
   const sums = (rows: ProjectRow[]) => ({
@@ -1343,7 +1457,6 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   const props = (n: number) => `${n} Propert${n !== 1 ? "ies" : "y"}`
   const paText = (g: number, d: number) => `${g} Propert${g !== 1 ? "ies" : "y"} · ${d} Detailed Propert${d !== 1 ? "ies" : "y"}`
 
-  // What happens per bucket at the destination — All vs Available always stated
   type Outcome = { label: string; countText: string; sale?: string; listing: "Shown" | "Hidden" | "Published" }
   const outcomesFor = (rows: ProjectRow[], to: ProjPrimaryStatus | ""): Outcome[] => {
     if (!to) return []
@@ -1358,6 +1471,8 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
       return out
     }
     if (s.launchAll > 0) out.push({ label: "All Launch Properties", countText: props(s.launchAll), listing: "Hidden" })
+    // Sold-Off recovery: primary statuses recover but Primary PROPERTIES stay untouched
+    if (phaseModeFor(to) === "optinSoldOff") return out
     if (to === "On-Sale") {
       if (s.paMatchG > 0 || s.paMatchD > 0) out.push({ label: "Available Primary Automatic", countText: paText(s.paMatchG, s.paMatchD), listing: "Published" })
       if (s.pmMatchG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmMatchG), listing: "Published" })
@@ -1370,17 +1485,31 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   }
   const totalOutcomes = outcomesFor(scope, target)
 
-  /** Per-row impacted counts — compact fixed format. */
+  /** Per-row impacted counts — numbers emphasized. */
   const phaseCountsLine = (row: ProjectRow) => {
     const s = sums([row])
-    return `Properties Impacted: ${s.launchAll} Launch, ${s.paG} Primary Automatic, ${s.pmG} Primary Manual`
+    const num = (n: number) => <span className="font-medium text-foreground">{n}</span>
+    return (
+      <>Properties Impacted: {num(s.launchAll)} Launch, {num(s.paG)} Primary Automatic, {num(s.pmG)} Primary Manual</>
+    )
   }
 
-  // Phases listed for awareness on Launch / On-Sale — the ones NOT already at the destination
-  const phasesNotAtTarget = target !== "" && !cascadeToPhases ? phases.filter((p) => p.primaryStatus !== target) : []
-
-  const launchTypeTag = (l: ProjLaunch) => (
-    <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[l.type])}>{l.type}</span>
+  const viewProjectBtn = (p: ProjectRow) => (
+    <span
+      role="button" title="Open details in a new tab"
+      onClick={(e) => { e.stopPropagation(); window.open(`/projects/${p.id}`, "_blank", "noopener,noreferrer") }}
+      className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      <ExternalLink className="h-3.5 w-3.5" />
+    </span>
+  )
+  /** Tag order: Listing → Primary → Entry. */
+  const rowTags = (p: ProjectRow) => (
+    <>
+      <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+      <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
+      <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
+    </>
   )
 
   return (
@@ -1389,9 +1518,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
         <DialogHeader className="shrink-0 border-b border-border px-6 py-4"><DialogTitle>Change Primary Status</DialogTitle></DialogHeader>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
-
-        {/* Rich context — name/ID/listing, parent for phases, developer + its listing status,
-            current primary + entry type */}
+        {/* Rich context */}
         <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
           <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{r.developer.logo}</span>
           <div className="min-w-0 flex-1 space-y-1">
@@ -1422,13 +1549,13 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         </div>
 
-        {/* Destination — the four primary statuses side by side */}
+        {/* Destination */}
         <div>
           <div className="mb-1.5 text-xs font-medium text-foreground">Change primary status to</div>
           <div className="grid grid-cols-4 gap-2">
             {(["Launch", "On-Sale", "On-Hold", "Sold-Off"] as ProjPrimaryStatus[]).map((s) => (
               <button
-                key={s} type="button" onClick={() => setTarget(s)}
+                key={s} type="button" onClick={() => pickTarget(s)}
                 className={cn(
                   "flex flex-col items-center justify-center gap-1 rounded-lg border py-2 transition-colors",
                   target === s ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
@@ -1441,7 +1568,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         </div>
 
-        {/* 1 — launch linkage: picker (into Launch) or the active launch being closed (out of Launch) */}
+        {/* Launch linkage — picker (into Launch) or the active launch being closed (out of Launch) */}
         {target === "Launch" && (
           linkedLaunches.length === 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
@@ -1452,37 +1579,15 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
               <p className="text-xs text-muted-foreground">
                 Select the launch to activate — ingested launches linked to this {r.isPhase ? "phase" : "project"} (only one can be active at a time):
               </p>
-              <div className="max-h-48 overflow-y-auto rounded-lg border border-border">
-                {linkedLaunches.map((l, i) => {
-                  const selected = selLaunchId === l.id
-                  return (
-                    <button
-                      key={l.id} type="button"
-                      onClick={() => { setSelLaunchId(l.id); setStartDate(l.startDate ?? "") }}
-                      className={cn(
-                        "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors",
-                        i > 0 && "border-t border-border/70",
-                        selected ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : "hover:bg-muted/40",
-                      )}
-                    >
-                      <span className={cn("flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border", selected ? "border-primary" : "border-muted-foreground/40")}>
-                        {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="flex items-center gap-1.5 truncate text-sm font-medium text-foreground">{l.name}</p>
-                        <div className="flex items-center gap-1.5">
-                          <IdTag value={l.id} />
-                          {l.startDate && <span className="text-[10px] text-muted-foreground">· starts {l.startDate}</span>}
-                        </div>
-                      </div>
-                      {launchTypeTag(l)}
-                      <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[l.launchStatus])}>
-                        {l.launchStatus === "Active" ? "Currently active" : l.launchStatus}
-                      </span>
-                      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{l.availableLaunchProps}</span> Available</span>
-                    </button>
-                  )
-                })}
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
+                {linkedLaunches.map((l, i) => (
+                  <LaunchRow
+                    key={l.id} l={l} radio topBorder={i > 0}
+                    selected={selLaunchId === l.id}
+                    onSelect={() => { setSelLaunchId(l.id); setStartDate(l.startDate ?? "") }}
+                    onView={() => setDrawerLaunch(l)}
+                  />
+                ))}
               </div>
             </div>
           )
@@ -1490,32 +1595,13 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
         {leavingLaunch && activeLaunch && (
           <div className="space-y-1.5">
             <p className="text-xs text-muted-foreground">Active {activeLaunch.type.toLowerCase()} that will be closed:</p>
-            <div className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">{activeLaunch.name}</p>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <IdTag value={activeLaunch.id} />
-                  {activeLaunch.startDate && <span className="text-[10px] text-muted-foreground">· started {activeLaunch.startDate}</span>}
-                  {activeLaunch.type === "Launch" && (
-                    <span className="text-[10px] text-muted-foreground">
-                      · <span className="font-semibold text-foreground">{activeLaunch.eoiAmount}</span> EOIs
-                      {" ("}{(activeLaunch.eoiByType ?? []).map((e) => `${e.type} ${e.count}`).join(" · ")}{")"}
-                    </span>
-                  )}
-                </div>
-              </div>
-              {launchTypeTag(activeLaunch)}
-              <button
-                type="button" title="View launch details" onClick={() => setDrawerLaunch(activeLaunch)}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <Eye className="h-3.5 w-3.5" />
-              </button>
+            <div className="rounded-lg border border-border">
+              <LaunchRow l={activeLaunch} onView={() => setDrawerLaunch(activeLaunch)} />
             </div>
           </div>
         )}
 
-        {/* 2 — launch date fields + disclaimers, directly below the launch list/card */}
+        {/* Launch date fields, directly below the launch list/card */}
         {target === "Launch" && selLaunch && (
           <div className="space-y-1.5">
             <div className="text-xs font-medium text-foreground">Launch Start Date <span className="font-normal text-muted-foreground">(optional — from {selLaunch.id})</span></div>
@@ -1543,7 +1629,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         )}
 
-        {/* 3 — optionally hide the Available Primary properties (Launch destination) */}
+        {/* Hide the Available Primary properties (Launch destination) */}
         {target === "Launch" && linkedLaunches.length > 0 && (
           <label className={cn(
             "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
@@ -1563,7 +1649,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </label>
         )}
 
-        {/* 4 — what happens to the properties */}
+        {/* What happens to the properties */}
         {target === "" ? (
           <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
             Launch Properties and Primary Properties in this {r.isPhase ? "Phase" : "Project and its Phases"} will be affected accordingly.
@@ -1571,7 +1657,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
         ) : (
           <div className="space-y-1 rounded-lg border border-border bg-muted/20 px-3 py-2.5">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              What happens to the properties{cascading && cascadeToPhases ? ` — main + ${includedPhases.length} phase${includedPhases.length !== 1 ? "s" : ""}` : ""}
+              What happens to the properties{selectable && cascading ? ` — main + ${includedPhases.length} phase${includedPhases.length !== 1 ? "s" : ""}` : ""}
             </p>
             {totalOutcomes.length > 0 ? (
               totalOutcomes.map((o) => (
@@ -1590,6 +1676,11 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
                   : "No properties change."}
               </p>
             )}
+            {phaseMode === "optinSoldOff" && (
+              <p className="text-[10px] text-muted-foreground/80">
+                Primary properties status will not be changed unless edited for manual properties or with finalized entry ingested.
+              </p>
+            )}
           </div>
         )}
 
@@ -1600,62 +1691,73 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           </div>
         )}
 
-        {/* 5 — main & phases, only after a destination is picked */}
-        {cascading && target !== "" && (
-          cascadeToPhases ? (
+        {/* Main & phases — after a destination is picked */}
+        {cascading && target !== "" && (selectable ? (
+          eligiblePhases.length > 0 || phaseMode === "optout" ? (
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground">
-                Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — untick a phase to exclude it:
+                {phaseMode === "optout"
+                  ? <>Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — untick a phase to exclude it:</>
+                  : <>Phases currently <span className="font-medium text-foreground">{from}</span> — tick a phase to also apply this change to it (unselected by default):</>}
               </p>
               <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
-                {[r, ...phases].map((p, i) => {
-                  const excludable = p.id !== r.id
-                  const isExcluded = excludable && excluded.has(p.id)
+                {[r, ...eligiblePhases].map((p, i) => {
+                  const isPhaseRow = p.id !== r.id
+                  const isIncluded = !isPhaseRow || selectedPhases.has(p.id)
                   return (
-                    <div key={p.id} className={cn("space-y-1 px-3 py-2.5", i > 0 && "border-t border-border/70", excludable && "bg-muted/20", isExcluded && "opacity-45")}>
+                    <div key={p.id} className={cn("space-y-1 px-3 py-2.5", i > 0 && "border-t border-border/70", isPhaseRow && "bg-muted/20")}>
                       <div className="flex items-center gap-2.5">
-                        {excludable && <Checkbox checked={!isExcluded} onCheckedChange={() => toggleExcluded(p.id)} className="h-4 w-4 flex-shrink-0" />}
+                        {isPhaseRow && <Checkbox checked={isIncluded} onCheckedChange={() => togglePhase(p.id)} className="h-4 w-4 flex-shrink-0" />}
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
                           <IdTag value={p.id} />
                         </div>
-                        <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
-                        <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
+                        {rowTags(p)}
                         <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                        <Tag value={target} cls={PRIMARY_COLORS[target]} />
+                        {isIncluded
+                          ? <Tag value={target} cls={PRIMARY_COLORS[target as ProjPrimaryStatus]} />
+                          : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
+                        {viewProjectBtn(p)}
                       </div>
-                      <div className={cn("text-[10px] text-muted-foreground", excludable && "pl-7")}>{phaseCountsLine(p)}</div>
+                      {isIncluded && phaseMode !== "optinSoldOff" && (
+                        <div className={cn("text-[10px] text-muted-foreground", isPhaseRow && "pl-7")}>{phaseCountsLine(p)}</div>
+                      )}
                     </div>
                   )
                 })}
               </div>
             </div>
-          ) : phasesNotAtTarget.length > 0 ? (
-            <div className="space-y-1.5">
-              <p className="text-xs text-muted-foreground">
-                Phases under this main project that are not <span className="font-medium text-foreground">{target}</span> — their primary status won't change:
-              </p>
-              <div className="max-h-60 overflow-y-auto rounded-lg border border-border">
-                {phasesNotAtTarget.map((p, i) => (
-                  <div key={p.id} className={cn("flex items-center gap-2.5 bg-muted/20 px-3 py-2.5", i > 0 && "border-t border-border/70")}>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
-                      <IdTag value={p.id} />
-                    </div>
-                    <Tag value={p.entryType} cls={ENTRY_COLORS[p.entryType]} />
-                    <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
+          ) : (
+            <p className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
+              No phases are currently {from} — only the main project changes.
+            </p>
+          )
+        ) : eligiblePhases.length > 0 ? (
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">
+              {target === "On-Sale" && from === "Launch"
+                ? <>Phases currently <span className="font-medium text-foreground">Launch</span> — their primary status won't change:</>
+                : <>Phases under this main project that are not <span className="font-medium text-foreground">{target}</span> — their primary status won't change:</>}
+            </p>
+            <div className="max-h-60 overflow-y-auto rounded-lg border border-border">
+              {eligiblePhases.map((p, i) => (
+                <div key={p.id} className={cn("flex items-center gap-2.5 bg-muted/20 px-3 py-2.5", i > 0 && "border-t border-border/70")}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                    <IdTag value={p.id} />
                   </div>
-                ))}
-              </div>
+                  {rowTags(p)}
+                  {viewProjectBtn(p)}
+                </div>
+              ))}
             </div>
-          ) : null
-        )}
-
+          </div>
+        ) : null)}
         </div>
 
         <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={!canSave} onClick={() => onConfirm(target as ProjPrimaryStatus, cascading && cascadeToPhases ? [...excluded] : undefined)}>
+          <Button size="sm" disabled={!canSave} onClick={() => onConfirm(target as ProjPrimaryStatus, selectable ? eligiblePhases.filter((p) => !selectedPhases.has(p.id)).map((p) => p.id) : undefined)}>
             {target === "" ? "Change" : `Change to ${target}`}
           </Button>
         </DialogFooter>
