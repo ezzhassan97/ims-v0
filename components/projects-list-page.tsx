@@ -1261,18 +1261,16 @@ function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {
 }) {
   const inner = (
     <>
-      <div className="flex w-full items-center gap-2.5">
+      {/* Top: name/ID left — count, tags and view pinned top-right */}
+      <div className="flex w-full items-start gap-2.5">
         {radio && (
-          <span className={cn("flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border", selected ? "border-primary" : "border-muted-foreground/40")}>
+          <span className={cn("mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border", selected ? "border-primary" : "border-muted-foreground/40")}>
             {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
           </span>
         )}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">{l.name}</p>
           <IdTag value={l.id} />
-          <div className="text-[11px] tabular-nums text-muted-foreground">
-            EOI {l.eoiAmount ? <span className="font-semibold text-foreground">{eoiRangeText(l)}</span> : "—"}
-          </div>
         </div>
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{l.availableLaunchProps}</span> Properties</span>
         <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[l.type])}>{l.type}</span>
@@ -1287,9 +1285,15 @@ function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {
           <Eye className="h-3.5 w-3.5" />
         </span>
       </div>
-      <div className="flex w-full justify-end gap-3 text-[10px] text-muted-foreground">
-        <span>Created {fmtDateTime(l.createdAt)}</span>
-        <span>Updated {fmtDateTime(l.updatedAt)}</span>
+      {/* Bottom: EOI range left, created/updated right — one line */}
+      <div className={cn("flex w-full items-center justify-between gap-3", radio && "pl-[26px]")}>
+        <div className="text-[11px] tabular-nums text-muted-foreground">
+          EOI {l.eoiAmount ? <span className="font-semibold text-foreground">{eoiRangeText(l)}</span> : "—"}
+        </div>
+        <div className="flex shrink-0 gap-3 text-[10px] text-muted-foreground">
+          <span>Created {fmtDateTime(l.createdAt)}</span>
+          <span>Updated {fmtDateTime(l.updatedAt)}</span>
+        </div>
       </div>
     </>
   )
@@ -1418,9 +1422,12 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
     : to === "On-Sale" && from === "On-Hold" ? "optin"
     : to === "On-Sale" && from === "Sold-Off" ? "optinSoldOff"
     : "info"
+  // From Launch to On-Hold/Sold-Off, Launch phases are never touched (closing their
+  // active launches needs an end date each) — only On-Sale phases cascade.
+  const fromLaunchSplit = (to: ProjPrimaryStatus | "") => from === "Launch" && (to === "On-Hold" || to === "Sold-Off")
   const eligibleFor = (to: ProjPrimaryStatus | "") => {
     const mode = phaseModeFor(to)
-    if (mode === "optout") return phases
+    if (mode === "optout") return fromLaunchSplit(to) ? phases.filter((p) => p.primaryStatus === "On-Sale") : phases
     if (mode === "optin") return phases.filter((p) => p.primaryStatus === "On-Hold")
     if (mode === "optinSoldOff") return phases.filter((p) => p.primaryStatus === "Sold-Off")
     if (to === "On-Sale" && from === "Launch") return phases.filter((p) => p.primaryStatus === "Launch")
@@ -1428,6 +1435,8 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   }
   const phaseMode = phaseModeFor(target)
   const eligiblePhases = cascading ? eligibleFor(target) : []
+  /** Launch phases listed for awareness only under the from-Launch split. */
+  const launchInfoPhases = cascading && fromLaunchSplit(target) ? phases.filter((p) => p.primaryStatus === "Launch") : []
   const selectable = phaseMode === "optout" || phaseMode === "optin" || phaseMode === "optinSoldOff"
   const includedPhases = selectable ? eligiblePhases.filter((p) => selectedPhases.has(p.id)) : []
   const scope = selectable ? [r, ...includedPhases] : [r]
@@ -1435,8 +1444,8 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   const pickTarget = (s: ProjPrimaryStatus) => {
     setTarget(s)
     setHideAvailable(false)
-    // opt-out cascades start fully selected; opt-in recoveries start empty
-    setSelectedPhases(phaseModeFor(s) === "optout" ? new Set(phases.map((p) => p.id)) : new Set())
+    // opt-out cascades start fully selected (eligible phases only); opt-in recoveries start empty
+    setSelectedPhases(phaseModeFor(s) === "optout" ? new Set(eligibleFor(s).map((p) => p.id)) : new Set())
   }
   const togglePhase = (id: string) =>
     setSelectedPhases((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -1713,7 +1722,11 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground">
                 {phaseMode === "optout"
-                  ? <>Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — untick a phase to exclude it:</>
+                  ? fromLaunchSplit(target)
+                    ? eligiblePhases.length > 0
+                      ? <>Main project and its {eligiblePhases.length} <span className="font-medium text-foreground">On-Sale</span> phase{eligiblePhases.length !== 1 ? "s" : ""} — untick a phase to exclude it:</>
+                      : <>Main project:</>
+                    : <>Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — untick a phase to exclude it:</>
                   : <>Phases currently <span className="font-medium text-foreground">{from}</span> — tick a phase to also apply this change to it (unselected by default):</>}
               </p>
               <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
@@ -1769,6 +1782,30 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
             </div>
           </div>
         ) : null)}
+
+        {/* Launch phases under the from-Launch split — awareness only, never part of this action */}
+        {launchInfoPhases.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">
+              Phases currently <span className="font-medium text-foreground">Launch</span> — not changed by this action:
+            </p>
+            <div className="max-h-60 overflow-y-auto rounded-lg border border-border">
+              {launchInfoPhases.map((p, i) => (
+                <div key={p.id} className={cn("flex items-center gap-2.5 bg-muted/20 px-3 py-2.5", i > 0 && "border-t border-border/70")}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                    <IdTag value={p.id} />
+                  </div>
+                  {rowTags(p)}
+                  {viewProjectBtn(p)}
+                </div>
+              ))}
+            </div>
+            <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
+              These phases have currently active launches — you can close them or change their primary status from each phase, but not during this action.
+            </p>
+          </div>
+        )}
         </div>
 
         <DialogFooter className="shrink-0 border-t border-border px-6 py-4">

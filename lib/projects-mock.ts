@@ -169,8 +169,11 @@ function buildRows(): ProjectRow[] {
         area,
         subarea: `${SUBAREAS[i % SUBAREAS.length]} · Cluster ${String.fromCharCode(65 + p)}`,
         listingStatus: seed % 4 === 0 ? "Hidden" : "Active",
-        // First phase inherits the main's primary status so every dialog mode has demo rows.
-        primaryStatus: p === 0 ? project.primaryStatus : PRIMARY[seed % PRIMARY.length],
+        // First phase inherits the main's primary status so every dialog mode has demo
+        // rows; Launch mains also get an On-Sale second phase for the cascade split.
+        primaryStatus: p === 0 ? project.primaryStatus
+          : p === 1 && project.primaryStatus === "Launch" ? "On-Sale"
+          : PRIMARY[seed % PRIMARY.length],
         entryType: seed % 2 === 0 ? "Manual" : "Automatic",
         organizations: orgsFor(seed),
         category: CATEGORIES[i % CATEGORIES.length],
