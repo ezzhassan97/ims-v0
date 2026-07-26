@@ -1030,12 +1030,14 @@ export function AreaTreeSelect({ tree, value, onChange, className, placeholder =
 }
 
 /** Canonical developer dropdown: name + listing-status tag, ID captioned below. */
-export function DeveloperSelect({ developers, value, onChange, className, placeholder = "Select developer…" }: {
+export function DeveloperSelect({ developers, value, onChange, className, placeholder = "Select developer…", valueExtra }: {
   developers: { id: string; name: string; status?: "Active" | "Hidden" }[]
   value: string
   onChange: (id: string) => void
   className?: string
   placeholder?: string
+  /** Rendered inside the trigger, right of the selected name (e.g. status tags). */
+  valueExtra?: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState("")
@@ -1054,6 +1056,7 @@ export function DeveloperSelect({ developers, value, onChange, className, placeh
         className={cn("flex h-8 w-full items-center justify-between gap-1.5 rounded-md border border-input bg-white px-2.5 text-sm transition-colors hover:bg-muted/50", selected ? "text-foreground" : "text-muted-foreground")}
       >
         <span className="truncate text-left">{selected?.name ?? placeholder}</span>
+        {valueExtra && <span className="ml-auto flex flex-shrink-0 items-center gap-1">{valueExtra}</span>}
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
       {open && (

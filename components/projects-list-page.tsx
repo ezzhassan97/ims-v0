@@ -1887,12 +1887,13 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   const currentParent = targets[0]?.mainProject ? allRows.find((x) => x.id === targets[0]!.mainProject!.id) : undefined
   /** Same type + same parent = nothing to do. */
   const parentNoChange = parentMode !== "promote" && parentMode === parentCurrentType && parentId === targets[0]?.mainProject?.id
-  // Landing as a phase under a Sold-Off/On-Hold parent also moves the phase's primary
-  // status (and its properties) to match — user can untick to keep it unchanged.
-  const primarySyncTarget = parentMode === "phase" && newParent
+  const closedParent = parentMode === "phase" && newParent
     && (newParent.primaryStatus === "Sold-Off" || newParent.primaryStatus === "On-Hold")
-    && newParent.primaryStatus !== targets[0]?.primaryStatus
-    ? newParent.primaryStatus : null
+  // An ON-SALE phase landing under a Sold-Off/On-Hold parent moves its primary status
+  // (and its properties) to match — user can untick to keep it unchanged.
+  const primarySyncTarget = closedParent && targets[0]?.primaryStatus === "On-Sale" ? newParent!.primaryStatus : null
+  // A LAUNCH phase can't auto-follow — it has an active launch; flag it for after the move.
+  const launchUnderClosed = !!closedParent && targets[0]?.primaryStatus === "Launch"
   const [syncPrimary, setSyncPrimary] = useState(true)
   const [excludedPhases, setExcludedPhases] = useState<Set<string>>(new Set())
   const toggleExcludedPhase = (id: string) => setExcludedPhases((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -1991,11 +1992,12 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
               </div>
               {currentParent && (
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Current parent</span>
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Parent Project:</span>
                   <span className="text-xs font-medium text-foreground">{currentParent.name}</span>
                   <IdTag value={currentParent.id} />
                   <Tag value={currentParent.listingStatus} cls={LISTING_COLORS[currentParent.listingStatus]} />
                   <Tag value={currentParent.primaryStatus} cls={PRIMARY_COLORS[currentParent.primaryStatus]} />
+                  <Tag value={currentParent.entryType} cls={ENTRY_COLORS[currentParent.entryType]} />
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-1.5">
@@ -2099,7 +2101,18 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                 <div className="space-y-1.5">
                   <div className="text-xs font-medium text-foreground">Parent Project <span className="font-normal text-muted-foreground">· any main project</span></div>
                   {/* DeveloperSelect renders name + listing-status tag + ID — reused here for main projects */}
-                  <DeveloperSelect developers={parentOptions} value={parentId} onChange={(v) => { setParentId(v); setSyncPrimary(true) }} placeholder="Select parent project…" />
+                  <DeveloperSelect
+                    developers={parentOptions} value={parentId}
+                    onChange={(v) => { setParentId(v); setSyncPrimary(true) }}
+                    placeholder="Select parent project…"
+                    valueExtra={newParent && (
+                      <>
+                        <Tag value={newParent.listingStatus} cls={LISTING_COLORS[newParent.listingStatus]} />
+                        <Tag value={newParent.primaryStatus} cls={PRIMARY_COLORS[newParent.primaryStatus]} />
+                        <Tag value={newParent.entryType} cls={ENTRY_COLORS[newParent.entryType]} />
+                      </>
+                    )}
+                  />
                   {parentNoChange && <p className="text-[11px] text-muted-foreground">Already a {parentCurrentType === "sub" ? "sub-project" : "phase"} under this parent — pick another parent or another type.</p>}
                 </div>
                 {/* What it inherits from the new parent — phases take dev/location/orgs, subs take location only */}
@@ -2173,14 +2186,31 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                     </div>
                   </div>
                 )}
-                {/* Primary differs but the parent is On-Sale/Launch: informational only */}
-                {parentMode === "phase" && newParent && !primarySyncTarget && newParent.primaryStatus !== targets[0]?.primaryStatus && (
+                {/* A Launch phase under a Sold-Off/On-Hold parent: it has an active launch — flag for after the move */}
+                {launchUnderClosed && newParent && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+                    <span className="font-semibold">{targets[0]?.name}</span> has an <span className="font-semibold">active launch</span> and is being moved under a{" "}
+                    <span className="font-semibold">{newParent.primaryStatus}</span> parent project — its primary status will need to be changed after the move.
+                  </div>
+                )}
+                {/* Primary differs in other combinations: informational only */}
+                {parentMode === "phase" && newParent && !primarySyncTarget && !launchUnderClosed && newParent.primaryStatus !== targets[0]?.primaryStatus && (
                   <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
                     Primary status differs — <span className="font-semibold">{targets[0]?.name}</span> is
                     <Tag value={targets[0]?.primaryStatus ?? ""} cls={PRIMARY_COLORS[targets[0]?.primaryStatus as ProjPrimaryStatus]} />
                     while <span className="font-semibold">{newParent.name}</span> is
                     <Tag value={newParent.primaryStatus} cls={PRIMARY_COLORS[newParent.primaryStatus]} />
                     — it keeps its own primary status; change it afterwards if needed.
+                  </div>
+                )}
+                {/* Entry type differs: informational — the phase keeps its own entry type */}
+                {parentMode === "phase" && newParent && newParent.entryType !== targets[0]?.entryType && (
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+                    Entry type differs — <span className="font-semibold">{targets[0]?.name}</span> is
+                    <Tag value={targets[0]?.entryType ?? ""} cls={ENTRY_COLORS[targets[0]?.entryType as ProjEntryType]} />
+                    while <span className="font-semibold">{newParent.name}</span> is
+                    <Tag value={newParent.entryType} cls={ENTRY_COLORS[newParent.entryType]} />
+                    — it keeps its own entry type.
                   </div>
                 )}
                 {/* Sub-project disclaimer — short and to the point */}
