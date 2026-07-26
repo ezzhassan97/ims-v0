@@ -117,7 +117,9 @@ import {
   Globe,
   Bot,
   Database,
+  Unlink,
 } from "lucide-react"
+import { LinkProjectDialog } from "@/components/link-project-dialog"
 import { useRef, useEffect, useCallback } from "react"
 import { cn } from "@/lib/utils"
 
@@ -251,6 +253,9 @@ interface Launch {
   projectId?: string
   /** Already-created project in the system — undefined ⇒ "New". */
   existingProject?: { id: string; name: string }
+  /** Website-facing launch title/description — editable at any time, even after ingestion. */
+  title?: string
+  description?: string
   /** The listing project created/linked on ingestion — target of View Project. */
   listingProject?: { id: string; name: string }
   area: string
@@ -1035,10 +1040,26 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   // One ACTIVE launch/release per project or phase — how to ingest a launch that matched an existing one
   const [ingestMode, setIngestMode] = useState<"link" | "new">("link")
   const [newEntityName, setNewEntityName] = useState("")
-  const conflictLaunch = (launch.existingProject && allLaunches)
+  const [newEntityNameAr, setNewEntityNameAr] = useState("")
+  const [newEntityArea, setNewEntityArea] = useState(launch.area ?? "")
+  // Link/unlink to an existing system project — changeable until the launch is ingested
+  const [linkedProject, setLinkedProject] = useState(launch.existingProject)
+  const [linkDialog, setLinkDialog] = useState<"link" | "unlink" | null>(null)
+  // Website-facing launch title/description — editable at any time, even after ingestion
+  const [launchTitle, setLaunchTitle] = useState(launch.title ?? "")
+  const [launchDescription, setLaunchDescription] = useState(launch.description ?? "")
+  // Prefill the new-entity fields whenever the ingest summary opens unlinked
+  useEffect(() => {
+    if (ingestDialog !== "summary") return
+    setNewEntityName(linkedProject ? "" : (launch.projectLevel === "Phase" ? launch.phase : launch.projectNameEn) || "")
+    setNewEntityNameAr("")
+    setNewEntityArea(launch.area ?? "")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ingestDialog])
+  const conflictLaunch = (linkedProject && allLaunches)
     ? allLaunches.find((l) =>
         l.id !== launch.id &&
-        l.existingProject?.id === launch.existingProject!.id &&
+        l.existingProject?.id === linkedProject!.id &&
         l.ingestionStatus === "Ingested" &&
         l.launchStatus === "Active") ?? null
     : null
@@ -1334,10 +1355,10 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                 {/* Existing project — same as the table column */}
                 <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                   <span className="uppercase tracking-wide text-muted-foreground/60">Existing Project:</span>
-                  {launch.existingProject ? (
+                  {linkedProject ? (
                     <>
-                      <a href="#" target="_blank" rel="noreferrer" className="text-xs font-medium text-foreground hover:underline">{launch.existingProject.name}</a>
-                      <IdCopy value={launch.existingProject.id} />
+                      <a href="#" target="_blank" rel="noreferrer" className="text-xs font-medium text-foreground hover:underline">{linkedProject.name}</a>
+                      <IdCopy value={linkedProject.id} />
                     </>
                   ) : (
                     <span className="inline-flex items-center whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-100 px-1.5 py-px text-[10px] font-medium text-emerald-700">New</span>
@@ -1369,6 +1390,24 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               >
                 <ExternalLink className="h-4 w-4 mr-2" />View Project
               </DropdownMenuItem>
+              {/* Link/unlink to an existing system project — only before ingestion */}
+              {linkedProject ? (
+                <DropdownMenuItem
+                  disabled={ingestionStatus === "Ingested"}
+                  className={cn(ingestionStatus === "Ingested" && "opacity-40")}
+                  onClick={() => setLinkDialog("unlink")}
+                >
+                  <Unlink className="h-4 w-4 mr-2" />Unlink Project
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  disabled={ingestionStatus === "Ingested"}
+                  className={cn(ingestionStatus === "Ingested" && "opacity-40")}
+                  onClick={() => setLinkDialog("link")}
+                >
+                  <Link2 className="h-4 w-4 mr-2" />Link to Existing Project
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger disabled={ingestionStatus === "Ingested"} className={cn(ingestionStatus === "Ingested" && "opacity-40")}>
@@ -1575,7 +1614,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               className="h-36 w-full rounded-lg border border-border bg-secondary object-cover"
             />
 
-            {launch.existingProject && (() => {
+            {linkedProject && (() => {
               const entity = launch.projectLevel === "Phase" ? "phase" : "project"
               const RadioDot = ({ active }: { active: boolean }) => (
                 <span className={cn("flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border", active ? "border-primary" : "border-muted-foreground/40")}>
@@ -1588,7 +1627,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                     <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0" />
                     <p>
                       This launch matches the existing {entity}{" "}
-                      <span className="font-semibold">{launch.existingProject.name}</span> ({launch.existingProject.id}).
+                      <span className="font-semibold">{linkedProject.name}</span> ({linkedProject.id}).
                       Only <span className="font-semibold">one active launch or release</span> is allowed per project or phase — choose how to ingest it.
                     </p>
                   </div>
@@ -1614,7 +1653,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                   >
                     <span className="flex items-center gap-2">
                       <RadioDot active={ingestMode === "link"} />
-                      <span className="text-sm font-medium text-foreground">Link this launch to {launch.existingProject.name}</span>
+                      <span className="text-sm font-medium text-foreground">Link this launch to {linkedProject.name}</span>
                     </span>
                     <ul className="mt-1.5 list-disc space-y-1 pl-10 text-xs text-muted-foreground">
                       <li>The {entity}'s launch info — EOIs, start &amp; end dates, Taskeen days and incentives — will be <span className="font-medium text-foreground">overwritten</span> with this launch's data.</li>
@@ -1645,16 +1684,31 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                     </span>
                     <p className="mt-1.5 pl-6 text-xs text-muted-foreground">
                       A new {entity}{launch.projectLevel === "Phase" ? ` under ${launch.parentProjectId || launch.projectNameEn}` : ""} is created and this launch links to it —{" "}
-                      {launch.existingProject.name} keeps its current launch info{conflictLaunch ? " and its active launch stays live" : ""}.
+                      {linkedProject.name} keeps its current launch info{conflictLaunch ? " and its active launch stays live" : ""}.
                     </p>
                     {ingestMode === "new" && (
-                      <div className="mt-2 pl-6" onClick={(e) => e.stopPropagation()}>
+                      <div className="mt-2 grid grid-cols-2 gap-2 pl-6" onClick={(e) => e.stopPropagation()}>
                         <Input
                           value={newEntityName}
                           onChange={(e) => setNewEntityName(e.target.value)}
-                          placeholder={launch.projectLevel === "Phase" ? "New phase name — e.g. Phase 6" : "New project name"}
+                          placeholder={launch.projectLevel === "Phase" ? "Name (EN) — e.g. Phase 6" : "Project name (EN)"}
                           className="h-8 bg-white text-sm"
                         />
+                        <Input
+                          value={newEntityNameAr}
+                          onChange={(e) => setNewEntityNameAr(e.target.value)}
+                          dir="rtl"
+                          placeholder={launch.projectLevel === "Phase" ? "الاسم (AR)" : "اسم المشروع (AR)"}
+                          className="h-8 bg-white text-sm"
+                        />
+                        {launch.projectLevel !== "Phase" && (
+                          <Input
+                            value={newEntityArea}
+                            onChange={(e) => setNewEntityArea(e.target.value)}
+                            placeholder="Area — e.g. New Cairo"
+                            className="col-span-2 h-8 bg-white text-sm"
+                          />
+                        )}
                       </div>
                     )}
                   </button>
@@ -1662,6 +1716,32 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                 </div>
               )
             })()}
+
+            {/* Not linked to any existing entity — a brand-new one is created on ingestion, names required */}
+            {!linkedProject && (
+              <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+                <p className="text-xs text-muted-foreground">
+                  This launch isn't linked to an existing {launch.projectLevel === "Phase" ? "phase" : "project"} — a{" "}
+                  <span className="font-medium text-foreground">new {launch.projectLevel === "Phase" ? "phase" : "project"}</span> will be created on ingestion. Enter its names{launch.projectLevel !== "Phase" ? " and area" : ""}:
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[11px]">Name (EN) <span className="text-red-500">*</span></Label>
+                    <Input value={newEntityName} onChange={(e) => setNewEntityName(e.target.value)} placeholder={launch.projectLevel === "Phase" ? "e.g. Phase 6" : "Project name"} className="h-8 bg-white text-sm" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px]">Name (AR) <span className="text-red-500">*</span></Label>
+                    <Input value={newEntityNameAr} onChange={(e) => setNewEntityNameAr(e.target.value)} dir="rtl" placeholder="الاسم بالعربية" className="h-8 bg-white text-sm" />
+                  </div>
+                  {launch.projectLevel !== "Phase" && (
+                    <div className="col-span-2 space-y-1">
+                      <Label className="text-[11px]">Area <span className="text-red-500">*</span></Label>
+                      <Input value={newEntityArea} onChange={(e) => setNewEntityArea(e.target.value)} placeholder="e.g. New Cairo" className="h-8 bg-white text-sm" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Project details */}
             <div className="rounded-lg border border-border">
@@ -1728,25 +1808,25 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
             <Button variant="outline" className="bg-transparent" onClick={() => setIngestDialog(null)}>Cancel</Button>
             <Button
               className="bg-emerald-600 text-white hover:bg-emerald-700"
-              disabled={!!launch.existingProject && ingestMode === "new" && !newEntityName.trim()}
+              disabled={(!linkedProject || ingestMode === "new") && (!newEntityName.trim() || !newEntityNameAr.trim() || (launch.projectLevel !== "Phase" && !newEntityArea.trim()))}
               onClick={() => {
                 const entity = launch.projectLevel === "Phase" ? "phase" : "project"
                 setIngestionStatus("Ingested")
                 setIngestDialog(null)
-                if (launch.existingProject && ingestMode === "new") {
+                if (linkedProject && ingestMode === "new") {
                   toast.success(`New ${entity} "${newEntityName.trim()}" created — launch ingested under it`)
-                } else if (launch.existingProject && conflictLaunch) {
+                } else if (linkedProject && conflictLaunch) {
                   onResolveConflict?.(conflictLaunch.id)
-                  toast.success(`Launch ingested — linked to ${launch.existingProject.name}. Launch info overwritten and ${conflictLaunch.id} closed.`)
-                } else if (launch.existingProject) {
-                  toast.success(`Launch ingested — linked to ${launch.existingProject.name}, launch info overwritten`)
+                  toast.success(`Launch ingested — linked to ${linkedProject.name}. Launch info overwritten and ${conflictLaunch.id} closed.`)
+                } else if (linkedProject) {
+                  toast.success(`Launch ingested — linked to ${linkedProject.name}, launch info overwritten`)
                 } else {
-                  toast.success("Launch ingested — now live across Nawy's system")
+                  toast.success(`New ${entity} "${newEntityName.trim()}" created — launch ingested and live across Nawy's system`)
                 }
               }}
             >
               <Database className="h-4 w-4 mr-1.5" />
-              {launch.existingProject
+              {linkedProject
                 ? (ingestMode === "new"
                     ? `Ingest & Create ${launch.projectLevel === "Phase" ? "Phase" : "Project"}`
                     : conflictLaunch ? "Ingest & Replace Active" : "Ingest & Link")
@@ -1755,6 +1835,42 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Link / unlink to an existing system project */}
+      {linkDialog === "link" && (
+        <LinkProjectDialog
+          launch={{ id: launch.id, projectNameEn: launch.projectNameEn, phase: launch.phase }}
+          onClose={() => setLinkDialog(null)}
+          onConfirm={(row) => {
+            setLinkedProject({ id: row.id, name: row.name })
+            setLinkDialog(null)
+            toast.success(`${launch.id} linked to ${row.name} (${row.id})`)
+          }}
+        />
+      )}
+      {linkDialog === "unlink" && linkedProject && (
+        <Dialog open onOpenChange={(o) => { if (!o) setLinkDialog(null) }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader><DialogTitle>Unlink Project</DialogTitle></DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              This launch is linked to <span className="font-medium text-foreground">{linkedProject.name}</span> ({linkedProject.id}). Unlinking means ingestion will create a brand-new {launch.projectLevel === "Phase" ? "phase" : "project"} instead — you'll enter its EN/AR names{launch.projectLevel !== "Phase" ? " and area" : ""} during ingestion.
+            </p>
+            <DialogFooter>
+              <Button variant="outline" className="bg-transparent" onClick={() => setLinkDialog(null)}>Cancel</Button>
+              <Button
+                className="bg-red-600 text-white hover:bg-red-700"
+                onClick={() => {
+                  setLinkedProject(undefined)
+                  setLinkDialog(null)
+                  toast.success(`${launch.id} unlinked — a new ${launch.projectLevel === "Phase" ? "phase" : "project"} will be created on ingestion`)
+                }}
+              >
+                Unlink Project
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Tabbed Container — single-row scrollable icon tabs (shared design system) */}
       <Tabs defaultValue={launch.source === "WhatsApp" ? "whatsapp" : "project"} className="w-full">
@@ -2326,8 +2442,35 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
             </div>
 
             <fieldset disabled={!launchEditing} className="min-w-0 space-y-8">
-            {/* Launch Type + Dates */}
+            {/* Title & description — website-facing, editable at any time (even after ingestion) */}
             <div>
+              <h3 className="text-sm font-semibold text-foreground mb-4">Title & Description</h3>
+              <div className="space-y-4">
+                <div className="max-w-md">
+                  <Label>Launch Title</Label>
+                  <Input
+                    value={launchTitle}
+                    onChange={(e) => { setLaunchDirty(true); setLaunchTitle(e.target.value) }}
+                    placeholder="e.g. Autumn 2026 Launch — limited villas"
+                    className="mt-1"
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">Shown on the website launch card — editable at any time, even after ingestion.</p>
+                </div>
+                <div>
+                  <Label>Launch Description</Label>
+                  <Textarea
+                    value={launchDescription}
+                    onChange={(e) => { setLaunchDirty(true); setLaunchDescription(e.target.value) }}
+                    rows={3}
+                    placeholder="Short description of what this launch offers…"
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Launch Type + Dates */}
+            <div className="pt-6 border-t border-border">
               <h3 className="text-sm font-semibold text-foreground mb-4">Launch Info</h3>
               <div className="grid grid-cols-3 gap-4">
                 <div>

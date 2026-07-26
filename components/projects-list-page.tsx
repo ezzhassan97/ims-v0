@@ -192,12 +192,12 @@ const PROJ_COLS = [
   { id: "name", label: "Project / Phase Name", width: 240 },
   { id: "mainProject", label: "Main Project", width: 180 },
   { id: "developer", label: "Developer", width: 200 },
-  { id: "district", label: "District", width: 140 },
-  { id: "area", label: "Area", width: 140 },
-  { id: "subarea", label: "Subarea", width: 160 },
   { id: "listingStatus", label: "Listing Status", width: 130 },
   { id: "primaryStatus", label: "Primary Status", width: 130 },
   { id: "entryType", label: "Entry Type", width: 120 },
+  { id: "district", label: "District", width: 140 },
+  { id: "area", label: "Area", width: 140 },
+  { id: "subarea", label: "Subarea", width: 160 },
   { id: "organizations", label: "Organizations", width: 150 },
   { id: "category", label: "Category", width: 130 },
   { id: "projectType", label: "Type", width: 130 },
@@ -1181,6 +1181,7 @@ export type ProjLaunch = {
   source: "WhatsApp" | "Manual"
   launchStatus: "Active" | "Upcoming" | "Closed"
   createdAt: string
+  updatedAt: string
   startDate?: string
   endDate?: string
   /** Launches collect EOIs — amounts in EGP, not counts. Releases don't. */
@@ -1200,7 +1201,14 @@ const LAUNCH_STATUS_TONE: Record<ProjLaunch["launchStatus"], string> = {
   Upcoming: "border-blue-200 bg-blue-50 text-blue-700",
   Closed: "border-border bg-muted text-muted-foreground",
 }
-const fmtEgp = (n: number) => `${(n / 1_000_000).toFixed(1)}M EGP`
+const fmtEgp = (n: number) => `${n.toLocaleString("en-US")} EGP`
+/** Card display: single amount, or min–max range when per-type EOIs differ. */
+const eoiRangeText = (l: ProjLaunch) => {
+  if (!l.eoiAmount) return null
+  const amts = l.eoiByType?.length ? l.eoiByType.map((e) => e.amount) : [l.eoiAmount]
+  const lo = Math.min(...amts), hi = Math.max(...amts)
+  return lo === hi ? fmtEgp(lo) : `${lo.toLocaleString("en-US")} – ${fmtEgp(hi)}`
+}
 
 /** Deterministic mock: rows currently in Launch always carry one Active launch. */
 function launchesFor(r: ProjectRow): ProjLaunch[] {
@@ -1208,25 +1216,27 @@ function launchesFor(r: ProjectRow): ProjLaunch[] {
   const isLaunch = r.primaryStatus === "Launch"
   const n = isLaunch ? 1 + (seed % 2) : seed % 3
   return Array.from({ length: n }, (_, i) => {
-    const type: ProjLaunch["type"] = (seed + i) % 3 === 2 ? "Release" : "Launch"
-    const eoi = type === "Launch" ? (2 + ((seed * 7 + i * 31) % 38)) * 1_000_000 : undefined
-    const apt = eoi ? Math.round(eoi * 0.5) : 0
-    const villa = eoi ? Math.round(eoi * 0.3) : 0
+    // The active launch driving a Launch primary status is always of type "Launch".
+    const type: ProjLaunch["type"] = isLaunch && i === 0 ? "Launch" : (seed + i) % 3 === 2 ? "Release" : "Launch"
+    // EOI amounts are reservation fees — 50,000 to 1,000,000 EGP.
+    const eoi = type === "Launch" ? (1 + ((seed * 7 + i * 31) % 20)) * 50_000 : undefined
+    const differsByType = eoi ? (seed + i) % 2 === 0 : false
     return {
       id: `LNCH-${1000 + ((seed * 13 + i * 47) % 900)}`,
       name: `${r.name} ${type} ${i + 1}`,
       type,
       source: (seed + i) % 2 === 0 ? "WhatsApp" : "Manual",
       launchStatus: isLaunch && i === 0 ? "Active" : (seed + i) % 2 === 0 ? "Upcoming" : "Closed",
-      createdAt: `2026-0${3 + (i % 3)}-${String(10 + (seed % 18))}`,
+      createdAt: `2026-0${3 + (i % 3)}-${String(10 + (seed % 18))}T09:30:00Z`,
+      updatedAt: `2026-0${4 + (i % 3)}-${String(5 + (seed % 20)).padStart(2, "0")}T14:00:00Z`,
       startDate: (seed + i) % 2 === 0 ? "2026-06-15" : undefined,
       endDate: undefined,
       eoiAmount: eoi,
-      eoiByType: eoi ? [
-        { type: "Apartment", amount: apt },
-        { type: "Villa", amount: villa },
-        { type: "Chalet", amount: eoi - apt - villa },
-      ].filter((x) => x.amount > 0) : undefined,
+      eoiByType: eoi && differsByType ? [
+        { type: "Apartment", amount: eoi },
+        { type: "Villa", amount: Math.min(1_000_000, eoi + 150_000) },
+        { type: "Chalet", amount: Math.min(1_000_000, eoi + 50_000) },
+      ] : undefined,
       availableLaunchProps: 2 + ((seed + i * 5) % 6),
       plans: [
         { name: "Standard Plan", planType: "Equal Installments", dp: "10%", duration: `${6 + (seed % 3)} years` },
@@ -1251,37 +1261,40 @@ function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {
 }) {
   const inner = (
     <>
-      {radio && (
-        <span className={cn("flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border", selected ? "border-primary" : "border-muted-foreground/40")}>
-          {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
-        </span>
-      )}
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">{l.name}</p>
-        <div className="flex items-center gap-1.5">
+      <div className="flex w-full items-center gap-2.5">
+        {radio && (
+          <span className={cn("flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border", selected ? "border-primary" : "border-muted-foreground/40")}>
+            {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">{l.name}</p>
           <IdTag value={l.id} />
-          <span className="text-[10px] text-muted-foreground">· Created {l.createdAt}</span>
         </div>
+        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          EOI {l.eoiAmount ? <span className="font-semibold text-foreground">{eoiRangeText(l)}</span> : "—"}
+        </span>
+        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{l.availableLaunchProps}</span> Available</span>
+        <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[l.type])}>{l.type}</span>
+        <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[l.launchStatus])}>
+          {l.launchStatus === "Active" ? "Currently active" : l.launchStatus}
+        </span>
+        <span
+          role="button" title="View launch details"
+          onClick={(e) => { e.stopPropagation(); onView() }}
+          className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <Eye className="h-3.5 w-3.5" />
+        </span>
       </div>
-      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-        EOI {l.eoiAmount ? <span className="font-semibold text-foreground">{fmtEgp(l.eoiAmount)}</span> : "—"}
-      </span>
-      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{l.availableLaunchProps}</span> Available</span>
-      <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[l.type])}>{l.type}</span>
-      <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[l.launchStatus])}>
-        {l.launchStatus === "Active" ? "Currently active" : l.launchStatus}
-      </span>
-      <span
-        role="button" title="View launch details"
-        onClick={(e) => { e.stopPropagation(); onView() }}
-        className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <Eye className="h-3.5 w-3.5" />
-      </span>
+      <div className="flex w-full justify-end gap-3 text-[10px] text-muted-foreground">
+        <span>Created {fmtDateTime(l.createdAt)}</span>
+        <span>Updated {fmtDateTime(l.updatedAt)}</span>
+      </div>
     </>
   )
   const cls = cn(
-    "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors",
+    "flex w-full flex-col gap-1 px-3 py-2.5 text-left transition-colors",
     topBorder && "border-t border-border/70",
     radio && (selected ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : "hover:bg-muted/40"),
   )
@@ -1386,7 +1399,8 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: ProjLaunch;
  */
 export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (s: ProjPrimaryStatus, excludedPhaseIds?: string[]) => void }) {
   const from = r.primaryStatus
-  const linkedLaunches = useMemo(() => launchesFor(r), [r])
+  // Only ingested launches of type "Launch" drive primary status — Releases never show here.
+  const linkedLaunches = useMemo(() => launchesFor(r).filter((l) => l.type === "Launch"), [r])
   const activeLaunch = linkedLaunches.find((l) => l.launchStatus === "Active")
   const [target, setTarget] = useState<ProjPrimaryStatus | "">("")
   const [selectedPhases, setSelectedPhases] = useState<Set<string>>(new Set())
@@ -1463,14 +1477,16 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
     const s = sums(rows)
     const out: Outcome[] = []
     if (to === "Launch") {
-      if (selLaunch) out.push({ label: "Available Launch Properties", countText: props(selLaunch.availableLaunchProps), listing: "Shown" })
+      if (selLaunch) out.push({ label: "Launch Properties", countText: props(selLaunch.availableLaunchProps), listing: "Shown" })
       if (hideAvailable) {
         if (s.paG > 0 || s.paD > 0) out.push({ label: "Available Primary Automatic", countText: paText(s.paG, s.paD), listing: "Hidden" })
         if (s.pmG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmG), listing: "Hidden" })
       }
       return out
     }
-    if (s.launchAll > 0) out.push({ label: "All Launch Properties", countText: props(s.launchAll), listing: "Hidden" })
+    // Leaving Launch for On-Hold/Sold-Off also moves the launch properties to that sale status.
+    const launchSale = from === "Launch" && (to === "On-Hold" || to === "Sold-Off") ? (to === "On-Hold" ? "Hold" : "Sold-Off") : undefined
+    if (s.launchAll > 0) out.push({ label: "Launch Properties", countText: props(s.launchAll), sale: launchSale, listing: "Hidden" })
     // Sold-Off recovery: primary statuses recover but Primary PROPERTIES stay untouched
     if (phaseModeFor(to) === "optinSoldOff") return out
     if (to === "On-Sale") {
@@ -1577,7 +1593,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
           ) : (
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground">
-                Select the launch to activate — ingested launches linked to this {r.isPhase ? "phase" : "project"} (only one can be active at a time):
+                Select the launch to activate — ingested launches of type <span className="font-medium text-foreground">Launch</span> linked to this {r.isPhase ? "phase" : "project"} (only one can be active at a time):
               </p>
               <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
                 {linkedLaunches.map((l, i) => (

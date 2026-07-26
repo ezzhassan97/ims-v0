@@ -60,10 +60,13 @@ import {
   Group as GroupIcon,
   X,
   ChevronDown,
+  Link2,
+  Unlink,
 } from "lucide-react"
 import { toast } from "sonner"
 import { LaunchDetailsPage } from "@/components/launch-details-page"
 import { PROJECTS } from "@/lib/projects-mock"
+import { LinkProjectDialog, SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
 import {
   TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, DateRangeFilter,
   FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, ColumnsSheet, ProjectTreeSelect, DeveloperSelect, GroupPager,
@@ -232,6 +235,22 @@ const mockLaunches: Launch[] = [
     sentAt: "2024-01-05T07:30:00", createdAt: "2024-01-05T09:00:00", updatedAt: "2024-01-13T12:00:00",
   },
   {
+    // Closed launch on a project that already has an Active one — demos the
+    // one-active-per-project rule when re-activating.
+    id: "LCH-012",
+    developer: { name: "Sodic", logo: LOGO, id: "DEV-003" },
+    projectNameEn: "Sodic East", projectId: "PRJ-203",
+    phase: "", projectLevel: "Main Project",
+    area: "New Cairo", areaId: AREA_ID["New Cairo"],
+    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
+    existingProject: { id: "PRJ-203", name: "Sodic East" },
+    listingProject: { id: "LST-003", name: "Sodic East" },
+    launchStatus: "Closed", type: "Release", source: "Manual",
+    listingCompletion: 100, eoiAmount: 75000, coverImage: COVER,
+    ingestedAt: "2024-01-02T10:00:00",
+    sentAt: "2024-01-01T07:30:00", createdAt: "2024-01-01T09:00:00", updatedAt: "2024-01-03T12:00:00",
+  },
+  {
     id: "LCH-003",
     developer: { name: "Sodic", logo: LOGO, id: "DEV-003" },
     projectNameEn: "Sodic East", projectId: "PRJ-203",
@@ -383,7 +402,7 @@ function MiniTag({ tone, children }: { tone: "red" | "grey"; children: React.Rea
   return (
     <span className={cn(
       "inline-flex w-fit items-center whitespace-nowrap rounded border px-1.5 py-px text-[10px] font-medium",
-      tone === "red" ? "border-red-200 bg-red-50 text-red-500" : "border-gray-200 bg-gray-50 text-gray-500",
+      tone === "red" ? "border-red-200 bg-red-50 text-red-600" : "border-gray-200 bg-gray-50 text-gray-600",
     )}>
       {children}
     </span>
@@ -410,15 +429,6 @@ function formatDate(dateString: string | null | undefined) {
 }
 
 // ─── Create dialog ─────────────────────────────────────────────────────────────
-
-/** Existing-project picker data — system projects grouped main → phases with listing statuses. */
-function sysProjectTree(devId?: string): ProjectTreeNode[] {
-  return PROJECTS.filter((p) => !p.isPhase && (!devId || p.developer.id === devId)).map((p) => ({
-    id: p.id, name: p.name, status: p.listingStatus,
-    phases: PROJECTS.filter((ph) => ph.isPhase && ph.mainProject?.id === p.id).map((ph) => ({ id: ph.id, name: ph.name, status: ph.listingStatus })),
-  }))
-}
-const SYS_DEVELOPERS = [...new Map(PROJECTS.map((p) => [p.developer.id, { id: p.developer.id, name: p.developer.name }])).values()]
 
 function LaunchFormDialog({
   open,
@@ -463,7 +473,8 @@ function LaunchFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      {/* No scroll container — the tree/developer dropdowns overlay past the dialog instead of stretching it. */}
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Create Launch</DialogTitle>
         </DialogHeader>
@@ -781,7 +792,7 @@ const EOI_SPLIT = [
   { type: "Townhouses", share: 0.2 },
 ]
 
-function ActivateDialog({ launch, onClose, onConfirm }: { launch: Launch; onClose: () => void; onConfirm: (startDate: string) => void }) {
+function ActivateDialog({ launch, conflict, onClose, onConfirm }: { launch: Launch; conflict?: Launch; onClose: () => void; onConfirm: (startDate: string) => void }) {
   const [startDate, setStartDate] = useState("")
   const [eoiView, setEoiView] = useState<"general" | "byType">("general")
   const total = launch.eoiAmount ?? 0
@@ -798,6 +809,11 @@ function ActivateDialog({ launch, onClose, onConfirm }: { launch: Launch; onClos
       onClose={onClose}
       onConfirm={() => onConfirm(startDate)}
     >
+      {conflict && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+          Only one launch can be active per project or phase. <span className="font-semibold">{conflict.projectNameEn}{conflict.phase ? ` — ${conflict.phase}` : ""} ({conflict.id})</span> is currently active and will be <span className="font-semibold">Closed</span> when this launch is activated.
+        </div>
+      )}
       <div className="space-y-1.5">
         <Label>Launch Start Date <span className="text-red-500">*</span></Label>
         <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
@@ -914,7 +930,7 @@ function BulkDialog({ kind, count, onClose, onConfirm }: { kind: BulkKind; count
 }
 
 type DialogState =
-  | { kind: "archive" | "approve" | "reject" | "activate" | "close"; launch: Launch }
+  | { kind: "archive" | "approve" | "reject" | "activate" | "close" | "link" | "unlink"; launch: Launch }
   | { kind: BulkKind }
   | null
 
@@ -1145,17 +1161,56 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
     toast.success(`${launch.projectNameEn} rejected`)
   }
 
+  /** One active launch per project/phase — activating closes any current one. */
+  const activeConflictOf = (launch: Launch) =>
+    launches.find((x) =>
+      x.id !== launch.id && x.launchStatus === "Active" &&
+      (x.projectId && launch.projectId
+        ? x.projectId === launch.projectId
+        : x.projectNameEn === launch.projectNameEn && x.phase === launch.phase),
+    )
+
   const doActivate = (launch: Launch) => {
+    const conflict = activeConflictOf(launch)
+    if (conflict) {
+      patch([conflict.id], { launchStatus: "Closed" })
+      setActiveOrder((prev) => prev.filter((id) => id !== conflict.id))
+    }
     patch([launch.id], { launchStatus: "Active" })
     setActiveOrder((prev) => (prev.includes(launch.id) ? prev : [...prev, launch.id]))
     setDialog(null)
-    toast.success(`${launch.projectNameEn} is now an active launch`)
+    toast.success(
+      conflict
+        ? `${launch.projectNameEn} is now the active launch — ${conflict.projectNameEn} (${conflict.id}) was closed`
+        : `${launch.projectNameEn} is now an active launch`,
+    )
   }
 
   const doCloseLaunch = (launch: Launch) => {
     patch([launch.id], { launchStatus: "Closed" })
     setDialog(null)
     toast.success(`${launch.projectNameEn} closed — sales portal notified`)
+  }
+
+  const doLink = (launch: Launch, row: (typeof PROJECTS)[number], isPhase: boolean) => {
+    patch([launch.id], {
+      existingProject: { id: row.id, name: row.name },
+      projectId: row.id,
+      developer: { name: row.developer.name, logo: LOGO, id: row.developer.id },
+      projectLevel: isPhase ? "Phase" : "Main Project",
+      projectNameEn: isPhase ? row.mainProject?.name ?? row.name : row.name,
+      phase: isPhase ? row.name : "",
+      area: row.area,
+      areaId: AREA_ID[row.area] ?? "",
+    })
+    setDialog(null)
+    toast.success(`${launch.id} linked to ${row.name} (${row.id})`)
+  }
+
+  const doUnlink = (launch: Launch) => {
+    patch([launch.id], { existingProject: undefined, projectId: undefined })
+    setDialog(null)
+    toast.success(`${launch.id} unlinked — a new ${launch.projectLevel === "Phase" ? "phase" : "project"} will be created on ingestion`)
   }
 
   const doBulk = (kind: BulkKind) => {
@@ -1222,6 +1277,26 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
     )
   }
 
+  /** Link/unlink to an existing system project — only before ingestion. */
+  const linkProjectItem = (l: Launch) => {
+    const enabled = l.ingestionStatus !== "Ingested"
+    return l.existingProject ? (
+      <DropdownMenuItem
+        disabled={!enabled} className={cn(!enabled && "opacity-40")}
+        onClick={() => enabled && setDialog({ kind: "unlink", launch: l })}
+      >
+        <Unlink className="h-4 w-4 mr-2" />Unlink Project
+      </DropdownMenuItem>
+    ) : (
+      <DropdownMenuItem
+        disabled={!enabled} className={cn(!enabled && "opacity-40")}
+        onClick={() => enabled && setDialog({ kind: "link", launch: l })}
+      >
+        <Link2 className="h-4 w-4 mr-2" />Link to Existing Project
+      </DropdownMenuItem>
+    )
+  }
+
   const toggleListingItem = (l: Launch) => (
     <DropdownMenuItem onClick={() => {
       const next = l.listingStatus === "Active" ? "Hidden" : "Active"
@@ -1244,6 +1319,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
           <DropdownMenuContent align="end">
             {viewItem(l)}
             {viewProjectItem(l)}
+            {linkProjectItem(l)}
             <DropdownMenuSeparator />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={dimApproval} className={cn(dimApproval && "opacity-40")}>
@@ -1280,6 +1356,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
           <DropdownMenuContent align="end">
             {viewItem(l)}
             {viewProjectItem(l)}
+            {linkProjectItem(l)}
             <DropdownMenuSeparator />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger><Activity className="h-4 w-4 mr-2" />Launch Status</DropdownMenuSubTrigger>
@@ -1305,7 +1382,8 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {viewItem(l)}
-            {viewProjectItem(l)}
+          {viewProjectItem(l)}
+          {linkProjectItem(l)}
           {toggleListingItem(l)}
           <DropdownMenuSeparator />
           <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDialog({ kind: "close", launch: l })}>
@@ -1864,8 +1942,20 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
       {dialog?.kind === "archive" && <ArchiveDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doArchive(dialog.launch)} />}
       {dialog?.kind === "approve" && <ApproveDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doApprove(dialog.launch)} />}
       {dialog?.kind === "reject" && <RejectDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doReject(dialog.launch)} />}
-      {dialog?.kind === "activate" && <ActivateDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doActivate(dialog.launch)} />}
+      {dialog?.kind === "activate" && <ActivateDialog launch={dialog.launch} conflict={activeConflictOf(dialog.launch)} onClose={() => setDialog(null)} onConfirm={() => doActivate(dialog.launch)} />}
       {dialog?.kind === "close" && <CloseLaunchDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doCloseLaunch(dialog.launch)} />}
+      {dialog?.kind === "link" && <LinkProjectDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={(row, isPhase) => doLink(dialog.launch, row, isPhase)} />}
+      {dialog?.kind === "unlink" && (
+        <ActionDialog
+          title="Unlink Project"
+          launch={dialog.launch}
+          message={`This launch is linked to ${dialog.launch.existingProject?.name} (${dialog.launch.existingProject?.id}). Unlinking means ingestion will create a brand-new ${dialog.launch.projectLevel === "Phase" ? "phase" : "project"} instead — you'll need to enter its EN/AR names and area during ingestion.`}
+          confirmLabel="Unlink Project"
+          confirmClass="bg-red-600 text-white hover:bg-red-700"
+          onClose={() => setDialog(null)}
+          onConfirm={() => doUnlink(dialog.launch)}
+        />
+      )}
       {(dialog?.kind === "bulk-approve" || dialog?.kind === "bulk-reject" || dialog?.kind === "bulk-list-active" || dialog?.kind === "bulk-list-hidden") && (
         <BulkDialog kind={dialog.kind} count={selectedIds.length} onClose={() => setDialog(null)} onConfirm={() => doBulk(dialog.kind as BulkKind)} />
       )}
