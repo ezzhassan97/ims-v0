@@ -325,19 +325,6 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       })
     })
   }
-  const BULK_CAP = 10
-  /** Change Organizations is the only capped bulk action (10 rows); Export & Classification are unlimited. */
-  const bulkGuard = (fn: () => void) => () => {
-    if (selectedIds.size > BULK_CAP) { toast.error(`Change Organizations is limited to ${BULK_CAP} selected rows`); return }
-    fn()
-  }
-  const openBulkCascade = (kind: CascadeKind) => {
-    const sel = rows.filter((r) => selectedIds.has(r.id))
-    const mains = sel.filter((r) => !r.isPhase)
-    if (mains.length === 0) { toast.error("Select at least one main project — this action applies to main projects only"); return }
-    setCascadeDlg({ kind, targets: mains, ignored: sel.length - mains.length })
-  }
-
   const visibleCols = colOrder.filter((id) => !hiddenCols.has(id)).map((id) => PROJ_COLS.find((c) => c.id === id)!).filter(Boolean)
   // Sticky-left offset for a frozen column = checkbox column (40px) + preceding frozen widths
   const frozenLeft = (colId: string) => {
@@ -844,10 +831,9 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           onSelectAll={() => setSelectedIds(new Set(filtered.map((r) => r.id)))}
           onClear={() => setSelectedIds(new Set())}
         >
-          {/* Only Export (no cap), Classification (no cap) and Change Organizations (10-row cap) are allowed in bulk */}
+          {/* Only Export and Classification are allowed in bulk (no caps) */}
           <BulkBarButton icon={<Download className="h-4 w-4" />} onClick={() => { toast.success(`${selectedIds.size} row${selectedIds.size > 1 ? "s" : ""} exported to CSV`); setSelectedIds(new Set()) }}>Export</BulkBarButton>
           <BulkBarButton icon={<TagIcon className="h-4 w-4" />} onClick={() => setBulkClass(true)}>Classification</BulkBarButton>
-          <BulkBarButton icon={<Globe className="h-4 w-4" />} onClick={bulkGuard(() => openBulkCascade("orgs"))}>Change Organizations</BulkBarButton>
         </FloatingBulkBar>
 
         {listingDlg && (
