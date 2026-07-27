@@ -27,7 +27,7 @@ import { PROJECTS } from "@/lib/projects-mock"
 import { WA_CONTACTS, type WaContact } from "@/lib/wa-contacts-mock"
 import { devContactsFor, type DevContact } from "@/lib/dev-contacts-mock"
 import { DeveloperCreatePage } from "@/components/developer-create-page"
-import { DEVELOPERS, type Developer, type DevPriority, type DevListingStatus, type DevOrg } from "@/lib/developers-mock"
+import { DEVELOPERS, WA_GROUP_OPTIONS, type Developer, type DevPriority, type DevListingStatus, type DevOrg } from "@/lib/developers-mock"
 
 const PRIORITIES: DevPriority[] = ["Lowest", "Low", "Medium", "High", "Highest"]
 
@@ -159,6 +159,13 @@ export function DevelopersPage() {
   const [sorts, setSorts] = useState<{ key: SortKey; dir: "asc" | "desc" }[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [bulkPriority, setBulkPriority] = useState(false)
+  const [bulkOrgs, setBulkOrgs] = useState(false)
+  const [bulkListing, setBulkListing] = useState(false)
+  /** Orgs and listing bulk actions are capped at 10 selected developers. */
+  const capped10 = (open: () => void) => () => {
+    if (selectedIds.size > 10) { toast.error("This bulk action is limited to 10 selected developers"); return }
+    open()
+  }
   const lastClickedRef = useRef<number | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -191,7 +198,7 @@ export function DevelopersPage() {
       if (statusF.length && !statusF.includes(d.listingStatus)) return false
       if (priorityF.length && !priorityF.includes(d.priority)) return false
       if (orgF.length && !orgF.some((o) => d.organizations.includes(o as never))) return false
-      if (waF && (d.whatsappGroup ? "Linked" : "Not Linked") !== waF) return false
+      if (waF && (d.whatsappGroups.length > 0 ? "Linked" : "Not Linked") !== waF) return false
       return true
     })
   }, [rows, q, statusF, priorityF, orgF, waF])
@@ -277,8 +284,15 @@ export function DevelopersPage() {
       // Listing status is NOT inline-editable — it changes through the row action (cascades to projects & phases)
       case "listingStatus": return <StoryBadge value={d.listingStatus} />
       case "organization": return <div className="flex flex-nowrap items-center gap-1">{d.organizations.map((o) => <OrgChip key={o} org={o} />)}</div>
-      case "whatsappGroup": return d.whatsappGroup
-        ? <EntityCell image={d.whatsappGroup.image} name={d.whatsappGroup.name} id={d.whatsappGroup.id} />
+      case "whatsappGroup": return d.whatsappGroups.length > 0
+        ? (
+          <div className="flex items-center gap-1.5">
+            <EntityCell image={d.whatsappGroups[0].image} name={d.whatsappGroups[0].name} id={d.whatsappGroups[0].id} />
+            {d.whatsappGroups.length > 1 && (
+              <span className="inline-flex items-center rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">+{d.whatsappGroups.length - 1}</span>
+            )}
+          </div>
+        )
         : <Badge variant="outline" className="border border-red-200 bg-red-50 text-xs font-medium text-red-600">No WhatsApp linked</Badge>
       case "projects": return <span className="whitespace-nowrap text-xs text-muted-foreground"><span className="font-medium text-foreground">{d.projectsListed}</span> Listed / <span className="font-medium text-foreground">{d.projectsTotal}</span> Total</span>
       case "phases": return <span className="whitespace-nowrap text-xs text-muted-foreground"><span className="font-medium text-foreground">{d.phasesListed}</span> Listed / <span className="font-medium text-foreground">{d.phasesTotal}</span> Total</span>
@@ -316,13 +330,8 @@ export function DevelopersPage() {
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setDevDlg({ kind: "listing", dev: d })}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setDevDlg({ kind: "orgs", dev: d })}><Globe className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
-            {/* Only for developers with no WhatsApp group linked yet */}
-            {!d.whatsappGroup && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setWaGroupDev(d)}><MessageCircle className="mr-2 h-3.5 w-3.5" />Create WhatsApp Group</DropdownMenuItem>
-              </>
-            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setWaGroupDev(d)}><MessageCircle className="mr-2 h-3.5 w-3.5" />Link to Whatsapp Group</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </td>
@@ -450,7 +459,36 @@ export function DevelopersPage() {
         >
           <BulkBarButton icon={<Download className="h-3.5 w-3.5 text-zinc-400" />} onClick={exportSelected}>Export</BulkBarButton>
           <BulkBarButton icon={<ArrowUpDown className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => setBulkPriority(true)}>Change Priority</BulkBarButton>
+          <BulkBarButton icon={<ToggleRight className="h-3.5 w-3.5 text-zinc-400" />} onClick={capped10(() => setBulkListing(true))}>Change Listing Status</BulkBarButton>
+          <BulkBarButton icon={<Globe className="h-3.5 w-3.5 text-zinc-400" />} onClick={capped10(() => setBulkOrgs(true))}>Change Organizations</BulkBarButton>
         </FloatingBulkBar>
+
+        {bulkOrgs && (
+          <BulkOrgsDialog
+            devs={rows.filter((d) => selectedIds.has(d.id))}
+            onClose={() => setBulkOrgs(false)}
+            onConfirm={(orgs) => {
+              setRows((rs) => rs.map((d) => (selectedIds.has(d.id) ? { ...d, organizations: orgs } : d)))
+              toast.success(`Organizations updated for ${selectedIds.size} developer${selectedIds.size !== 1 ? "s" : ""}`)
+              setSelectedIds(new Set())
+              setBulkOrgs(false)
+            }}
+          />
+        )}
+
+        {bulkListing && (
+          <BulkListingDialog
+            devs={rows.filter((d) => selectedIds.has(d.id))}
+            onClose={() => setBulkListing(false)}
+            onConfirm={(target) => {
+              const changing = rows.filter((d) => selectedIds.has(d.id) && d.listingStatus !== target).length
+              setRows((rs) => rs.map((d) => (selectedIds.has(d.id) ? { ...d, listingStatus: target } : d)))
+              toast.success(`${selectedIds.size} developer${selectedIds.size !== 1 ? "s" : ""} set to ${target} (${changing} changed) — their projects and phases follow`)
+              setSelectedIds(new Set())
+              setBulkListing(false)
+            }}
+          />
+        )}
 
         {bulkPriority && (
           <BulkPriorityDialog
@@ -481,10 +519,17 @@ export function DevelopersPage() {
         {waGroupDev && (
           <CreateWaGroupDialog
             dev={waGroupDev}
-            devContacts={devContactsFor(waGroupDev.id, waGroupDev.whatsappGroup ? { id: waGroupDev.whatsappGroup.id, name: waGroupDev.whatsappGroup.name } : null)}
+            devContacts={devContactsFor(waGroupDev.id, waGroupDev.whatsappGroups[0] ? { id: waGroupDev.whatsappGroups[0].id, name: waGroupDev.whatsappGroups[0].name } : null)}
+            linkedIds={waGroupDev.whatsappGroups.map((g) => g.id)}
             onClose={() => setWaGroupDev(null)}
+            onLink={(group) => {
+              update(waGroupDev.id, { whatsappGroups: [...waGroupDev.whatsappGroups.filter((g) => g.id !== group.id), group] })
+              toast.success(`${waGroupDev.name} linked to ${group.name} (${group.id})`)
+              setWaGroupDev(null)
+            }}
             onCreate={(members, groupName, groupImage) => {
-              update(waGroupDev.id, { whatsappGroup: { id: `WA-9${String(waGroupDev.id).slice(-3)}`, name: groupName, image: groupImage } })
+              const group = { id: `WA-9${String(waGroupDev.id).slice(-3)}`, name: groupName, image: groupImage }
+              update(waGroupDev.id, { whatsappGroups: [...waGroupDev.whatsappGroups, group] })
               const admins = members.filter((m) => m.role === "Admin").length
               toast.success(`${groupName} created — ${members.length} contact${members.length !== 1 ? "s" : ""} added (${admins} admin${admins !== 1 ? "s" : ""})`)
               setWaGroupDev(null)
@@ -595,6 +640,7 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(developer)
   const [dlg, setDlg] = useState<"listing" | "orgs" | null>(null)
+  const [waPicker, setWaPicker] = useState(false)
   const startEdit = () => { setDraft(developer); setEditing(true); setCollapsed(false) }
   // Listing status & organizations are NOT saved from inline edit — they change through the ⋯ actions (cascade)
   const saveEdit = () => {
@@ -645,6 +691,9 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
                 <div className="flex items-center gap-2">
                   <h1 className="text-lg font-bold text-foreground">{developer.name}</h1>
                   <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[11px] font-semibold text-emerald-700">Developer</Badge>
+                  {/* Always visible — even collapsed */}
+                  <StoryBadge value={developer.listingStatus} />
+                  {developer.organizations.map((o) => <OrgChip key={o} org={o} />)}
                 </div>
                 <div className="mt-0.5 flex items-center gap-1 text-sm text-muted-foreground">ID: {developer.id} <CopyBtn text={String(developer.id)} /></div>
               </div>
@@ -712,6 +761,28 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
                     ? <div className="mt-1.5"><Switch checked={draft.nawyEligible} onCheckedChange={(v) => setDraft((d) => ({ ...d, nawyEligible: v }))} /></div>
                     : <Badge variant="outline" className={cn("mt-1 border text-xs font-medium", developer.nawyEligible ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "text-muted-foreground")}>{developer.nawyEligible ? "Yes" : "No"}</Badge>}
                 </div>
+                <div className="col-span-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">WhatsApp Groups</p>
+                  {/* Linked groups (a developer can have several) + a small edit-link button */}
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {developer.whatsappGroups.length > 0 ? (
+                      developer.whatsappGroups.map((g) => (
+                        <span key={g.id} className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                          <MessageCircle className="h-3 w-3" />{g.name}
+                          <span className="font-mono text-[10px] text-emerald-700/70">{g.id}</span>
+                        </span>
+                      ))
+                    ) : (
+                      <span className="inline-flex items-center rounded-md border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">No Whatsapp Linked</span>
+                    )}
+                    <button
+                      type="button" title="Link WhatsApp groups" onClick={() => setWaPicker(true)}
+                      className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -730,6 +801,18 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
           <TabsContent value="whatsapp-media"><WhatsAppMediaTable hideDeveloperFilter /></TabsContent>
           <TabsContent value="contacts"><ContactsTab developer={developer} /></TabsContent>
         </Tabs>
+
+        {waPicker && (
+          <WaGroupsPickerDialog
+            dev={developer}
+            onClose={() => setWaPicker(false)}
+            onSave={(groups) => {
+              onUpdate({ whatsappGroups: groups })
+              toast.success(groups.length ? `${developer.name} linked to ${groups.length} WhatsApp group${groups.length !== 1 ? "s" : ""}` : `${developer.name} unlinked from all WhatsApp groups`)
+              setWaPicker(false)
+            }}
+          />
+        )}
 
         {dlg && (
           <DevCascadeDialog
@@ -832,19 +915,21 @@ export function SeoTab({ entity }: { entity: { name: string; nameAr: string; des
 
 /** Developer contacts — searchable, addable; each shows whether it joined a WhatsApp group and which one. */
 function ContactsTab({ developer }: { developer: Developer }) {
-  const [contacts, setContacts] = useState<DevContact[]>(() => devContactsFor(developer.id, developer.whatsappGroup ? { id: developer.whatsappGroup.id, name: developer.whatsappGroup.name } : null))
+  const [contacts, setContacts] = useState<DevContact[]>(() => devContactsFor(developer.id, developer.whatsappGroups[0] ? { id: developer.whatsappGroups[0].id, name: developer.whatsappGroups[0].name } : null))
   const [q, setQ] = useState("")
   const [dlgOpen, setDlgOpen] = useState(false)
   const needle = q.trim().toLowerCase()
   const shown = contacts.filter((c) => !needle || c.name.toLowerCase().includes(needle) || c.phone.replace(/\s/g, "").includes(needle.replace(/\s/g, "")))
   return (
     <TabCard>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-3 space-y-2">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold">Contacts</h3>
           <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{contacts.length}</span>
         </div>
-        <div className="flex items-center gap-2">
+        <p className="text-xs text-muted-foreground">Whatsapp Group contacts.</p>
+        {/* Search left, Add Contact right */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name or phone…" className="h-8 w-56 pl-8 text-sm" />
@@ -1073,6 +1158,189 @@ function projectsOfDeveloper(devName: string) {
   })
 }
 
+/** Bulk Change Organizations — org choice on top, selected developers (max 10) listed with current orgs. */
+function BulkOrgsDialog({ devs, onClose, onConfirm }: {
+  devs: Developer[]
+  onClose: () => void
+  onConfirm: (orgs: DevOrg[]) => void
+}) {
+  const [orgs, setOrgs] = useState<DevOrg[]>([])
+  const toggleOrg = (o: DevOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="flex flex-col gap-0 p-0 sm:!max-w-2xl" style={{ maxHeight: "85vh" }}>
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-4"><DialogTitle>Change Organizations</DialogTitle></DialogHeader>
+        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          <div className="flex gap-2">
+            {(["Nawy", "Partners"] as DevOrg[]).map((o) => (
+              <label key={o} className={cn(
+                "flex flex-1 cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
+                orgs.includes(o) ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
+              )}>
+                <Checkbox checked={orgs.includes(o)} onCheckedChange={() => toggleOrg(o)} className="h-4 w-4" />
+                <OrgChip org={o} />
+              </label>
+            ))}
+          </div>
+          <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{devs.length}</span> developer{devs.length !== 1 ? "s" : ""} selected — the organizations cascade to each developer's projects and phases.
+          </p>
+          <div className="max-h-80 overflow-y-auto rounded-lg border border-border">
+            {devs.map((d, i) => (
+              <div key={d.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70")}>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{d.name}</p>
+                  <div className="flex items-center gap-1.5">
+                    <IdTag value={String(d.id)} />
+                    <span className="text-[10px] text-muted-foreground">
+                      <span className="font-medium text-foreground">{d.projectsTotal}</span> Projects · <span className="font-medium text-foreground">{d.phasesTotal}</span> Phases
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-shrink-0 items-center gap-1">
+                  {d.organizations.map((o) => <OrgChip key={o} org={o} />)}
+                </div>
+                {orgs.length > 0 && (
+                  <>
+                    <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                    <div className="flex flex-shrink-0 items-center gap-1">
+                      {orgs.map((o) => <OrgChip key={o} org={o} />)}
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={orgs.length === 0} onClick={() => onConfirm(orgs)}>Apply</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Bulk Change Listing Status — per-developer projects/phases counts that the change will impact (max 10). */
+function BulkListingDialog({ devs, onClose, onConfirm }: {
+  devs: Developer[]
+  onClose: () => void
+  onConfirm: (target: DevListingStatus) => void
+}) {
+  const [target, setTarget] = useState<DevListingStatus>("Hidden")
+  const changing = devs.filter((d) => d.listingStatus !== target)
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="flex flex-col gap-0 p-0 sm:!max-w-2xl" style={{ maxHeight: "85vh" }}>
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-4"><DialogTitle>Change Listing Status</DialogTitle></DialogHeader>
+        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          <div className="grid grid-cols-2 gap-2">
+            {(["Active", "Hidden"] as DevListingStatus[]).map((s) => {
+              const selected = target === s
+              const Icon = s === "Active" ? Eye : EyeOff
+              return (
+                <button
+                  key={s} type="button" onClick={() => setTarget(s)}
+                  className={cn(
+                    "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                    selected
+                      ? s === "Active" ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-red-300 bg-red-50 text-red-700"
+                      : "border-border hover:bg-muted",
+                  )}
+                >
+                  <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="text-sm font-medium">{s}</span>
+                    <span className="block text-[11px] leading-snug opacity-80">
+                      {s === "Active" ? "Visible on Website and E-realty." : "Hidden from the website and E-realty."}
+                    </span>
+                  </span>
+                  {selected && <Check className="h-4 w-4 shrink-0" />}
+                </button>
+              )
+            })}
+          </div>
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+            <span className="font-semibold">{devs.length}</span> developer{devs.length !== 1 ? "s" : ""} selected · <span className="font-semibold">{changing.length}</span> will change — each developer's projects and phases below are impacted accordingly.
+          </p>
+          <div className="max-h-80 overflow-y-auto rounded-lg border border-border">
+            {devs.map((d, i) => {
+              const changes = d.listingStatus !== target
+              return (
+                <div key={d.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70")}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{d.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <IdTag value={String(d.id)} />
+                      <span className="text-[10px] text-muted-foreground">
+                        <span className="font-medium text-foreground">{d.projectsTotal}</span> Projects · <span className="font-medium text-foreground">{d.phasesTotal}</span> Phases impacted
+                      </span>
+                    </div>
+                  </div>
+                  <StoryBadge value={d.listingStatus} />
+                  {changes ? (
+                    <>
+                      <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                      <StoryBadge value={target} />
+                    </>
+                  ) : (
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={() => onConfirm(target)}>Change to {target}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Multi-select WhatsApp group picker — a developer can be linked to several groups. */
+function WaGroupsPickerDialog({ dev, onClose, onSave }: {
+  dev: Developer
+  onClose: () => void
+  onSave: (groups: Developer["whatsappGroups"]) => void
+}) {
+  const [picked, setPicked] = useState<Set<string>>(new Set(dev.whatsappGroups.map((g) => g.id)))
+  const [q, setQ] = useState("")
+  const toggle = (id: string) => setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader><DialogTitle>Link WhatsApp Groups</DialogTitle></DialogHeader>
+        <p className="text-xs text-muted-foreground">Pick the WhatsApp groups linked to <span className="font-medium text-foreground">{dev.name}</span> — a developer can have more than one group.</p>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Group name or ID…" className="h-8 pl-8 text-sm" />
+        </div>
+        <div className="max-h-64 overflow-y-auto rounded-lg border border-border">
+          {WA_GROUP_OPTIONS
+            .filter((g) => !q.trim() || `${g.name} ${g.id}`.toLowerCase().includes(q.trim().toLowerCase()))
+            .map((g, i) => (
+              <label key={g.id} className={cn("flex cursor-pointer items-center gap-2.5 px-3 py-2 transition-colors hover:bg-muted/40", i > 0 && "border-t border-border/70")}>
+                <Checkbox checked={picked.has(g.id)} onCheckedChange={() => toggle(g.id)} className="h-4 w-4 flex-shrink-0" />
+                <img src={g.image} alt="" className="h-9 w-9 flex-shrink-0 rounded-lg border border-border object-cover" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{g.name}</p>
+                  <IdTag value={g.id} />
+                </div>
+              </label>
+            ))}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={() => onSave(WA_GROUP_OPTIONS.filter((g) => picked.has(g.id)))}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 /** Bulk Change Priority — destination on top, selected developers listed current → destination. */
 function BulkPriorityDialog({ devs, onClose, onConfirm }: {
   devs: Developer[]
@@ -1114,8 +1382,17 @@ function BulkPriorityDialog({ devs, onClose, onConfirm }: {
                 <div key={d.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70")}>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-foreground">{d.name}</p>
-                    <IdTag value={String(d.id)} />
+                    <div className="flex items-center gap-1.5">
+                      <IdTag value={String(d.id)} />
+                      <span className="text-[10px] text-muted-foreground">
+                        <span className="font-medium text-foreground">{d.projectsTotal}</span> Projects · <span className="font-medium text-foreground">{d.phasesTotal}</span> Phases
+                      </span>
+                    </div>
                   </div>
+                  <div className="flex flex-shrink-0 items-center gap-1">
+                    {d.organizations.map((o) => <OrgChip key={o} org={o} />)}
+                  </div>
+                  <span className="h-4 w-px flex-shrink-0 bg-border" />
                   <StoryBadge value={d.priority} />
                   {dest !== "" && (
                     changes ? (
@@ -1293,12 +1570,13 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
                         <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
                         <IdTag value={p.id} />
                       </div>
-                      <StoryBadge value={p.listingStatus} />
-                      <PrimaryTag value={p.primaryStatus} />
-                      {/* current organizations of each project / phase */}
+                      {/* current organizations first, divider, then the status tags on the right */}
                       <div className="flex flex-shrink-0 items-center gap-1">
                         {p.organizations.map((o) => <OrgChip key={o} org={o} />)}
                       </div>
+                      <span className="h-4 w-px flex-shrink-0 bg-border" />
+                      <StoryBadge value={p.listingStatus} />
+                      <PrimaryTag value={p.primaryStatus} />
                     </div>
                   </div>
                 ))}
@@ -1383,17 +1661,26 @@ export interface WaGroupDev {
  * per-contact exclude and Admin ↔ Member toggles.
  * `mode="creation"` embeds it in the developer creation flow: create with or without the group.
  */
-export function CreateWaGroupDialog({ dev, devContacts, mode = "action", onClose, onCreate, onSkip }: {
+export function CreateWaGroupDialog({ dev, devContacts, mode = "action", linkedIds = [], onClose, onCreate, onLink, onSkip }: {
   dev: WaGroupDev
   /** The developer's own contacts (from its Contacts tab) — offered alongside the default Nawy contacts.
    *  Absent in creation mode, since the developer's contacts don't exist yet at that point. */
   devContacts?: DevContact[]
   mode?: "action" | "creation"
+  /** Ids of groups already linked to this developer — shown as Linked and unpickable. */
+  linkedIds?: string[]
   onClose: () => void
   onCreate: (members: WaContact[], groupName: string, groupImage: string) => void
+  /** action mode — link an already-existing WhatsApp group instead of creating one */
+  onLink?: (group: { id: string; name: string; image: string }) => void
   /** creation mode only — create the developer without a WhatsApp group */
   onSkip?: () => void
 }) {
+  // Link to an existing group vs create a new one (action mode only)
+  const [choice, setChoice] = useState<"link" | "create">(mode === "action" && onLink ? "link" : "create")
+  const [pickedGroupId, setPickedGroupId] = useState("")
+  const [groupQ, setGroupQ] = useState("")
+  const pickedGroup = WA_GROUP_OPTIONS.find((g) => g.id === pickedGroupId)
   type GroupMember = WaContact & { source: "Nawy" | "Developer" }
   const [members, setMembers] = useState<GroupMember[]>([
     ...WA_CONTACTS.map((c) => ({ ...c, source: "Nawy" as const })),
@@ -1413,7 +1700,7 @@ export function CreateWaGroupDialog({ dev, devContacts, mode = "action", onClose
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader><DialogTitle>Create WhatsApp Group</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{mode === "action" ? "Link to Whatsapp Group" : "Create WhatsApp Group"}</DialogTitle></DialogHeader>
 
         {/* Developer context: image, name + ID, listing status, projects listed vs total */}
         <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
@@ -1430,6 +1717,61 @@ export function CreateWaGroupDialog({ dev, devContacts, mode = "action", onClose
           </div>
         </div>
 
+        {/* Link an existing group vs create a new one */}
+        {mode === "action" && onLink && (
+          <div className="flex gap-2">
+            {([["link", "Link to existing group"], ["create", "Create new group"]] as const).map(([k, label]) => (
+              <button
+                key={k} type="button" onClick={() => setChoice(k)}
+                className={cn(
+                  "flex-1 rounded-lg border py-2 text-sm font-medium transition-colors",
+                  choice === k ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/40" : "border-border text-muted-foreground hover:border-muted-foreground/40",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {choice === "link" && onLink && (
+          <div className="space-y-1.5">
+            <div className="text-xs font-medium text-foreground">Pick a WhatsApp group</div>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input value={groupQ} onChange={(e) => setGroupQ(e.target.value)} placeholder="Group name or ID…" className="h-8 pl-8 text-sm" />
+            </div>
+            <div className="max-h-60 overflow-y-auto rounded-lg border border-border">
+              {WA_GROUP_OPTIONS
+                .filter((g) => !groupQ.trim() || `${g.name} ${g.id}`.toLowerCase().includes(groupQ.trim().toLowerCase()))
+                .map((g, i) => {
+                  const already = linkedIds.includes(g.id)
+                  const sel = pickedGroupId === g.id
+                  return (
+                    <button
+                      key={g.id} type="button" disabled={already}
+                      onClick={() => setPickedGroupId(g.id)}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors",
+                        i > 0 && "border-t border-border/70",
+                        already ? "cursor-not-allowed opacity-50" : sel ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : "hover:bg-muted/40",
+                      )}
+                    >
+                      <img src={g.image} alt="" className="h-9 w-9 flex-shrink-0 rounded-lg border border-border object-cover" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{g.name}</p>
+                        <IdTag value={g.id} />
+                      </div>
+                      {already && <span className="inline-flex items-center rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Linked</span>}
+                    </button>
+                  )
+                })}
+            </div>
+          </div>
+        )}
+
+        {choice === "create" && (
+        <>
         {/* The group that will be created — name and image are editable before creation */}
         <div className="space-y-1.5">
           <div className="text-xs font-medium text-foreground">Group to be created</div>
@@ -1496,6 +1838,8 @@ export function CreateWaGroupDialog({ dev, devContacts, mode = "action", onClose
             })}
           </div>
         </div>
+        </>
+        )}
 
         <DialogFooter>
           {mode === "creation" ? (
@@ -1503,6 +1847,13 @@ export function CreateWaGroupDialog({ dev, devContacts, mode = "action", onClose
               <Button variant="outline" size="sm" onClick={onSkip}>Create Developer Only</Button>
               <Button size="sm" disabled={included.length === 0 || !groupName.trim()} onClick={() => onCreate(included, groupName.trim(), groupImage)}>
                 <MessageCircle className="mr-1.5 h-3.5 w-3.5" />Create Developer &amp; Group
+              </Button>
+            </>
+          ) : choice === "link" ? (
+            <>
+              <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+              <Button size="sm" disabled={!pickedGroup} onClick={() => pickedGroup && onLink?.(pickedGroup)}>
+                <MessageCircle className="mr-1.5 h-3.5 w-3.5" />Link Group
               </Button>
             </>
           ) : (

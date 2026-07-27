@@ -12,7 +12,8 @@ export interface Developer {
   priority: DevPriority
   listingStatus: DevListingStatus
   organizations: DevOrg[]
-  whatsappGroup: { id: string; name: string; image: string } | null
+  /** A developer can be linked to several WhatsApp groups (empty = not linked). */
+  whatsappGroups: { id: string; name: string; image: string }[]
   projectsListed: number
   projectsTotal: number
   phasesListed: number
@@ -69,6 +70,9 @@ const WA_GROUPS: Array<{ id: string; name: string; image: string } | null> = [
   { id: "WA-8830", name: "New Launches", image: "/aerial-view-masterplan-residential-development-blu.jpg" },
 ]
 
+/** All linkable WhatsApp groups — the picker catalog. */
+export const WA_GROUP_OPTIONS = WA_GROUPS.filter((g): g is NonNullable<(typeof WA_GROUPS)[number]> => g !== null)
+
 // Deterministic pseudo-random so SSR/CSR match (no Date.now / Math.random).
 export const DEVELOPERS: Developer[] = NAMES.map((n, i) => {
   const listed = (i * 7) % 9
@@ -87,7 +91,9 @@ export const DEVELOPERS: Developer[] = NAMES.map((n, i) => {
     priority: PRIORITIES[i % PRIORITIES.length],
     listingStatus: i % 3 === 0 ? "Active" : "Hidden",
     organizations: i % 4 === 0 ? ["Nawy", "Partners"] : i % 4 === 1 ? ["Partners"] : ["Nawy"],
-    whatsappGroup: WA_GROUPS[i % WA_GROUPS.length],
+    // Some developers carry two groups so the multi-group UI has demo rows.
+    whatsappGroups: [WA_GROUPS[i % WA_GROUPS.length], i % 6 === 1 ? WA_GROUPS[5] : null]
+      .filter((g, idx, arr): g is NonNullable<(typeof WA_GROUPS)[number]> => g !== null && arr.findIndex((x) => x?.id === g.id) === idx),
     projectsListed: listed,
     projectsTotal: total,
     phasesListed: Math.max(0, phasesTotal - ((i * 2) % 3)),
