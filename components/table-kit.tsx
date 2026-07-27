@@ -708,12 +708,14 @@ export function MultiSortControl({ fields, sorts, onChange }: {
 }
 
 // ── Project dropdown grouped by main project (design system) ──────────────────
-export type ProjectTreeNode = {
+export type ProjectTreeLeaf = {
   id: string
   name: string
   status?: "Active" | "Hidden"
-  phases: { id: string; name: string; status?: "Active" | "Hidden" }[]
+  primaryStatus?: string
+  entryType?: string
 }
+export type ProjectTreeNode = ProjectTreeLeaf & { phases: ProjectTreeLeaf[] }
 /** Single-mode selection: the main project itself or one phase. */
 export type ProjectTreeSelection = { kind: "project" | "phase"; id: string; label: string; projectIds: string[] } | null
 
@@ -725,6 +727,29 @@ function ProjStatusTag({ status }: { status?: "Active" | "Hidden" }) {
       status === "Active" ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-600",
     )}>
       {status}
+    </span>
+  )
+}
+
+const PRIMARY_TAG_TONE: Record<string, string> = {
+  Launch: "border-green-200 bg-green-50 text-green-700",
+  "On-Sale": "border-emerald-200 bg-emerald-50 text-emerald-700",
+  "On-Hold": "border-orange-200 bg-orange-50 text-orange-700",
+  "Sold-Off": "border-red-200 bg-red-50 text-red-600",
+}
+const ENTRY_TAG_TONE: Record<string, string> = {
+  Automatic: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  Manual: "border-blue-200 bg-blue-50 text-blue-700",
+}
+
+/** Listing · Primary · Entry-type tags for one project/phase row. */
+function ProjRowTags({ node }: { node: ProjectTreeLeaf }) {
+  const tag = "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded border px-1.5 py-px text-[10px] font-medium"
+  return (
+    <span className="flex flex-shrink-0 items-center gap-1">
+      <ProjStatusTag status={node.status} />
+      {node.primaryStatus && <span className={cn(tag, PRIMARY_TAG_TONE[node.primaryStatus] ?? "border-border bg-muted text-muted-foreground")}>{node.primaryStatus}</span>}
+      {node.entryType && <span className={cn(tag, ENTRY_TAG_TONE[node.entryType] ?? "border-border bg-muted text-muted-foreground")}>{node.entryType}</span>}
     </span>
   )
 }
@@ -793,6 +818,21 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
     ? (values.length === 0 ? label : values.length === 1 ? nameOf(values[0]) : `${label} · ${values.length}`)
     : (value ? value.label : label)
 
+  /** Removable chip for one selected project/phase — used in the trigger and the panel. */
+  const SelectedChip = ({ id, className: chipClass }: { id: string; className?: string }) => (
+    <span className={cn("inline-flex max-w-[140px] items-center gap-1 rounded border border-border bg-card px-1.5 py-px text-[11px] text-foreground", chipClass)}>
+      <span className="truncate">{nameOf(id)}</span>
+      <span
+        role="button"
+        title="Remove"
+        onClick={(e) => { e.stopPropagation(); toggleIds([id], false) }}
+        className="flex-shrink-0 text-muted-foreground hover:text-foreground"
+      >
+        <X className="h-3 w-3" />
+      </span>
+    </span>
+  )
+
   const CheckBox = ({ state }: { state: "on" | "off" | "some" }) => (
     <span className={cn(
       "flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-sm border transition-colors",
@@ -815,23 +855,43 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex h-8 w-full items-center justify-between gap-1.5 rounded-md border bg-white px-2.5 text-sm transition-colors hover:bg-muted/50",
+          "flex min-h-8 w-full items-center justify-between gap-1.5 rounded-md border bg-white px-2.5 py-1 text-sm transition-colors hover:bg-muted/50",
           active ? "border-primary text-primary" : "border-input text-foreground",
         )}
       >
-        <span className="truncate text-left">{triggerLabel}</span>
+        {/* Multi mode shows the picks as removable chips so long selections stay reversible in place */}
+        {multi && values.length > 0 ? (
+          <span className="flex min-w-0 flex-wrap items-center gap-1">
+            {values.slice(0, 2).map((id) => <SelectedChip key={id} id={id} />)}
+            {values.length > 2 && <span className="text-[11px] text-muted-foreground">+{values.length - 2} more</span>}
+          </span>
+        ) : (
+          <span className="truncate text-left">{triggerLabel}</span>
+        )}
         {valueExtra && <span className="ml-auto flex flex-shrink-0 items-center gap-1">{valueExtra}</span>}
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-border bg-card shadow-md">
+        <div className="absolute left-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-border bg-card shadow-md">
           <div className="border-b border-border p-1.5">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
               <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects or phases…" className="w-full rounded-md border border-input bg-white py-1 pl-7 pr-2 text-[13px] outline-none placeholder:text-muted-foreground/60" />
             </div>
           </div>
+          {/* Selected picks stay visible and removable while browsing thousands of projects */}
+          {multi && values.length > 0 && (
+            <div className="border-b border-border bg-muted/30 p-1.5">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-muted-foreground">Selected · {values.length}</span>
+                <button onClick={() => onValuesChange?.([])} className="text-[11px] text-muted-foreground hover:text-foreground">Clear all</button>
+              </div>
+              <div className="flex max-h-20 flex-wrap gap-1 overflow-y-auto">
+                {values.map((id) => <SelectedChip key={id} id={id} />)}
+              </div>
+            </div>
+          )}
           <div className="max-h-64 overflow-y-auto py-0.5">
             <button
               onClick={() => { if (multi) onValuesChange?.([]); else { onChange?.(null); setOpen(false); setQ("") } }}
@@ -864,7 +924,7 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
                       {p.phases.length > 0 && (
                         <span className="whitespace-nowrap text-[10px] text-muted-foreground">{p.phases.length} Phase{p.phases.length === 1 ? "" : "s"}</span>
                       )}
-                      <ProjStatusTag status={p.status} />
+                      <ProjRowTags node={p} />
                     </span>
                   </button>
                   {/* Main project only — multi mode: just the main id, no phases */}
@@ -894,7 +954,7 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
                           <span className="block truncate text-[13px] leading-tight">{ph.name}</span>
                           <span className="font-mono text-[10px] text-muted-foreground">{[showId(ph.id), `in ${p.name}`].filter(Boolean).join(" · ")}</span>
                         </span>
-                        <ProjStatusTag status={ph.status} />
+                        <ProjRowTags node={ph} />
                       </button>
                     )
                   })}

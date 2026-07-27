@@ -272,3 +272,25 @@ function buildRows(): ProjectRow[] {
 
 export const PROJECTS: ProjectRow[] = buildRows()
 export const PROJECT_DEVELOPERS = DEVELOPERS
+
+/**
+ * Canonical node list for the shared ProjectTreeSelect — mains with their phases,
+ * each carrying listing status, primary status and entry type so every project
+ * dropdown in the app shows the same information.
+ */
+export function buildProjectTreeNodes(filter?: (p: ProjectRow) => boolean) {
+  return PROJECTS.filter((p) => !p.isPhase && (!filter || filter(p))).map((p) => ({
+    id: p.id,
+    name: p.name,
+    status: p.listingStatus,
+    primaryStatus: p.primaryStatus,
+    entryType: p.entryType,
+    phases: PROJECTS.filter((ph) => ph.isPhase && ph.mainProject?.id === p.id).map((ph) => ({
+      id: ph.id,
+      name: ph.name,
+      status: ph.listingStatus,
+      primaryStatus: ph.primaryStatus,
+      entryType: ph.entryType,
+    })),
+  }))
+}
