@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react"
 import {
-  ArrowLeft, Banknote, Bath, BedDouble, Boxes, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft,
-  ChevronRight, Columns3, Eye, EyeOff, FileText, Grid3X3, GripVertical, Home, Info, LayoutTemplate,
-  Maximize2, Paintbrush, Pencil, Plus, RefreshCw, Ruler, ScanSearch, Search, Shuffle, Sparkles, Trash2,
-  TriangleAlert, Wallet, Wand2, X,
+  ArrowLeft, Banknote, Bath, BedDouble, Boxes, CalendarClock, CalendarDays, CheckCircle2, ChevronDown,
+  ChevronLeft, ChevronRight, Columns3, Eye, EyeOff, FileText, Grid3X3, GripVertical, Home, Info,
+  LayoutTemplate, Maximize2, Paintbrush, Pencil, Plus, RefreshCw, Ruler, ScanSearch, Search, Shuffle,
+  Sparkles, Trash2, TriangleAlert, User as UserIcon, Wallet, Wand2, X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -15,8 +15,8 @@ import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
-import { IdTag } from "@/components/table-kit"
-import { ColorTag } from "@/components/projects-list-page"
+import { IdTag, DeveloperSelect, ProjectTreeSelect, type ProjectTreeNode } from "@/components/table-kit"
+import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
 import { LinkedPlanCard, PAYMENT_PLAN_GROUPS, type PlanCardData } from "@/components/all-properties-page"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
 import { FullscreenViewer } from "@/components/render-images-page"
@@ -24,7 +24,7 @@ import { FilePreviewDialog, type PreviewFile } from "@/components/file-preview-d
 import { OfferingCtxCell, IdCopy } from "@/components/launch-details-page"
 import { FloorPlanCard, FLOOR_PLANS0, type FloorPlan } from "@/components/floor-plans-page"
 import { EntryProjectsDrawer } from "@/components/ingestion-entries-page"
-import { PROJECT_DEVELOPERS } from "@/lib/projects-mock"
+import { PROJECT_DEVELOPERS, PROJECTS } from "@/lib/projects-mock"
 import type { IngestionEntry } from "@/lib/ingestion-mock"
 
 /* ------------------------------------------------------------------ */
@@ -384,63 +384,66 @@ export function FilePreviewCard({ entry }: { entry: IngestionEntry }) {
 
 export function StepInitialSetup({ entry }: { entry: IngestionEntry }) {
   const [prevIdx, setPrevIdx] = useState(0)
+  const [devId, setDevId] = useState(entry.developer?.id ?? "")
+  const [projIds, setProjIds] = useState<string[]>(entry.projects.map((p) => p.id))
+  const projTree = useMemo<ProjectTreeNode[]>(
+    () => PROJECTS.filter((p) => !p.isPhase).map((p) => ({
+      id: p.id,
+      name: p.name,
+      phases: PROJECTS.filter((ph) => ph.isPhase && ph.mainProject?.id === p.id).map((ph) => ({ id: ph.id, name: ph.name })),
+    })),
+    [],
+  )
 
   return (
-    <div className="space-y-4">
-      <SectionCard>
-        <div className="space-y-4 p-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div><p className="text-sm font-semibold text-foreground">Entry ID</p><p className="mt-0.5 text-sm text-muted-foreground">{entry.id}</p></div>
-            <div><p className="text-sm font-semibold text-foreground">File name</p><p className="mt-0.5 text-sm text-muted-foreground">{entry.fileName}</p></div>
-            <div><p className="text-sm font-semibold text-foreground">Source</p><p className="mt-0.5 text-sm text-muted-foreground">Uploaded from {entry.source}</p></div>
-          </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+    <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1fr_400px]">
+      {/* Left — the uploaded file preview */}
+      <FilePreviewCard entry={entry} />
+
+      {/* Right — setup controls & previous-entry comparison */}
+      <div className="space-y-4">
+        <SectionCard title="Setup">
+          <div className="space-y-3 p-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              <div><p className="text-xs text-muted-foreground">Entry ID</p><p className="truncate text-sm font-medium text-foreground">{entry.id}</p></div>
+              <div><p className="text-xs text-muted-foreground">Source</p><p className="truncate text-sm font-medium text-foreground">Uploaded from {entry.source}</p></div>
+            </div>
             <div>
               <p className="mb-1.5 text-sm font-semibold text-foreground">Developer</p>
-              <Select defaultValue={entry.developer?.id}>
-                <SelectTrigger className="h-9 w-full"><SelectValue placeholder="Select developer" /></SelectTrigger>
-                <SelectContent>
-                  {(entry.developer ? [entry.developer] : PROJECT_DEVELOPERS).map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <DeveloperSelect developers={PROJECT_DEVELOPERS} value={devId} onChange={setDevId} className="w-full" />
             </div>
             <div>
               <p className="mb-1.5 text-sm font-semibold text-foreground">Projects</p>
-              <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1.5">
-                {entry.projects.length === 0 && <span className="text-sm italic text-muted-foreground">Not selected yet</span>}
-                {entry.projects.slice(0, 3).map((p) => <ColorTag key={p.id} value={p.name} />)}
-                {entry.projects.length > 3 && <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>+{entry.projects.length - 3}</span>}
-              </div>
+              <ProjectTreeSelect multi projects={projTree} values={projIds} onValuesChange={setProjIds} className="w-full" />
             </div>
             <div>
               <p className="mb-1.5 text-sm font-semibold text-foreground">Property categories</p>
               <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1.5">
+                {entry.categories.length === 0 && <span className="text-sm italic text-muted-foreground">Not selected yet</span>}
                 {entry.categories.map((c) => <ColorTag key={c} value={c} />)}
               </div>
             </div>
           </div>
-        </div>
-      </SectionCard>
+        </SectionCard>
 
-      {/* Previous entry comparison */}
-      <SectionCard>
-        <div className="p-4">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h3 className="text-base font-semibold text-foreground">Previous Entry Comparison</h3>
-              <button className="text-sm text-primary underline-offset-2 hover:underline" onClick={() => toast.info("Opening previous entry is coming soon")}>
-                Previous Entry ID: 92303210990100
-              </button>
+        {/* Previous entry comparison */}
+        <SectionCard>
+          <div className="p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h3 className="text-base font-semibold text-foreground">Previous Entry Comparison</h3>
+                <button className="text-sm text-primary underline-offset-2 hover:underline" onClick={() => toast.info("Opening previous entry is coming soon")}>
+                  Previous Entry ID: 92303210990100
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Button variant="ghost" size="icon" className="h-7 w-7" disabled={prevIdx === 0} onClick={() => setPrevIdx((v) => v - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+                <span className="text-sm text-muted-foreground"><b className="text-foreground">{prevIdx + 1}</b>/5</span>
+                <Button variant="ghost" size="icon" className="h-7 w-7" disabled={prevIdx === 4} onClick={() => setPrevIdx((v) => v + 1)}><ChevronRight className="h-4 w-4" /></Button>
+                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => toast.success("Comparison refreshed")}><RefreshCw className="h-4 w-4" /></Button>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={prevIdx === 0} onClick={() => setPrevIdx((v) => v - 1)}><ChevronLeft className="h-4 w-4" /></Button>
-              <span className="text-sm text-muted-foreground"><b className="text-foreground">{prevIdx + 1}</b>/5</span>
-              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={prevIdx === 4} onClick={() => setPrevIdx((v) => v + 1)}><ChevronRight className="h-4 w-4" /></Button>
-              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => toast.success("Comparison refreshed")}><RefreshCw className="h-4 w-4" /></Button>
-            </div>
-          </div>
-          <div className="mt-3 grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="space-y-3">
+            <div className="mt-3 space-y-3">
               <div>
                 <p className="mb-1.5 text-sm font-semibold text-foreground">Sheet Differences</p>
                 <div className="flex flex-wrap gap-1.5">
@@ -449,28 +452,26 @@ export function StepInitialSetup({ entry }: { entry: IngestionEntry }) {
                   <span className={cn(TAG, "border-red-200 bg-red-50 text-red-700")}><b>1</b> Tab removed</span>
                 </div>
               </div>
-              <div><p className="text-sm font-semibold text-foreground">File name</p><p className="text-sm text-muted-foreground">ava all projects 12-1-2025-NSPS.xlc</p></div>
-              <div><p className="text-sm font-semibold text-foreground">Source</p><p className="text-sm text-muted-foreground">WhatsApp</p></div>
-            </div>
-            <div className="space-y-1.5 text-sm">
-              {[
-                ["Projects", "Uptown, Mivida, Marassi, Soul +2"],
-                ["Property category", "Commercial, residential"],
-                ["Created by", "Omar Mouneer"],
-                ["Creation date", "22 Oct. 2025  -  2:34 PM"],
-              ].map(([k, v]) => (
-                <div key={k} className="flex items-center justify-between gap-4"><span className="text-muted-foreground">{k}</span><span className="text-right font-medium text-foreground">{v}</span></div>
-              ))}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="space-y-1.5 border-t border-border pt-3 text-sm">
+                {[
+                  ["File name", "ava all projects 12-1-2025-NSPS.xlc"],
+                  ["Source", "WhatsApp"],
+                  ["Projects", "Uptown, Mivida, Marassi, Soul +2"],
+                  ["Property category", "Commercial, residential"],
+                  ["Created by", "Omar Mouneer"],
+                  ["Creation date", "22 Oct. 2025  -  2:34 PM"],
+                ].map(([k, v]) => (
+                  <div key={k} className="flex items-center justify-between gap-4"><span className="text-muted-foreground">{k}</span><span className="truncate text-right font-medium text-foreground">{v}</span></div>
+                ))}
+              </div>
+              <div className="space-y-1.5 border-t border-border pt-3">
                 <span className="text-sm font-semibold text-foreground">Units Ingested: 420 Units</span>
                 <UnitBreakdownChips />
               </div>
             </div>
           </div>
-        </div>
-      </SectionCard>
-
-      <FilePreviewCard entry={entry} />
+        </SectionCard>
+      </div>
     </div>
   )
 }
@@ -649,38 +650,13 @@ function StepTransformation() {
   }
 
   return (
-    <div className="space-y-4">
-      <SectionCard
-        title="Data transformation"
-        count={`${items.length} rules`}
-        right={<Button size="sm" className="h-8 gap-1.5" onClick={() => setAdding(true)}><Plus className="h-3.5 w-3.5" />Add Transformation</Button>}
-      >
-        {items.length === 0 ? (
-          <p className="px-4 py-10 text-center text-sm text-muted-foreground">No transformations yet — add one to split, merge or enrich unit columns.</p>
-        ) : (
-          <div className="divide-y divide-border">
-            {items.map((t) => (
-              <div key={t.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                <span className={cn(TAG, TRANSFORM_TONE[t.type])}>{t.type}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">{t.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">Where {t.condition}</p>
-                </div>
-                <IdTag value={t.id} />
-                <span className={cn(TAG, "border-blue-200 bg-blue-100 text-blue-700")}>{t.units} Units</span>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => { setItems((prev) => prev.filter((x) => x.id !== t.id)); toast.success("Transformation removed") }}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </SectionCard>
-
+    <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1fr_400px]">
+      {/* Left — sheet preview */}
       <SectionCard title="Sheet preview" count="220 Units">
         <MiniSheet
           cols={["Unit ID", "Unit Type Code", "Category", "Project", "Delivery", "Area"]}
-          rows={SHEET_ROWS.slice(0, 10)}
+          rows={SHEET_ROWS}
+          maxHeight="max-h-[560px]"
           toneOf={() => ""}
           renderCell={(c, r) => {
             switch (c) {
@@ -694,6 +670,40 @@ function StepTransformation() {
             }
           }}
         />
+      </SectionCard>
+
+      {/* Right — transformation rules */}
+      <SectionCard
+        title="Data transformation"
+        count={`${items.length} rules`}
+        right={<Button size="sm" className="h-8 gap-1.5" onClick={() => setAdding(true)}><Plus className="h-3.5 w-3.5" />Add</Button>}
+      >
+        {items.length === 0 ? (
+          <p className="px-4 py-10 text-center text-sm text-muted-foreground">No transformations yet — add one to split, merge or enrich unit columns.</p>
+        ) : (
+          <div className="divide-y divide-border">
+            {items.map((t) => (
+              <div key={t.id} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={cn(TAG, TRANSFORM_TONE[t.type])}>{t.type}</span>
+                      <p className="truncate text-sm font-medium text-foreground">{t.name}</p>
+                    </div>
+                    <IdTag value={t.id} />
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-1">
+                    <span className={cn(TAG, "border-blue-200 bg-blue-100 text-blue-700")}>{t.units} Units</span>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-600" onClick={() => { setItems((prev) => prev.filter((x) => x.id !== t.id)); toast.success("Transformation removed") }}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">Where {t.condition}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </SectionCard>
 
       {/* Add Transformation drawer */}
@@ -1336,10 +1346,20 @@ function StepGrouping({ entry }: { entry: IngestionEntry }) {
 /* Shared wizard chrome — used by both the sheets and manual entry details pages. */
 export type WizardStep = { key: string; icon: React.ComponentType<{ className?: string }> }
 
-export function WizardStepper({ steps, step, onStep }: { steps: readonly WizardStep[]; step: number; onStep: (i: number) => void }) {
+export function WizardStepper({ steps, step, onStep, entry }: { steps: readonly WizardStep[]; step: number; onStep: (i: number) => void; entry?: IngestionEntry }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-border bg-card px-6 py-4">
-      <div className="flex min-w-max items-start">
+    <div className="rounded-xl border border-border bg-card px-6 py-4">
+      {entry && (
+        <div className="mb-3 flex flex-wrap items-center justify-end gap-x-6 gap-y-1 border-b border-border pb-3 text-sm">
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <UserIcon className="h-3.5 w-3.5" />Created by <b className="font-medium text-foreground">{entry.uploadedBy}</b>
+          </span>
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <CalendarClock className="h-3.5 w-3.5" />Created at <b className="font-medium text-foreground">{fmtDateTime(entry.createdAt)}</b>
+          </span>
+        </div>
+      )}
+      <div className="flex min-w-max items-start overflow-x-auto">
         {steps.map((s, i) => {
           const done = i < step
           const active = i === step
@@ -1433,8 +1453,9 @@ export function SheetEntryDetailsPage({ entry, onBack }: { entry: IngestionEntry
     <div className="flex min-h-screen flex-col bg-secondary/40">
       <div className="flex-1 space-y-4 p-6">
         <WizardHeader entry={entry} listLabel="Automatic Sheets Entries" pageLabel="Sheets processing" onBack={onBack} />
-        <WizardStepper steps={STEPS} step={step} onStep={setStep} />
-        <EntryContextStrip entry={entry} />
+        <WizardStepper steps={STEPS} step={step} onStep={setStep} entry={entry} />
+        {/* The Initial Setup step owns these fields itself — no duplicate strip there */}
+        {step > 0 && <EntryContextStrip entry={entry} />}
 
         {step === 0 && <StepInitialSetup entry={entry} />}
         {step === 1 && <StepSheetPreparation />}
