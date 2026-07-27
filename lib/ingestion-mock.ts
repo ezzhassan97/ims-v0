@@ -20,8 +20,10 @@ export const MANUAL_FILE_TYPES = ["Text", "PDF", "Image"] as const
 export interface IngestionEntry {
   id: string
   fileName: string
-  developer: { id: string; name: string; logo: string }
-  /** Projects covered by the entry — phases carry their main project name for grouping */
+  /** null while the entry is still in initial setup and no developer was selected yet */
+  developer: { id: string; name: string; logo: string } | null
+  /** Projects covered by the entry — phases carry their main project name for grouping.
+   *  A phase may be selected without its main project (the parent is then only implied). */
   projects: { id: string; name: string; main: string | null }[]
   stage: string
   uploadedBy: string
@@ -61,15 +63,20 @@ function buildEntries(mode: IngestionMode): IngestionEntry[] {
     const stage = stages[i % stages.length]
     const fileType = fileTypes[i % fileTypes.length]
     const slug = main.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")
+    // First-stage entries haven't finished initial setup: no developer/projects yet.
+    const isFirstStage = stage === stages[0]
+    const allRefs = [
+      { id: main.id, name: main.name, main: null as string | null },
+      ...phases.map((p) => ({ id: p.id, name: p.name, main: main.name as string | null })),
+      ...(extraMain ? [{ id: extraMain.id, name: extraMain.name, main: null as string | null }] : []),
+    ]
+    // i % 4 === 1: phases selected without their main project — the parent is only implied
+    const projectRefs = i % 4 === 1 ? allRefs.filter((p) => p.id !== main.id) : allRefs
     return {
       id: `${prefix}-${String(1001 + i)}`,
       fileName: `${slug}-${mode === "sheets" ? "inventory" : "listing"}-${String(i + 1).padStart(2, "0")}.${EXT[fileType]}`,
-      developer: dev,
-      projects: [
-        { id: main.id, name: main.name, main: null },
-        ...phases.map((p) => ({ id: p.id, name: p.name, main: main.name })),
-        ...(extraMain ? [{ id: extraMain.id, name: extraMain.name, main: null }] : []),
-      ],
+      developer: isFirstStage ? null : dev,
+      projects: isFirstStage ? [] : projectRefs,
       stage,
       uploadedBy: USERS[i % USERS.length],
       fileType,

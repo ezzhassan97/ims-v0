@@ -78,7 +78,7 @@ const GROUP_LABEL: Record<GroupByKey, string> = {
 }
 function groupKeyOf(e: IngestionEntry, k: GroupByKey): string {
   switch (k) {
-    case "developer": return e.developer.name
+    case "developer": return e.developer?.name ?? "No developer"
     case "stage": return e.stage
     case "user": return e.uploadedBy
     case "fileType": return e.fileType
@@ -123,9 +123,16 @@ function StatCard({ icon, label, value, total, className }: { icon: React.ReactN
 
 /** Projects cell — first chips + "+N", tooltip lists every project grouped by main project. */
 function ProjectsCell({ projects }: { projects: IngestionEntry["projects"] }) {
+  if (projects.length === 0) return <span className="text-sm italic text-muted-foreground">Not selected yet</span>
+  // Group by parent — a phase may be in the entry without its main project (implied parent)
+  const mainNames = [...new Set(projects.map((p) => p.main ?? p.name))]
+  const groups = mainNames.map((name) => ({
+    name,
+    direct: projects.find((p) => p.main === null && p.name === name) ?? null,
+    phases: projects.filter((p) => p.main === name),
+  }))
   const mains = projects.filter((p) => p.main === null)
-  const groups = mains.map((m) => ({ main: m, phases: projects.filter((p) => p.main === m.name) }))
-  const shown = mains.slice(0, 2)
+  const shown = (mains.length > 0 ? mains : projects).slice(0, 2)
   const hidden = projects.length - shown.length
   return (
     <TooltipProvider delayDuration={150}>
@@ -138,9 +145,9 @@ function ProjectsCell({ projects }: { projects: IngestionEntry["projects"] }) {
         </TooltipTrigger>
         <TooltipContent side="bottom" className="max-w-xs p-3">
           <div className="space-y-2">
-            {groups.map(({ main, phases }) => (
-              <div key={main.id}>
-                <p className="text-xs font-semibold">{main.name}</p>
+            {groups.map(({ name, direct, phases }) => (
+              <div key={name}>
+                <p className="text-xs font-semibold">{name}{!direct && <span className="ml-1 font-normal italic opacity-70">(not in entry)</span>}</p>
                 {phases.map((p) => <p key={p.id} className="pl-3 text-xs opacity-80">{p.name}</p>)}
               </div>
             ))}
@@ -184,6 +191,7 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [preview, setPreview] = useState<PreviewFile | null>(null)
   const [summaryEntry, setSummaryEntry] = useState<IngestionEntry | null>(null)
+  const [projectsDrawer, setProjectsDrawer] = useState<IngestionEntry | null>(null)
   const [archiveDlg, setArchiveDlg] = useState<{ entries: IngestionEntry[]; ignored: number } | null>(null)
 
   const activeFilterCount = [fileTypeF, sourceF].filter(Boolean).length + [developerF, projectF, stageF, categoryF].filter((a) => a.length > 0).length
@@ -193,7 +201,7 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
     const needle = q.trim().toLowerCase()
     let out = rows.filter((e) => {
       if (needle && !`${e.fileName} ${e.id}`.toLowerCase().includes(needle)) return false
-      if (developerF.length > 0 && !developerF.includes(e.developer.id)) return false
+      if (developerF.length > 0 && (!e.developer || !developerF.includes(e.developer.id))) return false
       if (projectF.length > 0 && !e.projects.some((p) => projectF.includes(p.id))) return false
       if (stageF.length > 0 && !stageF.includes(e.stage)) return false
       if (fileTypeF && e.fileType !== fileTypeF) return false
@@ -253,7 +261,7 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
 
   // Analytics — dynamic with the applied filters; finalized-scoped metrics per spec
   const fin = filtered.filter((e) => e.stage === "Finalized")
-  const finDevelopers = new Set(fin.map((e) => e.developer.id)).size
+  const finDevelopers = new Set(fin.map((e) => e.developer?.id).filter(Boolean)).size
   const finParents = new Set(fin.flatMap((e) => e.projects.map((p) => p.main ?? p.name))).size
   const groupedProps = fin.reduce((s, e) => s + e.groupedProperties, 0)
   const detailedProps = fin.reduce((s, e) => s + e.detailedProperties, 0)
@@ -281,7 +289,7 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
     const csvCell = (colId: string, e: IngestionEntry): string => {
       switch (colId) {
         case "fileName": return `${e.fileName} (${e.id})`
-        case "developer": return e.developer.name
+        case "developer": return e.developer?.name ?? ""
         case "projects": return e.projects.map((p) => p.name).join("; ")
         case "stage": return e.stage
         case "uploadedBy": return e.uploadedBy
@@ -317,6 +325,7 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
           </div>
         )
       case "developer":
+        if (!e.developer) return <span className="text-sm italic text-muted-foreground">Not selected yet</span>
         return (
           <div className="flex items-center gap-2.5" onClick={(ev) => ev.stopPropagation()}>
             <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{e.developer.logo}</span>
@@ -326,7 +335,21 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
             </div>
           </div>
         )
-      case "projects": return <ProjectsCell projects={e.projects} />
+      case "projects":
+        return (
+          <div className="flex items-center gap-1">
+            <ProjectsCell projects={e.projects} />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-foreground"
+              title="View entry projects"
+              onClick={(ev) => { ev.stopPropagation(); setProjectsDrawer(e) }}
+            >
+              <Eye className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )
       case "stage": return STAGE_TONE[e.stage] ? <span className={cn(TAG, STAGE_TONE[e.stage])}>{e.stage}</span> : <ColorTag value={e.stage} />
       case "uploadedBy":
         return (
@@ -390,9 +413,8 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
         </div>
 
         {/* Analytics — dynamic with the applied filters; property & time cards read finalized entries */}
-        {/* One row on xl: 8 cards on sheets, 7 on manual (no Detailed Properties there) */}
-        <div className={cn("grid grid-cols-2 gap-3 md:grid-cols-4", mode === "sheets" ? "xl:grid-cols-8" : "xl:grid-cols-7")}>
-          <StatCard icon={<FileStack className="h-4 w-4 text-primary" />} label="Total Entries" value={filtered.length} />
+        {/* One row on xl: 7 cards on sheets, 6 on manual (no Detailed Properties there) */}
+        <div className={cn("grid grid-cols-2 gap-3 md:grid-cols-4", mode === "sheets" ? "xl:grid-cols-7" : "xl:grid-cols-6")}>
           <StatCard icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} label="Finalized Entries" value={fin.length} />
           <StatCard icon={<Building2 className="h-4 w-4 text-blue-600" />} label="Developers" value={finDevelopers} />
           <StatCard icon={<FolderTree className="h-4 w-4 text-purple-600" />} label="Parent Projects" value={finParents} />
@@ -519,6 +541,7 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
 
         {preview && <FilePreviewDialog file={preview} onClose={() => setPreview(null)} />}
         <EntrySummarySheet entry={summaryEntry} onClose={() => setSummaryEntry(null)} />
+        <EntryProjectsDrawer entry={projectsDrawer} onClose={() => setProjectsDrawer(null)} />
         <ArchiveDialog dlg={archiveDlg} onClose={() => setArchiveDlg(null)} onConfirm={archiveConfirmed} />
 
         {/* All Filters drawer — same filters, order and state as the toolbar */}
@@ -670,6 +693,141 @@ function EntrySummarySheet({ entry, onClose }: { entry: IngestionEntry | null; o
               {SUMMARY_TYPES.map((r) => <DistRow key={r.label} label={r.label} right={`${r.pct}% (${r.units} units)`} pct={r.pct} color={r.color} />)}
             </div>
           </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+/* ── Entry projects drawer — projects & phases linked to one entry ──────────── */
+
+const LISTING_TONE: Record<string, string> = {
+  Active: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Hidden: "border-red-200 bg-red-100 text-red-600",
+}
+const PRIMARY_TONE: Record<string, string> = {
+  Launch: "border-green-200 bg-green-50 text-green-700",
+  "On-Sale": "border-emerald-200 bg-emerald-100 text-emerald-700",
+  "On-Hold": "border-orange-200 bg-orange-50 text-orange-700",
+  "Sold-Off": "border-red-200 bg-red-50 text-red-600",
+}
+const ENTRY_TYPE_TONE: Record<string, string> = {
+  Automatic: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Manual: "border-blue-200 bg-blue-100 text-blue-700",
+}
+const ORG_TONE: Record<string, string> = {
+  Nawy: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Partners: "border-blue-200 bg-blue-100 text-blue-700",
+}
+
+/** Status tags trio for a project/phase row, from the projects mock. */
+function ProjStatusTags({ id, name }: { id: string; name?: string }) {
+  const row = PROJECTS.find((r) => r.id === id) ?? (name ? PROJECTS.find((r) => !r.isPhase && r.name === name) : undefined)
+  if (!row) return null
+  return (
+    <div className="flex flex-shrink-0 flex-wrap items-center gap-1">
+      <span className={cn(TAG, LISTING_TONE[row.listingStatus])}>{row.listingStatus}</span>
+      <span className={cn(TAG, PRIMARY_TONE[row.primaryStatus])}>{row.primaryStatus}</span>
+      <span className={cn(TAG, ENTRY_TYPE_TONE[row.entryType])}>{row.entryType}</span>
+    </div>
+  )
+}
+
+export function EntryProjectsDrawer({ entry, onClose }: { entry: IngestionEntry | null; onClose: () => void }) {
+  if (!entry) return null
+  const dev = entry.developer
+  const devFull = dev ? PROJECT_DEVELOPERS.find((d) => d.id === dev.id) : undefined
+  const devOrg = dev ? (Number(dev.id.replace(/\D/g, "")) % 2 === 0 ? "Partners" : "Nawy") : null
+
+  // Group by parent project — mains not picked in the entry are only implied by their phases
+  const mainNames = [...new Set(entry.projects.map((p) => p.main ?? p.name))]
+  const groups = mainNames.map((name) => ({
+    name,
+    direct: entry.projects.find((p) => p.main === null && p.name === name) ?? null,
+    phases: entry.projects.filter((p) => p.main === name),
+  }))
+
+  return (
+    <Sheet open onOpenChange={(o) => !o && onClose()}>
+      <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <div className="border-b border-border bg-card px-5 py-4">
+          <div className="flex items-center gap-2">
+            <SheetTitle className="text-lg font-bold text-foreground">Entry projects</SheetTitle>
+            <span className={cn(TAG, "rounded-full border-blue-200 bg-blue-100 text-blue-700")}>{entry.projects.length}</span>
+          </div>
+          <SheetDescription className="sr-only">Projects and phases linked to this entry</SheetDescription>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          {/* Entry snippet */}
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+              <div>
+                <p className="text-xs text-muted-foreground">File</p>
+                <p className="truncate text-sm font-medium text-foreground" title={entry.fileName}>{entry.fileName}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Entry ID</p>
+                <IdTag value={entry.id} />
+              </div>
+              <div className="col-span-2 border-t border-border pt-3">
+                <p className="mb-1 text-xs text-muted-foreground">Developer</p>
+                {dev ? (
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{dev.logo}</span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{dev.name}</p>
+                      <IdTag value={dev.id} />
+                    </div>
+                    <div className="ml-auto flex flex-shrink-0 items-center gap-1">
+                      {devFull?.status && <span className={cn(TAG, LISTING_TONE[devFull.status])}>{devFull.status}</span>}
+                      {devOrg && <span className={cn(TAG, ORG_TONE[devOrg])}>{devOrg}</span>}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm italic text-muted-foreground">Not selected yet</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Projects grouped by main project */}
+          {entry.projects.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border px-4 py-12 text-center">
+              <FolderTree className="mx-auto h-8 w-8 text-muted-foreground/50" />
+              <p className="mt-2 text-sm font-semibold text-foreground">No projects selected yet</p>
+              <p className="text-xs text-muted-foreground">This entry is still in its initial setup — projects appear here once selected.</p>
+            </div>
+          ) : (
+            groups.map((g) => (
+              <div key={g.name} className={cn("overflow-hidden rounded-xl border", g.direct ? "border-border bg-card" : "border-dashed border-border bg-muted/30")}>
+                {/* Main project row — dashed + tagged when it wasn't picked in this entry */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className={cn("truncate text-sm font-semibold", g.direct ? "text-foreground" : "text-muted-foreground")}>{g.name}</p>
+                      {!g.direct && <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>Not in this entry</span>}
+                    </div>
+                    {g.direct && <IdTag value={g.direct.id} />}
+                  </div>
+                  {g.direct && <ProjStatusTags id={g.direct.id} name={g.name} />}
+                </div>
+                {g.phases.length > 0 && (
+                  <div className="divide-y divide-border">
+                    {g.phases.map((p) => (
+                      <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 pl-8 pr-4">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                          <IdTag value={p.id} />
+                        </div>
+                        <ProjStatusTags id={p.id} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </SheetContent>
     </Sheet>
