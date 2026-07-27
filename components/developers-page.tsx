@@ -1309,11 +1309,15 @@ function WaGroupsPickerDialog({ dev, onClose, onSave }: {
   const [picked, setPicked] = useState<Set<string>>(new Set(dev.whatsappGroups.map((g) => g.id)))
   const [q, setQ] = useState("")
   const toggle = (id: string) => setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  // Already-linked groups sort to the top (frozen at open so rows don't jump while ticking)
+  const [linkedFirst] = useState<Set<string>>(() => new Set(dev.whatsappGroups.map((g) => g.id)))
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader><DialogTitle>Link WhatsApp Groups</DialogTitle></DialogHeader>
-        <p className="text-xs text-muted-foreground">Pick the WhatsApp groups linked to <span className="font-medium text-foreground">{dev.name}</span> — a developer can have more than one group.</p>
+        <p className="text-xs text-muted-foreground">
+          Groups already linked to <span className="font-medium text-foreground">{dev.name}</span> appear at the top — the rest are unlinked WhatsApp groups; a developer can have more than one.
+        </p>
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Group name or ID…" className="h-8 pl-8 text-sm" />
@@ -1321,6 +1325,7 @@ function WaGroupsPickerDialog({ dev, onClose, onSave }: {
         <div className="max-h-64 overflow-y-auto rounded-lg border border-border">
           {WA_GROUP_OPTIONS
             .filter((g) => !q.trim() || `${g.name} ${g.id}`.toLowerCase().includes(q.trim().toLowerCase()))
+            .sort((a, b) => Number(linkedFirst.has(b.id)) - Number(linkedFirst.has(a.id)))
             .map((g, i) => (
               <label key={g.id} className={cn("flex cursor-pointer items-center gap-2.5 px-3 py-2 transition-colors hover:bg-muted/40", i > 0 && "border-t border-border/70")}>
                 <Checkbox checked={picked.has(g.id)} onCheckedChange={() => toggle(g.id)} className="h-4 w-4 flex-shrink-0" />
