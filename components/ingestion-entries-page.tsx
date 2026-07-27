@@ -162,8 +162,18 @@ function ProjectsCell({ projects }: { projects: IngestionEntry["projects"] }) {
  * Shared Data Ingestion entries table — Automatic Sheets Entries & Manual Grouped
  * Entries are the same experience with different titles, stages and file types.
  */
-export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; onView?: (entry: IngestionEntry) => void }) {
-  const [rows, setRows] = useState<IngestionEntry[]>(() => (mode === "sheets" ? SHEET_ENTRIES : MANUAL_ENTRIES))
+export function IngestionEntriesPage({ mode, onView, embedded = false, scopeProjectIds }: {
+  mode: IngestionMode
+  onView?: (entry: IngestionEntry) => void
+  /** Embedded in a details tab — page title/subtitle come from the host. */
+  embedded?: boolean
+  /** Only entries touching these project/phase ids (a main project passes itself + its phases). */
+  scopeProjectIds?: string[]
+}) {
+  const scoped = scopeProjectIds && scopeProjectIds.length > 0
+    ? (mode === "sheets" ? SHEET_ENTRIES : MANUAL_ENTRIES).filter((e) => e.projects.some((p) => scopeProjectIds.includes(p.id)))
+    : (mode === "sheets" ? SHEET_ENTRIES : MANUAL_ENTRIES)
+  const [rows, setRows] = useState<IngestionEntry[]>(() => scoped)
   const stages = mode === "sheets" ? [...SHEET_STAGES] : [...MANUAL_STAGES]
   const fileTypes = mode === "sheets" ? [...SHEET_FILE_TYPES] : [...MANUAL_FILE_TYPES]
   const title = mode === "sheets" ? "Automatic Sheets Entries" : "Manual Grouped Entries"
@@ -418,12 +428,14 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
   }
 
   return (
-    <div className="min-h-screen bg-secondary/40">
-      <div className="space-y-4 p-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">{title}</h1>
-          <p className="text-sm text-muted-foreground">{subtitle}</p>
-        </div>
+    <div className={embedded ? "" : "min-h-screen bg-secondary/40"}>
+      <div className={embedded ? "space-y-4" : "space-y-4 p-6"}>
+        {!embedded && (
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">{title}</h1>
+            <p className="text-sm text-muted-foreground">{subtitle}</p>
+          </div>
+        )}
 
         {/* Analytics — dynamic with the applied filters; property & time cards read finalized entries */}
         {/* One row on xl: 7 cards on sheets, 6 on manual (no Detailed Properties there) */}

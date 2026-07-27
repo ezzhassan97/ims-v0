@@ -24,6 +24,9 @@ import { LaunchesPage } from "@/components/launches-page"
 import { AllPropertiesPage } from "@/components/all-properties-page"
 import { PaymentPlansPage } from "@/components/payment-plans-page"
 import { ComingSoon } from "@/components/coming-soon"
+import { ProjectsPage } from "@/components/projects-list-page"
+import { ProjectGalleryTab } from "@/components/project-gallery-tab"
+import { IngestionEntriesPage } from "@/components/ingestion-entries-page"
 import { TabStrip } from "@/components/table-kit"
 import {
   type Building,
@@ -42,6 +45,10 @@ import {
 } from "@/lib/mock-data"
 
 export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBack?: () => void }) {
+  // Phases + sub-projects under this main project — feeds the Phases tab's table
+  const childRows = PROJECTS.filter((p) => p.mainProject?.id === project?.id)
+  // Entries scope: a main project matches itself and every child; a phase matches itself
+  const scopeIds = project ? [project.id, ...childRows.map((c) => c.id)] : []
   const [buildings, setBuildings] = useState<Building[]>(initialBuildings)
   const [units, setUnits] = useState<Unit[]>(initialUnits)
   const [splittingRules, setSplittingRules] = useState<SplittingRule[]>(initialSplittingRules)
@@ -320,11 +327,42 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
             <ProjectFeaturesTab />
           </TabsContent>
 
-          {["phases", "project-gallery", "floor-plans", "ingestion-entries", "attachments", "audit-logs"].map((value) => (
+          {["floor-plans", "attachments", "audit-logs"].map((value) => (
             <TabsContent key={value} value={value} className="mt-4">
               <ComingSoon pageName={value === "seo" ? "SEO" : value.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ")} />
             </TabsContent>
           ))}
+
+          {/* Phases — the same projects table, scoped to this main project's children */}
+          {!project?.isPhase && (
+            <TabsContent value="phases" className="mt-4">
+              <ProjectsPage embedded hideDeveloperFilter rows={childRows} />
+            </TabsContent>
+          )}
+
+          <TabsContent value="project-gallery" className="mt-4">
+            <ProjectGalleryTab project={project} />
+          </TabsContent>
+
+          {/* Data ingestion entries — the global entries tables, scoped to this project */}
+          <TabsContent value="ingestion-entries" className="mt-4 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Data ingestion entries</h3>
+              <p className="text-xs text-muted-foreground">Sheet and manual entries that include this {project?.isPhase ? "phase" : "project or its phases"}</p>
+            </div>
+            <Tabs defaultValue="sheets" className="w-full">
+              <TabsList className="w-max">
+                <TabsTrigger value="sheets" className="gap-1.5"><Database className="h-3.5 w-3.5" />Automatic Sheets</TabsTrigger>
+                <TabsTrigger value="manual" className="gap-1.5"><ClipboardList className="h-3.5 w-3.5" />Manual Grouped</TabsTrigger>
+              </TabsList>
+              <TabsContent value="sheets" className="mt-4">
+                <IngestionEntriesPage key="sheets" mode="sheets" embedded scopeProjectIds={scopeIds} />
+              </TabsContent>
+              <TabsContent value="manual" className="mt-4">
+                <IngestionEntriesPage key="manual" mode="manual" embedded scopeProjectIds={scopeIds} />
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
 
           <TabsContent value="launches" className="mt-4">
             <LaunchesPage

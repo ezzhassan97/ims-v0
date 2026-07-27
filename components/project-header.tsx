@@ -241,9 +241,7 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
             <span>{location}</span>
           </div>
         </div>
-        <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0 text-muted-foreground" title="View on Website" onClick={() => window.open(projSiteUrl(saved.nameEn), "_blank", "noopener")}>
-          <ExternalLink className="h-4 w-4" />
-        </Button>
+        {/* CTA order: Edit → Expand/Collapse → View on Website → actions */}
         {editing ? (
           <div className="flex flex-shrink-0 gap-2">
             <Button variant="outline" size="sm" className="h-8 gap-1" onClick={() => { setForm(saved); setErrs(new Set()); setEditing(false) }}>
@@ -260,6 +258,9 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
         )}
         <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0 text-muted-foreground" onClick={() => setExpanded((e) => !e)} title={expanded ? "Collapse" : "Expand"}>
           <ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} />
+        </Button>
+        <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0 text-muted-foreground" title="View on Website" onClick={() => window.open(projSiteUrl(saved.nameEn), "_blank", "noopener")}>
+          <ExternalLink className="h-4 w-4" />
         </Button>
         {/* Same actions & cascade logic as the projects table rows — far right */}
         <DropdownMenu>

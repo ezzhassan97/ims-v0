@@ -706,11 +706,16 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
                 </>
               ) : (
                 <>
-                  <Button variant="outline" size="icon" className="h-8 w-8 text-muted-foreground" title="View on Website" onClick={() => window.open(devSiteUrl(developer.name), "_blank", "noopener")}>
+                  {/* Same bordered CTAs and order as the project details header */}
+                  <Button variant="outline" size="sm" className="h-8 flex-shrink-0 gap-1.5" onClick={startEdit}>
+                    <Pencil className="h-3.5 w-3.5" />Edit
+                  </Button>
+                  <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0 text-muted-foreground" title={collapsed ? "Expand" : "Collapse"} onClick={() => setCollapsed((c) => !c)}>
+                    <ChevronDown className={cn("h-4 w-4 transition-transform", !collapsed && "rotate-180")} />
+                  </Button>
+                  <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0 text-muted-foreground" title="View on Website" onClick={() => window.open(devSiteUrl(developer.name), "_blank", "noopener")}>
                     <ExternalLink className="h-4 w-4" />
                   </Button>
-                  <IconBtn title="Edit" onClick={startEdit}><Pencil className="h-4 w-4" /></IconBtn>
-                  <IconBtn title={collapsed ? "Expand" : "Collapse"} onClick={() => setCollapsed((c) => !c)}>{collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}</IconBtn>
                   {/* Same cascading actions as the developers table rows */}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
