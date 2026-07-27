@@ -1706,8 +1706,12 @@ export function CreateWaGroupDialog({ dev, devContacts, mode = "action", linkedI
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader><DialogTitle>{mode === "action" ? "Link to Whatsapp Group" : "Create WhatsApp Group"}</DialogTitle></DialogHeader>
+      {/* Pinned header/footer with a scrollable body — the contact lists can get long */}
+      <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-lg" style={{ maxHeight: "85vh" }}>
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-4">
+          <DialogTitle>{mode === "action" ? "Link to Whatsapp Group" : "Create WhatsApp Group"}</DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
 
         {/* Developer context: image, name + ID, listing status, projects listed vs total */}
         <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
@@ -1809,7 +1813,7 @@ export function CreateWaGroupDialog({ dev, devContacts, mode = "action", linkedI
             <span className="font-semibold text-foreground">{included.length} of {members.length}</span> contact{members.length !== 1 ? "s" : ""} will be added ({admins} admin{admins !== 1 ? "s" : ""}) — untick to exclude:
           </p>
           {/* Two separate collapsible lists — Developer contacts above Nawy contacts */}
-          {(["Developer", "Nawy"] as const).map((src) => {
+          {(["Nawy", "Developer"] as const).map((src) => {
             const list = members.filter((m) => m.source === src)
             if (list.length === 0) return null
             const joining = list.filter((m) => !excluded.has(m.id)).length
@@ -1862,8 +1866,9 @@ export function CreateWaGroupDialog({ dev, devContacts, mode = "action", linkedI
         </div>
         </>
         )}
+        </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
           {mode === "creation" ? (
             <>
               <Button variant="outline" size="sm" onClick={onSkip}>Create Developer Only</Button>

@@ -649,8 +649,8 @@ function CreateGroupDialog({ onClose, onCreate }: { onClose: () => void; onCreat
           <p className="text-xs text-muted-foreground">
             <span className="font-semibold text-foreground">{included.length} of {members.length}</span> contact{members.length !== 1 ? "s" : ""} will join automatically ({admins} admin{admins !== 1 ? "s" : ""}) — untick to exclude:
           </p>
-          {memberSection("dev", "Developer Contacts", devMembers)}
           {memberSection("nawy", "Nawy Contacts", nawyMembers)}
+          {memberSection("dev", "Developer Contacts", devMembers)}
         </div>
         </div>
 
