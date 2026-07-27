@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowLeft, Banknote, Bath, BedDouble, Boxes, CalendarClock, CalendarDays, CheckCircle2, ChevronDown,
   ChevronLeft, ChevronRight, Columns3, Eye, EyeOff, FileText, Grid3X3, GripVertical, Home, Info,
@@ -20,11 +20,12 @@ import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
 import { LinkedPlanCard, PAYMENT_PLAN_GROUPS, type PlanCardData } from "@/components/all-properties-page"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
 import { FullscreenViewer } from "@/components/render-images-page"
-import { FilePreviewDialog, type PreviewFile } from "@/components/file-preview-dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { SHEET_TABS, normalizedGrid, type SheetGridTab } from "@/lib/sheet-preview-mock"
 import { OfferingCtxCell, IdCopy } from "@/components/launch-details-page"
 import { FloorPlanCard, FLOOR_PLANS0, type FloorPlan } from "@/components/floor-plans-page"
 import { EntryProjectsDrawer } from "@/components/ingestion-entries-page"
-import { PROJECT_DEVELOPERS, PROJECTS } from "@/lib/projects-mock"
+import { PROJECT_DEVELOPERS, PROJECTS, buildProjectTreeNodes } from "@/lib/projects-mock"
 import type { IngestionEntry } from "@/lib/ingestion-mock"
 
 /* ------------------------------------------------------------------ */
@@ -271,119 +272,212 @@ export function GroupedPropertyCard({ propertyId, metadataId, tags, actions, tit
 /* Step 1 — Initial Setup                                              */
 /* ------------------------------------------------------------------ */
 
-/**
- * File preview — the uploaded entry file (Sheet / Image / PDF / Text).
- * Sheets get the tabbed grid preview; other types open the shared FilePreviewDialog
- * (same viewer as WhatsApp Media).
- */
-export function FilePreviewCard({ entry }: { entry: IngestionEntry }) {
-  const [preview, setPreview] = useState<"input" | "output">("output")
-  const [viewerOpen, setViewerOpen] = useState(false)
-  const mains = entry.projects.filter((p) => p.main === null)
-  const [hiddenTabs, setHiddenTabs] = useState<Set<string>>(new Set())
-  const [activeTab, setActiveTab] = useState(mains[0]?.id)
-  const tabCounts = useMemo(() => mains.map((m, i) => ({ ...m, count: [119, 56, 76, 56][i % 4] })), [mains])
-
-  const ext = entry.fileName.split(".").pop()?.toUpperCase() ?? ""
-  const isSheet = entry.fileType === "Sheet"
-  const previewFile: PreviewFile = {
-    id: entry.id,
-    name: entry.fileName,
-    ext,
-    typeGroup: isSheet ? "Sheet" : entry.fileType === "Image" ? "Image" : "Document",
-    url: entry.fileType === "Image" ? "/aerial-view-masterplan-residential-development-blu.jpg" : undefined,
-  }
-
-  if (!isSheet) {
-    return (
-      <SectionCard
-        title="File preview"
-        right={<Button variant="outline" size="sm" className="h-8 gap-1.5 border-primary text-primary" onClick={() => setViewerOpen(true)}><Eye className="h-3.5 w-3.5" />Open preview</Button>}
-      >
-        <button className="flex w-full items-center gap-4 p-4 text-left transition-colors hover:bg-muted/40" onClick={() => setViewerOpen(true)}>
-          {entry.fileType === "Image" ? (
-            <img src={previewFile.url} alt={entry.fileName} className="h-24 w-36 flex-shrink-0 rounded-lg border border-border object-cover" />
-          ) : (
-            <span className="flex h-24 w-36 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40">
-              <FileText className="h-10 w-10 text-muted-foreground" />
-            </span>
-          )}
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold text-foreground">{entry.fileName}</span>
-            <span className="mt-1 flex items-center gap-1.5">
-              <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>{ext}</span>
-              <ColorTag value={entry.fileType} />
-            </span>
-            <span className="mt-1 block text-xs text-muted-foreground">Click to open the full preview</span>
-          </span>
-        </button>
-        {viewerOpen && <FilePreviewDialog file={previewFile} onClose={() => setViewerOpen(false)} />}
-      </SectionCard>
-    )
-  }
-
+/** Property categories — mandatory multi-select over the only two values, shown as white tags. */
+export function CategoryMultiSelect({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+  const toggle = (c: string) => onChange(value.includes(c) ? value.filter((x) => x !== c) : [...value, c])
   return (
-    <SectionCard
-      title="File preview"
-      count="220 Units"
-      right={
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setViewerOpen(true)}><Maximize2 className="h-4 w-4" /></Button>
-          <div className="flex rounded-lg border border-border p-0.5">
-            {(["input", "output"] as const).map((m) => (
-              <button key={m} onClick={() => setPreview(m)} className={cn("rounded-md px-3 py-1 text-sm font-medium capitalize", preview === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>{m}</button>
-            ))}
-          </div>
-        </div>
-      }
-    >
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-4">
-        {tabCounts.map((t) => {
-          const hidden = hiddenTabs.has(t.id)
-          return (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id)}
-              className={cn("flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium",
-                activeTab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
-                hidden && "opacity-50 line-through")}
-            >
-              <span
-                role="button"
-                onClick={(e) => { e.stopPropagation(); setHiddenTabs((prev) => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n }) }}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                {hidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn("flex min-h-9 w-full items-center justify-between gap-1.5 rounded-md border bg-white px-2.5 py-1 text-sm transition-colors hover:bg-muted/50",
+          value.length > 0 ? "border-primary" : "border-input")}
+      >
+        {value.length === 0 ? (
+          <span className="text-muted-foreground">Select categories</span>
+        ) : (
+          <span className="flex flex-wrap items-center gap-1">
+            {value.map((c) => (
+              <span key={c} className={cn(TAG, "border-border bg-card text-foreground")}>
+                {c}
+                <span role="button" onClick={(e) => { e.stopPropagation(); toggle(c) }} className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></span>
               </span>
-              {t.name}
-              <span className="rounded-full border border-border bg-muted px-1.5 text-[11px]">{t.count}</span>
+            ))}
+          </span>
+        )}
+        <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-lg border border-border bg-card p-1 shadow-md">
+          {["Residential", "Commercial"].map((c) => (
+            <button key={c} onClick={() => toggle(c)} className={cn("flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-secondary", value.includes(c) && "bg-primary/5")}>
+              <span className={cn("flex h-3.5 w-3.5 items-center justify-center rounded-sm border", value.includes(c) ? "border-primary bg-primary" : "border-border bg-white")}>
+                {value.includes(c) && <CheckCircle2 className="h-2.5 w-2.5 text-primary-foreground" />}
+              </span>
+              {c}
             </button>
-          )
-        })}
-      </div>
-      <MiniSheet
-        cols={["Unit ID", "Unit Type Code", "Category", "Project", "Delivery", "Area"]}
-        rows={SHEET_ROWS.slice(0, 14)}
-        toneOf={() => ""}
-        renderCell={(c, r) => {
-          switch (c) {
-            case "Unit ID": return <span className="font-medium text-foreground">{r.phase === "M-CRWN" ? "M-CRWN-" : "M-IV-A-"}{r.unit}</span>
-            case "Unit Type Code": return r.typeCode
-            case "Category": return r.category
-            case "Project": return "MV The Villas"
-            case "Delivery": return r.delivery
-            case "Area": return r.area || "—"
-            default: return null
-          }
-        }}
-      />
-      {viewerOpen && <FilePreviewDialog file={previewFile} onClose={() => setViewerOpen(false)} />}
-    </SectionCard>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
+/* ------------------------------------------------------------------ */
+/* Shared Sheet Preview — the same component on every step             */
+/* ------------------------------------------------------------------ */
+
+/** Excel-style grid: frozen column letters (top) and row numbers (left), both axes scroll. */
+function GridPane({ grid, maxHeight }: { grid: (string | number | null)[][]; maxHeight: string }) {
+  const colCount = grid.reduce((m, r) => Math.max(m, r.length), 0)
+  const colLabel = (i: number) => {
+    let s = ""
+    let n = i
+    do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1 } while (n >= 0)
+    return s
+  }
+  return (
+    <div className={cn("relative overflow-auto", maxHeight)}>
+      <table className="w-max border-separate border-spacing-0 text-sm">
+        <thead>
+          <tr>
+            {/* Corner cell — frozen on both axes */}
+            <th className="sticky left-0 top-0 z-30 w-12 border-b border-r border-border bg-muted/80 px-2 py-1.5" />
+            {Array.from({ length: colCount }, (_, c) => (
+              <th key={c} className="sticky top-0 z-20 min-w-[132px] border-b border-r border-border bg-muted/80 px-3 py-1.5 text-center text-[11px] font-normal text-muted-foreground">
+                {colLabel(c)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {grid.map((row, r) => (
+            <tr key={r}>
+              <td className="sticky left-0 z-10 w-12 border-b border-r border-border bg-muted/60 px-2 py-1.5 text-center text-[11px] text-muted-foreground">{r + 1}</td>
+              {Array.from({ length: colCount }, (_, c) => {
+                const v = row[c] ?? null
+                return (
+                  <td key={c} className="whitespace-nowrap border-b border-r border-border bg-card px-3 py-1.5 text-foreground">
+                    {v === null ? <span className="text-muted-foreground/30">·</span> : v}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/**
+ * The one sheet preview used by every step. Input is what the step received,
+ * Output is what it hands to the next step. Tabs can be ignored with the eye
+ * toggle (dimmed here, dropped from the output). Fullscreen only makes it bigger.
+ */
+export function SheetPreviewCard({
+  tabs = SHEET_TABS,
+  showTabs = true,
+  title = "Sheet preview",
+}: {
+  tabs?: SheetGridTab[]
+  /** Steps after preparation work on a single consolidated sheet — no tab strip. */
+  showTabs?: boolean
+  title?: string
+}) {
+  const [mode, setMode] = useState<"input" | "output">("input")
+  const [ignored, setIgnored] = useState<Set<string>>(() => new Set(tabs.filter((t) => !t.isUnits).map((t) => t.name)))
+  const [activeName, setActiveName] = useState(tabs[0]?.name ?? "")
+  const [full, setFull] = useState(false)
+
+  const active = tabs.find((t) => t.name === activeName) ?? tabs[0]
+  // Output = normalized grid, ignored tabs dropped; single-tab steps always show the consolidated output
+  const outputTabs = tabs.filter((t) => !ignored.has(t.name))
+  const shownTab = mode === "output" && ignored.has(active.name) ? outputTabs[0] ?? active : active
+  const grid = mode === "input" ? shownTab.grid : normalizedGrid(shownTab)
+  const unitTotal = outputTabs.reduce((s, t) => s + t.unitRows, 0)
+
+  const body = (inFull: boolean) => (
+    <>
+      {showTabs && (
+        <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-4">
+          {(mode === "output" ? outputTabs : tabs).map((t) => {
+            const off = ignored.has(t.name)
+            return (
+              <button
+                key={t.name}
+                onClick={() => setActiveName(t.name)}
+                className={cn("flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium",
+                  shownTab.name === t.name ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
+                  off && "opacity-45")}
+              >
+                {t.name}
+                <span className="rounded-full border border-border bg-muted px-1.5 text-[11px]">{t.unitRows || t.grid.length}</span>
+                <span
+                  role="button"
+                  title={off ? "Include this tab" : "Ignore this tab"}
+                  onClick={(e) => { e.stopPropagation(); setIgnored((prev) => { const n = new Set(prev); n.has(t.name) ? n.delete(t.name) : n.add(t.name); return n }) }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  {off ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {mode === "output" && ignored.has(active.name) && showTabs && (
+        <p className="border-b border-border bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+          <b className="text-foreground">{active.name}</b> is ignored — it is excluded from this step&apos;s output.
+        </p>
+      )}
+      <GridPane grid={grid} maxHeight={inFull ? "max-h-[calc(90vh-120px)]" : "max-h-[460px]"} />
+    </>
+  )
+
+  const controls = (inFull: boolean) => (
+    <div className="flex items-center gap-2">
+      <div className="flex rounded-lg border border-border p-0.5">
+        {(["input", "output"] as const).map((m) => (
+          <button key={m} onClick={() => setMode(m)} className={cn("rounded-md px-3 py-1 text-sm font-medium capitalize", mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>{m}</button>
+        ))}
+      </div>
+      <Button variant="outline" size="icon" className="h-8 w-8" title={inFull ? "Close fullscreen" : "Fullscreen"} onClick={() => setFull(!inFull)}>
+        {inFull ? <X className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+      </Button>
+    </div>
+  )
+
+  return (
+    <>
+      <SectionCard title={title} count={`${unitTotal.toLocaleString("en-US")} Units`} right={controls(false)}>
+        {body(false)}
+      </SectionCard>
+
+      <Dialog open={full} onOpenChange={setFull}>
+        <DialogContent showCloseButton={false} className="flex h-[92vh] !w-[94vw] !max-w-[1500px] flex-col gap-0 overflow-hidden p-0">
+          <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+            <div className="flex items-center gap-2">
+              <DialogTitle className="text-base font-semibold text-foreground">{title}</DialogTitle>
+              <span className={cn(TAG, "border-blue-200 bg-blue-100 text-blue-700")}>{unitTotal.toLocaleString("en-US")} Units</span>
+            </div>
+            {controls(true)}
+          </div>
+          {body(true)}
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Step 1 — Initial Setup                                              */
+/* ------------------------------------------------------------------ */
+
+
 export function StepInitialSetup({ entry }: { entry: IngestionEntry }) {
   const [prevIdx, setPrevIdx] = useState(0)
+  const [devId, setDevId] = useState(entry.developer?.id ?? "")
+  const [projIds, setProjIds] = useState<string[]>(entry.projects.map((p) => p.id))
+  const [cats, setCats] = useState<string[]>(entry.categories)
+  const projTree = useMemo(() => buildProjectTreeNodes(), [])
 
   return (
     <div className="space-y-4">
@@ -396,27 +490,16 @@ export function StepInitialSetup({ entry }: { entry: IngestionEntry }) {
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
-              <p className="mb-1.5 text-sm font-semibold text-foreground">Developer</p>
-              <Select defaultValue={entry.developer?.id}>
-                <SelectTrigger className="h-9 w-full"><SelectValue placeholder="Select developer" /></SelectTrigger>
-                <SelectContent>
-                  {(entry.developer ? [entry.developer] : PROJECT_DEVELOPERS).map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <p className="mb-1.5 text-sm font-semibold text-foreground">Developer <span className="text-red-500">*</span></p>
+              <DeveloperSelect developers={PROJECT_DEVELOPERS} value={devId} onChange={setDevId} className="w-full" />
             </div>
             <div>
-              <p className="mb-1.5 text-sm font-semibold text-foreground">Projects</p>
-              <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1.5">
-                {entry.projects.length === 0 && <span className="text-sm italic text-muted-foreground">Not selected yet</span>}
-                {entry.projects.slice(0, 3).map((p) => <ColorTag key={p.id} value={p.name} />)}
-                {entry.projects.length > 3 && <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>+{entry.projects.length - 3}</span>}
-              </div>
+              <p className="mb-1.5 text-sm font-semibold text-foreground">Projects <span className="text-red-500">*</span></p>
+              <ProjectTreeSelect multi projects={projTree} values={projIds} onValuesChange={setProjIds} className="w-full" />
             </div>
             <div>
-              <p className="mb-1.5 text-sm font-semibold text-foreground">Property categories</p>
-              <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1.5">
-                {entry.categories.map((c) => <ColorTag key={c} value={c} />)}
-              </div>
+              <p className="mb-1.5 text-sm font-semibold text-foreground">Property categories <span className="text-red-500">*</span></p>
+              <CategoryMultiSelect value={cats} onChange={setCats} />
             </div>
           </div>
         </div>
@@ -470,7 +553,7 @@ export function StepInitialSetup({ entry }: { entry: IngestionEntry }) {
         </div>
       </SectionCard>
 
-      <FilePreviewCard entry={entry} />
+      <SheetPreviewCard />
     </div>
   )
 }
@@ -521,25 +604,7 @@ function StepSheetPreparation() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Sheet preview" count={`${totalRows} Units`}>
-        <MiniSheet
-          cols={["Unit ID", "Phase", "Building Type", "Category", "Project", "Area", "Full price"]}
-          rows={SHEET_ROWS.slice(0, 12)}
-          toneOf={() => ""}
-          renderCell={(c, r) => {
-            switch (c) {
-              case "Unit ID": return <span className="font-medium text-foreground">{r.unit}</span>
-              case "Phase": return r.phase
-              case "Building Type": return r.buildingType
-              case "Category": return r.category
-              case "Project": return r.project
-              case "Area": return r.area || "—"
-              case "Full price": return r.price
-              default: return null
-            }
-          }}
-        />
-      </SectionCard>
+      <SheetPreviewCard />
     </div>
   )
 }
@@ -651,25 +716,7 @@ function StepTransformation() {
   return (
     <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1fr_400px]">
       {/* Left — sheet preview */}
-      <SectionCard title="Sheet preview" count="220 Units">
-        <MiniSheet
-          cols={["Unit ID", "Unit Type Code", "Category", "Project", "Delivery", "Area"]}
-          rows={SHEET_ROWS}
-          maxHeight="max-h-[560px]"
-          toneOf={() => ""}
-          renderCell={(c, r) => {
-            switch (c) {
-              case "Unit ID": return <span className="font-medium text-foreground">{r.phase === "M-CRWN" ? "M-CRWN-" : "M-IV-A-"}{r.unit}</span>
-              case "Unit Type Code": return r.typeCode
-              case "Category": return r.category
-              case "Project": return "MV The Villas"
-              case "Delivery": return r.delivery
-              case "Area": return r.area || "—"
-              default: return null
-            }
-          }}
-        />
-      </SectionCard>
+      <SheetPreviewCard showTabs={false} />
 
       {/* Right — transformation rules */}
       <SectionCard
@@ -808,36 +855,7 @@ function StepFormatting() {
 
   return (
     <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1fr_380px]">
-      <SectionCard
-        title="Sheet preview"
-        count="220 Units"
-        right={
-          <div className="flex rounded-lg border border-border p-0.5">
-            {(["input", "output"] as const).map((m) => (
-              <button key={m} onClick={() => setPreview(m)} className={cn("rounded-md px-3 py-1 text-sm font-medium capitalize", preview === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>{m}</button>
-            ))}
-          </div>
-        }
-      >
-        <MiniSheet
-          cols={["Unit ID", "Property types", "Category", "Project"]}
-          rows={SHEET_ROWS.slice(0, 14)}
-          maxHeight="max-h-[560px]"
-          toneOf={(r, i) => (i < 3 ? "bg-emerald-50/60" : i < 5 ? "bg-red-50" : "bg-emerald-50/60")}
-          renderCell={(c, r, i) => {
-            switch (c) {
-              case "Unit ID": return <span className="font-medium text-foreground">{r.phase === "M-CRWN" ? "M-CRWN-" : "M-IV-A-"}{r.unit}</span>
-              case "Property types":
-                if (i < 3) return preview === "input" ? "APT" : <span className="inline-flex items-center gap-1">APT <span className="text-muted-foreground">→</span> <b>Villa</b></span>
-                if (i < 5) return "Villa"
-                return "I-VILLA R"
-              case "Category": return i < 3 ? "Villa" : r.category
-              case "Project": return i % 3 === 0 ? "The Rustic Cabin" : "Ocean's Edge"
-              default: return null
-            }
-          }}
-        />
-      </SectionCard>
+      <SheetPreviewCard showTabs={false} />
 
       <div className="space-y-4">
         <SectionCard
@@ -934,29 +952,7 @@ function StepReview() {
         <span className={cn(TAG, "border-red-200 bg-red-50 text-red-700")}>● Blocking issues <b>16</b></span>
       </div>
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1fr_380px]">
-        <SectionCard title="Sheet preview" count="220 Units">
-          <MiniSheet
-            cols={["Unit ID", "Phase", "Building Type", "Category", "Project", "Area"]}
-            rows={SHEET_ROWS}
-            maxHeight="max-h-[560px]"
-            renderCell={(c, r, i) => {
-              switch (c) {
-                case "Unit ID": return (
-                  <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-                    {(r.tone === "warn" || r.tone === "error") && <Info className={cn("h-3.5 w-3.5", r.tone === "error" ? "text-red-500" : "text-amber-500")} />}
-                    {r.unit}
-                  </span>
-                )
-                case "Phase": return r.phase
-                case "Building Type": return r.buildingType
-                case "Category": return r.category
-                case "Project": return r.project
-                case "Area": return r.area || "—"
-                default: return null
-              }
-            }}
-          />
-        </SectionCard>
+        <SheetPreviewCard showTabs={false} />
         <div className="space-y-4">
           <div>
             <div className="mb-2 flex items-center gap-2">
@@ -991,35 +987,7 @@ function StepPaymentPlans() {
 
   return (
     <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1fr_400px]">
-      <SectionCard title="Sheet preview" count="220 Units">
-        <MiniSheet
-          cols={["Unit ID", "Standard Price", "Price 2", "Project"]}
-          rows={SHEET_ROWS.slice(0, 8)}
-          toneOf={() => ""}
-          renderCell={(c, r, i) => {
-            switch (c) {
-              case "Unit ID": return <span className="font-medium text-foreground">{r.phase === "M-CRWN" ? "M-CRWN-" : "M-IV-A-"}{r.unit}</span>
-              case "Standard Price": return (
-                <div className="space-y-1">
-                  <p className="font-medium text-foreground">{r.price}</p>
-                  <div className="flex gap-1">
-                    <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>{i % 3 === 1 ? "Premium 5 YRS" : "Standard 10 Yrs"}</span>
-                    {i % 3 === 1 && <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>Cash</span>}
-                  </div>
-                </div>
-              )
-              case "Price 2": return (
-                <div className="space-y-1">
-                  <p className={cn("font-medium text-foreground", i === 1 && "rounded bg-red-50 px-1")}>23,950,000</p>
-                  {i !== 1 && <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>Standard 10 Yrs</span>}
-                </div>
-              )
-              case "Project": return "MV The Villas"
-              default: return null
-            }
-          }}
-        />
-      </SectionCard>
+      <SheetPreviewCard showTabs={false} />
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -1428,7 +1396,7 @@ export function EntryContextStrip({ entry }: { entry: IngestionEntry }) {
 
 export function WizardFooter({ backLabel = "Back", nextLabel = "Next", onBack, onNext }: { backLabel?: string; nextLabel?: string; onBack: () => void; onNext: () => void }) {
   return (
-    <div className="sticky bottom-0 z-30 flex items-center justify-between border-t border-border bg-card px-6 py-3">
+    <div className="z-30 flex flex-shrink-0 items-center justify-between border-t border-border bg-card px-6 py-3">
       <Button variant="outline" onClick={onBack}>{backLabel}</Button>
       <div className="flex items-center gap-2">
         <Button variant="outline" className="border-primary text-primary" onClick={() => toast.success("Draft saved")}>Save as draft</Button>
@@ -1450,8 +1418,8 @@ export function SheetEntryDetailsPage({ entry, onBack }: { entry: IngestionEntry
   const back = () => (step === 0 ? onBack() : setStep((s) => s - 1))
 
   return (
-    <div className="flex min-h-screen flex-col bg-secondary/40">
-      <div className="flex-1 space-y-4 p-6">
+    <div className="flex h-screen flex-col overflow-hidden bg-secondary/40">
+      <div className="flex-1 space-y-4 overflow-y-auto p-6">
         <WizardHeader entry={entry} listLabel="Automatic Sheets Entries" pageLabel="Sheets processing" onBack={onBack} />
         <WizardStepper steps={STEPS} step={step} onStep={setStep} />
         {/* The Initial Setup step owns these fields itself — no duplicate strip there */}
