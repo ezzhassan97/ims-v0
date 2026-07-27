@@ -60,13 +60,21 @@ import {
   Group as GroupIcon,
   X,
   ChevronDown,
+  ArrowRight,
+  Undo2,
   Link2,
   Unlink,
 } from "lucide-react"
 import { toast } from "sonner"
+import { Tag, LISTING_COLORS, ENTRY_COLORS, PRIMARY_COLORS } from "@/components/projects-list-page"
 import { LaunchDetailsPage } from "@/components/launch-details-page"
-import { PROJECTS } from "@/lib/projects-mock"
+import { PROJECTS, PROJECT_DEVELOPERS, type ProjPrimaryStatus, type ProjectRow } from "@/lib/projects-mock"
 import { LinkProjectDialog, SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
+import {
+  useLaunches, patchLaunches, addLaunch, activateLaunch, closeLaunch,
+  activeConflictOf, isIngestedLaunch, launchPropsOf, launchAreaId, LAUNCH_AREAS, setProjectPrimary,
+  type Launch,
+} from "@/lib/launches-mock"
 import {
   TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, DateRangeFilter,
   FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, ColumnsSheet, ProjectTreeSelect, DeveloperSelect, GroupPager,
@@ -76,42 +84,6 @@ import { cn } from "@/lib/utils"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface ProjectRef {
-  id: string
-  name: string
-}
-
-interface Launch {
-  id: string
-  developer: { name: string; logo: string; id: string }
-  projectNameEn: string
-  /** Matched system project id — undefined ⇒ free-text project name ("Unmatched Project"). */
-  projectId?: string
-  /** Empty phase ⇒ this is a brand-new project ("New Project"). */
-  phase: string
-  projectLevel: "Main Project" | "Phase"
-  parentProjectId?: string
-  area: string
-  areaId: string
-  approvalStatus: "Pending Review" | "Approved" | "Rejected"
-  ingestionStatus: "Ingested" | "Not Ingested"
-  listingStatus: "Active" | "Hidden"
-  /** Already-created project in the system — undefined ⇒ green "New" tag. */
-  existingProject?: ProjectRef
-  listingProject?: ProjectRef
-  launchStatus: "Upcoming" | "Active" | "Closed"
-  type: "Launch" | "Release"
-  source: "WhatsApp" | "Manual"
-  listingCompletion: number
-  eoiAmount?: number
-  coverImage?: string
-  /** AI-parsed updates from WhatsApp (undefined for manual launches). */
-  aiUpdates?: { count: number; lastAt: string }
-  ingestedAt?: string
-  sentAt: string
-  createdAt: string
-  updatedAt: string
-}
 
 /** New AI update = the last AI update landed after the launch was last updated. */
 function hasNewAiUpdate(l: Launch): boolean {
@@ -176,188 +148,16 @@ type TabKey = "all" | "pending" | "listed" | "active"
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 
-const AREAS_DATA: ProjectRef[] = [
-  { name: "New Cairo", id: "AR-101" },
-  { name: "6th of October", id: "AR-102" },
-  { name: "North Coast", id: "AR-103" },
-  { name: "New Capital", id: "AR-104" },
-  { name: "Sheikh Zayed", id: "AR-105" },
-  { name: "Maadi", id: "AR-106" },
-  { name: "Zamalek", id: "AR-107" },
-  { name: "Heliopolis", id: "AR-108" },
-]
-const AREAS = AREAS_DATA.map((a) => a.name)
-const AREA_ID: Record<string, string> = Object.fromEntries(AREAS_DATA.map((a) => [a.name, a.id]))
-
 const LOGO = "/placeholder.svg?height=32&width=32"
-const COVER = "/placeholder.svg?height=200&width=300"
+const AREAS = LAUNCH_AREAS
+const AREA_ID: Record<string, string> = Object.fromEntries(LAUNCH_AREAS.map((a) => [a, launchAreaId(a)]))
 
-const mockLaunches: Launch[] = [
-  {
-    id: "LCH-001",
-    developer: { name: "Palm Hills Development", logo: LOGO, id: "DEV-001" },
-    projectNameEn: "Palm Hills October", projectId: "PRJ-201",
-    phase: "", projectLevel: "Main Project",
-    area: "6th of October", areaId: AREA_ID["6th of October"],
-    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
-    existingProject: { id: "PRJ-201", name: "Palm Hills October" },
-    listingProject: { id: "LST-001", name: "Palm Hills October" },
-    launchStatus: "Active", type: "Launch", source: "WhatsApp",
-    listingCompletion: 85, eoiAmount: 50000, coverImage: COVER,
-    aiUpdates: { count: 3, lastAt: "2024-01-16T10:00:00" }, ingestedAt: "2024-01-11T07:00:00",
-    sentAt: "2024-01-10T07:45:00", createdAt: "2024-01-10T09:00:00", updatedAt: "2024-01-15T14:30:00",
-  },
-  {
-    id: "LCH-002",
-    developer: { name: "Emaar Misr", logo: LOGO, id: "DEV-002" },
-    projectNameEn: "Marassi North Coast",
-    phase: "Phase 2", projectLevel: "Phase", parentProjectId: "Marassi",
-    area: "North Coast", areaId: AREA_ID["North Coast"],
-    approvalStatus: "Pending Review", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
-    // Matched an already-created phase that has an ACTIVE launch (LCH-011) -> ingestion conflict
-    existingProject: { id: "PRJ-202", name: "Marassi North Coast — Phase 2" },
-    launchStatus: "Upcoming", type: "Release", source: "Manual",
-    listingCompletion: 45, eoiAmount: 75000, coverImage: COVER,
-    sentAt: "2024-01-12T10:20:00", createdAt: "2024-01-12T11:00:00", updatedAt: "2024-01-14T16:45:00",
-  },
-  {
-    id: "LCH-011",
-    developer: { name: "Emaar Misr", logo: LOGO, id: "DEV-002" },
-    projectNameEn: "Marassi North Coast", projectId: "PRJ-202",
-    phase: "Phase 2", projectLevel: "Phase", parentProjectId: "Marassi",
-    area: "North Coast", areaId: AREA_ID["North Coast"],
-    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
-    existingProject: { id: "PRJ-202", name: "Marassi North Coast — Phase 2" },
-    listingProject: { id: "LST-011", name: "Marassi North Coast" },
-    launchStatus: "Active", type: "Launch", source: "WhatsApp",
-    listingCompletion: 95, eoiAmount: 100000, coverImage: COVER,
-    aiUpdates: { count: 2, lastAt: "2024-01-11T09:00:00" }, ingestedAt: "2024-01-06T08:00:00",
-    sentAt: "2024-01-05T07:30:00", createdAt: "2024-01-05T09:00:00", updatedAt: "2024-01-13T12:00:00",
-  },
-  {
-    // Closed launch on a project that already has an Active one — demos the
-    // one-active-per-project rule when re-activating.
-    id: "LCH-012",
-    developer: { name: "Sodic", logo: LOGO, id: "DEV-003" },
-    projectNameEn: "Sodic East", projectId: "PRJ-203",
-    phase: "", projectLevel: "Main Project",
-    area: "New Cairo", areaId: AREA_ID["New Cairo"],
-    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
-    existingProject: { id: "PRJ-203", name: "Sodic East" },
-    listingProject: { id: "LST-003", name: "Sodic East" },
-    launchStatus: "Closed", type: "Release", source: "Manual",
-    listingCompletion: 100, eoiAmount: 75000, coverImage: COVER,
-    ingestedAt: "2024-01-02T10:00:00",
-    sentAt: "2024-01-01T07:30:00", createdAt: "2024-01-01T09:00:00", updatedAt: "2024-01-03T12:00:00",
-  },
-  {
-    id: "LCH-003",
-    developer: { name: "Sodic", logo: LOGO, id: "DEV-003" },
-    projectNameEn: "Sodic East", projectId: "PRJ-203",
-    phase: "", projectLevel: "Main Project",
-    area: "New Cairo", areaId: AREA_ID["New Cairo"],
-    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
-    existingProject: { id: "PRJ-203", name: "Sodic East" },
-    listingProject: { id: "LST-003", name: "Sodic East" },
-    launchStatus: "Active", type: "Launch", source: "WhatsApp",
-    listingCompletion: 100, eoiAmount: 60000, coverImage: COVER,
-    aiUpdates: { count: 2, lastAt: "2024-01-12T09:00:00" }, ingestedAt: "2024-01-09T10:30:00",
-    sentAt: "2024-01-08T06:30:00", createdAt: "2024-01-08T08:00:00", updatedAt: "2024-01-16T10:00:00",
-  },
-  {
-    id: "LCH-004",
-    developer: { name: "Mountain View", logo: LOGO, id: "DEV-004" },
-    projectNameEn: "Mountain View iCity", projectId: "PRJ-204",
-    phase: "Phase 1", projectLevel: "Phase", parentProjectId: "Mountain View iCity Master",
-    area: "New Cairo", areaId: AREA_ID["New Cairo"],
-    approvalStatus: "Rejected", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
-    existingProject: { id: "PRJ-204", name: "Mountain View iCity" },
-    launchStatus: "Upcoming", type: "Release", source: "Manual",
-    listingCompletion: 0, eoiAmount: 40000, coverImage: COVER,
-    sentAt: "2024-01-05T13:10:00", createdAt: "2024-01-05T14:00:00", updatedAt: "2024-01-05T14:00:00",
-  },
-  {
-    id: "LCH-005",
-    developer: { name: "Ora Developers", logo: LOGO, id: "DEV-005" },
-    projectNameEn: "ZED East", projectId: "PRJ-205",
-    phase: "", projectLevel: "Main Project",
-    area: "New Cairo", areaId: AREA_ID["New Cairo"],
-    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Hidden",
-    existingProject: { id: "PRJ-205", name: "ZED East" },
-    listingProject: { id: "LST-005", name: "ZED East" },
-    launchStatus: "Closed", type: "Launch", source: "WhatsApp",
-    listingCompletion: 100, eoiAmount: 90000, coverImage: COVER,
-    aiUpdates: { count: 1, lastAt: "2024-01-05T08:00:00" }, ingestedAt: "2023-12-22T09:00:00",
-    sentAt: "2023-12-20T06:00:00", createdAt: "2023-12-20T07:30:00", updatedAt: "2024-01-10T12:00:00",
-  },
-  {
-    id: "LCH-006",
-    developer: { name: "Hyde Park", logo: LOGO, id: "DEV-006" },
-    projectNameEn: "Hyde Park New Cairo",
-    phase: "", projectLevel: "Main Project",
-    area: "New Cairo", areaId: AREA_ID["New Cairo"],
-    approvalStatus: "Pending Review", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
-    launchStatus: "Upcoming", type: "Launch", source: "WhatsApp",
-    listingCompletion: 60, eoiAmount: 55000, coverImage: COVER,
-    aiUpdates: { count: 1, lastAt: "2024-01-17T08:00:00" },
-    sentAt: "2024-01-14T08:40:00", createdAt: "2024-01-14T10:00:00", updatedAt: "2024-01-16T09:30:00",
-  },
-  {
-    id: "LCH-007",
-    developer: { name: "Tatweer Misr", logo: LOGO, id: "DEV-007" },
-    projectNameEn: "Il Monte Galala", projectId: "PRJ-207",
-    phase: "", projectLevel: "Main Project",
-    area: "North Coast", areaId: AREA_ID["North Coast"],
-    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
-    existingProject: { id: "PRJ-207", name: "Il Monte Galala" },
-    listingProject: { id: "LST-007", name: "Il Monte Galala" },
-    launchStatus: "Active", type: "Launch", source: "WhatsApp",
-    listingCompletion: 78, eoiAmount: 120000, coverImage: COVER,
-    aiUpdates: { count: 4, lastAt: "2024-01-15T12:00:00" }, ingestedAt: "2024-01-04T11:00:00",
-    sentAt: "2024-01-03T07:15:00", createdAt: "2024-01-03T09:00:00", updatedAt: "2024-01-17T11:00:00",
-  },
-  {
-    id: "LCH-008",
-    developer: { name: "Palm Hills Development", logo: LOGO, id: "DEV-001" },
-    projectNameEn: "Palm Hills New Cairo", projectId: "PRJ-208",
-    phase: "Phase 5", projectLevel: "Phase", parentProjectId: "Palm Hills New Cairo Master",
-    area: "New Cairo", areaId: AREA_ID["New Cairo"],
-    approvalStatus: "Approved", ingestionStatus: "Ingested", listingStatus: "Active",
-    existingProject: { id: "PRJ-208", name: "Palm Hills New Cairo" },
-    listingProject: { id: "LST-008", name: "Palm Hills New Cairo" },
-    launchStatus: "Active", type: "Release", source: "Manual",
-    listingCompletion: 92, eoiAmount: 65000, coverImage: COVER,
-    ingestedAt: "2024-01-10T09:15:00",
-    sentAt: "2024-01-09T08:00:00", createdAt: "2024-01-09T08:30:00", updatedAt: "2024-01-18T14:00:00",
-  },
-  {
-    id: "LCH-009",
-    developer: { name: "Emaar Misr", logo: LOGO, id: "DEV-002" },
-    projectNameEn: "Mivida New Cairo",
-    phase: "", projectLevel: "Main Project",
-    area: "New Cairo", areaId: AREA_ID["New Cairo"],
-    approvalStatus: "Rejected", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
-    launchStatus: "Upcoming", type: "Launch", source: "Manual",
-    listingCompletion: 20, eoiAmount: 45000, coverImage: COVER,
-    sentAt: "2024-01-06T12:00:00", createdAt: "2024-01-06T13:00:00", updatedAt: "2024-01-11T10:00:00",
-  },
-  {
-    id: "LCH-010",
-    developer: { name: "Sodic", logo: LOGO, id: "DEV-003" },
-    projectNameEn: "VYE Sheikh Zayed",
-    phase: "Phase 2", projectLevel: "Phase", parentProjectId: "VYE",
-    area: "Sheikh Zayed", areaId: AREA_ID["Sheikh Zayed"],
-    approvalStatus: "Pending Review", ingestionStatus: "Not Ingested", listingStatus: "Hidden",
-    launchStatus: "Upcoming", type: "Launch", source: "WhatsApp",
-    listingCompletion: 35, eoiAmount: 80000, coverImage: COVER,
-    aiUpdates: { count: 2, lastAt: "2024-01-20T11:00:00" },
-    sentAt: "2024-01-17T08:20:00", createdAt: "2024-01-17T09:00:00", updatedAt: "2024-01-19T15:00:00",
-  },
-]
 
-const DEVELOPERS = [...new Set(mockLaunches.map((l) => l.developer.name))]
+const DEVELOPERS = [...new Set(PROJECT_DEVELOPERS.map((d) => d.name))]
 
 const EMPTY_FORM: Omit<Launch, "id" | "createdAt" | "updatedAt"> = {
+  plans: [],
+  offerings: [],
   developer: { name: "", logo: LOGO, id: "" },
   projectNameEn: "",
   phase: "",
@@ -372,7 +172,7 @@ const EMPTY_FORM: Omit<Launch, "id" | "createdAt" | "updatedAt"> = {
   source: "Manual",
   listingCompletion: 0,
   eoiAmount: 0,
-  coverImage: COVER,
+  coverImage: "/placeholder.svg?height=200&width=300",
   sentAt: "",
 }
 
@@ -592,8 +392,8 @@ function LaunchFormDialog({
                 className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
               >
                 <option value="">Select project…</option>
-                {mockLaunches.filter((l) => l.projectLevel === "Main Project").map((l) => (
-                  <option key={l.id} value={l.projectNameEn}>{l.projectNameEn}</option>
+                {PROJECTS.filter((p) => !p.isPhase && !p.isSubProject).map((p) => (
+                  <option key={p.id} value={p.name}>{p.name}</option>
                 ))}
               </select>
             ) : (
@@ -736,7 +536,7 @@ function ArchiveDialog({ launch, onClose, onConfirm }: { launch: Launch; onClose
     <ActionDialog
       title="Archive Launch"
       launch={launch}
-      message="Archiving removes this launch from all launch views."
+      message="This launch moves to Archived — restore it any time from the Archived filter."
       confirmLabel="Archive"
       confirmClass="bg-red-600 text-white hover:bg-red-700"
       confirmDisabled={!reason.trim()}
@@ -786,98 +586,198 @@ function RejectDialog({ launch, onClose, onConfirm }: { launch: Launch; onClose:
   )
 }
 
-const EOI_SPLIT = [
-  { type: "Apartments", share: 0.5 },
-  { type: "Villas", share: 0.3 },
-  { type: "Townhouses", share: 0.2 },
-]
 
-function ActivateDialog({ launch, conflict, onClose, onConfirm }: { launch: Launch; conflict?: Launch; onClose: () => void; onConfirm: (startDate: string) => void }) {
-  const [startDate, setStartDate] = useState("")
-  const [eoiView, setEoiView] = useState<"general" | "byType">("general")
-  const total = launch.eoiAmount ?? 0
-  const count = Math.max(1, Math.round(total / 2500))
+/** Opt-out card: the linked project's primary status follows the launch unless unticked. */
+function PrimarySyncCard({ project, target, checked, onToggle, note }: {
+  project: ProjectRow
+  target: ProjPrimaryStatus
+  checked: boolean
+  onToggle: () => void
+  note?: string
+}) {
+  const launchProps = project.primaryStatusProps.launch.grouped
+  const paG = project.primaryByEntry.Automatic.grouped
+  const pmG = project.primaryByEntry.Manual.grouped
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs text-muted-foreground">
+        Also change the linked project's primary status — untick to leave it unchanged:
+      </p>
+      <div className="rounded-lg border border-border">
+        <div className="space-y-1 px-3 py-2.5">
+          <div className="flex items-center gap-2.5">
+            <Checkbox checked={checked} onCheckedChange={onToggle} className="h-4 w-4 flex-shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-foreground">{project.name}</p>
+              <IdTag value={project.id} />
+            </div>
+            <Tag value={project.listingStatus} cls={LISTING_COLORS[project.listingStatus]} />
+            <Tag value={project.entryType} cls={ENTRY_COLORS[project.entryType]} />
+            <Tag value={project.primaryStatus} cls={PRIMARY_COLORS[project.primaryStatus]} />
+            <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+            {checked
+              ? <Tag value={target} cls={PRIMARY_COLORS[target]} />
+              : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
+          </div>
+          {checked && (
+            <div className="pl-7 text-[10px] text-muted-foreground">
+              Properties Impacted: <span className="font-medium text-foreground">{launchProps}</span> Launch,{" "}
+              <span className="font-medium text-foreground">{paG}</span> Primary Automatic,{" "}
+              <span className="font-medium text-foreground">{pmG}</span> Primary Manual
+            </div>
+          )}
+        </div>
+      </div>
+      {!project.isPhase && note && (
+        <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">{note}</p>
+      )}
+    </div>
+  )
+}
+
+function ActivateDialog({ launch, conflict, project, onClose, onConfirm }: {
+  launch: Launch
+  conflict?: Launch
+  project?: ProjectRow
+  onClose: () => void
+  onConfirm: (startDate: string, syncProject: boolean) => void
+}) {
+  const [startDate, setStartDate] = useState(launch.startDate ?? "")
+  // The launch may have started collecting EOIs before it was recorded — but not long before.
+  const minStart = (() => { const d = new Date(); d.setMonth(d.getMonth() - 2); return d.toISOString().slice(0, 10) })()
+  const byType = launch.eoiByType ?? []
+  const needsSync = !!project && project.primaryStatus !== "Launch"
+  const [sync, setSync] = useState(true)
 
   return (
     <ActionDialog
       title="Activate Launch"
       launch={launch}
-      message="Setting this launch to Active makes it live across Nawy's system. Pick the launch start date and review the EOIs collected."
+      message="Setting this launch to Active makes it live across Nawy's system. Pick the date it started collecting EOIs."
       confirmLabel="Activate Launch"
       confirmClass="bg-emerald-600 text-white hover:bg-emerald-700"
       confirmDisabled={!startDate}
       onClose={onClose}
-      onConfirm={() => onConfirm(startDate)}
+      onConfirm={() => onConfirm(startDate, needsSync && sync)}
     >
       {conflict && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
           Only one launch can be active per project or phase. <span className="font-semibold">{conflict.projectNameEn}{conflict.phase ? ` — ${conflict.phase}` : ""} ({conflict.id})</span> is currently active and will be <span className="font-semibold">Closed</span> when this launch is activated.
         </div>
       )}
-      <div className="space-y-1.5">
-        <Label>Launch Start Date <span className="text-red-500">*</span></Label>
-        <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+
+      {/* Launch status transition */}
+      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="uppercase tracking-wide">Launch status</span>
+        <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", LAUNCH_STATUS_TONE[launch.launchStatus])}>{launch.launchStatus}</span>
+        <ArrowRight className="h-3.5 w-3.5" />
+        <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", LAUNCH_STATUS_TONE.Active)}>Active</span>
       </div>
 
-      {/* EOI view */}
-      <div className="rounded-lg border border-border">
-        <div className="flex items-center justify-between border-b border-border px-3 py-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">EOIs Collected</p>
-          <div className="flex rounded-md border border-border p-0.5">
-            {([["general", "General"], ["byType", "By Property Type"]] as const).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setEoiView(key)}
-                className={cn("rounded px-2 py-0.5 text-[11px] font-medium transition-colors", eoiView === key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {eoiView === "general" ? (
-          <div className="grid grid-cols-2 gap-4 px-3 py-3">
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Total EOI Amount</p>
-              <p className="text-lg font-semibold">EGP {total.toLocaleString()}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">EOIs</p>
-              <p className="text-lg font-semibold">{count}</p>
-            </div>
-          </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {EOI_SPLIT.map(({ type, share }) => (
-              <div key={type} className="flex items-center justify-between px-3 py-2 text-sm">
-                <span>{type}</span>
-                <span className="text-muted-foreground">{Math.max(1, Math.round(count * share))} EOIs · EGP {Math.round(total * share).toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
-        )}
+      <div className="space-y-1.5">
+        <Label>Launch Start Date <span className="text-red-500">*</span></Label>
+        <Input type="date" min={minStart} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
+          The date this launch started collecting EOIs — can't be more than 2 months in the past.
+        </p>
       </div>
+
+      {/* EOI reservation fees carried by this launch */}
+      {launch.type === "Launch" && (
+        <div className="rounded-lg border border-border">
+          <p className="border-b border-border bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">EOI Reservation Fee</p>
+          {byType.length > 0 ? (
+            <div className="divide-y divide-border">
+              {byType.map((e) => (
+                <div key={e.type} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <span>{e.type}</span>
+                  <span className="font-medium tabular-nums">{e.amount.toLocaleString("en-US")} EGP</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="px-3 py-2.5 text-sm">
+              {launch.eoiAmount ? <span className="font-medium tabular-nums">{launch.eoiAmount.toLocaleString("en-US")} EGP</span> : <span className="text-muted-foreground">No EOI set</span>}
+              <span className="ml-1.5 text-xs text-muted-foreground">for every property type</span>
+            </p>
+          )}
+        </div>
+      )}
+
+      {needsSync && project && (
+        <PrimarySyncCard
+          project={project}
+          target="Launch"
+          checked={sync}
+          onToggle={() => setSync((v) => !v)}
+          note="Phases keep their own primary status — change them from the project's own Change Primary Status action."
+        />
+      )}
     </ActionDialog>
   )
 }
 
-function CloseLaunchDialog({ launch, onClose, onConfirm }: { launch: Launch; onClose: () => void; onConfirm: (endDate: string) => void }) {
+function CloseLaunchDialog({ launch, project, onClose, onConfirm }: {
+  launch: Launch
+  project?: ProjectRow
+  onClose: () => void
+  onConfirm: (endDate: string, nextPrimary?: ProjPrimaryStatus) => void
+}) {
   const [endDate, setEndDate] = useState("")
+  const canSync = !!project && project.primaryStatus === "Launch"
+  const [sync, setSync] = useState(true)
+  const [target, setTarget] = useState<ProjPrimaryStatus>("On-Sale")
   return (
     <ActionDialog
       title="Close Launch"
       launch={launch}
-      message="A notification will be sent to the sales portal to flag EOIs collected after this date on this launch."
+      message="A notification will be sent to the sales portal to flag EOIs collected after this date."
       confirmLabel="Close Launch"
       confirmClass="bg-red-600 text-white hover:bg-red-700"
       confirmDisabled={!endDate}
       onClose={onClose}
-      onConfirm={() => onConfirm(endDate)}
+      onConfirm={() => onConfirm(endDate, canSync && sync ? target : undefined)}
     >
+      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="uppercase tracking-wide">Launch status</span>
+        <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", LAUNCH_STATUS_TONE[launch.launchStatus])}>{launch.launchStatus}</span>
+        <ArrowRight className="h-3.5 w-3.5" />
+        <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium", LAUNCH_STATUS_TONE.Closed)}>Closed</span>
+      </div>
+
       <div className="space-y-1.5">
         <Label>Launch End Date <span className="text-red-500">*</span></Label>
         <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
       </div>
+
+      {canSync && project && (
+        <>
+          <div>
+            <div className="mb-1.5 text-xs font-medium text-foreground">Move the project's primary status to</div>
+            <div className="grid grid-cols-3 gap-2">
+              {(["On-Sale", "On-Hold", "Sold-Off"] as ProjPrimaryStatus[]).map((s) => (
+                <button
+                  key={s} type="button" disabled={!sync} onClick={() => setTarget(s)}
+                  className={cn(
+                    "flex items-center justify-center rounded-lg border py-2 transition-colors",
+                    !sync ? "cursor-not-allowed border-border opacity-45"
+                    : target === s ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+                  )}
+                >
+                  <Tag value={s} cls={PRIMARY_COLORS[s]} />
+                </button>
+              ))}
+            </div>
+          </div>
+          <PrimarySyncCard
+            project={project}
+            target={target}
+            checked={sync}
+            onToggle={() => setSync((v) => !v)}
+            note="Phases keep their own primary status — change them from the project's own Change Primary Status action."
+          />
+        </>
+      )}
     </ActionDialog>
   )
 }
@@ -936,9 +836,13 @@ type DialogState =
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: boolean; scopeProject?: { name: string; isPhase: boolean; mainProject?: string; developer?: string; area?: string; phases?: string[] } } = {}) {
+export function LaunchesPage({ embedded = false, scopeProject }: {
+  embedded?: boolean
+  /** `id` + `phaseIds` scope the table to a project's own launches. */
+  scopeProject?: { id?: string; phaseIds?: string[]; name: string; isPhase: boolean; mainProject?: string; developer?: string; area?: string; phases?: string[] }
+} = {}) {
   const scoped = !!scopeProject
-  const [launches, setLaunches] = useState<Launch[]>(mockLaunches)
+  const launches = useLaunches()
   const [tab, setTab] = useState<TabKey>(scoped ? "listed" : "all")
 
   // Filters (shared across tabs; per-tab exclusions applied at render/filter time)
@@ -953,6 +857,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
   const [approvalF, setApprovalF] = useState("all")
   const [ingestionF, setIngestionF] = useState("all")
   const [listingF, setListingF] = useState("all")
+  const [archivedF, setArchivedF] = useState("Live")
   const [createdFrom, setCreatedFrom] = useState("")
   const [createdTo, setCreatedTo] = useState("")
   const [sentFrom, setSentFrom] = useState("")
@@ -997,12 +902,12 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
     setSearch(""); setDeveloperF([]); setAreaF([]); setProjectSels([]); setSourceF("all"); setAlreadyCreatedF("all")
     setAiUpdatesF("all"); setLaunchStatusF("all"); setApprovalF("all"); setIngestionF("all")
     setListingF("all"); setCreatedFrom(""); setCreatedTo(""); setSentFrom(""); setSentTo("")
-    setIngestedFrom(""); setIngestedTo(""); setPage(1)
+    setIngestedFrom(""); setIngestedTo(""); setArchivedF("Live"); setPage(1)
   }
 
   // Manual ordering for Listed / Currently Active tabs (rank = position in this array)
   const [activeOrder, setActiveOrder] = useState<string[]>(
-    () => mockLaunches.filter((l) => l.approvalStatus === "Approved" && l.ingestionStatus === "Ingested").map((l) => l.id),
+    () => launches.filter(isIngestedLaunch).map((l) => l.id),
   )
   const dragId = useRef<string | null>(null)
   // Manual ranking is a global-launches feature only — the project-details embed has no drag
@@ -1010,43 +915,28 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
 
   // ── Rows per tab ────────────────────────────────────────────────────────────
 
-  const isIngested = (l: Launch) => l.approvalStatus === "Approved" && l.ingestionStatus === "Ingested"
+  const isIngested = isIngestedLaunch
 
-  // Scoped (project details embed): only ingested launches linked to the project (or its phases).
-  // Mock data rarely name-matches the projects table, so fall back to all ingested launches.
+  // Scoped (project details embed): only launches linked to THIS project or its phases,
+  // matched on real project ids — no name matching and no show-everything fallback.
   const scopedLaunches = (() => {
     if (!scopeProject) return launches
-    const ingested = launches.filter(isIngested)
-    const name = (scopeProject.isPhase ? scopeProject.mainProject ?? scopeProject.name : scopeProject.name).toLowerCase()
-    const matched = ingested.filter((l) =>
-      l.listingProject?.name.toLowerCase().includes(name) || l.projectNameEn.toLowerCase().includes(name))
-    return matched.length ? matched : ingested
+    const ids = new Set([scopeProject.id, ...(scopeProject.phaseIds ?? [])].filter(Boolean) as string[])
+    if (ids.size === 0) return []
+    return launches.filter((l) => l.projectId && ids.has(l.projectId) && isIngested(l))
   })()
 
-  // Project dropdown tree built from the launches themselves: main-project launches are
-  // parents; phase launches nest under their parent (a synthetic group when unmatched).
-  const launchProjectTree: ProjectTreeNode[] = useMemo(() => {
-    const mains = launches
-      .filter((l) => l.projectLevel === "Main Project")
-      .map((l) => ({ id: l.id, name: l.projectNameEn, status: l.listingStatus, phases: [] as { id: string; name: string; status?: "Active" | "Hidden" }[] }))
-    const byName = new Map(mains.map((m) => [m.name, m]))
-    const groups = new Map<string, ProjectTreeNode>()
-    for (const l of launches.filter((x) => x.projectLevel === "Phase")) {
-      const parentName = l.parentProjectId || l.projectNameEn
-      const phase = { id: l.id, name: l.phase || l.projectNameEn, status: l.listingStatus }
-      const parent = byName.get(parentName) ?? groups.get(parentName)
-      if (parent) parent.phases.push(phase)
-      else groups.set(parentName, { id: `GRP-${parentName}`, name: parentName, phases: [phase] })
-    }
-    return [...mains, ...groups.values()]
-  }, [launches])
+  // Project dropdown = the real system projects, matched against each launch's projectId.
+  const launchProjectTree: ProjectTreeNode[] = useMemo(() => sysProjectTree(), [])
 
+  // Archived launches stay out of every tab — reach them through the Archived filter.
   const baseRows = (t: TabKey): Launch[] => {
+    const live = archivedF === "Archived" ? scopedLaunches.filter((l) => l.archived) : scopedLaunches.filter((l) => !l.archived)
     switch (t) {
-      case "pending": return scopedLaunches.filter((l) => l.approvalStatus === "Pending Review")
-      case "listed": return scopedLaunches.filter(isIngested)
-      case "active": return scopedLaunches.filter((l) => isIngested(l) && l.launchStatus === "Active")
-      default: return scopedLaunches
+      case "pending": return live.filter((l) => l.approvalStatus === "Pending Review")
+      case "listed": return live.filter(isIngested)
+      case "active": return live.filter((l) => isIngested(l) && l.launchStatus === "Active")
+      default: return live
     }
   }
 
@@ -1060,7 +950,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
       if (search && !`${l.id} ${l.projectNameEn}`.toLowerCase().includes(search.toLowerCase())) return false
       if (developerF.length && !developerF.includes(l.developer.name)) return false
       if (areaF.length && !areaF.includes(l.area)) return false
-      if (projectSels.length && !projectSels.includes(l.id)) return false
+      if (projectSels.length && !(l.projectId && projectSels.includes(l.projectId))) return false
       if (sourceF !== "all" && l.source !== sourceF) return false
       if (alreadyCreatedF === "Existing" && !l.existingProject) return false
       if (alreadyCreatedF === "New" && l.existingProject) return false
@@ -1099,6 +989,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
   const activeFilterCount =
     (developerF.length ? 1 : 0) + (areaF.length ? 1 : 0) + (projectSels.length ? 1 : 0) +
     [sourceF, alreadyCreatedF, aiUpdatesF, listingF].filter((f) => f !== "all").length +
+    (archivedF !== "Live" ? 1 : 0) +
     (tab !== "active" && launchStatusF !== "all" ? 1 : 0) +
     (!scoped && tab !== "pending" && approvalF !== "all" ? 1 : 0) +
     (!scoped && tab !== "listed" && ingestionF !== "all" ? 1 : 0) +
@@ -1130,23 +1021,34 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
 
   // ── Mutations ───────────────────────────────────────────────────────────────
 
-  const patch = (ids: string[], p: Partial<Launch>) =>
-    setLaunches((prev) => prev.map((l) => (ids.includes(l.id) ? { ...l, ...p, updatedAt: new Date().toISOString() } : l)))
+  const patch = patchLaunches
+  /** The linked project row — drives the primary-status opt-out cards. */
+  const projectOf = (l: Launch) => PROJECTS.find((p) => p.id === l.projectId)
 
   const handleCreate = (data: Omit<Launch, "id" | "createdAt" | "updatedAt">) => {
     const now = new Date().toISOString()
-    setLaunches((prev) => [
-      { ...data, areaId: AREA_ID[data.area] ?? "AR-000", sentAt: now, id: `LCH-${String(prev.length + 1).padStart(3, "0")}`, createdAt: now, updatedAt: now },
-      ...prev,
-    ])
+    addLaunch({
+      ...data,
+      areaId: launchAreaId(data.area),
+      sentAt: now,
+      id: `LCH-${String(launches.length + 1).padStart(3, "0")}`,
+      createdAt: now,
+      updatedAt: now,
+    })
     toast.success("Launch created")
   }
 
-  const doArchive = (launch: Launch) => {
-    setLaunches((prev) => prev.filter((l) => l.id !== launch.id))
+  /** Archive never destroys the row — a project may still point at this launch. */
+  const doArchive = (launch: Launch, reason?: string) => {
+    patch([launch.id], { archived: true, archivedReason: reason })
     setSelectedIds((prev) => prev.filter((id) => id !== launch.id))
     setDialog(null)
-    toast.success(`${launch.projectNameEn} archived`)
+    toast.success(`${launch.projectNameEn} archived — restore it from the Archived filter`)
+  }
+
+  const doRestore = (launch: Launch) => {
+    patch([launch.id], { archived: false, archivedReason: undefined })
+    toast.success(`${launch.projectNameEn} restored`)
   }
 
   const doApprove = (launch: Launch) => {
@@ -1155,39 +1057,31 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
     toast.success(`${launch.projectNameEn} approved`)
   }
 
-  const doReject = (launch: Launch) => {
-    patch([launch.id], { approvalStatus: "Rejected" })
+  const doReject = (launch: Launch, reason?: string) => {
+    patch([launch.id], { approvalStatus: "Rejected", rejectionReason: reason })
     setDialog(null)
     toast.success(`${launch.projectNameEn} rejected`)
   }
 
-  /** One active launch per project/phase — activating closes any current one. */
-  const activeConflictOf = (launch: Launch) =>
-    launches.find((x) =>
-      x.id !== launch.id && x.launchStatus === "Active" &&
-      (x.projectId && launch.projectId
-        ? x.projectId === launch.projectId
-        : x.projectNameEn === launch.projectNameEn && x.phase === launch.phase),
-    )
-
-  const doActivate = (launch: Launch) => {
-    const conflict = activeConflictOf(launch)
-    if (conflict) {
-      patch([conflict.id], { launchStatus: "Closed" })
-      setActiveOrder((prev) => prev.filter((id) => id !== conflict.id))
-    }
-    patch([launch.id], { launchStatus: "Active" })
+  /** The start date is persisted; the store closes whichever launch conflicts. */
+  const doActivate = (launch: Launch, startDate: string, syncProject: boolean) => {
+    const { closedId } = activateLaunch(launch.id, startDate)
+    if (closedId) setActiveOrder((prev) => prev.filter((id) => id !== closedId))
     setActiveOrder((prev) => (prev.includes(launch.id) ? prev : [...prev, launch.id]))
+    if (syncProject && launch.projectId) setProjectPrimary(launch.projectId, "Launch")
     setDialog(null)
+    const closed = closedId ? launches.find((l) => l.id === closedId) : undefined
     toast.success(
-      conflict
-        ? `${launch.projectNameEn} is now the active launch — ${conflict.projectNameEn} (${conflict.id}) was closed`
+      closed
+        ? `${launch.projectNameEn} is now the active launch — ${closed.projectNameEn} (${closed.id}) was closed`
         : `${launch.projectNameEn} is now an active launch`,
     )
   }
 
-  const doCloseLaunch = (launch: Launch) => {
-    patch([launch.id], { launchStatus: "Closed" })
+  const doCloseLaunch = (launch: Launch, endDate: string, nextPrimary?: ProjPrimaryStatus) => {
+    closeLaunch(launch.id, endDate)
+    setActiveOrder((prev) => prev.filter((id) => id !== launch.id))
+    if (nextPrimary && launch.projectId) setProjectPrimary(launch.projectId, nextPrimary)
     setDialog(null)
     toast.success(`${launch.projectNameEn} closed — sales portal notified`)
   }
@@ -1336,13 +1230,19 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
             </DropdownMenuSub>
             {toggleListingItem(l)}
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={l.ingestionStatus === "Ingested"}
-              className={cn("text-destructive focus:text-destructive", l.ingestionStatus === "Ingested" && "opacity-40")}
-              onClick={() => setDialog({ kind: "archive", launch: l })}
-            >
-              <Archive className="h-4 w-4 mr-2" />Archive
-            </DropdownMenuItem>
+            {l.archived ? (
+              <DropdownMenuItem onClick={() => doRestore(l)}>
+                <Undo2 className="h-4 w-4 mr-2" />Restore
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                disabled={l.ingestionStatus === "Ingested"}
+                className={cn("text-destructive focus:text-destructive", l.ingestionStatus === "Ingested" && "opacity-40")}
+                onClick={() => setDialog({ kind: "archive", launch: l })}
+              >
+                <Archive className="h-4 w-4 mr-2" />Archive
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       )
@@ -1685,6 +1585,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
             <FilterSelect label="Ingestion" value={ingestionF === "all" ? "" : ingestionF} options={["Ingested", "Not Ingested"]} onChange={(v) => { setIngestionF(v || "all"); setPage(1) }} className="w-36" />
           )}
           <FilterSelect label="Listing" value={listingF === "all" ? "" : listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v || "all"); setPage(1) }} className="w-32" />
+          <FilterSelect label="Archive" value={archivedF} options={["Live", "Archived"]} onChange={(v) => { setArchivedF(v || "Live"); setPage(1) }} className="w-32" />
           <DateRangeFilter label="Created Date Range" dateFrom={createdFrom} dateTo={createdTo} onChangeFrom={(v) => { setCreatedFrom(v); setPage(1) }} onChangeTo={(v) => { setCreatedTo(v); setPage(1) }} />
           <DateRangeFilter label="Sent At Range" dateFrom={sentFrom} dateTo={sentTo} onChangeFrom={(v) => { setSentFrom(v); setPage(1) }} onChangeTo={(v) => { setSentTo(v); setPage(1) }} />
           <DateRangeFilter label="Ingested At Range" dateFrom={ingestedFrom} dateTo={ingestedTo} onChangeFrom={(v) => { setIngestedFrom(v); setPage(1) }} onChangeTo={(v) => { setIngestedTo(v); setPage(1) }} />
@@ -1901,6 +1802,10 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
               <FilterSelect label="Listing" value={listingF === "all" ? "" : listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v || "all"); setPage(1) }} className="w-full" />
             </div>
             <div className="space-y-1.5">
+              <p className="text-xs font-medium text-foreground">Archive</p>
+              <FilterSelect label="Archive" value={archivedF} options={["Live", "Archived"]} onChange={(v) => { setArchivedF(v || "Live"); setPage(1) }} className="w-full" />
+            </div>
+            <div className="space-y-1.5">
               <p className="text-xs font-medium text-foreground">Created Date Range</p>
               <DateRangeFilter label="Created Date Range" dateFrom={createdFrom} dateTo={createdTo} onChangeFrom={(v) => { setCreatedFrom(v); setPage(1) }} onChangeTo={(v) => { setCreatedTo(v); setPage(1) }} className="w-full" />
             </div>
@@ -1939,11 +1844,11 @@ export function LaunchesPage({ embedded = false, scopeProject }: { embedded?: bo
       {/* ── Dialogs ──────────────────────────────────────────────────────────── */}
       <LaunchFormDialog open={formOpen} onOpenChange={setFormOpen} onSave={handleCreate} scope={scopeProject} />
 
-      {dialog?.kind === "archive" && <ArchiveDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doArchive(dialog.launch)} />}
+      {dialog?.kind === "archive" && <ArchiveDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={(reason) => doArchive(dialog.launch, reason)} />}
       {dialog?.kind === "approve" && <ApproveDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doApprove(dialog.launch)} />}
-      {dialog?.kind === "reject" && <RejectDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doReject(dialog.launch)} />}
-      {dialog?.kind === "activate" && <ActivateDialog launch={dialog.launch} conflict={activeConflictOf(dialog.launch)} onClose={() => setDialog(null)} onConfirm={() => doActivate(dialog.launch)} />}
-      {dialog?.kind === "close" && <CloseLaunchDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doCloseLaunch(dialog.launch)} />}
+      {dialog?.kind === "reject" && <RejectDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={(reason) => doReject(dialog.launch, reason)} />}
+      {dialog?.kind === "activate" && <ActivateDialog launch={dialog.launch} conflict={activeConflictOf(dialog.launch, launches)} project={projectOf(dialog.launch)} onClose={() => setDialog(null)} onConfirm={(startDate, sync) => doActivate(dialog.launch, startDate, sync)} />}
+      {dialog?.kind === "close" && <CloseLaunchDialog launch={dialog.launch} project={projectOf(dialog.launch)} onClose={() => setDialog(null)} onConfirm={(endDate, nextPrimary) => doCloseLaunch(dialog.launch, endDate, nextPrimary)} />}
       {dialog?.kind === "link" && <LinkProjectDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={(row, isPhase) => doLink(dialog.launch, row, isPhase)} />}
       {dialog?.kind === "unlink" && (
         <ActionDialog

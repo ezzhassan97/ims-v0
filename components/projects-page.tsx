@@ -368,6 +368,8 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
             <LaunchesPage
               embedded
               scopeProject={{
+                id: project?.id,
+                phaseIds: childRows.map((c) => c.id),
                 name: project?.name ?? "",
                 isPhase: project?.isPhase ?? false,
                 mainProject: project?.mainProject?.name,

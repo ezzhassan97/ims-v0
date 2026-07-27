@@ -22,6 +22,7 @@ import {
   type SortLevel, type ProjectTreeSelection, type AreaPick,
 } from "@/components/table-kit"
 import { ProjectDetails } from "@/components/projects-page"
+import { useLaunches, launchesForProject, launchPropsOf, isIngestedLaunch, launchLabel, activateLaunch, closeLaunch, useProjectPrimaryVersion, type Launch } from "@/lib/launches-mock"
 import {
   PROJECTS, PROJECT_DEVELOPERS, AREAS, DISTRICTS, SUBAREAS, AREA_TREE,
   type ProjectRow, type ProjListingStatus, type ProjPrimaryStatus, type ProjEntryType, type ProjOrg,
@@ -91,22 +92,22 @@ export function ColorTag({ value }: { value: string }) {
   return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", tagColor(value))}>{value}</span>
 }
 
-const LISTING_COLORS: Record<ProjListingStatus, string> = {
+export const LISTING_COLORS: Record<ProjListingStatus, string> = {
   Active: "bg-emerald-50 text-emerald-700 border-emerald-200",
   Hidden: "bg-red-50 text-red-600 border-red-200",
 }
-const ENTRY_COLORS: Record<ProjEntryType, string> = {
+export const ENTRY_COLORS: Record<ProjEntryType, string> = {
   Automatic: "bg-emerald-50 text-emerald-700 border-emerald-200",
   Manual: "bg-blue-50 text-blue-700 border-blue-200",
 }
-const PRIMARY_COLORS: Record<ProjPrimaryStatus, string> = {
+export const PRIMARY_COLORS: Record<ProjPrimaryStatus, string> = {
   Launch: "bg-green-50 text-green-700 border-green-200",           // light green
   "On-Sale": "bg-emerald-100 text-emerald-800 border-emerald-300", // darker green
   "On-Hold": "bg-orange-50 text-orange-700 border-orange-200",     // orange
   "Sold-Off": "bg-red-50 text-red-600 border-red-200",             // red
 }
 // Rounded-md status tag (not a circular pill).
-function Tag({ value, cls }: { value: string; cls: string }) {
+export function Tag({ value, cls }: { value: string; cls: string }) {
   return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium", cls)}>{value}</span>
 }
 
@@ -241,6 +242,16 @@ function groupKeyOf(row: ProjectRow, key: GroupByKey) {
 
 export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embedded = false }: { rows?: ProjectRow[]; hideDeveloperFilter?: boolean; embedded?: boolean } = {}) {
   const [rows, setRows] = useState<ProjectRow[]>(rowsProp ?? PROJECTS)
+  // Activating/closing a launch can move a project's primary status — pull just that
+  // field back in, leaving every other local edit on this table untouched.
+  const primaryVersion = useProjectPrimaryVersion()
+  useEffect(() => {
+    if (!primaryVersion) return
+    setRows((rs) => rs.map((r) => {
+      const src = PROJECTS.find((p) => p.id === r.id)
+      return src && src.primaryStatus !== r.primaryStatus ? { ...r, primaryStatus: src.primaryStatus } : r
+    }))
+  }, [primaryVersion])
   const [selected, setSelected] = useState<ProjectRow | null>(null)
   const [q, setQ] = useState("")
   const [developerF, setDeveloperF] = useState<string[]>([])
@@ -296,8 +307,13 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       return hit && !excluded.has(x.id) ? { ...x, listingStatus: next } : x
     }))
   }
-  const applyPrimary = (r: ProjectRow, next: ProjPrimaryStatus, excludedPhaseIds?: string[]) => {
-    const excluded = new Set(excludedPhaseIds ?? [])
+  const applyPrimary = (r: ProjectRow, next: ProjPrimaryStatus, opts?: { excludedPhaseIds?: string[]; launchId?: string; startDate?: string; endDate?: string }) => {
+    const excluded = new Set(opts?.excludedPhaseIds ?? [])
+    // Entering Launch activates the chosen launch; leaving it closes the active one.
+    if (opts?.launchId) {
+      if (next === "Launch") activateLaunch(opts.launchId, opts.startDate || new Date().toISOString().slice(0, 10))
+      else closeLaunch(opts.launchId, opts.endDate || new Date().toISOString().slice(0, 10))
+    }
     setRows((rs) => rs.map((x) => {
       const hit = x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id)
       return hit && !excluded.has(x.id) ? { ...x, primaryStatus: next } : x
@@ -445,7 +461,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           setSelected(row) // straight to the details page to complete the rest
         }}
         parentPhasesOf={phasesOf}
-        onParentPrimaryChange={(parent, next, excludedPhaseIds) => applyPrimary(parent, next, excludedPhaseIds)}
+        onParentPrimaryChange={(parent, next, excludedPhaseIds) => applyPrimary(parent, next, { excludedPhaseIds })}
       />
     )
   }
@@ -889,10 +905,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             r={primaryDlg}
             phases={phasesOf(primaryDlg)}
             onClose={() => setPrimaryDlg(null)}
-            onConfirm={(next, excludedPhaseIds) => {
-              applyPrimary(primaryDlg, next, excludedPhaseIds)
+            onConfirm={(next, opts) => {
+              applyPrimary(primaryDlg, next, opts)
               const phaseCount = phasesOf(primaryDlg).length
-              const exCount = excludedPhaseIds?.length ?? 0
+              const exCount = opts?.excludedPhaseIds?.length ?? 0
               toast.success(`${primaryDlg.name} set to ${next}${!primaryDlg.isPhase && phaseCount ? ` with ${phaseCount - exCount} of ${phaseCount} phases${exCount ? ` (${exCount} excluded)` : ""}` : ""}`)
               setPrimaryDlg(null)
             }}
@@ -1228,85 +1244,27 @@ export function ListingStatusDialog({ r, phases, parentListing, onClose, onConfi
 // launches/releases but only ONE is active at a time; primary-status moves in
 // and out of Launch are tied to them. All entries here are already Ingested.
 
-export type ProjLaunch = {
-  id: string
-  name: string
-  type: "Launch" | "Release"
-  source: "WhatsApp" | "Manual"
-  launchStatus: "Active" | "Upcoming" | "Closed"
-  createdAt: string
-  updatedAt: string
-  startDate?: string
-  endDate?: string
-  /** Launches collect EOIs — amounts in EGP, not counts. Releases don't. */
-  eoiAmount?: number
-  eoiByType?: { type: string; amount: number }[]
-  availableLaunchProps: number
-  plans: { name: string; planType: string; dp: string; duration: string }[]
-  offerings: { name: string; propertyType: string; grossAreaRange: string; priceRange: string }[]
-}
-
-const LAUNCH_TYPE_TONE: Record<ProjLaunch["type"], string> = {
+const LAUNCH_TYPE_TONE: Record<Launch["type"], string> = {
   Launch: "border-indigo-200 bg-indigo-50 text-indigo-700",
   Release: "border-purple-200 bg-purple-50 text-purple-700",
 }
-const LAUNCH_STATUS_TONE: Record<ProjLaunch["launchStatus"], string> = {
+const LAUNCH_STATUS_TONE: Record<Launch["launchStatus"], string> = {
   Active: "border-emerald-200 bg-emerald-100 text-emerald-700",
   Upcoming: "border-blue-200 bg-blue-50 text-blue-700",
   Closed: "border-border bg-muted text-muted-foreground",
 }
 const fmtEgp = (n: number) => `${n.toLocaleString("en-US")} EGP`
-/** Card display: single amount, or min–max range when per-type EOIs differ. */
-const eoiRangeText = (l: ProjLaunch) => {
+/** Card display: single fee, or min–max range when per-type fees differ. */
+const eoiRangeText = (l: Launch) => {
   if (!l.eoiAmount) return null
   const amts = l.eoiByType?.length ? l.eoiByType.map((e) => e.amount) : [l.eoiAmount]
   const lo = Math.min(...amts), hi = Math.max(...amts)
   return lo === hi ? fmtEgp(lo) : `${lo.toLocaleString("en-US")} – ${fmtEgp(hi)}`
 }
 
-/** Deterministic mock: rows currently in Launch always carry one Active launch. */
-function launchesFor(r: ProjectRow): ProjLaunch[] {
-  const seed = [...r.id].reduce((s, c) => s + c.charCodeAt(0), 0)
-  const isLaunch = r.primaryStatus === "Launch"
-  const n = isLaunch ? 1 + (seed % 2) : seed % 3
-  return Array.from({ length: n }, (_, i) => {
-    // The active launch driving a Launch primary status is always of type "Launch".
-    const type: ProjLaunch["type"] = isLaunch && i === 0 ? "Launch" : (seed + i) % 3 === 2 ? "Release" : "Launch"
-    // EOI amounts are reservation fees — 50,000 to 1,000,000 EGP.
-    const eoi = type === "Launch" ? (1 + ((seed * 7 + i * 31) % 20)) * 50_000 : undefined
-    const differsByType = eoi ? (seed + i) % 2 === 0 : false
-    return {
-      id: `LNCH-${1000 + ((seed * 13 + i * 47) % 900)}`,
-      name: `${r.name} ${type} ${i + 1}`,
-      type,
-      source: (seed + i) % 2 === 0 ? "WhatsApp" : "Manual",
-      launchStatus: isLaunch && i === 0 ? "Active" : (seed + i) % 2 === 0 ? "Upcoming" : "Closed",
-      createdAt: `2026-0${3 + (i % 3)}-${String(10 + (seed % 18))}T09:30:00Z`,
-      updatedAt: `2026-0${4 + (i % 3)}-${String(5 + (seed % 20)).padStart(2, "0")}T14:00:00Z`,
-      startDate: (seed + i) % 2 === 0 ? "2026-06-15" : undefined,
-      endDate: undefined,
-      eoiAmount: eoi,
-      eoiByType: eoi && differsByType ? [
-        { type: "Apartment", amount: eoi },
-        { type: "Villa", amount: Math.min(1_000_000, eoi + 150_000) },
-        { type: "Chalet", amount: Math.min(1_000_000, eoi + 50_000) },
-      ] : undefined,
-      availableLaunchProps: 2 + ((seed + i * 5) % 6),
-      plans: [
-        { name: "Standard Plan", planType: "Equal Installments", dp: "10%", duration: `${6 + (seed % 3)} years` },
-        { name: "Extended Plan", planType: "Backloaded", dp: "5%", duration: `${8 + (seed % 3)} years` },
-      ].slice(0, 1 + ((seed + i) % 2)),
-      offerings: [
-        { name: "Apartments", propertyType: "Apartment", grossAreaRange: "110–180 SQM", priceRange: `${5 + (seed % 4)}M – ${9 + (seed % 5)}M` },
-        { name: "Villas", propertyType: "Villa", grossAreaRange: "220–340 SQM", priceRange: `${14 + (seed % 5)}M – ${22 + (seed % 6)}M` },
-      ].slice(0, 1 + ((seed + i + 1) % 2)),
-    }
-  })
-}
-
 /** One launch row — name, ID, created at, EOI amount, available count, type, status, view. */
 function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {
-  l: ProjLaunch
+  l: Launch
   radio?: boolean
   selected?: boolean
   onSelect?: () => void
@@ -1323,10 +1281,10 @@ function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {
           </span>
         )}
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          <p className="truncate text-sm font-medium text-foreground">{l.name}</p>
+          <p className="truncate text-sm font-medium text-foreground">{launchLabel(l)}</p>
           <IdTag value={l.id} />
         </div>
-        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{l.availableLaunchProps}</span> Properties</span>
+        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{launchPropsOf(l)}</span> Properties</span>
         <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[l.type])}>{l.type}</span>
         <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[l.launchStatus])}>
           {l.launchStatus === "Active" ? "Currently active" : l.launchStatus}
@@ -1364,7 +1322,7 @@ function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {
 }
 
 /** Launch summary side drawer — mirrors the launch ingestion summary layout. */
-function LaunchSummaryDrawer({ launch, project, onClose }: { launch: ProjLaunch; project: ProjectRow; onClose: () => void }) {
+function LaunchSummaryDrawer({ launch, project, onClose }: { launch: Launch; project: ProjectRow; onClose: () => void }) {
   const cell = (label: string, value: React.ReactNode) => (
     <div><p className="text-[10px] uppercase text-muted-foreground">{label}</p><div className="text-sm font-medium text-foreground">{value}</div></div>
   )
@@ -1372,7 +1330,7 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: ProjLaunch;
     <Sheet open onOpenChange={(o) => { if (!o) onClose() }}>
       <SheetContent side="right" className="!w-[520px] !max-w-[95vw] p-0 flex flex-col">
         <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
-          <SheetTitle className="flex items-center gap-2 text-base">{launch.name} <IdTag value={launch.id} /></SheetTitle>
+          <SheetTitle className="flex items-center gap-2 text-base">{launchLabel(launch)} <IdTag value={launch.id} /></SheetTitle>
           <SheetDescription className="flex items-center gap-1.5 text-xs">
             <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[launch.type])}>{launch.type}</span>
             <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[launch.launchStatus])}>{launch.launchStatus}</span>
@@ -1455,10 +1413,20 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: ProjLaunch;
  *    Primary properties); Launch and other On-Sale moves list phases for
  *    awareness only.
  */
-export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; onClose: () => void; onConfirm: (s: ProjPrimaryStatus, excludedPhaseIds?: string[]) => void }) {
+export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: {
+  r: ProjectRow
+  phases: ProjectRow[]
+  onClose: () => void
+  /** `opts` carries the launch the move activates or closes, so the launch record follows. */
+  onConfirm: (s: ProjPrimaryStatus, opts?: { excludedPhaseIds?: string[]; launchId?: string; startDate?: string; endDate?: string }) => void
+}) {
   const from = r.primaryStatus
   // Only ingested launches of type "Launch" drive primary status — Releases never show here.
-  const linkedLaunches = useMemo(() => launchesFor(r).filter((l) => l.type === "Launch"), [r])
+  const allLaunches = useLaunches()
+  const linkedLaunches = useMemo(
+    () => launchesForProject(r.id, allLaunches).filter((l) => l.type === "Launch" && isIngestedLaunch(l)),
+    [r.id, allLaunches],
+  )
   const activeLaunch = linkedLaunches.find((l) => l.launchStatus === "Active")
   const [target, setTarget] = useState<ProjPrimaryStatus | "">("")
   const [selectedPhases, setSelectedPhases] = useState<Set<string>>(new Set())
@@ -1466,7 +1434,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
   const [startDate, setStartDate] = useState(activeLaunch?.startDate ?? "")
   const [endDate, setEndDate] = useState(activeLaunch?.endDate ?? "")
   const [hideAvailable, setHideAvailable] = useState(false)
-  const [drawerLaunch, setDrawerLaunch] = useState<ProjLaunch | null>(null)
+  const [drawerLaunch, setDrawerLaunch] = useState<Launch | null>(null)
 
   const cascading = !r.isPhase && phases.length > 0
   // How the phases participate for a given destination
@@ -1540,7 +1508,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
     const s = sums(rows)
     const out: Outcome[] = []
     if (to === "Launch") {
-      if (selLaunch) out.push({ label: "Launch Properties", countText: props(selLaunch.availableLaunchProps), listing: "Shown" })
+      if (selLaunch) out.push({ label: "Launch Properties", countText: props(launchPropsOf(selLaunch)), listing: "Shown" })
       if (hideAvailable) {
         if (s.paG > 0 || s.paD > 0) out.push({ label: "Available Primary Automatic", countText: paText(s.paG, s.paD), listing: "Hidden" })
         if (s.pmG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmG), listing: "Hidden" })
@@ -1862,7 +1830,12 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: { r: Proj
 
         <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={!canSave} onClick={() => onConfirm(target as ProjPrimaryStatus, selectable ? eligiblePhases.filter((p) => !selectedPhases.has(p.id)).map((p) => p.id) : undefined)}>
+          <Button size="sm" disabled={!canSave} onClick={() => onConfirm(target as ProjPrimaryStatus, {
+              excludedPhaseIds: selectable ? eligiblePhases.filter((p) => !selectedPhases.has(p.id)).map((p) => p.id) : undefined,
+              launchId: target === "Launch" ? selLaunch?.id : leavingLaunch ? activeLaunch?.id : undefined,
+              startDate: target === "Launch" ? startDate : undefined,
+              endDate: leavingLaunch ? endDate : undefined,
+            })}>
             {target === "" ? "Change" : `Change to ${target}`}
           </Button>
         </DialogFooter>
@@ -3014,8 +2987,8 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
           r={parentDlg}
           phases={parentPhasesOf(parentDlg)}
           onClose={() => { setParentDlg(null); create() }}
-          onConfirm={(next, excludedPhaseIds) => {
-            onParentPrimaryChange(parentDlg, next, excludedPhaseIds)
+          onConfirm={(next, opts) => {
+            onParentPrimaryChange(parentDlg, next, opts?.excludedPhaseIds)
             setParentDlg(null)
             create()
           }}

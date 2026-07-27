@@ -120,6 +120,7 @@ import {
   Unlink,
 } from "lucide-react"
 import { LinkProjectDialog } from "@/components/link-project-dialog"
+import { useLaunches, activateLaunch, closeLaunch, activeConflictOf, isIngestedLaunch, launchPropsOf, type Launch } from "@/lib/launches-mock"
 import { useRef, useEffect, useCallback } from "react"
 import { cn } from "@/lib/utils"
 
@@ -238,41 +239,6 @@ const mockProjects: SearchableOption[] = [
   { id: "PROJ-006", label: "Zed East" },
 ]
 
-interface Launch {
-  id: string
-  developer: {
-    name: string
-    logo: string
-    id: string
-  }
-  projectNameEn: string
-  phase: string
-  projectLevel: "Main Project" | "Phase"
-  parentProjectId?: string
-  /** Matched system project id — undefined ⇒ unmatched free-text parent. */
-  projectId?: string
-  /** Already-created project in the system — undefined ⇒ "New". */
-  existingProject?: { id: string; name: string }
-  /** Website-facing launch title/description — editable at any time, even after ingestion. */
-  title?: string
-  description?: string
-  /** The listing project created/linked on ingestion — target of View Project. */
-  listingProject?: { id: string; name: string }
-  area: string
-  areaId?: string
-  aiUpdates?: { count: number; lastAt: string }
-  ingestedAt?: string
-  approvalStatus: "Pending Review" | "Approved" | "Rejected"
-  ingestionStatus: "Ingested" | "Not Ingested"
-  listingStatus: "Active" | "Hidden"
-  launchStatus: "Upcoming" | "Active" | "Closed"
-  type: "Launch" | "Release"
-  source: "WhatsApp" | "Manual"
-  listingCompletion: number
-  sentAt?: string | null
-  createdAt: string
-  updatedAt: string
-}
 
 interface LaunchDetailsPageProps {
   launch: Launch

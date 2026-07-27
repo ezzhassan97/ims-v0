@@ -1,0 +1,391 @@
+"use client"
+
+import { useSyncExternalStore } from "react"
+import { PROJECTS, type ProjectRow, type ProjPrimaryStatus } from "@/lib/projects-mock"
+
+// ─── Shared launch record ─────────────────────────────────────────────────────
+// One source of truth for BOTH flows: the Launches pages and the projects'
+// Change Primary Status dialog. A project sits in Launch because exactly one
+// ingested, type="Launch" launch is Active on it — so both sides must read and
+// write the same rows, and every launch must point at a real PROJECTS id.
+
+export interface LaunchRef {
+  id: string
+  name: string
+}
+
+export interface Launch {
+  id: string
+  developer: { name: string; logo: string; id: string }
+  projectNameEn: string
+  /** Real `PRJ-XXXX` id — undefined ⇒ free-text project name ("Unmatched Project"). */
+  projectId?: string
+  /** Empty phase ⇒ this launch is on a main project. */
+  phase: string
+  projectLevel: "Main Project" | "Phase"
+  parentProjectId?: string
+  area: string
+  areaId: string
+  approvalStatus: "Pending Review" | "Approved" | "Rejected"
+  ingestionStatus: "Ingested" | "Not Ingested"
+  listingStatus: "Active" | "Hidden"
+  /** Already-created project in the system — undefined ⇒ green "New" tag. */
+  existingProject?: LaunchRef
+  listingProject?: LaunchRef
+  launchStatus: "Upcoming" | "Active" | "Closed"
+  type: "Launch" | "Release"
+  source: "WhatsApp" | "Manual"
+  listingCompletion: number
+  /** Reservation fee in EGP — NOT a count of EOIs collected. */
+  eoiAmount?: number
+  /** Per-property-type reservation fees; absent when one fee covers every type. */
+  eoiByType?: { type: string; amount: number }[]
+  coverImage?: string
+  /** Website-facing copy — editable at any time, even after ingestion. */
+  title?: string
+  description?: string
+  /** Written when the launch is activated. */
+  startDate?: string
+  /** Written only when the launch is closed. */
+  endDate?: string
+  plans: { name: string; planType: string; dp: string; duration: string }[]
+  offerings: { name: string; propertyType: string; grossAreaRange: string; priceRange: string }[]
+  /** Archived launches leave the default tabs but are never destroyed. */
+  archived?: boolean
+  rejectionReason?: string
+  archivedReason?: string
+  /** AI-parsed updates from WhatsApp (undefined for manual launches). */
+  aiUpdates?: { count: number; lastAt: string }
+  ingestedAt?: string
+  sentAt: string
+  createdAt: string
+  updatedAt: string
+}
+
+const LOGO = "/placeholder.svg?height=32&width=32"
+const COVER = "/placeholder.svg?height=200&width=300"
+
+const AREA_ID: Record<string, string> = {
+  "New Cairo": "AR-101",
+  "6th of October": "AR-102",
+  "North Coast": "AR-103",
+  "New Capital": "AR-104",
+  "Sheikh Zayed": "AR-105",
+  Maadi: "AR-106",
+  Zamalek: "AR-107",
+  Heliopolis: "AR-108",
+}
+export const LAUNCH_AREAS = Object.keys(AREA_ID)
+export const launchAreaId = (area: string) => AREA_ID[area] ?? "AR-000"
+
+/**
+ * Ingested launches are generated from real projects, so every one of them
+ * resolves to a live `PRJ-XXXX`. Rows whose project is in Launch always get an
+ * Active type="Launch" launch — the state the primary status depends on.
+ */
+function seedForProject(r: ProjectRow): Launch[] {
+  const seed = [...r.id].reduce((s, c) => s + c.charCodeAt(0), 0)
+  const isLaunch = r.primaryStatus === "Launch"
+  const n = isLaunch ? 1 + (seed % 2) : seed % 3
+  const projectNameEn = r.isPhase ? r.mainProject?.name ?? r.name : r.name
+  return Array.from({ length: n }, (_, i) => {
+    // The active launch driving a Launch primary status is always of type "Launch".
+    const type: Launch["type"] = isLaunch && i === 0 ? "Launch" : (seed + i) % 3 === 2 ? "Release" : "Launch"
+    // EOI amounts are reservation fees — 50,000 to 1,000,000 EGP. Releases collect none.
+    const eoi = type === "Launch" ? (1 + ((seed * 7 + i * 31) % 20)) * 50_000 : undefined
+    const differsByType = eoi ? (seed + i) % 2 === 0 : false
+    const launchStatus: Launch["launchStatus"] =
+      isLaunch && i === 0 ? "Active" : (seed + i) % 2 === 0 ? "Upcoming" : "Closed"
+    const day = String(10 + (seed % 18)).padStart(2, "0")
+    return {
+      id: `LCH-${String(1000 + ((seed * 13 + i * 47) % 8000))}`,
+      developer: { name: r.developer.name, logo: LOGO, id: r.developer.id },
+      projectNameEn,
+      projectId: r.id,
+      phase: r.isPhase ? r.name : "",
+      projectLevel: r.isPhase ? "Phase" : "Main Project",
+      parentProjectId: r.mainProject?.id,
+      area: r.area,
+      areaId: launchAreaId(r.area),
+      approvalStatus: "Approved" as const,
+      ingestionStatus: "Ingested" as const,
+      listingStatus: r.listingStatus,
+      existingProject: { id: r.id, name: r.name },
+      listingProject: { id: r.id, name: r.name },
+      launchStatus,
+      type,
+      source: (seed + i) % 2 === 0 ? ("WhatsApp" as const) : ("Manual" as const),
+      listingCompletion: 60 + ((seed + i * 7) % 41),
+      eoiAmount: eoi,
+      eoiByType: eoi && differsByType
+        ? [
+            { type: "Apartment", amount: eoi },
+            { type: "Villa", amount: Math.min(1_000_000, eoi + 150_000) },
+            { type: "Chalet", amount: Math.min(1_000_000, eoi + 50_000) },
+          ]
+        : undefined,
+      coverImage: COVER,
+      // Only an activated launch has a start date; only a closed one has an end date.
+      startDate: launchStatus === "Upcoming" ? undefined : `2026-0${3 + (i % 3)}-${day}`,
+      endDate: launchStatus === "Closed" ? `2026-0${5 + (i % 3)}-${day}` : undefined,
+      plans: [
+        { name: "Standard Plan", planType: "Equal Installments", dp: "10%", duration: `${6 + (seed % 3)} years` },
+        { name: "Extended Plan", planType: "Backloaded", dp: "5%", duration: `${8 + (seed % 3)} years` },
+      ].slice(0, 1 + ((seed + i) % 2)),
+      offerings: [
+        { name: "Apartments", propertyType: "Apartment", grossAreaRange: "110–180 SQM", priceRange: `${5 + (seed % 4)}M – ${9 + (seed % 5)}M` },
+        { name: "Villas", propertyType: "Villa", grossAreaRange: "220–340 SQM", priceRange: `${14 + (seed % 5)}M – ${22 + (seed % 6)}M` },
+      ].slice(0, 1 + ((seed + i + 1) % 2)),
+      aiUpdates: (seed + i) % 2 === 0 ? { count: 1 + (seed % 4), lastAt: `2026-0${4 + (i % 3)}-${day}T09:00:00` } : undefined,
+      ingestedAt: `2026-0${2 + (i % 3)}-${day}T10:30:00`,
+      sentAt: `2026-0${2 + (i % 3)}-${day}T07:30:00`,
+      createdAt: `2026-0${3 + (i % 3)}-${day}T09:30:00Z`,
+      updatedAt: `2026-0${4 + (i % 3)}-${String(5 + (seed % 20)).padStart(2, "0")}T14:00:00Z`,
+    }
+  })
+}
+
+/**
+ * Not-yet-ingested launches stay hand-written — they are the Pending Review /
+ * Rejected content and legitimately have no (or an unconfirmed) project link.
+ */
+function pendingSeed(): Launch[] {
+  const mains = PROJECTS.filter((p) => !p.isPhase && !p.isSubProject)
+  const phases = PROJECTS.filter((p) => p.isPhase)
+  const matchedPhase = phases[0]
+  const empty = { plans: [], offerings: [] }
+  return [
+    {
+      id: "LCH-002",
+      developer: { name: matchedPhase?.developer.name ?? "Emaar Misr", logo: LOGO, id: matchedPhase?.developer.id ?? "DEV-002" },
+      projectNameEn: matchedPhase?.mainProject?.name ?? "Marassi North Coast",
+      phase: matchedPhase?.name ?? "Phase 2",
+      projectLevel: "Phase",
+      parentProjectId: matchedPhase?.mainProject?.id,
+      area: matchedPhase?.area ?? "North Coast",
+      areaId: launchAreaId(matchedPhase?.area ?? "North Coast"),
+      approvalStatus: "Pending Review",
+      ingestionStatus: "Not Ingested",
+      listingStatus: "Hidden",
+      // Matched an existing phase that already has an Active launch → ingestion conflict.
+      existingProject: matchedPhase ? { id: matchedPhase.id, name: matchedPhase.name } : undefined,
+      launchStatus: "Upcoming",
+      type: "Launch",
+      source: "Manual",
+      listingCompletion: 45,
+      eoiAmount: 75_000,
+      coverImage: COVER,
+      ...empty,
+      sentAt: "2026-01-12T10:20:00",
+      createdAt: "2026-01-12T11:00:00",
+      updatedAt: "2026-01-14T16:45:00",
+    },
+    {
+      id: "LCH-004",
+      developer: { name: mains[3]?.developer.name ?? "Mountain View", logo: LOGO, id: mains[3]?.developer.id ?? "DEV-004" },
+      projectNameEn: mains[3]?.name ?? "Mountain View iCity",
+      phase: "Phase 1",
+      projectLevel: "Phase",
+      parentProjectId: mains[3]?.id,
+      area: mains[3]?.area ?? "New Cairo",
+      areaId: launchAreaId(mains[3]?.area ?? "New Cairo"),
+      approvalStatus: "Rejected",
+      ingestionStatus: "Not Ingested",
+      listingStatus: "Hidden",
+      existingProject: mains[3] ? { id: mains[3].id, name: mains[3].name } : undefined,
+      launchStatus: "Upcoming",
+      type: "Release",
+      source: "Manual",
+      listingCompletion: 0,
+      coverImage: COVER,
+      rejectionReason: "Payment plans missing — sent back to the developer.",
+      ...empty,
+      sentAt: "2026-01-05T13:10:00",
+      createdAt: "2026-01-05T14:00:00",
+      updatedAt: "2026-01-05T14:00:00",
+    },
+    {
+      // Brand-new project — no system project yet, so ingestion must create one.
+      id: "LCH-006",
+      developer: { name: "Hyde Park", logo: LOGO, id: "DEV-006" },
+      projectNameEn: "Hyde Park New Cairo",
+      phase: "",
+      projectLevel: "Main Project",
+      area: "New Cairo",
+      areaId: launchAreaId("New Cairo"),
+      approvalStatus: "Pending Review",
+      ingestionStatus: "Not Ingested",
+      listingStatus: "Hidden",
+      launchStatus: "Upcoming",
+      type: "Launch",
+      source: "WhatsApp",
+      listingCompletion: 60,
+      eoiAmount: 55_000,
+      coverImage: COVER,
+      ...empty,
+      aiUpdates: { count: 1, lastAt: "2026-01-17T08:00:00" },
+      sentAt: "2026-01-14T08:40:00",
+      createdAt: "2026-01-14T10:00:00",
+      updatedAt: "2026-01-16T09:30:00",
+    },
+    {
+      id: "LCH-009",
+      developer: { name: "Emaar Misr", logo: LOGO, id: "DEV-002" },
+      projectNameEn: "Mivida New Cairo",
+      phase: "",
+      projectLevel: "Main Project",
+      area: "New Cairo",
+      areaId: launchAreaId("New Cairo"),
+      approvalStatus: "Rejected",
+      ingestionStatus: "Not Ingested",
+      listingStatus: "Hidden",
+      launchStatus: "Upcoming",
+      type: "Launch",
+      source: "Manual",
+      listingCompletion: 20,
+      eoiAmount: 45_000,
+      coverImage: COVER,
+      rejectionReason: "Duplicate of an existing launch.",
+      ...empty,
+      sentAt: "2026-01-06T12:00:00",
+      createdAt: "2026-01-06T13:00:00",
+      updatedAt: "2026-01-11T10:00:00",
+    },
+    {
+      id: "LCH-010",
+      developer: { name: "Sodic", logo: LOGO, id: "DEV-003" },
+      projectNameEn: "VYE Sheikh Zayed",
+      phase: "Phase 2",
+      projectLevel: "Phase",
+      area: "Sheikh Zayed",
+      areaId: launchAreaId("Sheikh Zayed"),
+      approvalStatus: "Pending Review",
+      ingestionStatus: "Not Ingested",
+      listingStatus: "Hidden",
+      launchStatus: "Upcoming",
+      type: "Launch",
+      source: "WhatsApp",
+      listingCompletion: 35,
+      eoiAmount: 80_000,
+      coverImage: COVER,
+      ...empty,
+      aiUpdates: { count: 2, lastAt: "2026-01-20T11:00:00" },
+      sentAt: "2026-01-17T08:20:00",
+      createdAt: "2026-01-17T09:00:00",
+      updatedAt: "2026-01-19T15:00:00",
+    },
+  ]
+}
+
+function seed(): Launch[] {
+  const generated = PROJECTS.flatMap(seedForProject)
+  // Ids are seeded per project; drop any accidental collision so keys stay unique.
+  const seen = new Set<string>()
+  const unique = generated.filter((l) => (seen.has(l.id) ? false : (seen.add(l.id), true)))
+  return [...pendingSeed(), ...unique]
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
+// A module store rather than lifted state: the launches table, the launch
+// details page, the embedded launches tab and the projects' primary-status
+// dialog all read/write these rows with no common ancestor short of AppShell.
+
+let LAUNCHES: Launch[] = seed()
+const listeners = new Set<() => void>()
+const emit = () => listeners.forEach((l) => l())
+
+export function useLaunches(): Launch[] {
+  return useSyncExternalStore(
+    (cb) => { listeners.add(cb); return () => { listeners.delete(cb) } },
+    () => LAUNCHES,
+    () => LAUNCHES,
+  )
+}
+
+export function patchLaunches(ids: string[], p: Partial<Launch>) {
+  const set = new Set(ids)
+  LAUNCHES = LAUNCHES.map((l) => (set.has(l.id) ? { ...l, ...p, updatedAt: new Date().toISOString() } : l))
+  emit()
+}
+
+export function addLaunch(l: Launch) {
+  LAUNCHES = [l, ...LAUNCHES]
+  emit()
+}
+
+export const isIngestedLaunch = (l: Launch) => l.approvalStatus === "Approved" && l.ingestionStatus === "Ingested"
+
+/** Display label — "New Cairo Residences — Phase 1 · Launch". */
+export const launchLabel = (l: Launch) => `${l.projectNameEn}${l.phase ? ` — ${l.phase}` : ""} · ${l.type}`
+
+/** Same project/phase, ingested, type Launch and currently Active — the row activation must close. */
+export function activeConflictOf(launch: Launch, rows: Launch[] = LAUNCHES): Launch | undefined {
+  return rows.find((x) =>
+    x.id !== launch.id
+    && x.launchStatus === "Active"
+    && x.type === "Launch"
+    && isIngestedLaunch(x)
+    && !x.archived
+    && (x.projectId && launch.projectId
+      ? x.projectId === launch.projectId
+      : x.projectNameEn === launch.projectNameEn && x.phase === launch.phase),
+  )
+}
+
+/** Activates a launch, closing whichever one it conflicts with. Only one can be active. */
+export function activateLaunch(id: string, startDate: string): { closedId?: string } {
+  const launch = LAUNCHES.find((l) => l.id === id)
+  if (!launch) return {}
+  const conflict = activeConflictOf(launch)
+  const now = new Date().toISOString()
+  LAUNCHES = LAUNCHES.map((l) => {
+    if (l.id === id) return { ...l, launchStatus: "Active" as const, startDate, updatedAt: now }
+    if (conflict && l.id === conflict.id) return { ...l, launchStatus: "Closed" as const, endDate: l.endDate ?? startDate, updatedAt: now }
+    return l
+  })
+  emit()
+  return { closedId: conflict?.id }
+}
+
+export function closeLaunch(id: string, endDate: string) {
+  patchLaunches([id], { launchStatus: "Closed", endDate })
+}
+
+/** Every launch linked to a project or phase id. */
+export function launchesForProject(projectId: string, rows: Launch[] = LAUNCHES): Launch[] {
+  return rows.filter((l) => l.projectId === projectId && !l.archived)
+}
+
+/**
+ * Launch Properties belong to the PROJECT while it is in Launch — no property
+ * carries a launch id — so the count comes from the linked project's own
+ * bucket. Keeps entering and leaving Launch quoting the same number.
+ */
+export function launchPropsOf(l: Launch): number {
+  const p = PROJECTS.find((x) => x.id === l.projectId)
+  return p ? p.primaryStatusProps.launch.grouped : 0
+}
+
+// ─── Project primary status, written from the launches side ───────────────────
+// Activating or closing a launch can move the linked project. The projects table
+// keeps its rows in local state, so the write lands on the shared PROJECTS row
+// and bumps a version the table subscribes to.
+
+let primaryVersion = 0
+const primaryListeners = new Set<() => void>()
+
+export function useProjectPrimaryVersion(): number {
+  return useSyncExternalStore(
+    (cb) => { primaryListeners.add(cb); return () => { primaryListeners.delete(cb) } },
+    () => primaryVersion,
+    () => primaryVersion,
+  )
+}
+
+export function setProjectPrimary(projectId: string, next: ProjPrimaryStatus) {
+  const p = PROJECTS.find((x) => x.id === projectId)
+  if (!p || p.primaryStatus === next) return
+  p.primaryStatus = next
+  primaryVersion++
+  primaryListeners.forEach((l) => l())
+}
