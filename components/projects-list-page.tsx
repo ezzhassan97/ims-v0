@@ -22,7 +22,7 @@ import {
   type SortLevel, type ProjectTreeSelection, type AreaPick,
 } from "@/components/table-kit"
 import { ProjectDetails } from "@/components/projects-page"
-import { useLaunches, launchesForProject, launchPropsOf, isIngestedLaunch, launchLabel, activateLaunch, closeLaunch, useProjectPrimaryVersion, type Launch } from "@/lib/launches-mock"
+import { useLaunches, launchesForProject, launchPropsOf, isIngestedLaunch, launchLabel, eoiRangeText, activateLaunch, closeLaunch, useProjectPrimaryVersion, type Launch } from "@/lib/launches-mock"
 import {
   PROJECTS, PROJECT_DEVELOPERS, AREAS, DISTRICTS, SUBAREAS, AREA_TREE,
   type ProjectRow, type ProjListingStatus, type ProjPrimaryStatus, type ProjEntryType, type ProjOrg,
@@ -1254,13 +1254,6 @@ const LAUNCH_STATUS_TONE: Record<Launch["launchStatus"], string> = {
   Closed: "border-border bg-muted text-muted-foreground",
 }
 const fmtEgp = (n: number) => `${n.toLocaleString("en-US")} EGP`
-/** Card display: single fee, or min–max range when per-type fees differ. */
-const eoiRangeText = (l: Launch) => {
-  if (!l.eoiAmount) return null
-  const amts = l.eoiByType?.length ? l.eoiByType.map((e) => e.amount) : [l.eoiAmount]
-  const lo = Math.min(...amts), hi = Math.max(...amts)
-  return lo === hi ? fmtEgp(lo) : `${lo.toLocaleString("en-US")} – ${fmtEgp(hi)}`
-}
 
 /** One launch row — name, ID, created at, EOI amount, available count, type, status, view. */
 function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {

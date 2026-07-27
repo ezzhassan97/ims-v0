@@ -72,7 +72,7 @@ import { PROJECTS, PROJECT_DEVELOPERS, type ProjPrimaryStatus, type ProjectRow }
 import { LinkProjectDialog, SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
 import {
   useLaunches, patchLaunches, addLaunch, activateLaunch, closeLaunch,
-  activeConflictOf, isIngestedLaunch, launchPropsOf, launchAreaId, LAUNCH_AREAS, setProjectPrimary,
+  activeConflictOf, isIngestedLaunch, launchPropsOf, launchAreaId, LAUNCH_AREAS, setProjectPrimary, eoiRangeText,
   type Launch,
 } from "@/lib/launches-mock"
 import {
@@ -100,11 +100,14 @@ const LAUNCH_COLS: (ManagedColumn & { width: number })[] = [
   { id: "approval", label: "Approval", width: 140 },
   { id: "ingestion", label: "Ingestion Status", width: 140 },
   { id: "launchStatus", label: "Launch Status", width: 130 },
-  { id: "existingProject", label: "Existing Project", width: 170 },
-  { id: "listingProject", label: "Listing Project", width: 170 },
+  { id: "project", label: "Project", width: 200 },
+  { id: "projectPrimary", label: "Project Primary Status", width: 170 },
   { id: "type", label: "Type", width: 110 },
   { id: "source", label: "Source", width: 110 },
   { id: "completion", label: "Completion", width: 140 },
+  { id: "eoi", label: "EOI", width: 170 },
+  { id: "startDate", label: "Start Date", width: 170 },
+  { id: "endDate", label: "End Date", width: 170 },
   { id: "aiUpdates", label: "AI Updates", width: 210 },
   { id: "sentAt", label: "Sent At", width: 170 },
   { id: "createdAt", label: "Created At", width: 170 },
@@ -1333,20 +1336,30 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       case "approval": return <Chip tone={APPROVAL_TONE[l.approvalStatus]}>{l.approvalStatus}</Chip>
       case "ingestion": return <Chip tone={INGESTION_TONE[l.ingestionStatus]}>{l.ingestionStatus}</Chip>
       case "launchStatus": return <Chip tone={LAUNCH_STATUS_TONE[l.launchStatus]}>{l.launchStatus}</Chip>
-      case "existingProject": return l.existingProject ? (
-        <div className="flex flex-col">
-          <a href="#" target="_blank" rel="noreferrer" className="w-fit text-sm hover:underline">{l.existingProject.name}</a>
-          <IdTag value={l.existingProject.id} />
-        </div>
-      ) : <Chip tone="green">New</Chip>
-      case "listingProject": return l.listingProject ? (
-        <div className="flex flex-col">
-          <a href="#" target="_blank" rel="noreferrer" className="w-fit text-sm hover:underline">{l.listingProject.name}</a>
-          <IdTag value={l.listingProject.id} />
-        </div>
-      ) : <span className="text-xs text-muted-foreground">—</span>
+      // One Project cell — post-ingestion the existing and listing project are the same row
+      case "project": {
+        const p = projectOf(l)
+        if (!p) return <Chip tone="green">New</Chip>
+        return (
+          <div className="flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <a href={`/projects/${p.id}`} target="_blank" rel="noreferrer" className="w-fit text-sm font-medium hover:underline">{p.name}</a>
+            <IdTag value={p.id} />
+          </div>
+        )
+      }
+      case "projectPrimary": {
+        const p = projectOf(l)
+        return p
+          ? <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
+          : <span className="text-xs text-muted-foreground">—</span>
+      }
       case "type": return <Chip tone={l.type === "Launch" ? "green" : "white"}>{l.type}</Chip>
       case "source": return <Chip tone={l.source === "WhatsApp" ? "green" : "white"}>{l.source}</Chip>
+      case "eoi": return l.eoiAmount
+        ? <span className="whitespace-nowrap text-xs tabular-nums text-foreground">{eoiRangeText(l)}</span>
+        : <span className="text-xs text-muted-foreground">—</span>
+      case "startDate": return <span className="whitespace-nowrap text-xs text-muted-foreground">{l.startDate ? formatDate(l.startDate) : "—"}</span>
+      case "endDate": return <span className="whitespace-nowrap text-xs text-muted-foreground">{l.endDate ? formatDate(l.endDate) : "—"}</span>
       case "completion": return (
         <div className="flex items-center gap-2">
           <Progress value={l.listingCompletion} className="h-2 w-16" />

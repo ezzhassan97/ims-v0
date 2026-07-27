@@ -315,6 +315,15 @@ export function addLaunch(l: Launch) {
 
 export const isIngestedLaunch = (l: Launch) => l.approvalStatus === "Approved" && l.ingestionStatus === "Ingested"
 
+/** Card/cell display: one fee, or a min–max range when per-type fees differ. */
+export function eoiRangeText(l: Launch): string | null {
+  if (!l.eoiAmount) return null
+  const amts = l.eoiByType?.length ? l.eoiByType.map((e) => e.amount) : [l.eoiAmount]
+  const lo = Math.min(...amts), hi = Math.max(...amts)
+  const fmt = (n: number) => `${n.toLocaleString("en-US")} EGP`
+  return lo === hi ? fmt(lo) : `${lo.toLocaleString("en-US")} – ${fmt(hi)}`
+}
+
 /** Display label — "New Cairo Residences — Phase 1 · Launch". */
 export const launchLabel = (l: Launch) => `${l.projectNameEn}${l.phase ? ` — ${l.phase}` : ""} · ${l.type}`
 
