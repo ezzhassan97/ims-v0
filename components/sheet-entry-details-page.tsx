@@ -384,66 +384,63 @@ export function FilePreviewCard({ entry }: { entry: IngestionEntry }) {
 
 export function StepInitialSetup({ entry }: { entry: IngestionEntry }) {
   const [prevIdx, setPrevIdx] = useState(0)
-  const [devId, setDevId] = useState(entry.developer?.id ?? "")
-  const [projIds, setProjIds] = useState<string[]>(entry.projects.map((p) => p.id))
-  const projTree = useMemo<ProjectTreeNode[]>(
-    () => PROJECTS.filter((p) => !p.isPhase).map((p) => ({
-      id: p.id,
-      name: p.name,
-      phases: PROJECTS.filter((ph) => ph.isPhase && ph.mainProject?.id === p.id).map((ph) => ({ id: ph.id, name: ph.name })),
-    })),
-    [],
-  )
 
   return (
-    <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1fr_400px]">
-      {/* Left — the uploaded file preview */}
-      <FilePreviewCard entry={entry} />
-
-      {/* Right — setup controls & previous-entry comparison */}
-      <div className="space-y-4">
-        <SectionCard title="Setup">
-          <div className="space-y-3 p-4">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-              <div><p className="text-xs text-muted-foreground">Entry ID</p><p className="truncate text-sm font-medium text-foreground">{entry.id}</p></div>
-              <div><p className="text-xs text-muted-foreground">Source</p><p className="truncate text-sm font-medium text-foreground">Uploaded from {entry.source}</p></div>
-            </div>
+    <div className="space-y-4">
+      <SectionCard>
+        <div className="space-y-4 p-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div><p className="text-sm font-semibold text-foreground">Entry ID</p><p className="mt-0.5 text-sm text-muted-foreground">{entry.id}</p></div>
+            <div><p className="text-sm font-semibold text-foreground">File name</p><p className="mt-0.5 text-sm text-muted-foreground">{entry.fileName}</p></div>
+            <div><p className="text-sm font-semibold text-foreground">Source</p><p className="mt-0.5 text-sm text-muted-foreground">Uploaded from {entry.source}</p></div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <p className="mb-1.5 text-sm font-semibold text-foreground">Developer</p>
-              <DeveloperSelect developers={PROJECT_DEVELOPERS} value={devId} onChange={setDevId} className="w-full" />
+              <Select defaultValue={entry.developer?.id}>
+                <SelectTrigger className="h-9 w-full"><SelectValue placeholder="Select developer" /></SelectTrigger>
+                <SelectContent>
+                  {(entry.developer ? [entry.developer] : PROJECT_DEVELOPERS).map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <p className="mb-1.5 text-sm font-semibold text-foreground">Projects</p>
-              <ProjectTreeSelect multi projects={projTree} values={projIds} onValuesChange={setProjIds} className="w-full" />
+              <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1.5">
+                {entry.projects.length === 0 && <span className="text-sm italic text-muted-foreground">Not selected yet</span>}
+                {entry.projects.slice(0, 3).map((p) => <ColorTag key={p.id} value={p.name} />)}
+                {entry.projects.length > 3 && <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>+{entry.projects.length - 3}</span>}
+              </div>
             </div>
             <div>
               <p className="mb-1.5 text-sm font-semibold text-foreground">Property categories</p>
               <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1.5">
-                {entry.categories.length === 0 && <span className="text-sm italic text-muted-foreground">Not selected yet</span>}
                 {entry.categories.map((c) => <ColorTag key={c} value={c} />)}
               </div>
             </div>
           </div>
-        </SectionCard>
+        </div>
+      </SectionCard>
 
-        {/* Previous entry comparison */}
-        <SectionCard>
-          <div className="p-4">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h3 className="text-base font-semibold text-foreground">Previous Entry Comparison</h3>
-                <button className="text-sm text-primary underline-offset-2 hover:underline" onClick={() => toast.info("Opening previous entry is coming soon")}>
-                  Previous Entry ID: 92303210990100
-                </button>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Button variant="ghost" size="icon" className="h-7 w-7" disabled={prevIdx === 0} onClick={() => setPrevIdx((v) => v - 1)}><ChevronLeft className="h-4 w-4" /></Button>
-                <span className="text-sm text-muted-foreground"><b className="text-foreground">{prevIdx + 1}</b>/5</span>
-                <Button variant="ghost" size="icon" className="h-7 w-7" disabled={prevIdx === 4} onClick={() => setPrevIdx((v) => v + 1)}><ChevronRight className="h-4 w-4" /></Button>
-                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => toast.success("Comparison refreshed")}><RefreshCw className="h-4 w-4" /></Button>
-              </div>
+      {/* Previous entry comparison */}
+      <SectionCard>
+        <div className="p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h3 className="text-base font-semibold text-foreground">Previous Entry Comparison</h3>
+              <button className="text-sm text-primary underline-offset-2 hover:underline" onClick={() => toast.info("Opening previous entry is coming soon")}>
+                Previous Entry ID: 92303210990100
+              </button>
             </div>
-            <div className="mt-3 space-y-3">
+            <div className="flex items-center gap-1.5">
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={prevIdx === 0} onClick={() => setPrevIdx((v) => v - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+              <span className="text-sm text-muted-foreground"><b className="text-foreground">{prevIdx + 1}</b>/5</span>
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={prevIdx === 4} onClick={() => setPrevIdx((v) => v + 1)}><ChevronRight className="h-4 w-4" /></Button>
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => toast.success("Comparison refreshed")}><RefreshCw className="h-4 w-4" /></Button>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className="space-y-3">
               <div>
                 <p className="mb-1.5 text-sm font-semibold text-foreground">Sheet Differences</p>
                 <div className="flex flex-wrap gap-1.5">
@@ -452,26 +449,28 @@ export function StepInitialSetup({ entry }: { entry: IngestionEntry }) {
                   <span className={cn(TAG, "border-red-200 bg-red-50 text-red-700")}><b>1</b> Tab removed</span>
                 </div>
               </div>
-              <div className="space-y-1.5 border-t border-border pt-3 text-sm">
-                {[
-                  ["File name", "ava all projects 12-1-2025-NSPS.xlc"],
-                  ["Source", "WhatsApp"],
-                  ["Projects", "Uptown, Mivida, Marassi, Soul +2"],
-                  ["Property category", "Commercial, residential"],
-                  ["Created by", "Omar Mouneer"],
-                  ["Creation date", "22 Oct. 2025  -  2:34 PM"],
-                ].map(([k, v]) => (
-                  <div key={k} className="flex items-center justify-between gap-4"><span className="text-muted-foreground">{k}</span><span className="truncate text-right font-medium text-foreground">{v}</span></div>
-                ))}
-              </div>
-              <div className="space-y-1.5 border-t border-border pt-3">
+              <div><p className="text-sm font-semibold text-foreground">File name</p><p className="text-sm text-muted-foreground">ava all projects 12-1-2025-NSPS.xlc</p></div>
+              <div><p className="text-sm font-semibold text-foreground">Source</p><p className="text-sm text-muted-foreground">WhatsApp</p></div>
+            </div>
+            <div className="space-y-1.5 text-sm">
+              {[
+                ["Projects", "Uptown, Mivida, Marassi, Soul +2"],
+                ["Property category", "Commercial, residential"],
+                ["Created by", "Omar Mouneer"],
+                ["Creation date", "22 Oct. 2025  -  2:34 PM"],
+              ].map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between gap-4"><span className="text-muted-foreground">{k}</span><span className="text-right font-medium text-foreground">{v}</span></div>
+              ))}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                 <span className="text-sm font-semibold text-foreground">Units Ingested: 420 Units</span>
                 <UnitBreakdownChips />
               </div>
             </div>
           </div>
-        </SectionCard>
-      </div>
+        </div>
+      </SectionCard>
+
+      <FilePreviewCard entry={entry} />
     </div>
   )
 }
@@ -1346,35 +1345,26 @@ function StepGrouping({ entry }: { entry: IngestionEntry }) {
 /* Shared wizard chrome — used by both the sheets and manual entry details pages. */
 export type WizardStep = { key: string; icon: React.ComponentType<{ className?: string }> }
 
-export function WizardStepper({ steps, step, onStep, entry }: { steps: readonly WizardStep[]; step: number; onStep: (i: number) => void; entry?: IngestionEntry }) {
+export function WizardStepper({ steps, step, onStep }: { steps: readonly WizardStep[]; step: number; onStep: (i: number) => void }) {
   return (
-    <div className="rounded-xl border border-border bg-card px-6 py-4">
-      {entry && (
-        <div className="mb-3 flex flex-wrap items-center justify-end gap-x-6 gap-y-1 border-b border-border pb-3 text-sm">
-          <span className="flex items-center gap-1.5 text-muted-foreground">
-            <UserIcon className="h-3.5 w-3.5" />Created by <b className="font-medium text-foreground">{entry.uploadedBy}</b>
-          </span>
-          <span className="flex items-center gap-1.5 text-muted-foreground">
-            <CalendarClock className="h-3.5 w-3.5" />Created at <b className="font-medium text-foreground">{fmtDateTime(entry.createdAt)}</b>
-          </span>
-        </div>
-      )}
-      <div className="flex min-w-max items-start overflow-x-auto">
+    <div className="rounded-xl border border-border bg-card px-4 py-4">
+      {/* Fits the container width — no horizontal scrolling */}
+      <div className="flex items-start">
         {steps.map((s, i) => {
           const done = i < step
           const active = i === step
           const Icon = s.icon
           return (
-            <div key={s.key} className="flex items-start">
-              {i > 0 && <div className={cn("mt-5 h-0.5 w-10 lg:w-14", i <= step ? "bg-emerald-500" : "bg-border")} />}
-              <button onClick={() => onStep(i)} className="group flex w-24 flex-col items-center gap-1.5">
+            <div key={s.key} className="flex min-w-0 flex-1 items-start last:flex-none">
+              {i > 0 && <div className={cn("mt-5 h-0.5 min-w-2 flex-1", i <= step ? "bg-emerald-500" : "bg-border")} />}
+              <button onClick={() => onStep(i)} className="group flex w-20 flex-shrink-0 flex-col items-center gap-1.5">
                 <span className={cn("flex h-10 w-10 items-center justify-center rounded-lg border transition-colors",
                   done ? "border-emerald-500 bg-emerald-500 text-white" :
                   active ? "border-primary bg-card text-primary" :
                   "border-border bg-card text-muted-foreground group-hover:border-primary/50")}>
                   {done ? <CheckCircle2 className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
                 </span>
-                <span className={cn("text-center text-xs", active ? "font-semibold text-primary" : done ? "text-emerald-600" : "text-muted-foreground")}>{s.key}</span>
+                <span className={cn("text-center text-[11px] leading-tight", active ? "font-semibold text-primary" : done ? "text-emerald-600" : "text-muted-foreground")}>{s.key}</span>
               </button>
             </div>
           )
@@ -1392,9 +1382,19 @@ export function WizardHeader({ entry, listLabel, pageLabel, onBack }: { entry: I
         <span>/</span>
         <span className="font-medium text-foreground">{pageLabel}</span>
       </div>
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">{entry.fileName}</h1>
-        <IdTag value={entry.id} />
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">{entry.fileName}</h1>
+          <IdTag value={entry.id} />
+        </div>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <UserIcon className="h-3.5 w-3.5" />Created by <b className="font-medium text-foreground">{entry.uploadedBy}</b>
+          </span>
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <CalendarClock className="h-3.5 w-3.5" />Created at <b className="font-medium text-foreground">{fmtDateTime(entry.createdAt)}</b>
+          </span>
+        </div>
       </div>
     </>
   )
@@ -1453,7 +1453,7 @@ export function SheetEntryDetailsPage({ entry, onBack }: { entry: IngestionEntry
     <div className="flex min-h-screen flex-col bg-secondary/40">
       <div className="flex-1 space-y-4 p-6">
         <WizardHeader entry={entry} listLabel="Automatic Sheets Entries" pageLabel="Sheets processing" onBack={onBack} />
-        <WizardStepper steps={STEPS} step={step} onStep={setStep} entry={entry} />
+        <WizardStepper steps={STEPS} step={step} onStep={setStep} />
         {/* The Initial Setup step owns these fields itself — no duplicate strip there */}
         {step > 0 && <EntryContextStrip entry={entry} />}
 

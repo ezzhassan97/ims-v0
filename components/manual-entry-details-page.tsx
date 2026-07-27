@@ -1225,7 +1225,7 @@ export function ManualEntryDetailsPage({ entry, onBack }: { entry: IngestionEntr
     <div className="flex min-h-screen flex-col bg-secondary/40">
       <div className="flex-1 space-y-4 p-6">
         <WizardHeader entry={entry} listLabel="Manual Grouped Entries" pageLabel="Bulk Grouped properties" onBack={onBack} />
-        <WizardStepper steps={STEPS} step={step} onStep={setStep} entry={entry} />
+        <WizardStepper steps={STEPS} step={step} onStep={setStep} />
         {/* The Initial Setup step owns these fields itself — no duplicate strip there */}
         {step > 0 && <EntryContextStrip entry={entry} />}
 
