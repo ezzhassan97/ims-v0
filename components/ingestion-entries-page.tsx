@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { FilePreviewDialog, type PreviewFile } from "@/components/file-preview-dialog"
 import { cn } from "@/lib/utils"
 import {
-  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FiltersDrawer, FilterDrawerField,
+  TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, DateRangeFilter, FiltersDrawer, FilterDrawerField,
   FloatingBulkBar, BulkBarButton, MultiSortControl, ColumnsSheet, IdTag, COL_SEP, ProjectTreeSelect,
   type SortLevel, type ProjectTreeNode,
 } from "@/components/table-kit"
@@ -178,6 +178,10 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
   const [fileTypeF, setFileTypeF] = useState("")
   const [sourceF, setSourceF] = useState("")
   const [categoryF, setCategoryF] = useState<string[]>([])
+  const [createdFrom, setCreatedFrom] = useState("")
+  const [createdTo, setCreatedTo] = useState("")
+  const [finalizedFrom, setFinalizedFrom] = useState("")
+  const [finalizedTo, setFinalizedTo] = useState("")
   const [sorts, setSorts] = useState<SortLevel[]>([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -194,8 +198,13 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
   const [projectsDrawer, setProjectsDrawer] = useState<IngestionEntry | null>(null)
   const [archiveDlg, setArchiveDlg] = useState<{ entries: IngestionEntry[]; ignored: number } | null>(null)
 
-  const activeFilterCount = [fileTypeF, sourceF].filter(Boolean).length + [developerF, projectF, stageF, categoryF].filter((a) => a.length > 0).length
-  const clearAllFilters = () => { setDeveloperF([]); setProjectF([]); setStageF([]); setFileTypeF(""); setSourceF(""); setCategoryF([]); setPage(1) }
+  const activeFilterCount =
+    [fileTypeF, sourceF, createdFrom || createdTo, finalizedFrom || finalizedTo].filter(Boolean).length +
+    [developerF, projectF, stageF, categoryF].filter((a) => a.length > 0).length
+  const clearAllFilters = () => {
+    setDeveloperF([]); setProjectF([]); setStageF([]); setFileTypeF(""); setSourceF(""); setCategoryF([])
+    setCreatedFrom(""); setCreatedTo(""); setFinalizedFrom(""); setFinalizedTo(""); setPage(1)
+  }
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -207,6 +216,10 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
       if (fileTypeF && e.fileType !== fileTypeF) return false
       if (sourceF && e.source !== sourceF) return false
       if (categoryF.length > 0 && !categoryF.some((c) => e.categories.includes(c as never))) return false
+      if (createdFrom && e.createdAt.slice(0, 10) < createdFrom) return false
+      if (createdTo && e.createdAt.slice(0, 10) > createdTo) return false
+      if (finalizedFrom && (!e.finalizedAt || e.finalizedAt.slice(0, 10) < finalizedFrom)) return false
+      if (finalizedTo && (!e.finalizedAt || e.finalizedAt.slice(0, 10) > finalizedTo)) return false
       return true
     })
     if (sorts.length > 0) {
@@ -219,7 +232,7 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
       })
     }
     return out
-  }, [rows, q, developerF, projectF, stageF, fileTypeF, sourceF, categoryF, sorts])
+  }, [rows, q, developerF, projectF, stageF, fileTypeF, sourceF, categoryF, createdFrom, createdTo, finalizedFrom, finalizedTo, sorts])
 
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
 
@@ -454,6 +467,8 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
               <FilterSelect label="File Type" value={fileTypeF} options={fileTypes} onChange={(v) => { setFileTypeF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Source" value={sourceF} options={["WhatsApp", "Device"]} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-36" />
               <FilterMultiSelect label="Property Category" value={categoryF} options={["Residential", "Commercial"]} onChange={(v) => { setCategoryF(v); setPage(1) }} className="w-44" />
+              <DateRangeFilter label="Created At Range" dateFrom={createdFrom} dateTo={createdTo} onChangeFrom={(v) => { setCreatedFrom(v); setPage(1) }} onChangeTo={(v) => { setCreatedTo(v); setPage(1) }} />
+              <DateRangeFilter label="Finalized At Range" dateFrom={finalizedFrom} dateTo={finalizedTo} onChangeFrom={(v) => { setFinalizedFrom(v); setPage(1) }} onChangeTo={(v) => { setFinalizedTo(v); setPage(1) }} />
             </>
           }
           sortControl={<MultiSortControl fields={SORT_FIELDS} sorts={sorts} onChange={setSorts} />}
@@ -563,6 +578,12 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
           </FilterDrawerField>
           <FilterDrawerField label="Property Category">
             <FilterMultiSelect label="Property Category" value={categoryF} options={["Residential", "Commercial"]} onChange={(v) => { setCategoryF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Created At Range">
+            <DateRangeFilter label="Created At Range" dateFrom={createdFrom} dateTo={createdTo} onChangeFrom={(v) => { setCreatedFrom(v); setPage(1) }} onChangeTo={(v) => { setCreatedTo(v); setPage(1) }} className="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Finalized At Range">
+            <DateRangeFilter label="Finalized At Range" dateFrom={finalizedFrom} dateTo={finalizedTo} onChangeFrom={(v) => { setFinalizedFrom(v); setPage(1) }} onChangeTo={(v) => { setFinalizedTo(v); setPage(1) }} className="w-full" />
           </FilterDrawerField>
         </FiltersDrawer>
 
