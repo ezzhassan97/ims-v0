@@ -1686,6 +1686,8 @@ export function CreateWaGroupDialog({ dev, devContacts, mode = "action", linkedI
   const [pickedGroupId, setPickedGroupId] = useState("")
   const [groupQ, setGroupQ] = useState("")
   const pickedGroup = WA_GROUP_OPTIONS.find((g) => g.id === pickedGroupId)
+  // The member list is split into two collapsible sections — Developer contacts above Nawy contacts
+  const [openSections, setOpenSections] = useState<{ Developer: boolean; Nawy: boolean }>({ Developer: true, Nawy: true })
   type GroupMember = WaContact & { source: "Nawy" | "Developer" }
   const [members, setMembers] = useState<GroupMember[]>([
     ...WA_CONTACTS.map((c) => ({ ...c, source: "Nawy" as const })),
@@ -1802,46 +1804,61 @@ export function CreateWaGroupDialog({ dev, devContacts, mode = "action", linkedI
           The contacts below are added by default — untick to exclude, and switch roles as needed.
         </p>
 
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            <span className="font-semibold text-foreground">{included.length} of {members.length}</span> contact{members.length !== 1 ? "s" : ""} will be added ({admins} admin{admins !== 1 ? "s" : ""}):
+            <span className="font-semibold text-foreground">{included.length} of {members.length}</span> contact{members.length !== 1 ? "s" : ""} will be added ({admins} admin{admins !== 1 ? "s" : ""}) — untick to exclude:
           </p>
-          <div className="max-h-64 overflow-y-auto rounded-lg border border-border">
-            {members.map((c, i) => {
-              const isEx = excluded.has(c.id)
-              return (
-                <div key={c.id} className={cn("flex items-center gap-2.5 px-3 py-2.5", i > 0 && "border-t border-border/70", isEx && "opacity-45")}>
-                  <Checkbox checked={!isEx} onCheckedChange={() => toggleExcluded(c.id)} className="h-4 w-4 flex-shrink-0" />
-                  <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">
-                    {c.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
-                      <span className={cn(
-                        "inline-flex flex-shrink-0 items-center whitespace-nowrap rounded border px-1.5 py-px text-[10px] font-medium",
-                        c.source === "Nawy" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-blue-200 bg-blue-50 text-blue-700",
-                      )}>
-                        {c.source}
-                      </span>
-                    </div>
-                    <p className="font-mono text-[10px] text-muted-foreground">{c.phone}</p>
+          {/* Two separate collapsible lists — Developer contacts above Nawy contacts */}
+          {(["Developer", "Nawy"] as const).map((src) => {
+            const list = members.filter((m) => m.source === src)
+            if (list.length === 0) return null
+            const joining = list.filter((m) => !excluded.has(m.id)).length
+            const open = openSections[src]
+            return (
+              <div key={src} className="overflow-hidden rounded-lg border border-border">
+                <button
+                  type="button"
+                  onClick={() => setOpenSections((prev) => ({ ...prev, [src]: !prev[src] }))}
+                  className="flex w-full items-center gap-2 bg-muted/50 px-3 py-2.5 text-left transition-colors hover:bg-muted/70"
+                >
+                  {open ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+                  <span className="text-sm font-semibold text-foreground">{src === "Nawy" ? "Nawy Contacts" : "Developer Contacts"}</span>
+                  <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{list.length}</span>
+                  <span className="ml-auto text-[11px] text-muted-foreground">{joining} of {list.length} joining</span>
+                </button>
+                {open && (
+                  <div className="max-h-56 divide-y divide-border/70 overflow-y-auto border-t border-border">
+                    {list.map((c) => {
+                      const isEx = excluded.has(c.id)
+                      return (
+                        <div key={c.id} className={cn("flex items-center gap-2.5 px-3 py-2.5", isEx && "opacity-45")}>
+                          <Checkbox checked={!isEx} onCheckedChange={() => toggleExcluded(c.id)} className="h-4 w-4 flex-shrink-0" />
+                          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">
+                            {c.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-foreground">{c.name}</p>
+                            <p className="font-mono text-[10px] text-muted-foreground">{c.phone}</p>
+                          </div>
+                          {/* Admin ↔ Member toggle */}
+                          <div className="flex flex-shrink-0 overflow-hidden rounded-md border border-border text-[11px] font-medium">
+                            {(["Admin", "Member"] as const).map((r) => (
+                              <button
+                                key={r} type="button" disabled={isEx} onClick={() => setRole(c.id, r)}
+                                className={cn("px-2 py-1 transition-colors", c.role === r ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
+                              >
+                                {r}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                  {/* Admin ↔ Member toggle */}
-                  <div className="flex flex-shrink-0 overflow-hidden rounded-md border border-border text-[11px] font-medium">
-                    {(["Admin", "Member"] as const).map((r) => (
-                      <button
-                        key={r} type="button" disabled={isEx} onClick={() => setRole(c.id, r)}
-                        className={cn("px-2 py-1 transition-colors", c.role === r ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}
-                      >
-                        {r}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                )}
+              </div>
+            )
+          })}
         </div>
         </>
         )}
