@@ -23,6 +23,8 @@ import { FullscreenViewer } from "@/components/render-images-page"
 import { FilePreviewDialog, type PreviewFile } from "@/components/file-preview-dialog"
 import { OfferingCtxCell, IdCopy } from "@/components/launch-details-page"
 import { FloorPlanCard, FLOOR_PLANS0, type FloorPlan } from "@/components/floor-plans-page"
+import { EntryProjectsDrawer } from "@/components/ingestion-entries-page"
+import { PROJECT_DEVELOPERS } from "@/lib/projects-mock"
 import type { IngestionEntry } from "@/lib/ingestion-mock"
 
 /* ------------------------------------------------------------------ */
@@ -395,14 +397,17 @@ export function StepInitialSetup({ entry }: { entry: IngestionEntry }) {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <p className="mb-1.5 text-sm font-semibold text-foreground">Developer</p>
-              <Select defaultValue={entry.developer.id}>
-                <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value={entry.developer.id}>{entry.developer.name}</SelectItem></SelectContent>
+              <Select defaultValue={entry.developer?.id}>
+                <SelectTrigger className="h-9 w-full"><SelectValue placeholder="Select developer" /></SelectTrigger>
+                <SelectContent>
+                  {(entry.developer ? [entry.developer] : PROJECT_DEVELOPERS).map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                </SelectContent>
               </Select>
             </div>
             <div>
               <p className="mb-1.5 text-sm font-semibold text-foreground">Projects</p>
               <div className="flex min-h-9 flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2 py-1.5">
+                {entry.projects.length === 0 && <span className="text-sm italic text-muted-foreground">Not selected yet</span>}
                 {entry.projects.slice(0, 3).map((p) => <ColorTag key={p.id} value={p.name} />)}
                 {entry.projects.length > 3 && <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>+{entry.projects.length - 3}</span>}
               </div>
@@ -1376,12 +1381,27 @@ export function WizardHeader({ entry, listLabel, pageLabel, onBack }: { entry: I
 }
 
 export function EntryContextStrip({ entry }: { entry: IngestionEntry }) {
+  const [projOpen, setProjOpen] = useState(false)
+  const mains = entry.projects.filter((p) => p.main === null)
+  const projNames = (mains.length > 0 ? mains : entry.projects).map((p) => p.name).join(", ")
   return (
     <div className="grid grid-cols-2 gap-4 rounded-xl border border-border bg-card p-4 md:grid-cols-4">
       <div><p className="text-sm font-semibold text-foreground">Entry ID</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.id}</p></div>
-      <div><p className="text-sm font-semibold text-foreground">Developer</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.developer.name}</p></div>
+      <div>
+        <p className="text-sm font-semibold text-foreground">Developer</p>
+        <p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.developer?.name ?? <span className="italic">Not selected yet</span>}</p>
+      </div>
       <div><p className="text-sm font-semibold text-foreground">Property category</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.categories.join(", ")}</p></div>
-      <div><p className="text-sm font-semibold text-foreground">Projects</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{entry.projects.filter((p) => p.main === null).map((p) => p.name).join(", ")}</p></div>
+      <div>
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+          Projects
+          <button title="View entry projects" className="text-muted-foreground transition-colors hover:text-foreground" onClick={() => setProjOpen(true)}>
+            <Eye className="h-3.5 w-3.5" />
+          </button>
+        </p>
+        <p className="mt-0.5 truncate text-sm text-muted-foreground">{projNames || <span className="italic">Not selected yet</span>}</p>
+      </div>
+      {projOpen && <EntryProjectsDrawer entry={entry} onClose={() => setProjOpen(false)} />}
     </div>
   )
 }
