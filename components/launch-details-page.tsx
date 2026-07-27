@@ -118,9 +118,13 @@ import {
   Bot,
   Database,
   Unlink,
+  Activity,
 } from "lucide-react"
 import { LinkProjectDialog } from "@/components/link-project-dialog"
-import { useLaunches, activateLaunch, closeLaunch, activeConflictOf, isIngestedLaunch, launchPropsOf, type Launch } from "@/lib/launches-mock"
+import { useLaunches, activateLaunch, closeLaunch, activeConflictOf, isIngestedLaunch, launchPropsOf, setProjectPrimary, type Launch } from "@/lib/launches-mock"
+import { ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
+import { PROJECTS } from "@/lib/projects-mock"
+import { Tag as StatusTag, PRIMARY_COLORS } from "@/components/projects-list-page"
 import { useRef, useEffect, useCallback } from "react"
 import { cn } from "@/lib/utils"
 
@@ -944,13 +948,17 @@ function LaunchOfferingCard({
 }
 
 export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConflict }: LaunchDetailsPageProps) {
-  const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [isEditing, setIsEditing] = useState(false)
+
   const [approvalStatus, setApprovalStatus] = useState<Launch["approvalStatus"]>(launch.approvalStatus)
   const [ingestionStatus, setIngestionStatus] = useState<Launch["ingestionStatus"]>(launch.ingestionStatus)
   const [listingStatus, setListingStatus] = useState<Launch["listingStatus"]>(launch.listingStatus)
-  const [launchStatus, setLaunchStatus] = useState<Launch["launchStatus"]>(launch.launchStatus)
-  const [launchType, _setLaunchTypeField] = useState<Launch["type"]>(launch.type)
+  // The launch record is shared — read the live row so Activate/Close reflect instantly.
+  const allRows = useLaunches()
+  const live = allRows.find((l) => l.id === launch.id) ?? launch
+  const launchStatus = live.launchStatus
+  const launchType = live.type
+  const linkedProjectRow = PROJECTS.find((p) => p.id === live.projectId)
+  const [statusDialog, setStatusDialog] = useState<"activate" | "close" | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   // Payment Plans tab — real plan cards + create/edit drawer
   const [plans, setPlans] = useState<PlanCardData[]>(mockPaymentPlans)
@@ -985,8 +993,8 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   const [eoiByType, setEoiByType] = useState<{ id: string; name: string; amount: string }[]>([
     { id: "PT-001", name: "Apartments", amount: "" },
   ])
-  const [launchStartDate, setLaunchStartDate] = useState("")
-  const [launchEndDate, setLaunchEndDate] = useState("")
+  const [launchStartDate, setLaunchStartDate] = useState(launch.startDate ?? "")
+  const [launchEndDate, setLaunchEndDate] = useState(launch.endDate ?? "")
   const [paymentMethodCheque, setPaymentMethodCheque] = useState(false)
   const [paymentMethodOnline, setPaymentMethodOnline] = useState(false)
   const [paymentMethodCash, setPaymentMethodCash] = useState(false)
@@ -1199,11 +1207,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
     }
   }
 
-  const copyToClipboard = (text: string, key: string = "default") => {
-    navigator.clipboard.writeText(text)
-    setCopiedId(key)
-    setTimeout(() => setCopiedId(null), 2000)
-  }
+
 
   const getApprovalStatusBadge = (status: Launch["approvalStatus"]) => {
     const map: Record<Launch["approvalStatus"], string> = {
@@ -1403,6 +1407,20 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                 {listingStatus === "Active" ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
                 Toggle Listing Status
               </DropdownMenuItem>
+              {/* Same lifecycle actions as the launches table rows */}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger disabled={!isIngestedLaunch(live)} className={cn(!isIngestedLaunch(live) && "opacity-40")}>
+                  <Activity className="h-4 w-4 mr-2" />Launch Status
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuItem disabled={launchStatus === "Active"} onClick={() => setStatusDialog("activate")}>
+                    <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" />Set Active
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={launchStatus === "Closed"} onClick={() => setStatusDialog("close")}>
+                    <XCircle className="h-4 w-4 mr-2 text-red-600" />Close Launch
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 disabled={ingestionStatus === "Ingested"}
@@ -1424,6 +1442,10 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               ["Ingestion Status", getIngestionStatusBadge(ingestionStatus)],
               ["Listing Status", getListingStatusBadge(listingStatus)],
               ["Launch Status", getLaunchStatusBadge(launchStatus)],
+              // The status this launch drives on the linked project
+              ...(linkedProjectRow
+                ? ([["Project Primary Status", <StatusTag key="pp" value={linkedProjectRow.primaryStatus} cls={PRIMARY_COLORS[linkedProjectRow.primaryStatus]} />]] as [string, React.ReactNode][])
+                : []),
             ] as [string, React.ReactNode][]).map(([label, badge]) => (
               <div key={label}>
                 <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
@@ -1801,6 +1823,34 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {statusDialog === "activate" && (
+        <ActivateDialog
+          launch={live}
+          conflict={activeConflictOf(live, allRows)}
+          project={linkedProjectRow}
+          onClose={() => setStatusDialog(null)}
+          onConfirm={(startDate, sync) => {
+            activateLaunch(live.id, startDate)
+            if (sync && live.projectId) setProjectPrimary(live.projectId, "Launch")
+            setStatusDialog(null)
+            toast.success(`${live.projectNameEn} is now an active launch`)
+          }}
+        />
+      )}
+      {statusDialog === "close" && (
+        <CloseLaunchDialog
+          launch={live}
+          project={linkedProjectRow}
+          onClose={() => setStatusDialog(null)}
+          onConfirm={(endDate, nextPrimary) => {
+            closeLaunch(live.id, endDate)
+            if (nextPrimary && live.projectId) setProjectPrimary(live.projectId, nextPrimary)
+            setStatusDialog(null)
+            toast.success(`${live.projectNameEn} closed — sales portal notified`)
+          }}
+        />
+      )}
 
       {/* Link / unlink to an existing system project */}
       {linkDialog === "link" && (
