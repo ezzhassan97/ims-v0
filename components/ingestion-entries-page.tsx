@@ -350,12 +350,12 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
         )
       case "projects":
         return (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center justify-between gap-2">
             <ProjectsCell projects={e.projects} />
             <Button
-              variant="ghost"
+              variant="outline"
               size="icon"
-              className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-foreground"
+              className="h-6 w-6 flex-shrink-0 bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
               title="View entry projects"
               onClick={(ev) => { ev.stopPropagation(); setProjectsDrawer(e) }}
             >
@@ -742,8 +742,8 @@ const ORG_TONE: Record<string, string> = {
 }
 
 /** Status tags trio for a project/phase row, from the projects mock. */
-function ProjStatusTags({ id, name }: { id: string; name?: string }) {
-  const row = PROJECTS.find((r) => r.id === id) ?? (name ? PROJECTS.find((r) => !r.isPhase && r.name === name) : undefined)
+function ProjStatusTags({ id, name }: { id?: string; name?: string }) {
+  const row = (id ? PROJECTS.find((r) => r.id === id) : undefined) ?? (name ? PROJECTS.find((r) => !r.isPhase && r.name === name) : undefined)
   if (!row) return null
   return (
     <div className="flex flex-shrink-0 flex-wrap items-center gap-1">
@@ -780,37 +780,44 @@ export function EntryProjectsDrawer({ entry, onClose }: { entry: IngestionEntry 
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
-          {/* Entry snippet */}
-          <div className="rounded-xl border border-border bg-card p-4">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+          {/* Entry snippet — file+ID, user & created at, developer with org + status */}
+          <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+            <div>
+              <p className="text-xs text-muted-foreground">File</p>
+              <p className="truncate text-sm font-medium text-foreground" title={entry.fileName}>{entry.fileName}</p>
+              <IdTag value={entry.id} />
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 border-t border-border pt-3">
               <div>
-                <p className="text-xs text-muted-foreground">File</p>
-                <p className="truncate text-sm font-medium text-foreground" title={entry.fileName}>{entry.fileName}</p>
+                <p className="text-xs text-muted-foreground">Uploaded by</p>
+                <p className="truncate text-sm font-medium text-foreground">{entry.uploadedBy}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Entry ID</p>
-                <IdTag value={entry.id} />
-              </div>
-              <div className="col-span-2 border-t border-border pt-3">
-                <p className="mb-1 text-xs text-muted-foreground">Developer</p>
-                {dev ? (
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{dev.logo}</span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-foreground">{dev.name}</p>
-                      <IdTag value={dev.id} />
-                    </div>
-                    <div className="ml-auto flex flex-shrink-0 items-center gap-1">
-                      {devFull?.status && <span className={cn(TAG, LISTING_TONE[devFull.status])}>{devFull.status}</span>}
-                      {devOrg && <span className={cn(TAG, ORG_TONE[devOrg])}>{devOrg}</span>}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm italic text-muted-foreground">Not selected yet</p>
-                )}
+                <p className="text-xs text-muted-foreground">Created at</p>
+                <p className="text-sm font-medium text-foreground">{fmtDateTime(entry.createdAt)}</p>
               </div>
             </div>
+            <div className="border-t border-border pt-3">
+              <p className="mb-1.5 text-xs text-muted-foreground">Developer</p>
+              {dev ? (
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{dev.logo}</span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{dev.name}</p>
+                    <IdTag value={dev.id} />
+                  </div>
+                  <div className="ml-auto flex flex-shrink-0 items-center gap-1">
+                    {devOrg && <span className={cn(TAG, ORG_TONE[devOrg])}>{devOrg}</span>}
+                    {devFull?.status && <span className={cn(TAG, LISTING_TONE[devFull.status])}>{devFull.status}</span>}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm italic text-muted-foreground">Not selected yet</p>
+              )}
+            </div>
           </div>
+
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Projects</p>
 
           {/* Projects grouped by main project */}
           {entry.projects.length === 0 ? (
@@ -821,17 +828,17 @@ export function EntryProjectsDrawer({ entry, onClose }: { entry: IngestionEntry 
             </div>
           ) : (
             groups.map((g) => (
-              <div key={g.name} className={cn("overflow-hidden rounded-xl border", g.direct ? "border-border bg-card" : "border-dashed border-border bg-muted/30")}>
-                {/* Main project row — dashed + tagged when it wasn't picked in this entry */}
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+              <div key={g.name} className="overflow-hidden rounded-xl border border-border bg-card">
+                {/* Main project row — subtly muted with a caption when it wasn't picked in this entry */}
+                <div className={cn("flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5", !g.direct && "bg-muted/20")}>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className={cn("truncate text-sm font-semibold", g.direct ? "text-foreground" : "text-muted-foreground")}>{g.name}</p>
-                      {!g.direct && <span className={cn(TAG, "border-border bg-muted text-muted-foreground")}>Not in this entry</span>}
-                    </div>
-                    {g.direct && <IdTag value={g.direct.id} />}
+                    <p className={cn("truncate text-sm font-semibold", g.direct ? "text-foreground" : "text-muted-foreground")}>{g.name}</p>
+                    <span className="flex items-center gap-1.5">
+                      <IdTag value={g.direct?.id ?? PROJECTS.find((r) => !r.isPhase && r.name === g.name)?.id ?? "—"} />
+                      {!g.direct && <span className="text-[11px] italic text-muted-foreground">Not in this entry</span>}
+                    </span>
                   </div>
-                  {g.direct && <ProjStatusTags id={g.direct.id} name={g.name} />}
+                  <ProjStatusTags id={g.direct?.id} name={g.name} />
                 </div>
                 {g.phases.length > 0 && (
                   <div className="divide-y divide-border">
