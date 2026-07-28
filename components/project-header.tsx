@@ -397,6 +397,7 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
         <ListingStatusDialog
           r={asRow()}
           phases={p.isPhase ? [] : phases}
+          subs={p.isPhase ? [] : PROJECTS.filter((x) => x.isSubProject && x.mainProject?.id === p.id)}
           onClose={() => setListingDlg(false)}
           onConfirm={() => {
             const next = saved.listingStatus === "Active" ? "Hidden" : "Active"

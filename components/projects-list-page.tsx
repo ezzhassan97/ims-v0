@@ -303,7 +303,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const applyListing = (r: ProjectRow, next: ProjListingStatus, excludedPhaseIds?: string[]) => {
     const excluded = new Set(excludedPhaseIds ?? [])
     setRows((rs) => rs.map((x) => {
-      const hit = x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id)
+      // x.isPhase guard: sub-projects also carry mainProject but never join cascades
+      const hit = x.id === r.id || (!r.isPhase && x.isPhase && x.mainProject?.id === r.id)
       return hit && !excluded.has(x.id) ? { ...x, listingStatus: next } : x
     }))
   }
@@ -315,7 +316,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       else closeLaunch(opts.launchId, opts.endDate || new Date().toISOString().slice(0, 10))
     }
     setRows((rs) => rs.map((x) => {
-      const hit = x.id === r.id || (!r.isPhase && x.mainProject?.id === r.id)
+      const hit = x.id === r.id || (!r.isPhase && x.isPhase && x.mainProject?.id === r.id)
       return hit && !excluded.has(x.id) ? { ...x, primaryStatus: next } : x
     }))
   }
@@ -908,12 +909,14 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           <ListingStatusDialog
             r={listingDlg}
             phases={phasesOf(listingDlg)}
+            subs={rows.filter((x) => x.isSubProject && x.mainProject?.id === listingDlg.id)}
             parentListing={listingDlg.mainProject ? rows.find((p) => p.id === listingDlg.mainProject!.id)?.listingStatus : undefined}
             onClose={() => setListingDlg(null)}
-            onConfirm={(next) => {
-              applyListing(listingDlg, next)
+            onConfirm={(next, excludedPhaseIds) => {
+              applyListing(listingDlg, next, excludedPhaseIds)
               const phaseCount = phasesOf(listingDlg).length
-              toast.success(`${listingDlg.name} set to ${next}${!listingDlg.isPhase && phaseCount ? ` — with its ${phaseCount} phase${phaseCount !== 1 ? "s" : ""}` : ""}`)
+              const included = phaseCount - (excludedPhaseIds?.length ?? 0)
+              toast.success(`${listingDlg.name} set to ${next}${!listingDlg.isPhase && phaseCount ? ` — with ${next === "Hidden" ? `its ${phaseCount}` : `${included} of its ${phaseCount}`} phase${phaseCount !== 1 ? "s" : ""}` : ""}`)
               setListingDlg(null)
             }}
           />
@@ -1136,13 +1139,19 @@ function PhaseCascadeList({ phases, tagOf, next, nextCls, excluded, onToggle }: 
   )
 }
 
-export function ListingStatusDialog({ r, phases, parentListing, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; parentListing?: ProjListingStatus; onClose: () => void; onConfirm: (next: ProjListingStatus) => void }) {
+export function ListingStatusDialog({ r, phases, subs = [], parentListing, onClose, onConfirm }: { r: ProjectRow; phases: ProjectRow[]; subs?: ProjectRow[]; parentListing?: ProjListingStatus; onClose: () => void; onConfirm: (next: ProjListingStatus, excludedPhaseIds?: string[]) => void }) {
   // A phase can't be shown while its parent project is hidden (the parent hides
   // everything under it) — hiding a phase under a shown parent is always fine.
   const activeLocked = r.isPhase && parentListing === "Hidden"
   // Destination is picked — defaults to the flip of current; picking the current status
   // still runs, aligning any mismatched phases (data may lack integrity).
   const [target, setTarget] = useState<ProjListingStatus>(activeLocked ? "Hidden" : r.listingStatus === "Active" ? "Hidden" : "Active")
+  // Hiding cascades to every phase; showing only reaches the phases the user ticks.
+  const hiddenPhases = phases.filter((p) => p.listingStatus === "Hidden")
+  const [includePhaseIds, setIncludePhaseIds] = useState<Set<string>>(new Set())
+  useEffect(() => { setIncludePhaseIds(new Set()) }, [target])
+  const toggleInclude = (id: string) => setIncludePhaseIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const [subsOpen, setSubsOpen] = useState(false)
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl">
@@ -1224,15 +1233,16 @@ export function ListingStatusDialog({ r, phases, parentListing, onClose, onConfi
         <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           {r.isPhase
             ? <>This phase will be {target === "Active" ? "shown on" : "hidden from"} Website and E-realty altogether.</>
-            : <>The main project{phases.length > 0 ? <> and its <span className="font-medium text-foreground">{phases.length}</span> phase{phases.length > 1 ? "s" : ""}</> : null} will be {target === "Active" ? "shown on" : "hidden from"} Website and E-realty altogether.</>}
+            : target === "Hidden"
+              ? <>The main project{phases.length > 0 ? <> and its <span className="font-medium text-foreground">{phases.length}</span> phase{phases.length > 1 ? "s" : ""}</> : null} will be hidden from Website and E-realty altogether.</>
+              : <>The main project will be shown on Website and E-realty{hiddenPhases.length > 0 ? <> — phases are only shown if you include them below</> : null}.</>}
         </p>
 
-        {/* Main + EVERY phase with current → destination — all change together, none excludable;
-            listed even when already at the destination (rerunning aligns mismatches) */}
-        {!r.isPhase && phases.length > 0 && (
+        {/* Hiding: main + EVERY phase go Hidden together, none excludable */}
+        {!r.isPhase && target === "Hidden" && phases.length > 0 && (
           <div className="space-y-1.5">
             <p className="text-xs text-muted-foreground">
-              Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — all change together:
+              Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — all will be hidden together:
             </p>
             <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
               {[r, ...phases].map((p, i) => (
@@ -1243,16 +1253,78 @@ export function ListingStatusDialog({ r, phases, parentListing, onClose, onConfi
                   </div>
                   <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
                   <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                  <Tag value={target} cls={LISTING_COLORS[target]} />
+                  <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+        {/* Hiding never reaches sub-projects — informational, collapsed by default */}
+        {!r.isPhase && target === "Hidden" && subs.length > 0 && (
+          <div className="rounded-lg border border-border">
+            <button type="button" onClick={() => setSubsOpen((v) => !v)} className="flex w-full items-center gap-2 px-3 py-2.5 text-left">
+              <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", !subsOpen && "-rotate-90")} />
+              <span className="text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">{subs.length}</span> Sub-Project{subs.length > 1 ? "s" : ""} under this main project keep{subs.length === 1 ? "s" : ""} its own listing status — not impacted by this action.
+              </span>
+            </button>
+            {subsOpen && subs.map((p) => (
+              <div key={p.id} className="flex items-center gap-2.5 border-t border-border/70 px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-1.5 truncate text-sm font-medium text-foreground">
+                    {p.name}
+                    <span className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1 py-0 text-[9px] font-medium leading-4 text-indigo-700">Sub-Project</span>
+                  </p>
+                  <IdTag value={p.id} />
+                </div>
+                <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+              </div>
+            ))}
+          </div>
+        )}
+        {/* Showing: only the main changes — Hidden phases are opt-in, unticked by default */}
+        {!r.isPhase && target === "Active" && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">
+              {hiddenPhases.length > 0
+                ? "Main project will be shown — tick the phases to show with it:"
+                : "Main project will be shown:"}
+            </p>
+            <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
+              <div className="flex items-center gap-2.5 px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{r.name}</p>
+                  <IdTag value={r.id} />
+                </div>
+                <Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} />
+                <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                <Tag value="Active" cls={LISTING_COLORS.Active} />
+              </div>
+              {hiddenPhases.map((p) => {
+                const on = includePhaseIds.has(p.id)
+                return (
+                  <div key={p.id} className="flex items-center gap-2.5 border-t border-border/70 bg-muted/20 px-3 py-2.5">
+                    <Checkbox checked={on} onCheckedChange={() => toggleInclude(p.id)} className="h-4 w-4 flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                      <IdTag value={p.id} />
+                    </div>
+                    <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
+                    <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                    {on ? <Tag value="Active" cls={LISTING_COLORS.Active} /> : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={() => onConfirm(target)}>Change to {target}</Button>
+          <Button size="sm" onClick={() => onConfirm(
+            target,
+            !r.isPhase && target === "Active" ? phases.filter((p) => !includePhaseIds.has(p.id)).map((p) => p.id) : undefined,
+          )}>Change to {target}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -2339,84 +2411,101 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                 {impacted.length > 0 ? <> — main project alone: <span className="font-semibold">{titleMain}</span></> : null}.
               </p>
             </div>
-            {includedCascadePhases.length > 0 && (
+            {/* Area list: phases + sub-projects inheriting the new area */}
+            {kind === "location" && includedCascadePhases.length > 0 && (
               <div className="space-y-1.5">
                 <p className="text-xs text-muted-foreground">
-                  {kind === "location" && impactedSubs.length > 0 ? (
+                  {impactedSubs.length > 0 ? (
                     <><span className="font-semibold text-foreground">{impacted.length}</span> phase{impacted.length === 1 ? "" : "s"} and <span className="font-semibold text-foreground">{impactedSubs.length}</span> sub-project{impactedSubs.length === 1 ? "" : "s"} will change — none can be excluded:</>
                   ) : (
                     <><span className="font-semibold text-foreground">{includedCascadePhases.length}</span> phase{includedCascadePhases.length > 1 ? "s" : ""} will change — phases can't be excluded:</>
                   )}
                 </p>
                 <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
-                  {includedCascadePhases.map((p, i) => {
-                    const current = kind === "developer" ? p.developer.name : p.area
-                    const dest = kind === "developer" ? destDevName : destAreaName
-                    return (
-                      <div key={p.id} className={cn("space-y-1.5 px-3 py-2.5", i > 0 && "border-t border-border/70")}>
-                        <div className="flex items-center gap-2.5">
-                          <div className="min-w-0 flex-1">
-                            <p className="flex items-center gap-1.5 truncate text-sm font-medium text-foreground">
-                              {targets.length > 1 ? `${p.mainProject?.name} — ${p.name}` : p.name}
-                              {p.isSubProject && <span className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1 py-0 text-[9px] font-medium leading-4 text-indigo-700">Sub-Project</span>}
-                            </p>
-                            <IdTag value={p.id} />
-                          </div>
-                          <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
-                          <div className="flex flex-shrink-0 items-center gap-1.5">
-                            <span className="max-w-24 truncate text-xs text-muted-foreground">{current}</span>
-                            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="max-w-24 truncate text-xs font-medium text-foreground">{dest || "—"}</span>
-                          </div>
+                  {includedCascadePhases.map((p, i) => (
+                    <div key={p.id} className={cn("space-y-1.5 px-3 py-2.5", i > 0 && "border-t border-border/70")}>
+                      <div className="flex items-center gap-2.5">
+                        <div className="min-w-0 flex-1">
+                          <p className="flex items-center gap-1.5 truncate text-sm font-medium text-foreground">
+                            {targets.length > 1 ? `${p.mainProject?.name} — ${p.name}` : p.name}
+                            {p.isSubProject && <span className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1 py-0 text-[9px] font-medium leading-4 text-indigo-700">Sub-Project</span>}
+                          </p>
+                          <IdTag value={p.id} />
                         </div>
-                        <div className="text-[11px] text-muted-foreground">{p.groupedProps + p.detailedProps} property titles change</div>
+                        <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+                        <div className="flex flex-shrink-0 items-center gap-1.5">
+                          <span className="max-w-24 truncate text-xs text-muted-foreground">{p.area}</span>
+                          <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="max-w-24 truncate text-xs font-medium text-foreground">{destAreaName || "—"}</span>
+                        </div>
                       </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-            {/* Destination developer is Hidden — every Active entity moving under it goes Hidden */}
-            {destDevHidden && hideOnDev.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
-                  <span className="font-semibold">{destDevName}</span> is a <span className="font-semibold">Hidden</span> developer — these currently Active entities will be hidden from listing:
-                </p>
-                <div className="rounded-lg border border-border">
-                  {hideOnDev.map((p, i) => (
-                    <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2.5", i > 0 && "border-t border-border/70")}>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
-                        <IdTag value={p.id} />
-                      </div>
-                      <Tag value="Active" cls={LISTING_COLORS.Active} />
-                      <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                      <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
+                      <div className="text-[11px] text-muted-foreground">{p.groupedProps + p.detailedProps} property titles change</div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-            {/* Destination developer is Active — user picks which Hidden entities to show */}
-            {kind === "developer" && !destDevHidden && showable.length > 0 && (
+            {/* Developer list: ONE list — main + phases, developer change with the listing impact under it */}
+            {kind === "developer" && (
               <div className="space-y-1.5">
+                {destDevHidden && hideOnDev.length > 0 && (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
+                    <span className="font-semibold">{destDevName}</span> is a <span className="font-semibold">Hidden</span> developer — every currently Active entity below will be hidden from listing.
+                  </p>
+                )}
+                {!destDevHidden && destDev && showable.length > 0 && (
+                  <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-xs leading-4 text-blue-800">
+                    <span className="font-semibold">{destDevName}</span> is an <span className="font-semibold">Active</span> developer — tick which currently Hidden entities to show with this change.
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">
-                  <span className="font-semibold text-foreground">{destDevName}</span> is an <span className="font-semibold text-foreground">Active</span> developer — pick which currently Hidden entities to show with this move:
+                  {targets[0]?.isSubProject
+                    ? "This sub-project will change:"
+                    : impacted.length > 0
+                      ? <>Main project and its <span className="font-semibold text-foreground">{impacted.length}</span> phase{impacted.length > 1 ? "s" : ""} will change — phases can't be excluded:</>
+                      : "This main project will change:"}
                 </p>
-                <div className="rounded-lg border border-border">
-                  {showable.map((p, i) => {
-                    const locked = p.isPhase && !mainWillShow(p)
-                    const on = activateIds.has(p.id) && !locked
+                <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
+                  {[...targets, ...impacted].map((p, i) => {
+                    const forcedHide = destDevHidden && p.listingStatus === "Active"
+                    const canShow = !destDevHidden && !!destDev && p.listingStatus === "Hidden"
+                    const locked = canShow && p.isPhase && !mainWillShow(p)
+                    const on = canShow && activateIds.has(p.id) && !locked
                     return (
-                      <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2.5", i > 0 && "border-t border-border/70", locked && "opacity-45")}>
-                        <Checkbox checked={on} disabled={locked} onCheckedChange={() => toggleActivate(p)} className="h-4 w-4 flex-shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
-                          <IdTag value={p.id} />
+                      <div key={p.id} className={cn("space-y-1.5 px-3 py-2.5", i > 0 && "border-t border-border/70")}>
+                        <div className="flex items-center gap-2.5">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-foreground">{targets.length > 1 && p.isPhase ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
+                            <IdTag value={p.id} />
+                          </div>
+                          <div className="flex flex-shrink-0 items-center gap-1.5">
+                            <span className="max-w-28 truncate text-xs text-muted-foreground">{p.developer.name}</span>
+                            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="max-w-28 truncate text-xs font-medium text-foreground">{destDevName || "—"}</span>
+                          </div>
                         </div>
-                        <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
-                        <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                        {on ? <Tag value="Active" cls={LISTING_COLORS.Active} /> : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
+                        {forcedHide && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Listing</span>
+                            <span className="ml-auto flex items-center gap-1.5">
+                              <Tag value="Active" cls={LISTING_COLORS.Active} />
+                              <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                              <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
+                            </span>
+                          </div>
+                        )}
+                        {canShow && (
+                          <div className={cn("flex items-center gap-2", locked && "opacity-45")}>
+                            <Checkbox checked={on} disabled={locked} onCheckedChange={() => toggleActivate(p)} className="h-4 w-4 flex-shrink-0" />
+                            <span className="text-xs text-muted-foreground">Show on listing</span>
+                            <span className="ml-auto flex items-center gap-1.5">
+                              <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
+                              <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                              {on ? <Tag value="Active" cls={LISTING_COLORS.Active} /> : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
+                            </span>
+                          </div>
+                        )}
+                        <div className="text-[11px] text-muted-foreground">{p.groupedProps + p.detailedProps} property titles change</div>
                       </div>
                     )
                   })}
