@@ -173,7 +173,8 @@ function buildRows(): ProjectRow[] {
         district,
         area,
         subarea: `${SUBAREAS[i % SUBAREAS.length]} · Cluster ${String.fromCharCode(65 + p)}`,
-        listingStatus: seed % 4 === 0 ? "Hidden" : "Active",
+        // A phase can't be shown while its main is hidden — seed data must respect it
+        listingStatus: project.listingStatus === "Hidden" ? "Hidden" : seed % 4 === 0 ? "Hidden" : "Active",
         // First phase inherits the main's primary status so every dialog mode has demo
         // rows; Launch mains also get an On-Sale second phase for the cascade split.
         primaryStatus: p === 0 ? project.primaryStatus

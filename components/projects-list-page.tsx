@@ -321,9 +321,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   }
   /** Cascading changes: main-project targets cascade to every phase under them; phase targets change only themselves.
    *  For entry-type changes, phases the user unticked in the dialog are excluded from the cascade. */
-  const applyCascade = (kind: CascadeKind, targets: ProjectRow[], value: string | ProjOrg[], excludedPhaseIds?: string[]) => {
+  const applyCascade = (kind: CascadeKind, targets: ProjectRow[], value: string | ProjOrg[], excludedPhaseIds?: string[], listingChanges?: { id: string; to: ProjListingStatus }[]) => {
     const targetIds = new Set(targets.map((t) => t.id))
     const excluded = new Set(excludedPhaseIds ?? [])
+    const listingMap = new Map((listingChanges ?? []).map((c) => [c.id, c.to]))
     setRows((rs) => {
       // Parent moves encode the landing type: "phase:PRJ-x" | "sub:PRJ-x" | PROMOTE_TO_MAIN
       const [moveAs, moveParentId] = kind === "parent" && typeof value === "string" && value.includes(":")
@@ -335,7 +336,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           // Sub-projects are independent of every cascade EXCEPT location — area is inherited
           || (kind === "location" && !!x.isSubProject && !!x.mainProject && targetIds.has(x.mainProject.id))
         if (!hit || excluded.has(x.id)) return x
-        if (kind === "developer") { const dev = PROJECT_DEVELOPERS.find((d) => d.id === value)!; return { ...x, developer: dev } }
+        if (kind === "developer") { const dev = PROJECT_DEVELOPERS.find((d) => d.id === value)!; return { ...x, developer: dev, listingStatus: listingMap.get(x.id) ?? x.listingStatus } }
         if (kind === "location") return { ...x, area: value as string }
         if (kind === "entry") return { ...x, entryType: value as ProjEntryType }
         if (kind === "parent") {
@@ -352,7 +353,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               developer: parent.developer,
               district: parent.district, area: parent.area, subarea: parent.subarea,
               organizations: parent.organizations,
-              listingStatus: parent.listingStatus === "Hidden" ? "Hidden" : x.listingStatus,
+              listingStatus: parent.listingStatus === "Hidden" ? "Hidden" : listingMap.get(x.id) ?? x.listingStatus,
             }
           }
           // Sub-project: independent — only the location follows the parent
@@ -649,7 +650,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               {!r.isPhase && (
                 <>
                   <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "developer", targets: [r], ignored: 0 })}><Building2 className="mr-2 h-3.5 w-3.5" />Change Developer</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "location", targets: [r], ignored: 0 })}><MapPin className="mr-2 h-3.5 w-3.5" />Change Area</DropdownMenuItem>
+                  {/* Sub-projects inherit the area from their main — no Change Area for them */}
+                  {!r.isSubProject && <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "location", targets: [r], ignored: 0 })}><MapPin className="mr-2 h-3.5 w-3.5" />Change Area</DropdownMenuItem>}
                   <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "orgs", targets: [r], ignored: 0 })}><Globe className="mr-2 h-3.5 w-3.5" />Change Organizations</DropdownMenuItem>
                 </>
               )}
@@ -961,8 +963,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             ignored={cascadeDlg.ignored}
             allRows={rows}
             onClose={() => setCascadeDlg(null)}
-            onConfirm={(value, excludedPhaseIds) => {
-              applyCascade(cascadeDlg.kind, cascadeDlg.targets, value, excludedPhaseIds)
+            onConfirm={(value, excludedPhaseIds, listingChanges) => {
+              applyCascade(cascadeDlg.kind, cascadeDlg.targets, value, excludedPhaseIds, listingChanges)
               const t = cascadeDlg.targets
               const exCount = excludedPhaseIds?.length ?? 0
               toast.success(
@@ -1867,7 +1869,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   ignored: number
   allRows: ProjectRow[]
   onClose: () => void
-  onConfirm: (value: string | ProjOrg[], excludedPhaseIds?: string[]) => void
+  onConfirm: (value: string | ProjOrg[], excludedPhaseIds?: string[], listingChanges?: { id: string; to: ProjListingStatus }[]) => void
 }) {
   const [devId, setDevId] = useState(targets[0]?.developer.id ?? "")
   const initialArea = AREA_TREE.find((a) => a.name === targets[0]?.area)
@@ -1944,7 +1946,9 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   // Change Developer / Change Area — property titles are auto-generated from attributes
   // including developer + area, so changing either regenerates the titles of every property
   // under the impacted entities. Developer allows excluding phases; Area does not.
-  const destDevName = PROJECT_DEVELOPERS.find((d) => d.id === devId)?.name ?? ""
+  const destDev = PROJECT_DEVELOPERS.find((d) => d.id === devId)
+  const destDevName = destDev?.name ?? ""
+  const targetDevStatus = PROJECT_DEVELOPERS.find((d) => d.id === targets[0]?.developer.id)?.status
   const destAreaName = areaPick ? (areaPick.level === "Area" ? areaPick.name : areaPick.parent ?? areaPick.name) : ""
   // Sub-projects under the targets: never touched by developer changes, but area IS inherited
   const impactedSubs = allRows.filter((x) => x.isSubProject && !!x.mainProject && targets.some((t) => t.id === x.mainProject!.id))
@@ -1955,12 +1959,80 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   const titleTotal = propCount([...targets, ...includedCascadePhases])
   const titleMain = propCount(targets)
 
+  // Listing follows the destination developer: a Hidden developer hides every Active
+  // entity moving under it; an Active one lets the user opt currently-Hidden ones in.
+  const devScopeRows = [...targets, ...impacted]
+  const destDevHidden = kind === "developer" && destDev?.status === "Hidden"
+  const hideOnDev = destDevHidden ? devScopeRows.filter((r) => r.listingStatus === "Active") : []
+  const showable = kind === "developer" && destDev && !destDevHidden ? devScopeRows.filter((r) => r.listingStatus === "Hidden") : []
+  const [activateIds, setActivateIds] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    setActivateIds(new Set(
+      kind === "developer" && destDev?.status === "Active"
+        ? devScopeRows.filter((r) => r.listingStatus === "Hidden").map((r) => r.id)
+        : [],
+    ))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [devId])
+  const mainWillShow = (p: ProjectRow) => {
+    if (!p.isPhase || !p.mainProject) return true
+    const m = targets.find((t) => t.id === p.mainProject!.id)
+    return !m || m.listingStatus === "Active" || activateIds.has(m.id)
+  }
+  const toggleActivate = (p: ProjectRow) => setActivateIds((prev) => {
+    const n = new Set(prev)
+    if (n.has(p.id)) {
+      n.delete(p.id)
+      // A main staying hidden keeps its phases hidden too
+      if (!p.isPhase) devScopeRows.filter((x) => x.isPhase && x.mainProject?.id === p.id).forEach((x) => n.delete(x.id))
+    } else n.add(p.id)
+    return n
+  })
+  // Moving a Hidden phase under an Active parent may opt it back into listing
+  const [activateOnMove, setActivateOnMove] = useState(true)
+  useEffect(() => { setActivateOnMove(true) }, [parentId, parentMode])
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
         {/* Entry-type single target: rich header — name, ID, developer, listing status, current entry type */}
-        {kind === "entry" && targets.length === 1 ? (
+        {(kind === "developer" || kind === "location") && targets.length === 1 ? (
+          /* Change Developer / Change Area: full context — statuses + developer with its own status */
+          <>
+            <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
+              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{targets[0].developer.logo}</span>
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex w-full flex-wrap items-center gap-1.5">
+                  <span className="text-sm font-semibold text-foreground">{targets[0].name}</span>
+                  <IdTag value={targets[0].id} />
+                  <span className="ml-auto flex flex-shrink-0 items-center gap-1.5">
+                    <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />
+                    <Tag value={targets[0].primaryStatus} cls={PRIMARY_COLORS[targets[0].primaryStatus]} />
+                    <Tag value={targets[0].entryType} cls={ENTRY_COLORS[targets[0].entryType]} />
+                  </span>
+                </div>
+                <div className="flex w-full flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer</span>
+                  <a href={`/developers/${targets[0].developer.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-foreground hover:text-primary hover:underline">{targets[0].developer.name}</a>
+                  <IdTag value={targets[0].developer.id} />
+                  {targetDevStatus && (
+                    <span className="ml-auto flex flex-shrink-0 items-center">
+                      <Tag value={targetDevStatus} cls={LISTING_COLORS[targetDevStatus]} />
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {targets[0].isSubProject
+                ? "Only this sub-project will be changed — sub-projects have no phases."
+                : kind === "location" && impactedSubs.length > 0
+                  ? "The phases and sub-projects under it will get the same change."
+                  : "The phases under it will get the same change."}
+            </p>
+          </>
+        ) : kind === "entry" && targets.length === 1 ? (
           <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
             <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-[10px] font-bold text-primary">{targets[0].developer.logo}</span>
             <div className="min-w-0 flex-1 space-y-1">
@@ -2168,6 +2240,21 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                     <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
                   </div>
                 )}
+                {/* The reverse: a Hidden phase moving under an Active parent may be shown — opt-in */}
+                {parentMode === "phase" && newParent && newParent.listingStatus === "Active" && targets[0]?.listingStatus === "Hidden" && (
+                  <div className="rounded-lg border border-border px-3 py-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <Checkbox checked={activateOnMove} onCheckedChange={() => setActivateOnMove((v) => !v)} className="h-4 w-4 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-foreground">Also show {targets[0].name} on listing</p>
+                        <p className="text-[11px] text-muted-foreground"><span className="font-medium">{newParent.name}</span> is Active — this phase can be shown once moved.</p>
+                      </div>
+                      <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
+                      <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                      {activateOnMove ? <Tag value="Active" cls={LISTING_COLORS.Active} /> : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
+                    </div>
+                  </div>
+                )}
                 {/* A Launch phase under a Sold-Off/On-Hold parent — same tag layout as the other notes */}
                 {launchUnderClosed && newParent && (
                   <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
@@ -2216,7 +2303,10 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
         {kind === "developer" && (
           <div className="space-y-1.5">
             <div className="text-xs font-medium text-foreground">Developer</div>
-            <DeveloperSelect developers={PROJECT_DEVELOPERS} value={devId} onChange={setDevId} />
+            <DeveloperSelect
+              developers={PROJECT_DEVELOPERS} value={devId} onChange={setDevId}
+              valueExtra={destDev ? <Tag value={destDev.status} cls={LISTING_COLORS[destDev.status]} /> : undefined}
+            />
           </div>
         )}
         {kind === "location" && (
@@ -2284,6 +2374,56 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                     )
                   })}
                 </div>
+              </div>
+            )}
+            {/* Destination developer is Hidden — every Active entity moving under it goes Hidden */}
+            {destDevHidden && hideOnDev.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
+                  <span className="font-semibold">{destDevName}</span> is a <span className="font-semibold">Hidden</span> developer — these currently Active entities will be hidden from listing:
+                </p>
+                <div className="rounded-lg border border-border">
+                  {hideOnDev.map((p, i) => (
+                    <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2.5", i > 0 && "border-t border-border/70")}>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                        <IdTag value={p.id} />
+                      </div>
+                      <Tag value="Active" cls={LISTING_COLORS.Active} />
+                      <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                      <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Destination developer is Active — user picks which Hidden entities to show */}
+            {kind === "developer" && !destDevHidden && showable.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-semibold text-foreground">{destDevName}</span> is an <span className="font-semibold text-foreground">Active</span> developer — pick which currently Hidden entities to show with this move:
+                </p>
+                <div className="rounded-lg border border-border">
+                  {showable.map((p, i) => {
+                    const locked = p.isPhase && !mainWillShow(p)
+                    const on = activateIds.has(p.id) && !locked
+                    return (
+                      <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2.5", i > 0 && "border-t border-border/70", locked && "opacity-45")}>
+                        <Checkbox checked={on} disabled={locked} onCheckedChange={() => toggleActivate(p)} className="h-4 w-4 flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                          <IdTag value={p.id} />
+                        </div>
+                        <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
+                        <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                        {on ? <Tag value="Active" cls={LISTING_COLORS.Active} /> : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+                {showable.some((p) => p.isPhase && !mainWillShow(p)) && (
+                  <p className="text-[11px] text-muted-foreground">Phases can only be shown while their main project is shown.</p>
+                )}
               </div>
             )}
             {/* Sub-projects keep their own developer — informational, collapsed by default */}
@@ -2388,6 +2528,14 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
               : kind === "parent" ? (parentMode === "promote" ? PROMOTE_TO_MAIN : `${parentMode}:${parentId}`)
               : orgs,
               kind === "entry" ? [...excludedPhases] : undefined,
+              kind === "developer"
+                ? (destDevHidden
+                    ? hideOnDev.map((p) => ({ id: p.id, to: "Hidden" as ProjListingStatus }))
+                    : showable.filter((p) => activateIds.has(p.id) && mainWillShow(p)).map((p) => ({ id: p.id, to: "Active" as ProjListingStatus })))
+                : kind === "parent" && parentMode === "phase" && activateOnMove
+                    && newParent?.listingStatus === "Active" && targets[0]?.listingStatus === "Hidden"
+                  ? [{ id: targets[0].id, to: "Active" as ProjListingStatus }]
+                  : undefined,
             )}
           >
             {kind === "parent"
