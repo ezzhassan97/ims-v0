@@ -96,13 +96,13 @@ const LAUNCH_COLS: (ManagedColumn & { width: number })[] = [
   { id: "developer", label: "Developer", width: 230 },
   { id: "projectName", label: "Project Name", width: 190 },
   { id: "phase", label: "Phase", width: 100 },
-  { id: "level", label: "Level", width: 130 },
   { id: "area", label: "Area", width: 130 },
+  { id: "isNew", label: "Is New", width: 130 },
+  { id: "level", label: "Level", width: 130 },
   { id: "approval", label: "Approval", width: 140 },
   { id: "ingestion", label: "Ingestion Status", width: 140 },
   { id: "launchStatus", label: "Launch Status", width: 130 },
-  { id: "project", label: "Project", width: 200 },
-  { id: "projectPrimary", label: "Project Primary Status", width: 170 },
+  { id: "project", label: "Linked Project", width: 200 },
   { id: "type", label: "Type", width: 110 },
   { id: "source", label: "Source", width: 110 },
   { id: "completion", label: "Completion", width: 140 },
@@ -190,6 +190,7 @@ const CHIP_TONES = {
   white: "border-border bg-white text-gray-700",
   blue: "border-blue-200 bg-blue-100 text-blue-700",
   purple: "border-purple-200 bg-purple-100 text-purple-700",
+  redSoft: "border-red-200 bg-red-50 text-red-600",
 } as const
 
 /** Rectangular tag — same UI as the detailed-properties / playground data-grid badges (rounded-md, never a pill). */
@@ -220,7 +221,7 @@ const INGESTION_TONE: Record<Launch["ingestionStatus"], keyof typeof CHIP_TONES>
   "Ingested": "green", "Not Ingested": "grey",
 }
 const LAUNCH_STATUS_TONE: Record<Launch["launchStatus"], keyof typeof CHIP_TONES> = {
-  "Active": "green", "Upcoming": "blue", "Closed": "purple",
+  "Active": "green", "Upcoming": "blue", "Closed": "redSoft",
 }
 
 /** Canonical launches timestamp format: "10 Jan 2024, 07:00 AM". */
@@ -540,7 +541,7 @@ function RejectDialog({ launch, onClose, onConfirm }: { launch: Launch; onClose:
 
 
 
-type BulkKind = "bulk-approve" | "bulk-reject" | "bulk-list-active" | "bulk-list-hidden"
+type BulkKind = "bulk-approve" | "bulk-reject"
 
 function BulkDialog({ kind, count, onClose, onConfirm }: { kind: BulkKind; count: number; onClose: () => void; onConfirm: (reason?: string) => void }) {
   const [reason, setReason] = useState("")
@@ -554,16 +555,6 @@ function BulkDialog({ kind, count, onClose, onConfirm }: { kind: BulkKind; count
       title: `Reject ${count} launch${count === 1 ? "" : "es"}`,
       message: `Rejecting these ${count} launch${count === 1 ? "" : "es"} means they will not get ingested in the database and will not appear across Nawy's system accordingly.`,
       label: "Reject", cls: "bg-red-600 text-white hover:bg-red-700", needsReason: true,
-    },
-    "bulk-list-active": {
-      title: `Set listing to Active for ${count} launch${count === 1 ? "" : "es"}`,
-      message: `${count} launch${count === 1 ? "" : "es"} will appear on Nawy Listing website and Mobile App.`,
-      label: "Set Active", cls: "bg-emerald-600 text-white hover:bg-emerald-700", needsReason: false,
-    },
-    "bulk-list-hidden": {
-      title: `Hide ${count} launch${count === 1 ? "" : "es"} from listing`,
-      message: `${count} launch${count === 1 ? "" : "es"} will disappear from Nawy Listing website and Mobile App.`,
-      label: "Set Hidden", cls: "bg-red-600 text-white hover:bg-red-700", needsReason: false,
     },
   }[kind]
 
@@ -873,11 +864,8 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   const doBulk = (kind: BulkKind) => {
     if (kind === "bulk-approve") patch(selectedIds, { approvalStatus: "Approved" })
     if (kind === "bulk-reject") patch(selectedIds, { approvalStatus: "Rejected" })
-    if (kind === "bulk-list-active") patch(selectedIds, { listingStatus: "Active" })
-    if (kind === "bulk-list-hidden") patch(selectedIds, { listingStatus: "Hidden" })
     const msg = {
       "bulk-approve": "approved", "bulk-reject": "rejected",
-      "bulk-list-active": "set to Active listing", "bulk-list-hidden": "hidden from listing",
     }[kind]
     toast.success(`${selectedIds.length} launch${selectedIds.length === 1 ? "" : "es"} ${msg}`)
     setSelectedIds([])
@@ -938,12 +926,18 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   const linkProjectItem = (l: Launch) => {
     const enabled = l.ingestionStatus !== "Ingested"
     return l.existingProject ? (
-      <DropdownMenuItem
-        disabled={!enabled} className={cn(!enabled && "opacity-40")}
-        onClick={() => enabled && setDialog({ kind: "unlink", launch: l })}
-      >
-        <Unlink className="h-4 w-4 mr-2" />Unlink Project
-      </DropdownMenuItem>
+      <>
+        {/* Ingested launches can still change WHICH project they link to — just never back to New */}
+        <DropdownMenuItem onClick={() => setDialog({ kind: "link", launch: l })}>
+          <Link2 className="h-4 w-4 mr-2" />Change Linked Project
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!enabled} className={cn(!enabled && "opacity-40")}
+          onClick={() => enabled && setDialog({ kind: "unlink", launch: l })}
+        >
+          <Unlink className="h-4 w-4 mr-2" />Unlink Project
+        </DropdownMenuItem>
+      </>
     ) : (
       <DropdownMenuItem
         disabled={!enabled} className={cn(!enabled && "opacity-40")}
@@ -954,16 +948,25 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     )
   }
 
-  const toggleListingItem = (l: Launch) => (
-    <DropdownMenuItem onClick={() => {
-      const next = l.listingStatus === "Active" ? "Hidden" : "Active"
-      patch([l.id], { listingStatus: next })
-      toast.success(`${l.projectNameEn} listing set to ${next}`)
-    }}>
-      {l.listingStatus === "Active" ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
-      {l.listingStatus === "Active" ? "Hide Listing" : "Show Listing"}
-    </DropdownMenuItem>
-  )
+  /** Same submenu everywhere — gated on the launch being ingested. */
+  const changeLaunchStatusItem = (l: Launch) => {
+    const dim = !isIngestedLaunch(l)
+    return (
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger disabled={dim} className={cn(dim && "opacity-40")}>
+          <Activity className="h-4 w-4 mr-2" />Change Launch Status
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent>
+          <DropdownMenuItem disabled={l.launchStatus === "Active"} onClick={() => setDialog({ kind: "activate", launch: l })}>
+            <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" />Set Active
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={l.launchStatus === "Closed"} onClick={() => setDialog({ kind: "close", launch: l })}>
+            <XCircle className="h-4 w-4 mr-2 text-red-600" />Set Closed
+          </DropdownMenuItem>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+    )
+  }
 
   const rowMenu = (l: Launch) => {
     if (tab === "all" || tab === "pending") {
@@ -991,7 +994,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
                 </DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-            {toggleListingItem(l)}
+            {changeLaunchStatusItem(l)}
             <DropdownMenuSeparator />
             {l.archived ? (
               <DropdownMenuItem onClick={() => doRestore(l)}>
@@ -1021,18 +1024,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
             {viewProjectItem(l)}
             {linkProjectItem(l)}
             <DropdownMenuSeparator />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger><Activity className="h-4 w-4 mr-2" />Launch Status</DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                <DropdownMenuItem disabled={l.launchStatus === "Active"} onClick={() => setDialog({ kind: "activate", launch: l })}>
-                  <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" />Set Active
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled={l.launchStatus === "Closed"} onClick={() => setDialog({ kind: "close", launch: l })}>
-                  <XCircle className="h-4 w-4 mr-2 text-red-600" />Set Closed
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            {toggleListingItem(l)}
+            {changeLaunchStatusItem(l)}
           </DropdownMenuContent>
         </DropdownMenu>
       )
@@ -1047,11 +1039,8 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           {viewItem(l)}
           {viewProjectItem(l)}
           {linkProjectItem(l)}
-          {toggleListingItem(l)}
           <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDialog({ kind: "close", launch: l })}>
-            <XCircle className="h-4 w-4 mr-2" />Close Launch
-          </DropdownMenuItem>
+          {changeLaunchStatusItem(l)}
         </DropdownMenuContent>
       </DropdownMenu>
     )
@@ -1097,9 +1086,10 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       case "ingestion": return <Chip tone={INGESTION_TONE[l.ingestionStatus]}>{l.ingestionStatus}</Chip>
       case "launchStatus": return <Chip tone={LAUNCH_STATUS_TONE[l.launchStatus]}>{l.launchStatus}</Chip>
       // One Project cell — post-ingestion the existing and listing project are the same row
+      // One Linked Project cell — post-ingestion the existing and listing project are the same row
       case "project": {
         const p = projectOf(l)
-        if (!p) return <Chip tone="green">New</Chip>
+        if (!p) return <span className="text-xs text-muted-foreground">—</span>
         return (
           <div className="flex flex-col" onClick={(e) => e.stopPropagation()}>
             <a href={`/projects/${p.id}`} target="_blank" rel="noreferrer" className="w-fit text-sm font-medium hover:underline">{p.name}</a>
@@ -1107,12 +1097,10 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           </div>
         )
       }
-      case "projectPrimary": {
-        const p = projectOf(l)
-        return p
-          ? <Tag value={p.primaryStatus} cls={PRIMARY_COLORS[p.primaryStatus]} />
-          : <span className="text-xs text-muted-foreground">—</span>
-      }
+      // New = ingestion creates a brand-new project; Already Existed = linked to a system project
+      case "isNew": return (l.existingProject || l.projectId)
+        ? <Chip tone="blue">Already Existed</Chip>
+        : <Chip tone="green">New</Chip>
       case "type": return <Chip tone={l.type === "Launch" ? "green" : "white"}>{l.type}</Chip>
       case "source": return <Chip tone={l.source === "WhatsApp" ? "green" : "white"}>{l.source}</Chip>
       case "eoi": return l.eoiAmount
@@ -1500,8 +1488,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
         )}
         {tab === "active" && (
           <>
-            <BulkBarButton icon={<Eye className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => setDialog({ kind: "bulk-list-active" })}>Listing: Active</BulkBarButton>
-            <BulkBarButton icon={<XCircle className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => setDialog({ kind: "bulk-list-hidden" })}>Listing: Hidden</BulkBarButton>
           </>
         )}
         {tab !== "active" && (
@@ -1634,7 +1620,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           onConfirm={() => doUnlink(dialog.launch)}
         />
       )}
-      {(dialog?.kind === "bulk-approve" || dialog?.kind === "bulk-reject" || dialog?.kind === "bulk-list-active" || dialog?.kind === "bulk-list-hidden") && (
+      {(dialog?.kind === "bulk-approve" || dialog?.kind === "bulk-reject") && (
         <BulkDialog kind={dialog.kind} count={selectedIds.length} onClose={() => setDialog(null)} onConfirm={() => doBulk(dialog.kind as BulkKind)} />
       )}
     </div>

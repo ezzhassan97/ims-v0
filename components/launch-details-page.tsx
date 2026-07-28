@@ -121,7 +121,7 @@ import {
   Activity,
 } from "lucide-react"
 import { LinkProjectDialog } from "@/components/link-project-dialog"
-import { useLaunches, activateLaunch, closeLaunch, activeConflictOf, isIngestedLaunch, launchPropsOf, setProjectPrimary, type Launch } from "@/lib/launches-mock"
+import { useLaunches, patchLaunches, activateLaunch, closeLaunch, activeConflictOf, isIngestedLaunch, launchPropsOf, setProjectPrimary, type Launch } from "@/lib/launches-mock"
 import { ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
 import { PROJECTS } from "@/lib/projects-mock"
 import { Tag as StatusTag, PRIMARY_COLORS } from "@/components/projects-list-page"
@@ -1238,7 +1238,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
     const map: Record<Launch["launchStatus"], string> = {
       "Active": "bg-emerald-100 text-emerald-700 hover:bg-emerald-100",
       "Upcoming": "bg-blue-100 text-blue-700 hover:bg-blue-100",
-      "Closed": "bg-purple-100 text-purple-700 hover:bg-purple-100",
+      "Closed": "border border-red-200 bg-red-50 text-red-600 hover:bg-red-50",
     }
     return <Badge className={map[status]}>{status}</Badge>
   }
@@ -1324,7 +1324,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                 )}
                 {/* Existing project — same as the table column */}
                 <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                  <span className="uppercase tracking-wide text-muted-foreground/60">Existing Project:</span>
+                  <span className="uppercase tracking-wide text-muted-foreground/60">Linked Project:</span>
                   {linkedProject ? (
                     <>
                       <a href="#" target="_blank" rel="noreferrer" className="text-xs font-medium text-foreground hover:underline">{linkedProject.name}</a>
@@ -1362,13 +1362,19 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               </DropdownMenuItem>
               {/* Link/unlink to an existing system project — only before ingestion */}
               {linkedProject ? (
-                <DropdownMenuItem
-                  disabled={ingestionStatus === "Ingested"}
-                  className={cn(ingestionStatus === "Ingested" && "opacity-40")}
-                  onClick={() => setLinkDialog("unlink")}
-                >
-                  <Unlink className="h-4 w-4 mr-2" />Unlink Project
-                </DropdownMenuItem>
+                <>
+                  {/* Ingested launches can still change WHICH project they link to — just never back to New */}
+                  <DropdownMenuItem onClick={() => setLinkDialog("link")}>
+                    <Link2 className="h-4 w-4 mr-2" />Change Linked Project
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={ingestionStatus === "Ingested"}
+                    className={cn(ingestionStatus === "Ingested" && "opacity-40")}
+                    onClick={() => setLinkDialog("unlink")}
+                  >
+                    <Unlink className="h-4 w-4 mr-2" />Unlink Project
+                  </DropdownMenuItem>
+                </>
               ) : (
                 <DropdownMenuItem
                   disabled={ingestionStatus === "Ingested"}
@@ -1399,18 +1405,10 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               >
                 <Database className="h-4 w-4 mr-2" />Ingest
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => {
-                const next = listingStatus === "Active" ? "Hidden" : "Active"
-                setListingStatus(next)
-                toast.success(`Listing status set to ${next}`)
-              }}>
-                {listingStatus === "Active" ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
-                Toggle Listing Status
-              </DropdownMenuItem>
               {/* Same lifecycle actions as the launches table rows */}
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger disabled={!isIngestedLaunch(live)} className={cn(!isIngestedLaunch(live) && "opacity-40")}>
-                  <Activity className="h-4 w-4 mr-2" />Launch Status
+                  <Activity className="h-4 w-4 mr-2" />Change Launch Status
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   <DropdownMenuItem disabled={launchStatus === "Active"} onClick={() => setStatusDialog("activate")}>
@@ -1859,6 +1857,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
           onClose={() => setLinkDialog(null)}
           onConfirm={(row) => {
             setLinkedProject({ id: row.id, name: row.name })
+            patchLaunches([launch.id], { projectId: row.id, existingProject: { id: row.id, name: row.name }, listingProject: { id: row.id, name: row.name } })
             setLinkDialog(null)
             toast.success(`${launch.id} linked to ${row.name} (${row.id})`)
           }}
@@ -1877,6 +1876,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                 className="bg-red-600 text-white hover:bg-red-700"
                 onClick={() => {
                   setLinkedProject(undefined)
+                  patchLaunches([launch.id], { projectId: undefined, existingProject: undefined, listingProject: undefined })
                   setLinkDialog(null)
                   toast.success(`${launch.id} unlinked — a new ${launch.projectLevel === "Phase" ? "phase" : "project"} will be created on ingestion`)
                 }}
@@ -1928,6 +1928,43 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                 <Button variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => setProjectEditing(true)}>
                   <Edit className="h-3.5 w-3.5 mr-1" />Edit
                 </Button>
+              )}
+            </div>
+
+            {/* New vs linked — editable even after ingestion, but ingested can't go back to New */}
+            <div className="mb-5 flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2.5">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Project Link</span>
+              {linkedProject ? (
+                <>
+                  <span className="inline-flex items-center whitespace-nowrap rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Already Existed</span>
+                  <a href="#" target="_blank" rel="noreferrer" className="text-sm font-medium hover:underline">{linkedProject.name}</a>
+                  <IdCopy value={linkedProject.id} />
+                </>
+              ) : (
+                <>
+                  <span className="inline-flex items-center whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">New</span>
+                  <span className="text-xs text-muted-foreground">a brand-new {launch.projectLevel === "Phase" ? "phase" : "project"} is created on ingestion</span>
+                </>
+              )}
+              <span className="ml-auto flex items-center gap-2">
+                <Button variant="outline" size="sm" className="h-7 bg-transparent" onClick={() => setLinkDialog("link")}>
+                  <Link2 className="h-3.5 w-3.5 mr-1" />{linkedProject ? "Change" : "Link to Existing"}
+                </Button>
+                {linkedProject && (
+                  <Button
+                    variant="outline" size="sm" className="h-7 bg-transparent"
+                    disabled={ingestionStatus === "Ingested"}
+                    title={ingestionStatus === "Ingested" ? "Ingested launches can't be turned back to New" : undefined}
+                    onClick={() => setLinkDialog("unlink")}
+                  >
+                    <Unlink className="h-3.5 w-3.5 mr-1" />Unlink
+                  </Button>
+                )}
+              </span>
+              {ingestionStatus === "Ingested" && (
+                <p className="w-full text-[11px] leading-4 text-muted-foreground">
+                  Ingested — this launch can't be turned back to New; you can only change which project it's linked to.
+                </p>
               )}
             </div>
 
