@@ -137,6 +137,11 @@ export function DevelopersPage() {
   const [waGroupDev, setWaGroupDev] = useState<Developer | null>(null)
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  // Grouping opens only the first group; the rest start collapsed
+  useEffect(() => {
+    setCollapsedGroups(new Set((groups ?? []).slice(1).map((g: any) => g.label)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupBy])
   // Per-group pagination — real data can put hundreds of rows in one group
   const GROUP_PAGE_SIZE = 10
   const [groupPages, setGroupPages] = useState<Record<string, number>>({})

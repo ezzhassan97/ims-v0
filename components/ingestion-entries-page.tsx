@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import {
   Archive, ArrowDown, ArrowUp, ArrowUpDown, Boxes, Building2, CheckCircle2, ChevronDown, ChevronsDownUp,
   ChevronsUpDown, Clock, Download, Eye, FileSpreadsheet, FileStack, FileText, FolderTree, Group as GroupIcon,
@@ -248,6 +248,12 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
   }, [filtered, groupBy])
   const toggleGroup = (label: string) =>
     setCollapsedGroups((prev) => { const n = new Set(prev); n.has(label) ? n.delete(label) : n.add(label); return n })
+
+  // Grouping opens only the first group; the rest start collapsed
+  useEffect(() => {
+    setCollapsedGroups(new Set((groups ?? []).slice(1).map((g) => g.label)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupBy])
 
   const visibleCols = colOrder.filter((id) => !hiddenCols.has(id)).map((id) => ENTRY_COLS.find((c) => c.id === id)!).filter(Boolean)
   const frozenLeft = (colId: string) => {
