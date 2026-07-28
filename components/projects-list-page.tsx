@@ -2473,7 +2473,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                         <div key={p.id} className={cn("flex items-start gap-2.5 px-3 py-2.5", i > 0 && "border-t border-border/70", p.isPhase && "bg-muted/20 pl-8")}>
                           {hasSelection && (
                             <span className="flex w-4 flex-shrink-0 self-center">
-                              {canShow && <Checkbox checked={on} disabled={locked} onCheckedChange={() => toggleActivate(p)} className={cn("h-4 w-4", locked && "opacity-45")} />}
+                              {canShow && <Checkbox checked={on} disabled={locked} onCheckedChange={() => toggleActivate(p)} className={cn("h-4 w-4 bg-white", locked && "opacity-45")} />}
                             </span>
                           )}
                           <div className={cn("min-w-0 flex-1 space-y-1.5", locked && "opacity-45")}>
@@ -2488,21 +2488,27 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                                 <span className="max-w-28 truncate text-xs font-medium text-foreground">{destDevName || "—"}</span>
                               </div>
                             </div>
-                            {forcedHide && (
-                              <div className="flex items-center justify-end gap-1.5">
-                                <Tag value="Active" cls={LISTING_COLORS.Active} />
-                                <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                                <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
-                              </div>
-                            )}
-                            {canShow && (
-                              <div className="flex items-center justify-end gap-1.5">
-                                <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
-                                <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                                {on ? <Tag value="Active" cls={LISTING_COLORS.Active} /> : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
-                              </div>
-                            )}
-                            <div className="text-[11px] text-muted-foreground">{p.groupedProps + p.detailedProps} property titles change</div>
+                            {/* One line: property impact left, listing status (current, or its transition) right */}
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] text-muted-foreground">{p.groupedProps + p.detailedProps} property titles change</span>
+                              <span className="ml-auto flex items-center gap-1.5">
+                                {forcedHide ? (
+                                  <>
+                                    <Tag value="Active" cls={LISTING_COLORS.Active} />
+                                    <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                                    <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
+                                  </>
+                                ) : canShow ? (
+                                  <>
+                                    <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
+                                    <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                                    {on ? <Tag value="Active" cls={LISTING_COLORS.Active} /> : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
+                                  </>
+                                ) : (
+                                  <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+                                )}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       )
