@@ -772,6 +772,11 @@ export function AdvancedDataGrid({
   const [showAllFilters, setShowAllFilters] = useState(false)
   const [showSortDrawer, setShowSortDrawer] = useState(false)
   const [groupByColumn, setGroupByColumn] = useState<string | null>(null)
+  // Grouping opens only the first group; the rest start collapsed
+  useEffect(() => {
+    setCollapsedGroups(new Set(Object.keys(groups ?? {}).slice(1)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupByColumn])
   const [showBulkActions, setShowBulkActions] = useState(false)
   const [draggedColumn, setDraggedColumn] = useState<string | null>(null)
   const [draggedSortIndex, setDraggedSortIndex] = useState<number | null>(null)

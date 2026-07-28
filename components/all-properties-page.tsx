@@ -3308,6 +3308,11 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
     return matched.length ? matched : allTableRows
   }, [allTableRows, scopeProjectName])
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  // Grouping opens only the first group; the rest start collapsed
+  useEffect(() => {
+    setCollapsedGroups(new Set(Object.keys(groupedRows ?? {}).slice(1)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupByColumn])
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   // Column management

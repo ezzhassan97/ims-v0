@@ -1,6 +1,6 @@
 ﻿"use client"
 
-import React, { useState, useMemo } from "react"
+import React, { useState, useMemo, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -1992,6 +1992,11 @@ function ImagesTab() {
   // ── Group state ──
   const [groupByColumn, setGroupByColumn] = useState<string | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  // Grouping opens only the first group; the rest start collapsed
+  useEffect(() => {
+    setCollapsedGroups(new Set([...(groupedRows?.keys() ?? [])].slice(1)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupByColumn])
   // ── Selection state ──
   const [selectedRows, setSelectedRows]   = useState<Set<string>>(new Set())
   const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)

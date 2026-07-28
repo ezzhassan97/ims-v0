@@ -414,6 +414,11 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
   const [sorts, setSorts] = useState<SortLevel[]>([])
   const [groupBy, setGroupBy] = useState<string | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  // Grouping opens only the first group; the rest start collapsed
+  useEffect(() => {
+    setCollapsedGroups(new Set((sections ?? []).slice(1).map(([label]) => label)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupBy])
   const GROUP_PAGE_SIZE = 8
   const [groupPages, setGroupPages] = useState<Record<string, number>>({})
   const [page, setPage] = useState(1)

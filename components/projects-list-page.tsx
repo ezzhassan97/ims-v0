@@ -445,6 +445,19 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
 
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
 
+  // Grouping opens only the first group; the rest start collapsed
+  useEffect(() => {
+    if (groupBy === "none") { setCollapsedGroups(new Set()); return }
+    if (groupBy === "mainProject") {
+      const firstMain = filtered.find((r) => !r.isPhase)
+      setExpandedMains(new Set(firstMain ? [firstMain.id] : []))
+      return
+    }
+    const labels = [...new Set(filtered.map((r) => groupKeyOf(r, groupBy)))]
+    setCollapsedGroups(new Set(labels.slice(1)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupBy])
+
   // Coverage analytics — dynamic: follow the applied filters
   const mainCount = filtered.filter((r) => !r.isPhase).length
   const phaseCount = filtered.filter((r) => r.isPhase).length
