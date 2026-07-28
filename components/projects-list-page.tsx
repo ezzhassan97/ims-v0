@@ -557,8 +557,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         onClick={() => setSelected(r)}
         className={cn(
           "group cursor-pointer transition-colors hover:bg-muted/40",
-          treeMode && r.isPhase && "bg-muted/20",
-          treeMode && !r.isPhase && expandedMains.has(r.id) && "bg-primary/5",
+          // Tree mode: mains stay white (the parent), phases sit on a light grey shelf under them
+          treeMode && r.isPhase && "bg-muted/40",
         )}
       >
         {/* Selection checkbox — frozen left, matching the frozen-column offsets (they start at 40px) */}
@@ -569,7 +569,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           <td
             key={c.id}
             className={cn(
-              c.id === "name" ? cn("py-3 pr-4", treeMode && r.isPhase ? "pl-10" : "pl-5") : "px-4 py-3",
+              // Phases indent past the main row's expand chevron so the hierarchy reads left→right
+              c.id === "name" ? cn("py-3 pr-4", treeMode && r.isPhase ? "pl-16" : "pl-5") : "px-4 py-3",
               frozenCols.has(c.id) && "sticky z-10 bg-card",
             )}
             style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
@@ -755,11 +756,11 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
                       <Fragment key={m.id}>
                         {renderRow(m)}
                         {open && phs.length > 0 && (
-                          <tr className="bg-primary/5">
+                          <tr className="bg-muted/40">
                             <td className="w-10 p-0" />
                             <td colSpan={visibleCols.length + 1} className="p-0">
-                              {/* sticky-left so the separator stays put on horizontal scroll */}
-                              <div className="sticky left-10 w-max py-1.5 pl-6 pr-4">
+                              {/* sticky-left so the separator stays put on horizontal scroll; aligned with the phase indent */}
+                              <div className="sticky left-10 w-max py-1.5 pl-12 pr-4">
                                 <span className="border-l-2 border-primary pl-2 text-[10px] font-semibold uppercase tracking-wide text-primary">
                                   {phs.length} Phases and Subprojects
                                 </span>
