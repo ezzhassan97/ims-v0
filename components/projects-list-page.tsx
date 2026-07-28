@@ -330,7 +330,10 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         ? (value as string).split(":") : ["", ""]
       const parent = moveParentId ? rs.find((y) => y.id === moveParentId) : null
       return rs.map((x) => {
-        const hit = targetIds.has(x.id) || (x.isPhase && !!x.mainProject && targetIds.has(x.mainProject.id))
+        const hit = targetIds.has(x.id)
+          || (x.isPhase && !!x.mainProject && targetIds.has(x.mainProject.id))
+          // Sub-projects are independent of every cascade EXCEPT location — area is inherited
+          || (kind === "location" && !!x.isSubProject && !!x.mainProject && targetIds.has(x.mainProject.id))
         if (!hit || excluded.has(x.id)) return x
         if (kind === "developer") { const dev = PROJECT_DEVELOPERS.find((d) => d.id === value)!; return { ...x, developer: dev } }
         if (kind === "location") return { ...x, area: value as string }
@@ -1943,7 +1946,10 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
   // under the impacted entities. Developer allows excluding phases; Area does not.
   const destDevName = PROJECT_DEVELOPERS.find((d) => d.id === devId)?.name ?? ""
   const destAreaName = areaPick ? (areaPick.level === "Area" ? areaPick.name : areaPick.parent ?? areaPick.name) : ""
-  const includedCascadePhases = kind === "developer" ? impacted.filter((p) => !excludedPhases.has(p.id)) : impacted
+  // Sub-projects under the targets: never touched by developer changes, but area IS inherited
+  const impactedSubs = allRows.filter((x) => x.isSubProject && !!x.mainProject && targets.some((t) => t.id === x.mainProject!.id))
+  const [subsOpen, setSubsOpen] = useState(false)
+  const includedCascadePhases = kind === "location" ? [...impacted, ...impactedSubs] : impacted
   // A single "properties" count (grouped + detailed combined) — no grouped/detailed split in the UI
   const propCount = (rows: ProjectRow[]) => rows.reduce((s, x) => s + x.groupedProps + x.detailedProps, 0)
   const titleTotal = propCount([...targets, ...includedCascadePhases])
@@ -2027,7 +2033,11 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
             {targets.length === 1 ? (
               <>
                 <span className="font-medium text-foreground">{targets[0].name}</span> <IdTag value={targets[0].id} />{" "}
-                {singlePhase ? "will get this change." : "and the phases under it will get the same change."}
+                {singlePhase
+                  ? "will get this change."
+                  : kind === "location" && impactedSubs.length > 0
+                    ? "and the phases and sub-projects under it will get the same change."
+                    : "and the phases under it will get the same change."}
               </>
             ) : (
               <>
@@ -2239,24 +2249,27 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                 {impacted.length > 0 ? <> — main project alone: <span className="font-semibold">{titleMain}</span></> : null}.
               </p>
             </div>
-            {impacted.length > 0 && (
+            {includedCascadePhases.length > 0 && (
               <div className="space-y-1.5">
                 <p className="text-xs text-muted-foreground">
-                  {kind === "developer"
-                    ? <><span className="font-semibold text-foreground">{includedCascadePhases.length} of {impacted.length}</span> phase{impacted.length > 1 ? "s" : ""} will change — untick to exclude:</>
-                    : <><span className="font-semibold text-foreground">{impacted.length}</span> phase{impacted.length > 1 ? "s" : ""} will change:</>}
+                  {kind === "location" && impactedSubs.length > 0 ? (
+                    <><span className="font-semibold text-foreground">{impacted.length}</span> phase{impacted.length === 1 ? "" : "s"} and <span className="font-semibold text-foreground">{impactedSubs.length}</span> sub-project{impactedSubs.length === 1 ? "" : "s"} will change — none can be excluded:</>
+                  ) : (
+                    <><span className="font-semibold text-foreground">{includedCascadePhases.length}</span> phase{includedCascadePhases.length > 1 ? "s" : ""} will change — phases can't be excluded:</>
+                  )}
                 </p>
                 <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
-                  {impacted.map((p, i) => {
-                    const isEx = kind === "developer" && excludedPhases.has(p.id)
+                  {includedCascadePhases.map((p, i) => {
                     const current = kind === "developer" ? p.developer.name : p.area
                     const dest = kind === "developer" ? destDevName : destAreaName
                     return (
-                      <div key={p.id} className={cn("space-y-1.5 px-3 py-2.5", i > 0 && "border-t border-border/70", isEx && "opacity-45")}>
+                      <div key={p.id} className={cn("space-y-1.5 px-3 py-2.5", i > 0 && "border-t border-border/70")}>
                         <div className="flex items-center gap-2.5">
-                          {kind === "developer" && <Checkbox checked={!isEx} onCheckedChange={() => toggleExcludedPhase(p.id)} className="h-4 w-4 flex-shrink-0" />}
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-foreground">{targets.length > 1 ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
+                            <p className="flex items-center gap-1.5 truncate text-sm font-medium text-foreground">
+                              {targets.length > 1 ? `${p.mainProject?.name} — ${p.name}` : p.name}
+                              {p.isSubProject && <span className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1 py-0 text-[9px] font-medium leading-4 text-indigo-700">Sub-Project</span>}
+                            </p>
                             <IdTag value={p.id} />
                           </div>
                           <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
@@ -2266,11 +2279,35 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                             <span className="max-w-24 truncate text-xs font-medium text-foreground">{dest || "—"}</span>
                           </div>
                         </div>
-                        <div className="pl-7 text-[11px] text-muted-foreground">{p.groupedProps + p.detailedProps} property titles change</div>
+                        <div className="text-[11px] text-muted-foreground">{p.groupedProps + p.detailedProps} property titles change</div>
                       </div>
                     )
                   })}
                 </div>
+              </div>
+            )}
+            {/* Sub-projects keep their own developer — informational, collapsed by default */}
+            {kind === "developer" && impactedSubs.length > 0 && (
+              <div className="rounded-lg border border-border">
+                <button type="button" onClick={() => setSubsOpen((v) => !v)} className="flex w-full items-center gap-2 px-3 py-2.5 text-left">
+                  <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", !subsOpen && "-rotate-90")} />
+                  <span className="text-xs text-muted-foreground">
+                    <span className="font-semibold text-foreground">{impactedSubs.length}</span> Sub-Project{impactedSubs.length > 1 ? "s" : ""} under {targets.length > 1 ? "these main projects" : "this main project"} keep{impactedSubs.length === 1 ? "s" : ""} its own developer — not changed by this action.
+                  </span>
+                </button>
+                {subsOpen && impactedSubs.map((p, i) => (
+                  <div key={p.id} className="flex items-center gap-2.5 border-t border-border/70 px-3 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="flex items-center gap-1.5 truncate text-sm font-medium text-foreground">
+                        {p.name}
+                        <span className="inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-1 py-0 text-[9px] font-medium leading-4 text-indigo-700">Sub-Project</span>
+                      </p>
+                      <IdTag value={p.id} />
+                    </div>
+                    <Tag value={p.listingStatus} cls={LISTING_COLORS[p.listingStatus]} />
+                    <span className="max-w-32 truncate text-xs text-muted-foreground">{p.developer.name}</span>
+                  </div>
+                ))}
               </div>
             )}
           </>
@@ -2350,7 +2387,7 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
               : kind === "entry" ? entryVal
               : kind === "parent" ? (parentMode === "promote" ? PROMOTE_TO_MAIN : `${parentMode}:${parentId}`)
               : orgs,
-              kind === "entry" || kind === "developer" ? [...excludedPhases] : undefined,
+              kind === "entry" ? [...excludedPhases] : undefined,
             )}
           >
             {kind === "parent"
