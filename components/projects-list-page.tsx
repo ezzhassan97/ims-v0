@@ -2460,54 +2460,54 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
                       : "This main project will change:"}
                 </p>
                 <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
-                  {[...targets, ...impacted].map((p, i) => {
-                    const forcedHide = destDevHidden && p.listingStatus === "Active"
-                    const canShow = !destDevHidden && !!destDev && p.listingStatus === "Hidden"
-                    const locked = canShow && p.isPhase && !mainWillShow(p)
-                    const on = canShow && activateIds.has(p.id) && !locked
-                    return (
-                      <div key={p.id} className={cn("flex items-start gap-2.5 px-3 py-2.5", i > 0 && "border-t border-border/70", p.isPhase && "bg-muted/20 pl-8")}>
-                        {/* Leading checkbox, vertically centered — same selection pattern as the other popups */}
-                        {canShow && (
-                          <Checkbox checked={on} disabled={locked} onCheckedChange={() => toggleActivate(p)} className={cn("h-4 w-4 flex-shrink-0 self-center", locked && "opacity-45")} />
-                        )}
-                        <div className={cn("min-w-0 flex-1 space-y-1.5", locked && "opacity-45")}>
-                          <div className="flex items-center gap-2.5">
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium text-foreground">{targets.length > 1 && p.isPhase ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
-                              <IdTag value={p.id} />
+                  {(() => {
+                    // A fixed leading slot on EVERY row keeps titles aligned whether or not
+                    // that row happens to have an opt-in checkbox.
+                    const hasSelection = !destDevHidden && !!destDev && showable.length > 0
+                    return [...targets, ...impacted].map((p, i) => {
+                      const forcedHide = destDevHidden && p.listingStatus === "Active"
+                      const canShow = !destDevHidden && !!destDev && p.listingStatus === "Hidden"
+                      const locked = canShow && p.isPhase && !mainWillShow(p)
+                      const on = canShow && activateIds.has(p.id) && !locked
+                      return (
+                        <div key={p.id} className={cn("flex items-start gap-2.5 px-3 py-2.5", i > 0 && "border-t border-border/70", p.isPhase && "bg-muted/20 pl-8")}>
+                          {hasSelection && (
+                            <span className="flex w-4 flex-shrink-0 self-center">
+                              {canShow && <Checkbox checked={on} disabled={locked} onCheckedChange={() => toggleActivate(p)} className={cn("h-4 w-4", locked && "opacity-45")} />}
+                            </span>
+                          )}
+                          <div className={cn("min-w-0 flex-1 space-y-1.5", locked && "opacity-45")}>
+                            <div className="flex items-center gap-2.5">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium text-foreground">{targets.length > 1 && p.isPhase ? `${p.mainProject?.name} — ${p.name}` : p.name}</p>
+                                <IdTag value={p.id} />
+                              </div>
+                              <div className="flex flex-shrink-0 items-center gap-1.5">
+                                <span className="max-w-28 truncate text-xs text-muted-foreground">{p.developer.name}</span>
+                                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span className="max-w-28 truncate text-xs font-medium text-foreground">{destDevName || "—"}</span>
+                              </div>
                             </div>
-                            <div className="flex flex-shrink-0 items-center gap-1.5">
-                              <span className="max-w-28 truncate text-xs text-muted-foreground">{p.developer.name}</span>
-                              <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-                              <span className="max-w-28 truncate text-xs font-medium text-foreground">{destDevName || "—"}</span>
-                            </div>
-                          </div>
-                          {forcedHide && (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Listing</span>
-                              <span className="ml-auto flex items-center gap-1.5">
+                            {forcedHide && (
+                              <div className="flex items-center justify-end gap-1.5">
                                 <Tag value="Active" cls={LISTING_COLORS.Active} />
                                 <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
                                 <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
-                              </span>
-                            </div>
-                          )}
-                          {canShow && (
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Listing</span>
-                              <span className="ml-auto flex items-center gap-1.5">
+                              </div>
+                            )}
+                            {canShow && (
+                              <div className="flex items-center justify-end gap-1.5">
                                 <Tag value="Hidden" cls={LISTING_COLORS.Hidden} />
                                 <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
                                 {on ? <Tag value="Active" cls={LISTING_COLORS.Active} /> : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
-                              </span>
-                            </div>
-                          )}
-                          <div className="text-[11px] text-muted-foreground">{p.groupedProps + p.detailedProps} property titles change</div>
+                              </div>
+                            )}
+                            <div className="text-[11px] text-muted-foreground">{p.groupedProps + p.detailedProps} property titles change</div>
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })
+                  })()}
                 </div>
                 {showable.some((p) => p.isPhase && !mainWillShow(p)) && (
                   <p className="text-[11px] text-muted-foreground">Phases can only be shown while their main project is shown.</p>
