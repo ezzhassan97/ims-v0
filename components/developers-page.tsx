@@ -1451,6 +1451,11 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
   const toggleOrg = (o: DevOrg) => setOrgs((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]))
   const toggleExcluded = (id: string) =>
     setExcluded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  // Showing the developer cascades to NOTHING by default — main projects are opt-in, phases never
+  const [includeMainIds, setIncludeMainIds] = useState<Set<string>>(new Set())
+  useEffect(() => { setIncludeMainIds(new Set()) }, [target])
+  const toggleInclude = (id: string) =>
+    setIncludeMainIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   const impacted = projectsOfDeveloper(dev.name)
   // Grouped by main project — phases sit indented under their main
@@ -1459,6 +1464,7 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
     .flatMap((m) => [m, ...impacted.filter((p) => p.isPhase && p.mainProject?.id === m.id)])
   // Listing: only projects/phases not already at the destination actually change
   const changing = flat.filter((p) => p.listingStatus !== target)
+  const hiddenMains = flat.filter((p) => !p.isPhase && p.listingStatus === "Hidden")
   const changingMains = changing.filter((p) => !p.isPhase).length
   const changingPhases = changing.length - changingMains
   // Display rows: a parent main appears above its changing phases even when the
@@ -1554,7 +1560,9 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
 
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-4 text-amber-800">
           {kind === "listing" ? (
-            <>Changing Developer Listing will affect the projects and phases under that developer accordingly.</>
+            target === "Hidden"
+              ? <>Changing Developer Listing will affect the projects and phases under that developer accordingly.</>
+              : <>Showing the developer doesn't show its projects automatically — tick the main projects to show with it. Phases are not affected.</>
           ) : (
             <>
               This change cascades to <span className="font-semibold">{mainsIncl}</span> project{mainsIncl !== 1 ? "s" : ""} and{" "}
@@ -1597,8 +1605,39 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
                 ))}
               </div>
             </div>
+          ) : target === "Active" ? (
+            /* Showing: mains-only opt-in — unticked by default, phases never cascade */
+            hiddenMains.length > 0 ? (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">{hiddenMains.length}</span> hidden main project{hiddenMains.length !== 1 ? "s" : ""} — tick the ones to show, the rest stay hidden:
+                </p>
+                <div className="max-h-[48vh] overflow-y-auto rounded-lg border border-border">
+                  {hiddenMains.map((p, i) => {
+                    const on = includeMainIds.has(p.id)
+                    return (
+                      <div key={p.id} className={cn("flex items-center gap-2.5 px-3 py-2", i > 0 && "border-t border-border/70")}>
+                        <Checkbox checked={on} onCheckedChange={() => toggleInclude(p.id)} className="h-4 w-4 flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
+                          <IdTag value={p.id} />
+                        </div>
+                        <span className="inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border border-blue-200 bg-blue-100 px-1.5 py-px text-[10px] font-medium text-blue-700">Main Project</span>
+                        <StoryBadge value="Hidden" />
+                        <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                        {on ? <StoryBadge value="Active" /> : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : (
+              <p className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
+                No projects will change — the developer becomes Active on its own.
+              </p>
+            )
           ) : (
-            /* Listing: impacted projects/phases only — current status → new status */
+            /* Hiding: impacted projects/phases only — current status → new status */
             changing.length > 0 ? (
               <div className="space-y-1.5">
                 <p className="text-xs text-muted-foreground">
@@ -1646,8 +1685,10 @@ export function DevCascadeDialog({ kind, dev, onClose, onConfirm }: {
             size="sm" disabled={!canSave}
             onClick={() => {
               onConfirm(kind === "listing" ? target : orgs)
+              const tMains = target === "Active" ? includeMainIds.size : changingMains
+              const tPhases = target === "Active" ? 0 : changingPhases
               toast.success(kind === "listing"
-                ? `Developer listing status has been updated with ${changingMains} Project${changingMains !== 1 ? "s" : ""} and ${changingPhases} Phase${changingPhases !== 1 ? "s" : ""} successfully.`
+                ? `Developer listing status has been updated with ${tMains} Project${tMains !== 1 ? "s" : ""} and ${tPhases} Phase${tPhases !== 1 ? "s" : ""} successfully.`
                 : `Developer organizations have been updated with ${mainsIncl} Project${mainsIncl !== 1 ? "s" : ""} and ${phasesIncl} Phase${phasesIncl !== 1 ? "s" : ""} successfully.`)
             }}
           >
