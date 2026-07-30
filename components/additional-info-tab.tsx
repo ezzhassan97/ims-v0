@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import type { GroupedProperty } from "@/components/grouped-properties-page"
+import { RichTextEditor } from "@/components/rich-text-editor"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Variation model — drives every visibility/editability decision on this page.
@@ -504,6 +505,13 @@ export function AdditionalInfoTab({ group, embedded = false, editing: editingPro
   const [saved, setSaved] = useState<Record<string, FieldValue>>(() => seedDraft(group, variation))
   const [draft, setDraft] = useState<Record<string, FieldValue>>(saved)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  // Website copy — its own draft, saved with the rest. Primary units get their copy
+  // from the project side, so this block is editable ONLY for Resale / Nawy Now / Rental.
+  const copyEditable = group.saleType === "Resale" || group.saleType === "Nawy Now" || group.saleType === "Rental"
+  type CopyFields = { titleEn: string; titleAr: string; descEn: string; descAr: string }
+  const [copySaved, setCopySaved] = useState<CopyFields>({ titleEn: "", titleAr: "", descEn: "", descAr: "" })
+  const [copyDraft, setCopyDraft] = useState<CopyFields>(copySaved)
+  const setCopy = (k: keyof CopyFields, v: string) => setCopyDraft((d) => ({ ...d, [k]: v }))
 
   const setField = (spec: FieldSpec, value: FieldValue) => {
     setDraft((d) => ({ ...d, [spec.key]: value }))
@@ -516,8 +524,8 @@ export function AdditionalInfoTab({ group, embedded = false, editing: editingPro
     })
   }
 
-  const startEdit = () => { setDraft(saved); setErrors({}); setIsEditing(true) }
-  const cancel = () => { setDraft(saved); setErrors({}); setIsEditing(false) }
+  const startEdit = () => { setDraft(saved); setCopyDraft(copySaved); setErrors({}); setIsEditing(true) }
+  const cancel = () => { setDraft(saved); setCopyDraft(copySaved); setErrors({}); setIsEditing(false) }
   const save = () => {
     const all: Record<string, string> = {}
     for (const f of fields) {
@@ -526,6 +534,7 @@ export function AdditionalInfoTab({ group, embedded = false, editing: editingPro
     }
     if (Object.keys(all).length) { setErrors(all); return }
     setSaved(draft)
+    setCopySaved(copyDraft)
     setIsEditing(false)
     toast.success("Additional info updated")
   }
@@ -617,6 +626,54 @@ export function AdditionalInfoTab({ group, embedded = false, editing: editingPro
             </div>
           )
         })}
+
+        {/* Title & Description — website copy for this unit group */}
+        {(() => {
+          const copySource = (isEditing || embedded) ? copyDraft : copySaved
+          const copyEditing = isEditing && copyEditable
+          const view = (v: string, rtl?: boolean) => v
+            ? <div dir={rtl ? "rtl" : undefined} className="text-sm font-medium text-foreground [&_a]:underline" dangerouslySetInnerHTML={{ __html: v }} />
+            : <div className="text-sm font-medium"><span className="text-muted-foreground">—</span></div>
+          return (
+            <div className="px-5 py-4">
+              <div className="mb-3 flex flex-wrap items-baseline gap-x-2">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Title & Description</h4>
+                {!copyEditable && (
+                  <span className="text-[10px] text-muted-foreground">Editable only for Resale, Nawy Now and Rental units — Primary copy comes from the project.</span>
+                )}
+              </div>
+              {copyEditing ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                    <div>
+                      <p className="mb-1.5 text-xs font-medium text-muted-foreground">Title EN</p>
+                      <TextInput value={copyDraft.titleEn} onChange={(v) => setCopy("titleEn", v)} maxLength={120} placeholder="English title…" />
+                    </div>
+                    <div dir="rtl">
+                      <p className="mb-1.5 text-xs font-medium text-muted-foreground">Title AR</p>
+                      <TextInput value={copyDraft.titleAr} onChange={(v) => setCopy("titleAr", v)} maxLength={120} placeholder="العنوان بالعربية…" />
+                    </div>
+                  </div>
+                  <div>
+                    <p className="mb-1.5 text-xs font-medium text-muted-foreground">Description EN</p>
+                    <RichTextEditor value={copyDraft.descEn} onChange={(v) => setCopy("descEn", v)} placeholder="Write the English description…" />
+                  </div>
+                  <div>
+                    <p className="mb-1.5 text-right text-xs font-medium text-muted-foreground">Description AR</p>
+                    <RichTextEditor value={copyDraft.descAr} onChange={(v) => setCopy("descAr", v)} dir="rtl" placeholder="اكتب الوصف بالعربية…" />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                  <FieldShell label="Title EN">{copySource.titleEn ? <div className="text-sm font-medium text-foreground">{copySource.titleEn}</div> : view("")}</FieldShell>
+                  <FieldShell label="Title AR">{copySource.titleAr ? <div dir="rtl" className="text-sm font-medium text-foreground">{copySource.titleAr}</div> : view("")}</FieldShell>
+                  <FieldShell label="Description EN">{view(copySource.descEn)}</FieldShell>
+                  <FieldShell label="Description AR">{view(copySource.descAr, true)}</FieldShell>
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
