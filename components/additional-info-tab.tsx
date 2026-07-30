@@ -654,13 +654,15 @@ export function AdditionalInfoTab({ group, embedded = false, editing: editingPro
                       <TextInput value={copyDraft.titleAr} onChange={(v) => setCopy("titleAr", v)} maxLength={120} placeholder="العنوان بالعربية…" />
                     </div>
                   </div>
-                  <div>
-                    <p className="mb-1.5 text-xs font-medium text-muted-foreground">Description EN</p>
-                    <RichTextEditor value={copyDraft.descEn} onChange={(v) => setCopy("descEn", v)} placeholder="Write the English description…" />
-                  </div>
-                  <div>
-                    <p className="mb-1.5 text-right text-xs font-medium text-muted-foreground">Description AR</p>
-                    <RichTextEditor value={copyDraft.descAr} onChange={(v) => setCopy("descAr", v)} dir="rtl" placeholder="اكتب الوصف بالعربية…" />
+                  <div className="grid grid-cols-2 gap-x-6">
+                    <div>
+                      <p className="mb-1.5 text-xs font-medium text-muted-foreground">Description EN</p>
+                      <RichTextEditor value={copyDraft.descEn} onChange={(v) => setCopy("descEn", v)} placeholder="Write the English description…" />
+                    </div>
+                    <div>
+                      <p className="mb-1.5 text-right text-xs font-medium text-muted-foreground">Description AR</p>
+                      <RichTextEditor value={copyDraft.descAr} onChange={(v) => setCopy("descAr", v)} dir="rtl" placeholder="اكتب الوصف بالعربية…" />
+                    </div>
                   </div>
                 </div>
               ) : (
