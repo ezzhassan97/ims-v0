@@ -25,6 +25,7 @@ import {
   Clock,
   Store,
   Key,
+  KeyRound,
   Settings,
   SlidersHorizontal,
   MapPin,
@@ -58,14 +59,14 @@ function WhatsAppIcon({ className }: { className?: string }) {
   )
 }
 
-interface NavItem {
+export interface NavItem {
   label: string
   icon: React.ReactNode
   children?: NavItem[]
   isGreyed?: boolean
 }
 
-const navItems: NavItem[] = [
+export const navItems: NavItem[] = [
   {
     label: "Dashboards",
     icon: <LayoutDashboard className="h-4 w-4" />,
@@ -164,6 +165,10 @@ const navItems: NavItem[] = [
   {
     label: "Audit Logs",
     icon: <ScrollText className="h-4 w-4" />,
+  },
+  {
+    label: "Permissions and Roles",
+    icon: <KeyRound className="h-4 w-4" />,
   },
   {
     label: "Testing Playground",
