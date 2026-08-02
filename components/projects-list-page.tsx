@@ -2163,6 +2163,8 @@ export function CascadeChangeDialog({ kind, targets, ignored, allRows, onClose, 
             </div>
             <div className="flex items-center gap-1.5">
               <Tag value={targets[0].listingStatus} cls={LISTING_COLORS[targets[0].listingStatus]} />
+              <Tag value={targets[0].primaryStatus} cls={PRIMARY_COLORS[targets[0].primaryStatus]} />
+              <span className="h-4 w-px bg-border" />
               {targets[0].organizations.map((o) => <OrgChip key={o} org={o} />)}
             </div>
           </div>
