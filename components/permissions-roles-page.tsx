@@ -10,7 +10,7 @@
 import { useMemo, useState } from "react"
 import {
   Crown, DatabaseZap, Handshake, FileSpreadsheet, Repeat, MonitorSmartphone,
-  Search, ShieldCheck, FileBarChart, CornerDownRight, Unlock, LayoutGrid,
+  Search, ShieldCheck, FileBarChart, CornerDownRight, Unlock, LayoutGrid, ChevronDown, ChevronsUpDown, ChevronsDownUp,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { navItems, type NavItem } from "@/components/sidebar"
@@ -262,38 +262,45 @@ interface PageRow {
   kind: "page" | "detail" | "tab"
   /** Chain used for permission resolution: own key first, then ancestors. */
   chain: string[]
+  /** Unique row id + structural parent — drives expand/collapse. */
+  key: string
+  parentKey?: string
 }
 
 function buildRows(): PageRow[] {
   const rows: PageRow[] = []
+  const push = (r: Omit<PageRow, "key">) => {
+    rows.push({ ...r, key: r.chain.join("·") })
+    return rows[rows.length - 1].key
+  }
 
-  const pushDetail = (d: DetailExt, parentChain: string[], depth: number) => {
+  const pushDetail = (d: DetailExt, parentChain: string[], depth: number, parentKey: string) => {
     const detailChain = [d.label, ...parentChain]
-    rows.push({ label: d.label, depth, kind: "detail", chain: detailChain })
+    const k = push({ label: d.label, depth, kind: "detail", chain: detailChain, parentKey })
     for (const tab of d.tabs ?? []) {
-      rows.push({ label: tab, depth: depth + 1, kind: "tab", chain: [`${d.label} / ${tab}`, ...detailChain] })
+      push({ label: tab, depth: depth + 1, kind: "tab", chain: [`${d.label} / ${tab}`, ...detailChain], parentKey: k })
     }
   }
 
-  const pushExt = (pageLabel: string, parentChain: string[], depth: number) => {
+  const pushExt = (pageLabel: string, parentChain: string[], depth: number, parentKey: string) => {
     const ext = EXTENSIONS[pageLabel]
     if (!ext) return
     for (const tab of ext.tabs ?? []) {
       const tabChain = [`${pageLabel} / ${tab.label}`, ...parentChain]
-      rows.push({ label: tab.label, depth, kind: "tab", chain: tabChain })
-      for (const d of tab.details ?? []) pushDetail(d, tabChain, depth + 1)
+      const k = push({ label: tab.label, depth, kind: "tab", chain: tabChain, parentKey })
+      for (const d of tab.details ?? []) pushDetail(d, tabChain, depth + 1, k)
     }
-    for (const d of ext.details ?? []) pushDetail(d, parentChain, depth)
+    for (const d of ext.details ?? []) pushDetail(d, parentChain, depth, parentKey)
   }
 
   for (const item of navItems as NavItem[]) {
     if (EXCLUDED_PAGES.has(item.label)) continue
-    rows.push({ label: item.label, icon: item.icon, depth: 0, kind: "page", chain: [item.label] })
-    pushExt(item.label, [item.label], 1)
+    const topKey = push({ label: item.label, icon: item.icon, depth: 0, kind: "page", chain: [item.label] })
+    pushExt(item.label, [item.label], 1, topKey)
     for (const child of item.children ?? []) {
       const childChain = [child.label, item.label]
-      rows.push({ label: child.label, icon: child.icon, depth: 1, kind: "page", chain: childChain })
-      pushExt(child.label, childChain, 2)
+      const childKey = push({ label: child.label, icon: child.icon, depth: 1, kind: "page", chain: childChain, parentKey: topKey })
+      pushExt(child.label, childChain, 2, childKey)
     }
   }
   return rows
@@ -318,9 +325,20 @@ function LevelDot({ level, title }: { level: Level; title: string }) {
   return <span title={title} className={cn("inline-block h-2.5 w-2.5 rounded-sm", LEVEL_META[level].dot)} />
 }
 
-function RowLabel({ r }: { r: PageRow }) {
+function RowLabel({ r, expandable, collapsed, onToggle }: { r: PageRow; expandable: boolean; collapsed: boolean; onToggle: () => void }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5" style={{ paddingLeft: r.depth * 16 }}>
+      {expandable ? (
+        <span
+          role="button"
+          onClick={(e) => { e.stopPropagation(); onToggle() }}
+          className="flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", collapsed && "-rotate-90")} />
+        </span>
+      ) : (
+        <span className="w-4 flex-shrink-0" />
+      )}
       {r.kind !== "page"
         ? <CornerDownRight className="h-3 w-3 flex-shrink-0 text-muted-foreground/60" />
         : r.icon && <span className="flex-shrink-0 text-muted-foreground [&_svg]:h-3.5 [&_svg]:w-3.5">{r.icon}</span>}
@@ -342,6 +360,31 @@ export function PermissionsRolesPage() {
     rows.forEach((r) => { c[resolve(t, r).level]++ })
     return c
   }
+
+  // Expand/collapse — shared between the matrix and the team panel
+  const byKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows])
+  const parentKeys = useMemo(() => new Set(rows.map((r) => r.parentKey).filter(Boolean) as string[]), [rows])
+  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set())
+  const toggleKey = (k: string) => setCollapsedKeys((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
+  const isVisible = (r: PageRow) => {
+    let p = r.parentKey
+    while (p) {
+      if (collapsedKeys.has(p)) return false
+      p = byKey.get(p)?.parentKey
+    }
+    return true
+  }
+  const visibleRows = rows.filter(isVisible)
+  const expandCollapseAll = (
+    <div className="flex items-center gap-1">
+      <button type="button" onClick={() => setCollapsedKeys(new Set())} className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+        <ChevronsUpDown className="h-3.5 w-3.5" />Expand all
+      </button>
+      <button type="button" onClick={() => setCollapsedKeys(new Set(parentKeys))} className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+        <ChevronsDownUp className="h-3.5 w-3.5" />Collapse all
+      </button>
+    </div>
+  )
 
   return (
     <div className="space-y-4 p-4">
@@ -413,8 +456,9 @@ export function PermissionsRolesPage() {
           <h3 className="text-sm font-semibold">All Teams</h3>
           <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{rows.length} pages & tabs</span>
           <span className="ml-auto text-[11px] text-muted-foreground">Click a team column — or a card above — to inspect it</span>
+          {expandCollapseAll}
         </div>
-        <div className="max-h-[52vh] overflow-auto">
+        <div className="overflow-x-auto">
           <table className="w-max min-w-full text-sm">
             <thead className="sticky top-0 z-20">
               <tr className="border-b border-border/70 bg-muted">
@@ -432,9 +476,11 @@ export function PermissionsRolesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
-              {rows.map((r) => (
-                <tr key={r.chain.join("·")} className={cn(r.depth === 0 && "bg-muted/20")}>
-                  <td className="sticky left-0 z-10 bg-card px-4 py-1.5"><RowLabel r={r} /></td>
+              {visibleRows.map((r) => (
+                <tr key={r.key} className={cn(r.depth === 0 && "bg-muted/20")}>
+                  <td className="sticky left-0 z-10 bg-card px-4 py-1.5">
+                    <RowLabel r={r} expandable={parentKeys.has(r.key)} collapsed={collapsedKeys.has(r.key)} onToggle={() => toggleKey(r.key)} />
+                  </td>
                   {TEAMS.map((t) => {
                     const rule = resolve(t, r)
                     return (
@@ -470,13 +516,16 @@ export function PermissionsRolesPage() {
               ) : null
             })}
           </div>
+          {expandCollapseAll}
         </div>
         <div className="divide-y divide-border/60">
-          {rows.map((r) => {
+          {visibleRows.map((r) => {
             const rule = resolve(team, r)
             return (
-              <div key={r.chain.join("·")} className={cn("flex items-center gap-3 px-4 py-2", r.depth === 0 && "bg-muted/20")}>
-                <div className="min-w-0 flex-1"><RowLabel r={r} /></div>
+              <div key={r.key} className={cn("flex items-center gap-3 px-4 py-2", r.depth === 0 && "bg-muted/20")}>
+                <div className="min-w-0 flex-1">
+                  <RowLabel r={r} expandable={parentKeys.has(r.key)} collapsed={collapsedKeys.has(r.key)} onToggle={() => toggleKey(r.key)} />
+                </div>
                 {rule.note && <span className="hidden max-w-xs truncate text-right text-[11px] text-muted-foreground sm:block" title={rule.note}>{rule.note}</span>}
                 <LevelTag level={rule.level} />
               </div>
