@@ -10,7 +10,7 @@
 import { useMemo, useState } from "react"
 import {
   Crown, DatabaseZap, Handshake, FileSpreadsheet, Repeat, MonitorSmartphone,
-  Search, ShieldCheck, FileBarChart, CornerDownRight, Unlock,
+  Search, ShieldCheck, FileBarChart, CornerDownRight, Unlock, LayoutGrid,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { navItems, type NavItem } from "@/components/sidebar"
@@ -333,8 +333,9 @@ function RowLabel({ r }: { r: PageRow }) {
 
 export function PermissionsRolesPage() {
   const rows = useMemo(buildRows, [])
-  const [teamId, setTeamId] = useState(TEAMS[0].id)
-  const team = TEAMS.find((t) => t.id === teamId)!
+  // "all-teams" shows the matrix; a team id shows that team's breakdown
+  const [teamId, setTeamId] = useState<string>("all-teams")
+  const team = TEAMS.find((t) => t.id === teamId)
 
   const counts = (t: Team) => {
     const c: Record<Level, number> = { all: 0, create: 0, edit: 0, view: 0, none: 0 }
@@ -357,12 +358,61 @@ export function PermissionsRolesPage() {
         </div>
       </div>
 
+      {/* Team cards — click one to inspect it below */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <button
+          type="button" onClick={() => setTeamId("all-teams")}
+          className={cn(
+            "flex flex-col gap-2 rounded-xl border bg-card p-3 text-left transition-colors",
+            teamId === "all-teams" ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <span className={cn("flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg", teamId === "all-teams" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
+              <LayoutGrid className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 text-sm font-semibold leading-tight text-foreground">All Teams</span>
+          </div>
+          <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">Every team side by side — the full access matrix across all pages and tabs.</p>
+          <div className="mt-auto text-[10px] tabular-nums text-muted-foreground">{TEAMS.length} teams · {rows.length} pages & tabs</div>
+        </button>
+        {TEAMS.map((t) => {
+          const c = counts(t)
+          const Icon = t.icon
+          const selected = t.id === teamId
+          return (
+            <button
+              key={t.id} type="button" onClick={() => setTeamId(t.id)}
+              className={cn(
+                "flex flex-col gap-2 rounded-xl border bg-card p-3 text-left transition-colors",
+                selected ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span className={cn("flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg", selected ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 text-sm font-semibold leading-tight text-foreground">{t.name}</span>
+              </div>
+              <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">{t.blurb}</p>
+              <div className="mt-auto flex items-center gap-2 text-[10px] tabular-nums text-muted-foreground">
+                {LEVELS.map((l) => (
+                  <span key={l} className="inline-flex items-center gap-1">
+                    <span className={cn("h-2 w-2 rounded-sm", LEVEL_META[l].dot)} />{c[l]}
+                  </span>
+                ))}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
       {/* All teams at a glance — every team × every page/tab */}
-      <div className="rounded-xl border border-border bg-card">
+      {teamId === "all-teams" && <div className="rounded-xl border border-border bg-card">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <h3 className="text-sm font-semibold">All Teams</h3>
           <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{rows.length} pages & tabs</span>
-          <span className="ml-auto text-[11px] text-muted-foreground">Click a team column — or a card below — to inspect it</span>
+          <span className="ml-auto text-[11px] text-muted-foreground">Click a team column — or a card above — to inspect it</span>
         </div>
         <div className="max-h-[52vh] overflow-auto">
           <table className="w-max min-w-full text-sm">
@@ -398,43 +448,10 @@ export function PermissionsRolesPage() {
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* Team cards — click one to inspect it below */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        {TEAMS.map((t) => {
-          const c = counts(t)
-          const Icon = t.icon
-          const selected = t.id === teamId
-          return (
-            <button
-              key={t.id} type="button" onClick={() => setTeamId(t.id)}
-              className={cn(
-                "flex flex-col gap-2 rounded-xl border bg-card p-3 text-left transition-colors",
-                selected ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <span className={cn("flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg", selected ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>
-                  <Icon className="h-4 w-4" />
-                </span>
-                <span className="min-w-0 text-sm font-semibold leading-tight text-foreground">{t.name}</span>
-              </div>
-              <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">{t.blurb}</p>
-              <div className="mt-auto flex items-center gap-2 text-[10px] tabular-nums text-muted-foreground">
-                {LEVELS.map((l) => (
-                  <span key={l} className="inline-flex items-center gap-1">
-                    <span className={cn("h-2 w-2 rounded-sm", LEVEL_META[l].dot)} />{c[l]}
-                  </span>
-                ))}
-              </div>
-            </button>
-          )
-        })}
-      </div>
+      </div>}
 
       {/* Selected team — permissions per page/tab, with scope notes */}
-      <div className="rounded-xl border border-border bg-card">
+      {team && <div className="rounded-xl border border-border bg-card">
         <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
           <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <team.icon className="h-4 w-4" />
@@ -466,7 +483,7 @@ export function PermissionsRolesPage() {
             )
           })}
         </div>
-      </div>
+      </div>}
     </div>
   )
 }
