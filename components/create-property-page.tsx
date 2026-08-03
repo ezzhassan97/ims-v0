@@ -220,7 +220,15 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
   const liveError = Object.keys(errors).length > 0
   const save = () => {
     const errs = validateAll(); setErrors(errs)
-    if (Object.keys(errs).length) { if (!openSections.has("main")) toggleSection("main"); toast.error("Please fix the highlighted fields"); return }
+    const missingImages = imageUrls.length === 0
+    if (Object.keys(errs).length || missingImages) {
+      if (Object.keys(errs).length && !openSections.has("main")) toggleSection("main")
+      if (missingImages && !openSections.has("images")) toggleSection("images")
+      toast.error(missingImages && !Object.keys(errs).length
+        ? "Add at least one image — images are required to create a property"
+        : "Please fix the highlighted fields")
+      return
+    }
     toast.success(`${SALE_TYPE_LABEL[variation]} property created`); onBack()
   }
 
@@ -233,6 +241,9 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
 
   const offers = plans.filter((p) => p.hasOffer).length
   const planCreateDisabled = !allowPlanLibrary && plans.length >= 1
+  // Plans depend on the unit's project and price — both must be set first
+  const planGateReady = !emptyVal(form.project) && !emptyVal(form.price)
+  const planGateHint = "Choose a project and add a price first"
 
   // Dummy "auto matching" — assigns a couple of random assets after a short delay.
   const runAutoMatch = (field: "floorPlans" | "images") => {
@@ -414,8 +425,14 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
           icon={<FileText className="h-4 w-4 text-muted-foreground" />} title="Payment Plans"
           tags={<><CountTag label={plans.length === 1 ? "plan" : "plans"} a={plans.length} /><CountTag label={offers === 1 ? "offer" : "offers"} a={offers} tone="amber" /></>}
           actions={<>
-            {allowPlanLibrary && <Button variant="outline" size="sm" onClick={() => setDrawer("plans")}><FolderOpen className="mr-1.5 h-3.5 w-3.5" /> Choose from project</Button>}
-            <Button size="sm" disabled={planCreateDisabled} title={planCreateDisabled ? "Only one payment plan allowed for this sale type" : undefined} onClick={() => setPlanDrawer(true)}><Plus className="mr-1.5 h-3.5 w-3.5" /> Create new</Button>
+            {allowPlanLibrary && (
+              <span title={!planGateReady ? planGateHint : undefined}>
+                <Button variant="outline" size="sm" disabled={!planGateReady} onClick={() => setDrawer("plans")}><FolderOpen className="mr-1.5 h-3.5 w-3.5" /> Choose from project</Button>
+              </span>
+            )}
+            <span title={!planGateReady ? planGateHint : planCreateDisabled ? "Only one payment plan allowed for this sale type" : undefined}>
+              <Button size="sm" disabled={!planGateReady || planCreateDisabled} onClick={() => setPlanDrawer(true)}><Plus className="mr-1.5 h-3.5 w-3.5" /> Create new</Button>
+            </span>
           </>}
         >
           <div className="px-5 py-4">
@@ -452,7 +469,7 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
         {/* ── Images ── */}
         <CollapsibleSection
           open={openSections.has("images")} onToggle={() => toggleSection("images")}
-          icon={<ImageIcon className="h-4 w-4 text-muted-foreground" />} title="Images"
+          icon={<ImageIcon className="h-4 w-4 text-muted-foreground" />} title={<>Images <span className="text-red-500">*</span></>}
           tags={<CountTag label={imageUrls.length === 1 ? "image" : "images"} a={imageUrls.length} />}
           actions={<MediaActions field="images" matching={matching} onMatch={() => runAutoMatch("images")} onChoose={() => setDrawer("images")} onAdd={() => setAddMedia("images")} addLabel="Add images" />}
         >
@@ -524,7 +541,7 @@ function CountTag({ label, a, b, tone = "default" }: { label: string; a: number;
 }
 
 function CollapsibleSection({ open, onToggle, icon, title, tags, actions, children }: {
-  open: boolean; onToggle: () => void; icon: React.ReactNode; title: string; tags?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode
+  open: boolean; onToggle: () => void; icon: React.ReactNode; title: React.ReactNode; tags?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode
 }) {
   return (
     <div className="rounded-xl border border-border bg-card">
