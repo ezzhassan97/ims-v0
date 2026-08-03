@@ -26,6 +26,7 @@ import {
   Store,
   Key,
   KeyRound,
+  ClipboardList,
   Settings,
   SlidersHorizontal,
   MapPin,
@@ -136,6 +137,14 @@ export const navItems: NavItem[] = [
       { label: "Resale Marketplace", icon: <Store className="h-4 w-4" /> },
       { label: "Rental Properties", icon: <Key className="h-4 w-4" /> },
       { label: "Sold Units", icon: <TrendingUp className="h-4 w-4" /> },
+    ],
+  },
+  {
+    label: "Data Collection",
+    icon: <ClipboardList className="h-4 w-4" />,
+    children: [
+      { label: "Masterplan Collection", icon: <Map className="h-4 w-4" /> },
+      { label: "Brochures Collection", icon: <FileText className="h-4 w-4" /> },
     ],
   },
   {

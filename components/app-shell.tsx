@@ -10,6 +10,7 @@ import { LaunchesPage } from "@/components/launches-page"
 import { SoldUnitsPage } from "@/components/sold-units-page"
 import { AuditLogsPage } from "@/components/audit-logs-page"
 import { PermissionsRolesPage } from "@/components/permissions-roles-page"
+import { MasterplanCollectionPage } from "@/components/masterplan-collection-page"
 import { ConstructionUpdatesPage } from "@/components/construction-updates-page"
 import { WhatsAppMediaPage } from "@/components/whatsapp-media-page"
 import { WhatsAppGroupsPage } from "@/components/whatsapp-groups-page"
@@ -103,6 +104,8 @@ export function AppShell() {
         return <AuditLogsPage />
       case "Permissions and Roles":
         return <PermissionsRolesPage />
+      case "Masterplan Collection":
+        return <MasterplanCollectionPage />
       case "Construction Updates":
         return <ConstructionUpdatesPage />
       case "Whatsapp Groups":
