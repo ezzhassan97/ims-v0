@@ -73,18 +73,19 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription } from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { initialUnits, projectPhases, type Unit } from "@/lib/mock-data"
 import { GroupedPropertiesView, type SharedFilterState, type GroupDetailPayload } from "@/components/grouped-properties-page"
-import { GroupPager, AreaTreeSelect, DeveloperSelect, ProjectTreeSelect } from "@/components/table-kit"
+import { GroupPager, AreaTreeSelect, DeveloperSelect, ProjectTreeSelect, FilterSelect, IdTag } from "@/components/table-kit"
 import type { Variation } from "@/components/additional-info-tab"
 import { AddMediaDialog } from "@/components/add-media-dialog"
 import { ChooseAssetsDrawer } from "@/components/choose-assets-drawer"
 import { PaymentPlanDrawer } from "@/components/payment-plan-builder"
+import { toast } from "sonner"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -1954,6 +1955,82 @@ export function MediaGalleryTab({
 // ── View Property Drawer ───────────────────────────────────────────────────────
 // ── Shared tab panels (used by the unit drawer AND the grouped property details page) ──
 // Renders a single tab's content for the given property row. Self-contained state + overlays.
+/** Side drawer listing the PROJECT's payment plans — search by name/id, filter by plan type, link per card. */
+function SelectProjectPlansDrawer({ linkedIds, replaceMode, onClose, onLink }: {
+  linkedIds: string[]
+  /** Resale / Nawy Now: linking replaces the current plan. */
+  replaceMode: boolean
+  onClose: () => void
+  onLink: (plan: PlanCardData) => void
+}) {
+  const [q, setQ] = useState("")
+  const [typeF, setTypeF] = useState("")
+  const pool = (() => {
+    const seen = new Set<string>()
+    return PAYMENT_PLAN_GROUPS.flatMap((g) => g.plans).filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)))
+  })()
+  const types = [...new Set(pool.map((p) => p.planType))]
+  const list = pool.filter((p) => {
+    if (q && !`${p.name} ${p.id}`.toLowerCase().includes(q.toLowerCase())) return false
+    if (typeF && p.planType !== typeF) return false
+    return true
+  })
+  return (
+    <Sheet open onOpenChange={(o) => !o && onClose()}>
+      <SheetContent side="right" className="flex h-full w-[480px] max-w-[94vw]! flex-col overflow-hidden p-0">
+        <SheetHeader className="shrink-0 space-y-1 border-b border-border px-6 py-4">
+          <SheetTitle className="text-base">Select from Project</SheetTitle>
+          <SheetDescription className="text-xs">
+            Payment plans already linked to this project{replaceMode ? " — picking one replaces the current plan" : " — link as many as you need"}.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-6 py-3">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Plan name or ID" className="h-8 bg-white pl-8" />
+          </div>
+          <FilterSelect label="Plan Type" value={typeF} options={types} onChange={setTypeF} className="w-36" />
+        </div>
+        <div className="flex-1 space-y-2.5 overflow-y-auto px-6 py-4">
+          {list.map((p) => {
+            const linked = linkedIds.includes(p.id)
+            return (
+              <div key={p.id} className="rounded-lg border border-border bg-card px-3 py-2.5">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground" title={p.name}>{p.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <IdTag value={p.id} />
+                      <span className="text-[10px] text-muted-foreground">· {p.projName}</span>
+                    </div>
+                  </div>
+                  <span className="inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{p.planType}</span>
+                  {p.status === "Active" && <span className="inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Active</span>}
+                </div>
+                <div className="mt-1.5 flex items-center gap-3 text-[11px] text-muted-foreground">
+                  <span>DP {p.dp}</span>
+                  <span>{p.duration}</span>
+                  {p.discount !== "—" && <span className="text-emerald-600">{p.discount} off</span>}
+                  <span className="ml-auto">
+                    {linked ? (
+                      <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">Linked</span>
+                    ) : (
+                      <Button size="sm" variant="outline" className="h-6 bg-transparent px-2 text-xs" onClick={() => onLink(p)}>
+                        {replaceMode ? "Replace with this" : "Link"}
+                      </Button>
+                    )}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+          {list.length === 0 && <p className="py-12 text-center text-sm text-muted-foreground">No plans match.</p>}
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
 export function PropertyDetailTab({
   tab,
   row,
@@ -2021,6 +2098,24 @@ export function PropertyDetailTab({
   })
   const [detailsPlan, setDetailsPlan] = useState<PlanCardData | null>(null)
   const [editingPlan, setEditingPlan] = useState<PlanCardData | null>(null)
+  // Add / select-from-project — everything except Rentals and Primary Automatic
+  const canManagePlans = !ppViewOnly && variation !== "rental"
+  const singlePlanRule = variation === "resale" || variation === "nawy-now"
+  const [addPlanOpen, setAddPlanOpen] = useState(false)
+  const [selectPlansOpen, setSelectPlansOpen] = useState(false)
+  const linkedPlanIds = isLaunchOrPM ? sharedPlans.map((p) => p.id) : (ppGroups[0]?.plans ?? []).map((p) => p.id)
+  const linkPlan = (plan: PlanCardData) => {
+    if (isLaunchOrPM) {
+      setSharedPlans((ps) => (ps.some((x) => x.id === plan.id) ? ps : [...ps, plan]))
+      toast.success(showPriceRange
+        ? `${plan.name} linked to both the min and max price`
+        : `${plan.name} linked`)
+    } else {
+      // Resale / Nawy Now: ONE plan per price — the new one replaces the current
+      setPpGroups((gs) => gs.map((g, i) => (i === 0 ? { ...g, plans: [plan] } : g)))
+      toast.success(`${plan.name} is now the linked payment plan — previous plan replaced`)
+    }
+  }
   // Unlink a plan; if it was the last one on its price (and >1 price exists), the price is dropped too.
   const removePlan = (gi: number, planId: string) =>
     setPpGroups((prev) => prev
@@ -2045,6 +2140,23 @@ export function PropertyDetailTab({
           {isPA && (
             <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
               <Lock className="h-3.5 w-3.5" />View only — edit payment plans per unit from the Detailed Properties tab.
+            </div>
+          )}
+          {canManagePlans && (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="mr-auto text-[11px] text-muted-foreground">
+                {singlePlanRule
+                  ? "One payment plan per price — adding or selecting replaces the current plan."
+                  : showPriceRange
+                    ? "New plans link to both the min and max price by default."
+                    : "New plans link to this price."}
+              </p>
+              <Button variant="outline" size="sm" className="h-8 gap-1.5 bg-transparent" onClick={() => setSelectPlansOpen(true)}>
+                <FolderPlus className="h-3.5 w-3.5" />Select from Project
+              </Button>
+              <Button size="sm" className="h-8 gap-1.5" onClick={() => setAddPlanOpen(true)}>
+                <Plus className="h-3.5 w-3.5" />Add Payment Plan
+              </Button>
             </div>
           )}
 
@@ -2349,6 +2461,22 @@ export function PropertyDetailTab({
         onClose={() => setDetailsPlan(null)}
         onEdit={ppViewOnly ? undefined : () => { setEditingPlan(detailsPlan); setDetailsPlan(null) }}
       />
+      {addPlanOpen && (
+        <PaymentPlanDrawer
+          open
+          title="Add Payment Plan"
+          onClose={() => setAddPlanOpen(false)}
+          onSave={(plan) => { linkPlan(plan); setAddPlanOpen(false) }}
+        />
+      )}
+      {selectPlansOpen && (
+        <SelectProjectPlansDrawer
+          linkedIds={linkedPlanIds}
+          replaceMode={singlePlanRule}
+          onClose={() => setSelectPlansOpen(false)}
+          onLink={(plan) => { linkPlan(plan); if (singlePlanRule) setSelectPlansOpen(false) }}
+        />
+      )}
       {editingPlan && (
         <PaymentPlanDrawer
           open
