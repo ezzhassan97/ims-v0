@@ -30,17 +30,17 @@ export function ConstructionUpdatesTab({ updates, onUpdateChange }: Construction
           AI WhatsApp Extractions
           <span className="ml-2 flex items-center gap-1">
             {rejectedCount > 0 && (
-              <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
+              <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md border border-red-200 bg-red-100 text-red-700">
                 {rejectedCount}
               </span>
             )}
             {pendingCount > 0 && (
-              <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+              <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md border border-amber-200 bg-amber-100 text-amber-700">
                 {pendingCount}
               </span>
             )}
             {listedCount > 0 && (
-              <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+              <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md border border-emerald-200 bg-emerald-100 text-emerald-700">
                 {listedCount}
               </span>
             )}
@@ -48,7 +48,7 @@ export function ConstructionUpdatesTab({ updates, onUpdateChange }: Construction
         </TabsTrigger>
         <TabsTrigger value="listed-updates" className="data-[state=active]:bg-card">
           Listed Updates
-          <span className="ml-1.5 text-xs font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+          <span className="ml-1.5 text-xs font-semibold px-1.5 py-0.5 rounded-md border border-emerald-200 bg-emerald-100 text-emerald-700">
             {listedCount}
           </span>
         </TabsTrigger>

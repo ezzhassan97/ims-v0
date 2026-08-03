@@ -18,7 +18,7 @@ import { AmenitiesMap } from "@/components/amenities-map"
 import { SeoTab, FaqsTab } from "@/components/developers-page"
 import { ProjectFeaturesTab } from "@/components/project-features-tab"
 import { MasterplansPage } from "@/components/masterplans-page"
-import { ConstructionUpdatesTab } from "@/components/construction-updates-tab"
+import { ConstructionUpdatesPage } from "@/components/construction-updates-page"
 import { RenderImagesPage } from "@/components/render-images-page"
 import { LaunchesPage } from "@/components/launches-page"
 import { AllPropertiesPage } from "@/components/all-properties-page"
@@ -496,9 +496,11 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
           </TabsContent>
 
           <TabsContent value="construction-updates" className="mt-4">
-            <ConstructionUpdatesTab
+            <ConstructionUpdatesPage
+              embedded
               updates={constructionUpdates}
               onUpdateChange={handleUpdateConstructionUpdate}
+              onCreate={(u) => setConstructionUpdates((prev) => [u, ...prev])}
             />
           </TabsContent>
         </Tabs>
