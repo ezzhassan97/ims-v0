@@ -88,7 +88,7 @@ export function PaymentPlanDrawer({
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="flex h-full w-[980px] max-w-[96vw] flex-col overflow-hidden p-0 sm:max-w-[980px]">
+      <SheetContent side="right" className="flex h-full w-[680px] max-w-[94vw] flex-col overflow-hidden p-0 sm:max-w-[680px]">
         {/* header */}
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
           <SheetTitle className="text-lg font-semibold">{title}</SheetTitle>

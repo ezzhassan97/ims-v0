@@ -1955,19 +1955,24 @@ export function MediaGalleryTab({
 // ── View Property Drawer ───────────────────────────────────────────────────────
 // ── Shared tab panels (used by the unit drawer AND the grouped property details page) ──
 // Renders a single tab's content for the given property row. Self-contained state + overlays.
-/** Side drawer listing the PROJECT's payment plans — search by name/id, filter by plan type, link per card. */
-function SelectProjectPlansDrawer({ linkedIds, replaceMode, onClose, onLink }: {
+/** Side drawer of the PROJECT's payment plans — the same LinkedPlanCard design used on the
+ *  Payment Plans tab, in selectable mode. Shows only plans NOT yet linked to this property. */
+function SelectProjectPlansDrawer({ linkedIds, replaceMode, onClose, onSave }: {
   linkedIds: string[]
-  /** Resale / Nawy Now: linking replaces the current plan. */
+  /** Resale / Nawy Now: single pick that replaces the current plan. */
   replaceMode: boolean
   onClose: () => void
-  onLink: (plan: PlanCardData) => void
+  onSave: (plans: PlanCardData[]) => void
 }) {
   const [q, setQ] = useState("")
   const [typeF, setTypeF] = useState("")
+  const [selIds, setSelIds] = useState<string[]>([])
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const pool = (() => {
     const seen = new Set<string>()
-    return PAYMENT_PLAN_GROUPS.flatMap((g) => g.plans).filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)))
+    return PAYMENT_PLAN_GROUPS.flatMap((g) => g.plans)
+      .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)))
+      .filter((p) => !linkedIds.includes(p.id))
   })()
   const types = [...new Set(pool.map((p) => p.planType))]
   const list = pool.filter((p) => {
@@ -1975,13 +1980,17 @@ function SelectProjectPlansDrawer({ linkedIds, replaceMode, onClose, onLink }: {
     if (typeF && p.planType !== typeF) return false
     return true
   })
+  const toggle = (id: string) =>
+    setSelIds((prev) => (replaceMode
+      ? (prev.includes(id) ? [] : [id])
+      : (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])))
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
       <SheetContent side="right" className="flex h-full w-[480px] max-w-[94vw]! flex-col overflow-hidden p-0">
         <SheetHeader className="shrink-0 space-y-1 border-b border-border px-6 py-4">
           <SheetTitle className="text-base">Select from Project</SheetTitle>
           <SheetDescription className="text-xs">
-            Payment plans already linked to this project{replaceMode ? " — picking one replaces the current plan" : " — link as many as you need"}.
+            Only plans not yet linked to this property are shown{replaceMode ? " — picking one replaces the current plan" : ""}.
           </SheetDescription>
         </SheetHeader>
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-6 py-3">
@@ -1992,39 +2001,34 @@ function SelectProjectPlansDrawer({ linkedIds, replaceMode, onClose, onLink }: {
           <FilterSelect label="Plan Type" value={typeF} options={types} onChange={setTypeF} className="w-36" />
         </div>
         <div className="flex-1 space-y-2.5 overflow-y-auto px-6 py-4">
-          {list.map((p) => {
-            const linked = linkedIds.includes(p.id)
-            return (
-              <div key={p.id} className="rounded-lg border border-border bg-card px-3 py-2.5">
-                <div className="flex items-start gap-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground" title={p.name}>{p.name}</p>
-                    <div className="flex items-center gap-1.5">
-                      <IdTag value={p.id} />
-                      <span className="text-[10px] text-muted-foreground">· {p.projName}</span>
-                    </div>
-                  </div>
-                  <span className="inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{p.planType}</span>
-                  {p.status === "Active" && <span className="inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Active</span>}
-                </div>
-                <div className="mt-1.5 flex items-center gap-3 text-[11px] text-muted-foreground">
-                  <span>DP {p.dp}</span>
-                  <span>{p.duration}</span>
-                  {p.discount !== "—" && <span className="text-emerald-600">{p.discount} off</span>}
-                  <span className="ml-auto">
-                    {linked ? (
-                      <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">Linked</span>
-                    ) : (
-                      <Button size="sm" variant="outline" className="h-6 bg-transparent px-2 text-xs" onClick={() => onLink(p)}>
-                        {replaceMode ? "Replace with this" : "Link"}
-                      </Button>
-                    )}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
-          {list.length === 0 && <p className="py-12 text-center text-sm text-muted-foreground">No plans match.</p>}
+          {list.map((p) => (
+            <LinkedPlanCard
+              key={p.id}
+              plan={p}
+              readOnly
+              fullWidth
+              totalInGroup={list.length}
+              isExpanded={expanded.has(p.id)}
+              onToggleExpand={() => setExpanded((prev) => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n })}
+              selected={selIds.includes(p.id)}
+              onSelectToggle={() => toggle(p.id)}
+            />
+          ))}
+          {list.length === 0 && (
+            <p className="py-12 text-center text-sm text-muted-foreground">
+              {pool.length === 0 ? "Every project plan is already linked to this property." : "No plans match."}
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 justify-end gap-2 border-t border-border bg-card px-6 py-4">
+          <Button variant="outline" size="sm" className="bg-transparent" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm"
+            disabled={selIds.length === 0}
+            onClick={() => onSave(pool.filter((p) => selIds.includes(p.id)))}
+          >
+            {replaceMode ? "Replace with selected" : `Link ${selIds.length || ""} plan${selIds.length === 1 ? "" : "s"}`.replace("  ", " ")}
+          </Button>
         </div>
       </SheetContent>
     </Sheet>
@@ -2474,7 +2478,14 @@ export function PropertyDetailTab({
           linkedIds={linkedPlanIds}
           replaceMode={singlePlanRule}
           onClose={() => setSelectPlansOpen(false)}
-          onLink={(plan) => { linkPlan(plan); if (singlePlanRule) setSelectPlansOpen(false) }}
+          onSave={(plans) => {
+            if (singlePlanRule) linkPlan(plans[0])
+            else {
+              setSharedPlans((ps) => { const have = new Set(ps.map((x) => x.id)); return [...ps, ...plans.filter((p) => !have.has(p.id))] })
+              toast.success(`${plans.length} plan${plans.length === 1 ? "" : "s"} linked${showPriceRange ? " to both the min and max price" : ""}`)
+            }
+            setSelectPlansOpen(false)
+          }}
         />
       )}
       {editingPlan && (
