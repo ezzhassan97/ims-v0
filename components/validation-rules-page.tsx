@@ -2,15 +2,14 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Plus, Pencil, Trash2, Calendar, MoreHorizontal, Search as SearchIcon, ToggleRight, Filter } from "lucide-react"
+import { Plus, Pencil, Trash2, Calendar, MoreHorizontal, ToggleRight, Filter } from "lucide-react"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { RuleBuilderModal } from "@/components/rule-builder-modal"
 import { ConfirmDialog } from "@/components/confirm-dialog"
-import { TableCard, TableCardHeader, TableFooter, FilterSelect, MultiSortControl, IdTag, type SortLevel } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableFooter, TableToolbar, FiltersDrawer, FilterDrawerField, FilterSelect, MultiSortControl, IdTag, type SortLevel } from "@/components/table-kit"
 import { Tag, fmtDateTime } from "@/components/projects-list-page"
 
 export interface ValidationRule {
@@ -163,6 +162,7 @@ export function ValidationRulesPage() {
   const [sorts, setSorts] = useState<SortLevel[]>([{ key: "updatedAt", dir: "desc" }])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   const handleAddRule = (rule: Omit<ValidationRule, "id" | "createdAt" | "updatedAt">) => {
     const newRule: ValidationRule = {
@@ -315,22 +315,30 @@ export function ValidationRulesPage() {
         ))}
       </div>
 
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative w-72">
-          <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} placeholder="Rule name or ID" className="h-8 bg-white pl-8" />
-        </div>
-        <FilterSelect label="Type" value={filterType} options={["Warning", "Blocking"]} onChange={(v) => { setFilterType(v); setPage(1) }} className="w-36" />
-        <FilterSelect label="Status" value={filterStatus} options={["Active", "Inactive"]} onChange={(v) => { setFilterStatus(v); setPage(1) }} className="w-36" />
-        <div className="ml-auto">
+      {/* Toolbar — canonical: search + filters, divider, list controls */}
+      <TableToolbar
+        search={search}
+        onSearch={(v) => { setSearch(v); setPage(1) }}
+        searchPlaceholder="Rule name or ID"
+        filters={
+          <>
+            <FilterSelect label="Type" value={filterType} options={["Warning", "Blocking"]} onChange={(v) => { setFilterType(v); setPage(1) }} className="w-36" />
+            <FilterSelect label="Status" value={filterStatus} options={["Active", "Inactive"]} onChange={(v) => { setFilterStatus(v); setPage(1) }} className="w-36" />
+          </>
+        }
+        activeFilters={(filterType ? 1 : 0) + (filterStatus ? 1 : 0)}
+        onAllFilters={() => setFiltersOpen(true)}
+        sortControl={
           <MultiSortControl
             fields={[{ key: "updatedAt", label: "Updated At" }, { key: "createdAt", label: "Created At" }]}
             sorts={sorts}
             onChange={(next) => { setSorts(next); setPage(1) }}
           />
-        </div>
-      </div>
+        }
+        hideAdvanced
+        hideGroup
+        hideColumns
+      />
 
       <TableCard>
         <TableCardHeader
@@ -342,22 +350,41 @@ export function ValidationRulesPage() {
             </Button>
           }
         />
-        <div className="space-y-3 p-4">
-          {pagedRules.map(ruleCard)}
-          {pagedRules.length === 0 && (
-            <div className="space-y-3 py-10 text-center">
-              <div className="flex justify-center"><div className="rounded-full bg-secondary p-4"><Filter className="h-8 w-8 text-muted-foreground" /></div></div>
-              <div>
-                <h3 className="font-medium text-foreground">No rules found</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {filterType || filterStatus || search ? "Try adjusting your search or filters" : `Create your first ${activeTab} validation rule to get started`}
-                </p>
-              </div>
+      </TableCard>
+
+      {/* Rule cards sit directly on the page background */}
+      <div className="space-y-3">
+        {pagedRules.map(ruleCard)}
+        {pagedRules.length === 0 && (
+          <div className="space-y-3 rounded-xl border border-border bg-card py-10 text-center">
+            <div className="flex justify-center"><div className="rounded-full bg-secondary p-4"><Filter className="h-8 w-8 text-muted-foreground" /></div></div>
+            <div>
+              <h3 className="font-medium text-foreground">No rules found</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {filterType || filterStatus || search ? "Try adjusting your search or filters" : `Create your first ${activeTab} validation rule to get started`}
+              </p>
             </div>
-          )}
-        </div>
+          </div>
+        )}
+      </div>
+
+      <TableCard>
         <TableFooter page={page} pageSize={pageSize} total={filteredRules.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="rules" />
       </TableCard>
+
+      <FiltersDrawer
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        activeCount={(filterType ? 1 : 0) + (filterStatus ? 1 : 0)}
+        onClear={() => { setFilterType(""); setFilterStatus(""); setPage(1) }}
+      >
+        <FilterDrawerField label="Type">
+          <FilterSelect label="Type" value={filterType} options={["Warning", "Blocking"]} onChange={(v) => { setFilterType(v); setPage(1) }} className="w-full" />
+        </FilterDrawerField>
+        <FilterDrawerField label="Status">
+          <FilterSelect label="Status" value={filterStatus} options={["Active", "Inactive"]} onChange={(v) => { setFilterStatus(v); setPage(1) }} className="w-full" />
+        </FilterDrawerField>
+      </FiltersDrawer>
 
       {/* Modals */}
       <RuleBuilderModal

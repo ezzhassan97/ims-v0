@@ -285,7 +285,7 @@ export function TableCardHeader({ title, count, extra, cta }: { title: string; c
 export function TableToolbar({
   search, onSearch, searchPlaceholder = "Search…", filters,
   activeFilters = 0, onAllFilters, onAdvancedFilters, onSort, onColumns, groupControl, sortControl,
-  hideAdvanced = false, hideGroup = false,
+  hideAdvanced = false, hideGroup = false, hideColumns = false,
 }: {
   search: string
   onSearch: (v: string) => void
@@ -304,6 +304,8 @@ export function TableToolbar({
   hideAdvanced?: boolean
   /** Hide the Group control entirely (tables without grouping). */
   hideGroup?: boolean
+  /** Hide the Columns control (card lists without a columns sheet). */
+  hideColumns?: boolean
 }) {
   return (
     <div className="space-y-2.5 rounded-xl border border-border bg-card p-3">
@@ -331,7 +333,7 @@ export function TableToolbar({
         <div className="flex items-center gap-2">
           {sortControl ?? <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onSort}><ArrowUpDown className="h-3.5 w-3.5" />Sort</Button>}
           {hideGroup ? null : (groupControl ?? <Button variant="outline" size="sm" className="h-8 gap-1.5"><GroupIcon className="h-3.5 w-3.5" />Group</Button>)}
-          <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onColumns}><Columns3 className="h-3.5 w-3.5" />Columns</Button>
+          {!hideColumns && <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={onColumns}><Columns3 className="h-3.5 w-3.5" />Columns</Button>}
         </div>
       </div>
     </div>
