@@ -1957,10 +1957,8 @@ export function MediaGalleryTab({
 // Renders a single tab's content for the given property row. Self-contained state + overlays.
 /** Side drawer of the PROJECT's payment plans — the same LinkedPlanCard design used on the
  *  Payment Plans tab, in selectable mode. Shows only plans NOT yet linked to this property. */
-function SelectProjectPlansDrawer({ linkedIds, replaceMode, onClose, onSave }: {
+function SelectProjectPlansDrawer({ linkedIds, onClose, onSave }: {
   linkedIds: string[]
-  /** Resale / Nawy Now: single pick that replaces the current plan. */
-  replaceMode: boolean
   onClose: () => void
   onSave: (plans: PlanCardData[]) => void
 }) {
@@ -1981,16 +1979,14 @@ function SelectProjectPlansDrawer({ linkedIds, replaceMode, onClose, onSave }: {
     return true
   })
   const toggle = (id: string) =>
-    setSelIds((prev) => (replaceMode
-      ? (prev.includes(id) ? [] : [id])
-      : (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])))
+    setSelIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
       <SheetContent side="right" className="flex h-full w-[480px] max-w-[94vw]! flex-col overflow-hidden p-0">
         <SheetHeader className="shrink-0 space-y-1 border-b border-border px-6 py-4">
           <SheetTitle className="text-base">Select from Project</SheetTitle>
           <SheetDescription className="text-xs">
-            Only plans not yet linked to this property are shown{replaceMode ? " — picking one replaces the current plan" : ""}.
+            Only plans not yet linked to this property are shown.
           </SheetDescription>
         </SheetHeader>
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-6 py-3">
@@ -2027,7 +2023,7 @@ function SelectProjectPlansDrawer({ linkedIds, replaceMode, onClose, onSave }: {
             disabled={selIds.length === 0}
             onClick={() => onSave(pool.filter((p) => selIds.includes(p.id)))}
           >
-            {replaceMode ? "Replace with selected" : `Link ${selIds.length || ""} plan${selIds.length === 1 ? "" : "s"}`.replace("  ", " ")}
+            {`Link ${selIds.length || ""} plan${selIds.length === 1 ? "" : "s"}`.replace("  ", " ")}
           </Button>
         </div>
       </SheetContent>
@@ -2102,23 +2098,17 @@ export function PropertyDetailTab({
   })
   const [detailsPlan, setDetailsPlan] = useState<PlanCardData | null>(null)
   const [editingPlan, setEditingPlan] = useState<PlanCardData | null>(null)
-  // Add / select-from-project — everything except Rentals and Primary Automatic
-  const canManagePlans = !ppViewOnly && variation !== "rental"
-  const singlePlanRule = variation === "resale" || variation === "nawy-now"
+  // Add / select-from-project — Launch and Primary Manual only. Resale / Nawy Now /
+  // Rentals keep their existing plan and edit it in place.
+  const canManagePlans = !ppViewOnly && isLaunchOrPM
   const [addPlanOpen, setAddPlanOpen] = useState(false)
   const [selectPlansOpen, setSelectPlansOpen] = useState(false)
-  const linkedPlanIds = isLaunchOrPM ? sharedPlans.map((p) => p.id) : (ppGroups[0]?.plans ?? []).map((p) => p.id)
+  const linkedPlanIds = sharedPlans.map((p) => p.id)
   const linkPlan = (plan: PlanCardData) => {
-    if (isLaunchOrPM) {
-      setSharedPlans((ps) => (ps.some((x) => x.id === plan.id) ? ps : [...ps, plan]))
-      toast.success(showPriceRange
-        ? `${plan.name} linked to both the min and max price`
-        : `${plan.name} linked`)
-    } else {
-      // Resale / Nawy Now: ONE plan per price — the new one replaces the current
-      setPpGroups((gs) => gs.map((g, i) => (i === 0 ? { ...g, plans: [plan] } : g)))
-      toast.success(`${plan.name} is now the linked payment plan — previous plan replaced`)
-    }
+    setSharedPlans((ps) => (ps.some((x) => x.id === plan.id) ? ps : [...ps, plan]))
+    toast.success(showPriceRange
+      ? `${plan.name} linked to both the min and max price`
+      : `${plan.name} linked`)
   }
   // Unlink a plan; if it was the last one on its price (and >1 price exists), the price is dropped too.
   const removePlan = (gi: number, planId: string) =>
@@ -2149,11 +2139,7 @@ export function PropertyDetailTab({
           {canManagePlans && (
             <div className="flex flex-wrap items-center gap-2">
               <p className="mr-auto text-[11px] text-muted-foreground">
-                {singlePlanRule
-                  ? "One payment plan per price — adding or selecting replaces the current plan."
-                  : showPriceRange
-                    ? "New plans link to both the min and max price by default."
-                    : "New plans link to this price."}
+                {showPriceRange ? "New plans link to both the min and max price by default." : "New plans link to this price."}
               </p>
               <Button variant="outline" size="sm" className="h-8 gap-1.5 bg-transparent" onClick={() => setSelectPlansOpen(true)}>
                 <FolderPlus className="h-3.5 w-3.5" />Select from Project
@@ -2476,14 +2462,10 @@ export function PropertyDetailTab({
       {selectPlansOpen && (
         <SelectProjectPlansDrawer
           linkedIds={linkedPlanIds}
-          replaceMode={singlePlanRule}
           onClose={() => setSelectPlansOpen(false)}
           onSave={(plans) => {
-            if (singlePlanRule) linkPlan(plans[0])
-            else {
-              setSharedPlans((ps) => { const have = new Set(ps.map((x) => x.id)); return [...ps, ...plans.filter((p) => !have.has(p.id))] })
-              toast.success(`${plans.length} plan${plans.length === 1 ? "" : "s"} linked${showPriceRange ? " to both the min and max price" : ""}`)
-            }
+            setSharedPlans((ps) => { const have = new Set(ps.map((x) => x.id)); return [...ps, ...plans.filter((p) => !have.has(p.id))] })
+            toast.success(`${plans.length} plan${plans.length === 1 ? "" : "s"} linked${showPriceRange ? " to both the min and max price" : ""}`)
             setSelectPlansOpen(false)
           }}
         />
