@@ -958,7 +958,7 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
                         {multi && <CheckBox state={phOn ? "on" : "off"} />}
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13px] leading-tight">{ph.name}</span>
-                          <span className="font-mono text-[10px] text-muted-foreground">{[showId(ph.id), `in ${p.name}`].filter(Boolean).join(" · ")}</span>
+                          <span className="font-mono text-[10px] text-muted-foreground">{showId(ph.id)}</span>
                         </span>
                         <ProjRowTags node={ph} />
                       </button>
@@ -1073,7 +1073,7 @@ export function AreaTreeSelect({ tree, value, onChange, values = [], onValuesCha
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="absolute left-0 top-9 z-50 w-full rounded-md border border-border bg-popover p-1 shadow-md">
+        <div className="absolute left-0 top-9 z-50 w-80 min-w-full rounded-md border border-border bg-popover p-1 shadow-md">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search areas & subareas…" className="mb-1 h-7 text-xs" autoFocus />
           <div className="max-h-64 overflow-y-auto">
             {multi && values.length > 0 && (
@@ -1166,7 +1166,7 @@ export function DeveloperSelect({ developers, value = "", onChange, values = [],
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="absolute left-0 top-9 z-50 w-full rounded-md border border-border bg-popover p-1 shadow-md">
+        <div className="absolute left-0 top-9 z-50 w-80 min-w-full rounded-md border border-border bg-popover p-1 shadow-md">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search developers…" className="mb-1 h-7 text-xs" autoFocus />
           <div className="max-h-64 overflow-y-auto">
             {multi && values.length > 0 && (

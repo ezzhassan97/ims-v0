@@ -2049,44 +2049,44 @@ export function PropertyDetailTab({
           )}
 
           {isLaunchOrPM ? (
-            /* Launch / Primary-Manual: ONE price (single value or a range) with a SHARED plan set */
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <span className="text-[15px] font-bold tabular-nums text-foreground whitespace-nowrap">
-                  {showPriceRange
-                    ? `${priceRange!.min.toLocaleString()} – ${priceRange!.max.toLocaleString()} EGP`
-                    : `${startingPrice.toLocaleString()} EGP`}
-                </span>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground whitespace-nowrap">
-                  {showPriceRange ? "Range price" : "Starting price"}
-                </span>
-                <div className="h-px flex-1 bg-border" />
-                <span className="text-[11px] text-muted-foreground whitespace-nowrap">{sharedPlans.length} {sharedPlans.length === 1 ? "plan" : "plans"}</span>
+            /* Launch / Primary-Manual: a SHARED plan set. A range shows one section PER price,
+               with the same plans repeated under each price. */
+            (showPriceRange ? [priceRange!.min, priceRange!.max] : [startingPrice]).map((price, pi, prices) => (
+              <div key={pi} className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-[15px] font-bold tabular-nums text-foreground whitespace-nowrap">{price.toLocaleString()} EGP</span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground whitespace-nowrap">
+                    {prices.length > 1 ? (pi === 0 ? "Min price" : "Max price") : "Starting price"}
+                  </span>
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-[11px] text-muted-foreground whitespace-nowrap">{sharedPlans.length} {sharedPlans.length === 1 ? "plan" : "plans"}</span>
+                </div>
+                {prices.length > 1 && pi === 0 && (
+                  <p className="text-[11px] text-muted-foreground">The same plan set is linked to both prices — shown under each price.</p>
+                )}
+                <div className="flex flex-wrap items-start gap-2.5">
+                  {sharedPlans.map((plan) => (
+                    <LinkedPlanCard
+                      key={`${pi}-${plan.id}`}
+                      plan={plan}
+                      readOnly={ppViewOnly}
+                      fullWidth={singleColumn}
+                      isExpanded={expandedPlans.has(`${pi}-${plan.id}`)}
+                      totalInGroup={sharedPlans.length}
+                      onView={() => setDetailsPlan(plan)}
+                      onRemove={!ppViewOnly && sharedPlans.length > 1 ? () => removeSharedPlan(plan.id) : undefined}
+                      onToggleExpand={() => setExpandedPlans((prev) => {
+                        const next = new Set(prev)
+                        const k = `${pi}-${plan.id}`
+                        if (next.has(k)) next.delete(k); else next.add(k)
+                        return next
+                      })}
+                    />
+                  ))}
+                  {sharedPlans.length === 0 && <p className="w-full py-10 text-center text-sm text-muted-foreground">No payment plans linked.</p>}
+                </div>
               </div>
-              {showPriceRange && (
-                <p className="text-[11px] text-muted-foreground">These payment plans are linked to both prices in the range.</p>
-              )}
-              <div className="flex flex-wrap items-start gap-2.5">
-                {sharedPlans.map((plan) => (
-                  <LinkedPlanCard
-                    key={plan.id}
-                    plan={plan}
-                    readOnly={ppViewOnly}
-                    fullWidth={singleColumn}
-                    isExpanded={expandedPlans.has(plan.id)}
-                    totalInGroup={sharedPlans.length}
-                    onView={() => setDetailsPlan(plan)}
-                    onRemove={!ppViewOnly && sharedPlans.length > 1 ? () => removeSharedPlan(plan.id) : undefined}
-                    onToggleExpand={() => setExpandedPlans((prev) => {
-                      const next = new Set(prev)
-                      if (next.has(plan.id)) next.delete(plan.id); else next.add(plan.id)
-                      return next
-                    })}
-                  />
-                ))}
-                {sharedPlans.length === 0 && <p className="w-full py-10 text-center text-sm text-muted-foreground">No payment plans linked.</p>}
-              </div>
-            </div>
+            ))
           ) : (
             <>
               {ppGroups.map((group, gi) => (
@@ -5090,9 +5090,19 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
       name,
       subareas: [...subs].sort().map((sn, j) => ({ id: `SUB-${String(i + 1).padStart(2, "0")}${j + 1}`, name: sn })),
     }))
+    // Listing status per entity: Active if ANY of its rows is Active-listed
+    const anyActive = (pred: (r: PropertyRow) => boolean) =>
+      allRows.some((r) => pred(r) && r.listingStatus === "Active") ? ("Active" as const) : ("Hidden" as const)
     return {
-      developers: [...devMap.values()].sort((a, b) => a.name.localeCompare(b.name)),
-      projectTree: [...projMap.values()].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ id: p.id, name: p.name, phases: [...p.phases.values()] })),
+      developers: [...devMap.values()]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((d) => ({ ...d, status: anyActive((r) => r.developer.id === d.id) })),
+      projectTree: [...projMap.values()].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({
+        id: p.id,
+        name: p.name,
+        status: anyActive((r) => r.project.id === p.id),
+        phases: [...p.phases.values()].map((ph) => ({ ...ph, status: anyActive((r) => r.phase?.id === ph.id) })),
+      })),
       areas,
     }
   }, [allRows])
