@@ -49,6 +49,7 @@ interface Masterplan {
   mainProjectId: string
   mainProjectName: string
   createdAt: string
+  updatedAt: string
 }
 
 const DEVELOPERS = [
@@ -106,19 +107,18 @@ const MASTERPLANS: Masterplan[] = Array.from({ length: 18 }, (_, i) => {
     mainProjectId: project.parentId ?? project.id,
     mainProjectName: (project.parentId ? PROJECTS.find((x) => x.id === project.parentId)!.name : project.name),
     createdAt: new Date(MP_BASE - i * 86_400_000 * 2.3).toISOString(),
+    updatedAt: new Date(MP_BASE - i * 86_400_000 * 2.3 + 86_400_000 * (1 + (i % 5))).toISOString(),
   }
 })
 
 const SORT_FIELDS = [
   { key: "createdAt", label: "Created at" },
-  { key: "version", label: "Version" },
-  { key: "fileSizeKb", label: "File size" },
+  { key: "updatedAt", label: "Updated at" },
 ]
 const GROUP_FIELDS = [
   { key: "developerName", label: "Developer" },
   { key: "projectName", label: "Project" },
   { key: "type", label: "Type" },
-  { key: "resolution", label: "Resolution" },
 ]
 
 /** Canonical timestamp: "10 Jan 2026, 07:00 AM". */
@@ -457,8 +457,8 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
     if (!sorts.length) return result
     return [...result].sort((a, b) => {
       for (const s of sorts) {
-        const va = s.key === "createdAt" ? a.createdAt : s.key === "version" ? a.version : a.fileSizeKb
-        const vb = s.key === "createdAt" ? b.createdAt : s.key === "version" ? b.version : b.fileSizeKb
+        const va = s.key === "createdAt" ? a.createdAt : a.updatedAt
+        const vb = s.key === "createdAt" ? b.createdAt : b.updatedAt
         if (va !== vb) return (va < vb ? -1 : 1) * (s.dir === "asc" ? 1 : -1)
       }
       return 0
@@ -659,7 +659,9 @@ export function MasterplansPage({ embedded = false, scopeProject }: {
               projectName: target.name,
               mainProjectId: target.parentId ?? target.id,
               mainProjectName: target.parentId ? (PROJECTS.find((x) => x.id === target.parentId)?.name ?? target.name) : target.name,
+              status: "Unpublished" as MpStatus,
               createdAt: now,
+              updatedAt: now,
             })),
             ...prev,
           ])
