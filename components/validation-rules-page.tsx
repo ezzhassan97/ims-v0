@@ -2,12 +2,16 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Plus, Pencil, Trash2, AlertTriangle, ShieldAlert, Filter, Calendar, ArrowUpDown } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Plus, Pencil, Trash2, Calendar, MoreHorizontal, Search as SearchIcon, ToggleRight, Filter } from "lucide-react"
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { cn } from "@/lib/utils"
 import { RuleBuilderModal } from "@/components/rule-builder-modal"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { TableCard, TableCardHeader, TableFooter, FilterSelect, MultiSortControl, IdTag, type SortLevel } from "@/components/table-kit"
+import { Tag, fmtDateTime } from "@/components/projects-list-page"
 
 export interface ValidationRule {
   id: string
@@ -21,9 +25,14 @@ export interface ValidationRule {
   isActive: boolean
 }
 
-const mockRules: ValidationRule[] = [
+const RULE_TONES: Record<ValidationRule["type"], string> = {
+  Warning: "bg-amber-50 text-amber-700 border-amber-200",
+  Blocking: "bg-red-100 text-red-700 border-red-200",
+}
+
+const HANDWRITTEN: ValidationRule[] = [
   {
-    id: "1",
+    id: "VR-001",
     name: "Low Price Warning for New Giza Properties",
     description:
       "Flags properties in New Giza compound that are priced unusually low (below 2M EGP) for manual review.",
@@ -41,7 +50,7 @@ const mockRules: ValidationRule[] = [
     isActive: true,
   },
   {
-    id: "2",
+    id: "VR-002",
     name: "Invalid Garden Unit Configuration",
     description: "Blocks units that claim to have a garden area but are located on upper floors (above ground floor).",
     entity: "Property",
@@ -58,7 +67,7 @@ const mockRules: ValidationRule[] = [
     isActive: true,
   },
   {
-    id: "3",
+    id: "VR-003",
     name: "Missing Developer Contact Information",
     description: "Warns when developer records are missing essential contact details like email or phone number.",
     entity: "Developer",
@@ -75,7 +84,7 @@ const mockRules: ValidationRule[] = [
     isActive: false,
   },
   {
-    id: "4",
+    id: "VR-004",
     name: "Missing Project Delivery Date",
     description: "Warns when projects are missing delivery date information which is essential for customer decisions.",
     entity: "Project",
@@ -90,16 +99,70 @@ const mockRules: ValidationRule[] = [
   },
 ]
 
+// Deterministic filler up to 30 rules across the three entities.
+const RULE_TEMPLATES: Record<ValidationRule["entity"], { name: string; description: string; field: string; op: string; value: string | number }[]> = {
+  Property: [
+    { name: "Zero Built-Up Area", description: "Blocks properties published with a zero or missing built-up area.", field: "builtUpArea", op: "lessThanOrEqual", value: 0 },
+    { name: "Delivery Before Launch", description: "Warns when a unit's delivery date is earlier than its project launch date.", field: "deliveryDate", op: "lessThan", value: "launchDate" },
+    { name: "Price Per Meter Outlier", description: "Flags units priced above 400K EGP per square meter for review.", field: "pricePerMeter", op: "greaterThan", value: 400000 },
+    { name: "Bedrooms Without Bathrooms", description: "Blocks units with 3+ bedrooms and no bathrooms recorded.", field: "bathrooms", op: "isEmpty", value: "" },
+    { name: "Duplicate Unit Number", description: "Warns when two units in the same building share a unit number.", field: "unitNumber", op: "contains", value: "duplicate" },
+    { name: "Garden Area Exceeds Land", description: "Blocks units whose garden area is larger than the total land area.", field: "gardenArea", op: "greaterThan", value: "landArea" },
+  ],
+  Project: [
+    { name: "Project Without Location", description: "Blocks projects published without coordinates or a polygon.", field: "coordinates", op: "isEmpty", value: "" },
+    { name: "Missing Masterplan", description: "Warns when an On-Sale project has no listing masterplan uploaded.", field: "listingMasterplan", op: "isEmpty", value: "" },
+    { name: "Phase Without Parent", description: "Blocks phases that lost their parent project reference.", field: "mainProject", op: "isEmpty", value: "" },
+    { name: "Stale SEO Description", description: "Warns when a project's SEO description hasn't been updated in a year.", field: "seoUpdatedAt", op: "lessThan", value: "1y" },
+  ],
+  Developer: [
+    { name: "Developer Without Logo", description: "Warns when a developer record is missing its logo asset.", field: "logo", op: "isEmpty", value: "" },
+    { name: "Hidden Developer With Active Projects", description: "Blocks hiding a developer that still has Active-listed projects.", field: "activeProjects", op: "greaterThan", value: 0 },
+    { name: "Missing WhatsApp Group", description: "Warns when a developer has no linked WhatsApp group.", field: "whatsappGroups", op: "isEmpty", value: "" },
+  ],
+}
+
+function seedRules(): ValidationRule[] {
+  const out: ValidationRule[] = [...HANDWRITTEN]
+  const entities: ValidationRule["entity"][] = ["Property", "Project", "Developer"]
+  let n = out.length
+  let i = 0
+  while (n < 30) {
+    const entity = entities[i % 3]
+    const tpl = RULE_TEMPLATES[entity][Math.floor(i / 3) % RULE_TEMPLATES[entity].length]
+    const cycle = Math.floor(i / (RULE_TEMPLATES[entity].length * 3))
+    n++
+    const day = String(2 + (i % 26)).padStart(2, "0")
+    out.push({
+      id: `VR-${String(n).padStart(3, "0")}`,
+      name: cycle ? `${tpl.name} #${cycle + 1}` : tpl.name,
+      description: tpl.description,
+      entity,
+      type: i % 3 === 1 ? "Blocking" : "Warning",
+      conditions: { operator: "AND", conditions: [{ field: tpl.field, operator: tpl.op, value: tpl.value }] },
+      createdAt: `2026-06-${day}T09:30:00Z`,
+      updatedAt: `2026-07-${day}T14:00:00Z`,
+      isActive: i % 4 !== 2,
+    })
+    i++
+  }
+  return out
+}
+
+const mockRules: ValidationRule[] = seedRules()
+
 export function ValidationRulesPage() {
   const [rules, setRules] = useState<ValidationRule[]>(mockRules)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [editingRule, setEditingRule] = useState<ValidationRule | null>(null)
   const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<"Property" | "Project" | "Developer">("Property") // Added tab state
-  const [filterType, setFilterType] = useState<string>("All")
-  const [filterStatus, setFilterStatus] = useState<string>("All")
-  const [sortBy, setSortBy] = useState<"createdAt" | "updatedAt">("updatedAt")
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc")
+  const [filterType, setFilterType] = useState<string>("")
+  const [filterStatus, setFilterStatus] = useState<string>("")
+  const [search, setSearch] = useState("")
+  const [sorts, setSorts] = useState<SortLevel[]>([{ key: "updatedAt", dir: "desc" }])
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
   const handleAddRule = (rule: Omit<ValidationRule, "id" | "createdAt" | "updatedAt">) => {
     const newRule: ValidationRule = {
@@ -170,216 +233,131 @@ export function ValidationRulesPage() {
 
   const filteredRules = rules
     .filter((rule) => {
-      const entityMatch = rule.entity === activeTab
-      const typeMatch = filterType === "All" || rule.type === filterType
-      const statusMatch = filterStatus === "All" || (filterStatus === "Active" ? rule.isActive : !rule.isActive)
-      return entityMatch && typeMatch && statusMatch
+      if (rule.entity !== activeTab) return false
+      if (search && !`${rule.id} ${rule.name}`.toLowerCase().includes(search.toLowerCase())) return false
+      if (filterType && rule.type !== filterType) return false
+      if (filterStatus && (filterStatus === "Active" ? !rule.isActive : rule.isActive)) return false
+      return true
     })
     .sort((a, b) => {
-      const dateA = new Date(a[sortBy]).getTime()
-      const dateB = new Date(b[sortBy]).getTime()
-      return sortOrder === "asc" ? dateA - dateB : dateB - dateA
+      for (const s of sorts.length ? sorts : [{ key: "updatedAt", dir: "desc" as const }]) {
+        const va = new Date(a[s.key as "createdAt" | "updatedAt"]).getTime()
+        const vb = new Date(b[s.key as "createdAt" | "updatedAt"]).getTime()
+        if (va !== vb) return s.dir === "asc" ? va - vb : vb - va
+      }
+      return 0
     })
+  const pagedRules = filteredRules.slice((page - 1) * pageSize, page * pageSize)
+  const countOf = (entity: ValidationRule["entity"]) => rules.filter((r) => r.entity === entity).length
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-  }
-
-  const RulesList = () => (
-    <>
-      {/* Filters */}
-      <Card className="p-4">
-        <div className="flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Filters:</span>
+  const ruleCard = (rule: ValidationRule) => (
+    <div key={rule.id} className="rounded-lg border border-border bg-card p-4 transition-colors hover:border-muted-foreground/40">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1 space-y-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-foreground">{rule.name}</h3>
+            <IdTag value={rule.id} />
+            <Tag value={rule.type} cls={RULE_TONES[rule.type]} />
           </div>
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="px-3 py-1.5 text-sm border border-border rounded-md bg-background"
-          >
-            <option value="All">All Types</option>
-            <option value="Warning">Warning</option>
-            <option value="Blocking">Blocking</option>
-          </select>
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-3 py-1.5 text-sm border border-border rounded-md bg-background"
-          >
-            <option value="All">All Status</option>
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
-
-          <div className="h-6 w-px bg-border" />
-
-          <div className="flex items-center gap-2">
-            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Sort:</span>
+          <p className="text-sm text-muted-foreground">{rule.description}</p>
+          <div className="rounded-md bg-muted/50 px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground">
+            {generateRuleDescription(rule.conditions)}
           </div>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="px-3 py-1.5 text-sm border border-border rounded-md bg-background"
-          >
-            <option value="createdAt">Created At</option>
-            <option value="updatedAt">Updated At</option>
-          </select>
-          <select
-            value={sortOrder}
-            onChange={(e) => setSortOrder(e.target.value as any)}
-            className="px-3 py-1.5 text-sm border border-border rounded-md bg-background"
-          >
-            <option value="desc">Newest First</option>
-            <option value="asc">Oldest First</option>
-          </select>
-
-          <div className="ml-auto text-sm text-muted-foreground">
-            {filteredRules.length} rule{filteredRules.length !== 1 ? "s" : ""}
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Created: {fmtDateTime(rule.createdAt)}</span>
+            <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Updated: {fmtDateTime(rule.updatedAt)}</span>
           </div>
         </div>
-      </Card>
+        <div className="flex flex-shrink-0 items-center gap-1.5">
+          <Tag value={rule.isActive ? "Active" : "Inactive"} cls={rule.isActive ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-muted text-muted-foreground border-border"} />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setEditingRule(rule)}><Pencil className="h-4 w-4 mr-2" />Edit Rule</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleToggleActive(rule.id)}>
+                <ToggleRight className="h-4 w-4 mr-2" />Set {rule.isActive ? "Inactive" : "Active"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeletingRuleId(rule.id)}>
+                <Trash2 className="h-4 w-4 mr-2" />Delete Rule
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    </div>
+  )
 
-      {/* Rules List */}
-      <div className="space-y-3">
-        {filteredRules.map((rule) => (
-          <Card key={rule.id} className="p-4 hover:border-primary/50 transition-colors">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1 space-y-3">
-                {/* Header Row */}
-                <div className="flex items-center gap-3">
-                  <h3 className="font-medium text-foreground">{rule.name}</h3>
-                  {rule.type === "Blocking" ? (
-                    <Badge variant="destructive" className="text-xs">
-                      <ShieldAlert className="h-3 w-3 mr-1" />
-                      Blocking
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="text-xs border-yellow-500 text-yellow-600">
-                      <AlertTriangle className="h-3 w-3 mr-1" />
-                      Warning
-                    </Badge>
-                  )}
-                  {!rule.isActive && (
-                    <Badge variant="secondary" className="text-xs">
-                      Inactive
-                    </Badge>
-                  )}
-                </div>
+  const switchTab = (t: typeof activeTab) => { setActiveTab(t); setPage(1) }
 
-                <p className="text-sm text-muted-foreground">{rule.description}</p>
+  return (
+    <div className="space-y-4 p-4">
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Validation Rules</h1>
+        <p className="text-sm text-muted-foreground">Build and manage data quality rules to ensure accuracy and validity.</p>
+      </div>
 
-                {/* Condition Preview */}
-                <div className="text-xs text-muted-foreground bg-secondary/30 rounded p-2 leading-relaxed font-mono">
-                  {generateRuleDescription(rule.conditions)}
-                </div>
-
-                {/* Metadata */}
-                <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    Created: {formatDate(rule.createdAt)}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    Updated: {formatDate(rule.updatedAt)}
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center gap-2">
-                <Button
-                  variant={rule.isActive ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => handleToggleActive(rule.id)}
-                >
-                  {rule.isActive ? "Active" : "Inactive"}
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setEditingRule(rule)}>
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setDeletingRuleId(rule.id)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </Card>
+      {/* Entity tabs */}
+      <div className="flex w-fit gap-1 rounded-lg bg-muted p-1">
+        {(["Property", "Project", "Developer"] as const).map((t) => (
+          <button
+            key={t} type="button" onClick={() => switchTab(t)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              activeTab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t} Rules
+            <span className="rounded-md border border-blue-200 bg-blue-100 px-1.5 py-0 text-[11px] font-medium text-blue-700">{countOf(t)}</span>
+          </button>
         ))}
       </div>
 
-      {/* Empty State */}
-      {filteredRules.length === 0 && (
-        <Card className="p-12">
-          <div className="text-center space-y-3">
-            <div className="flex justify-center">
-              <div className="p-4 rounded-full bg-secondary">
-                <Filter className="h-8 w-8 text-muted-foreground" />
-              </div>
-            </div>
-            <div>
-              <h3 className="font-medium text-foreground">No rules found</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                {filterType !== "All" || filterStatus !== "All"
-                  ? "Try adjusting your filters"
-                  : `Create your first ${activeTab} validation rule to get started`}
-              </p>
-            </div>
-          </div>
-        </Card>
-      )}
-    </>
-  )
-
-  return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Validation Rules</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Build and manage data quality rules to ensure accuracy and validity
-          </p>
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-72">
+          <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} placeholder="Rule name or ID" className="h-8 bg-white pl-8" />
         </div>
-        <Button onClick={() => setIsAddModalOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Rule
-        </Button>
+        <FilterSelect label="Type" value={filterType} options={["Warning", "Blocking"]} onChange={(v) => { setFilterType(v); setPage(1) }} className="w-36" />
+        <FilterSelect label="Status" value={filterStatus} options={["Active", "Inactive"]} onChange={(v) => { setFilterStatus(v); setPage(1) }} className="w-36" />
+        <div className="ml-auto">
+          <MultiSortControl
+            fields={[{ key: "updatedAt", label: "Updated At" }, { key: "createdAt", label: "Created At" }]}
+            sorts={sorts}
+            onChange={(next) => { setSorts(next); setPage(1) }}
+          />
+        </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as any)} className="w-full">
-        <TabsList className="bg-secondary">
-          <TabsTrigger value="Property" className="data-[state=active]:bg-card">
-            Property Rules
-          </TabsTrigger>
-          <TabsTrigger value="Project" className="data-[state=active]:bg-card">
-            Project Rules
-          </TabsTrigger>
-          <TabsTrigger value="Developer" className="data-[state=active]:bg-card">
-            Developer Rules
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="Property" className="space-y-4 mt-4">
-          <RulesList />
-        </TabsContent>
-
-        <TabsContent value="Project" className="space-y-4 mt-4">
-          <RulesList />
-        </TabsContent>
-
-        <TabsContent value="Developer" className="space-y-4 mt-4">
-          <RulesList />
-        </TabsContent>
-      </Tabs>
+      <TableCard>
+        <TableCardHeader
+          title={`${activeTab} Rules`}
+          count={filteredRules.length}
+          cta={
+            <Button size="sm" className="h-8 gap-1.5" onClick={() => setIsAddModalOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />Add Rule
+            </Button>
+          }
+        />
+        <div className="space-y-3 p-4">
+          {pagedRules.map(ruleCard)}
+          {pagedRules.length === 0 && (
+            <div className="space-y-3 py-10 text-center">
+              <div className="flex justify-center"><div className="rounded-full bg-secondary p-4"><Filter className="h-8 w-8 text-muted-foreground" /></div></div>
+              <div>
+                <h3 className="font-medium text-foreground">No rules found</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {filterType || filterStatus || search ? "Try adjusting your search or filters" : `Create your first ${activeTab} validation rule to get started`}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+        <TableFooter page={page} pageSize={pageSize} total={filteredRules.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="rules" />
+      </TableCard>
 
       {/* Modals */}
       <RuleBuilderModal
