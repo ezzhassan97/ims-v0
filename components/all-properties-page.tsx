@@ -2263,6 +2263,11 @@ export function PropertyDetailTab({
                             className="flex h-4 w-4 items-center justify-center text-muted-foreground transition-colors hover:text-primary"
                             title="Copy payment plan ID"
                           ><Copy className="h-3 w-3" /></button>
+                          <button
+                            onClick={() => { const p = allPlans.find((x) => x.id === entry.planId); if (p) setDetailsPlan(p) }}
+                            className="flex h-4 w-4 items-center justify-center text-muted-foreground transition-colors hover:text-primary"
+                            title="View payment plan"
+                          ><Eye className="h-3 w-3" /></button>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-xs font-medium">{entry.by}</td>
