@@ -766,6 +766,17 @@ function ProjRowTags({ node }: { node: ProjectTreeLeaf }) {
  *  - single (default): same rows, no checkboxes — clicking the main row picks the main
  *    project, clicking a phase picks that phase; the picked row is highlighted.
  */
+/** Span-based faux checkbox — pickers render options as <button>s, and buttons can't nest. */
+const CheckBox = ({ state }: { state: "on" | "off" | "some" }) => (
+  <span className={cn(
+    "flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-sm border transition-colors",
+    state === "off" ? "border-border bg-white" : "border-primary bg-primary",
+  )}>
+    {state === "on" && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
+    {state === "some" && <Minus className="h-2.5 w-2.5 text-primary-foreground" />}
+  </span>
+)
+
 export function ProjectTreeSelect({ label = "Project", projects, value, onChange, values = [], onValuesChange, multi = false, className, valueExtra }: {
   label?: string
   projects: ProjectTreeNode[]
@@ -837,15 +848,6 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
     </span>
   )
 
-  const CheckBox = ({ state }: { state: "on" | "off" | "some" }) => (
-    <span className={cn(
-      "flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-sm border transition-colors",
-      state === "off" ? "border-border bg-white" : "border-primary bg-primary",
-    )}>
-      {state === "on" && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
-      {state === "some" && <Minus className="h-2.5 w-2.5 text-primary-foreground" />}
-    </span>
-  )
 
   /** Numeric-only ids in the caption — "ID: 1204", never internal prefixes. */
   const showId = (id: string) => {
@@ -1016,10 +1018,14 @@ const LEVEL_TAG = {
  * Canonical area dropdown used across the system: areas group their subareas
  * (indented), every row shows its ID, subareas caption their parent area.
  */
-export function AreaTreeSelect({ tree, value, onChange, className, placeholder = "Select area or subarea…" }: {
+export function AreaTreeSelect({ tree, value, onChange, values = [], onValuesChange, multi = false, className, placeholder = "Select area or subarea…" }: {
   tree: { id: string; name: string; subareas: { id: string; name: string }[] }[]
-  value: AreaPick | null
-  onChange: (v: AreaPick) => void
+  value?: AreaPick | null
+  onChange?: (v: AreaPick) => void
+  /** Multi mode (filters): selected area/subarea ids — checking an area cascades to its subareas. */
+  values?: string[]
+  onValuesChange?: (ids: string[]) => void
+  multi?: boolean
   className?: string
   placeholder?: string
 }) {
@@ -1035,15 +1041,29 @@ export function AreaTreeSelect({ tree, value, onChange, className, placeholder =
   const groups = tree
     .map((a) => ({ ...a, subareas: a.subareas.filter((s) => !needle || s.name.toLowerCase().includes(needle)) }))
     .filter((a) => !needle || a.name.toLowerCase().includes(needle) || a.subareas.length > 0)
-  const pick = (v: AreaPick) => { onChange(v); setOpen(false); setQ("") }
+  const pick = (v: AreaPick) => { onChange?.(v); setOpen(false); setQ("") }
+  const toggleMulti = (a: { id: string; subareas: { id: string }[] } | null, subId?: string) => {
+    if (!onValuesChange) return
+    const set = new Set(values)
+    if (subId) set.has(subId) ? set.delete(subId) : set.add(subId)
+    else if (a) {
+      const ids = [a.id, ...a.subareas.map((x) => x.id)]
+      const on = set.has(a.id)
+      ids.forEach((id) => (on ? set.delete(id) : set.add(id)))
+    }
+    onValuesChange([...set])
+  }
+  const multiActive = multi && values.length > 0
   return (
     <div ref={ref} className={cn("relative w-full", className)}>
       <button
         type="button" onClick={() => setOpen((o) => !o)}
-        className={cn("flex h-8 w-full items-center justify-between gap-1.5 rounded-md border border-input bg-white px-2.5 text-sm transition-colors hover:bg-muted/50", value ? "text-foreground" : "text-muted-foreground")}
+        className={cn("flex h-8 w-full items-center justify-between gap-1.5 rounded-md border bg-white px-2.5 text-sm transition-colors hover:bg-muted/50", multiActive ? "border-primary text-primary" : value ? "border-input text-foreground" : "border-input text-muted-foreground")}
       >
         <span className="flex min-w-0 items-center gap-1.5 truncate text-left">
-          {value ? (
+          {multi ? (
+            multiActive ? <>{placeholder.replace(/Select |…/g, "") || "Areas"}<span className="ml-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold">{values.length}</span></> : placeholder
+          ) : value ? (
             <>
               <span className="truncate">{value.name}</span>
               <span className={cn("inline-flex flex-shrink-0 items-center rounded border px-1.5 py-px text-[10px] font-medium", LEVEL_TAG[value.level])}>{value.level}</span>
@@ -1056,13 +1076,19 @@ export function AreaTreeSelect({ tree, value, onChange, className, placeholder =
         <div className="absolute left-0 top-9 z-50 w-full rounded-md border border-border bg-popover p-1 shadow-md">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search areas & subareas…" className="mb-1 h-7 text-xs" autoFocus />
           <div className="max-h-64 overflow-y-auto">
+            {multi && values.length > 0 && (
+              <button type="button" onClick={() => onValuesChange?.([])} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-primary hover:bg-muted">
+                Clear selection ({values.length})
+              </button>
+            )}
             {groups.map((a) => (
               <div key={a.id}>
                 <button
-                  type="button" onClick={() => pick({ level: "Area", id: a.id, name: a.name })}
-                  className={cn("flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left hover:bg-muted", value?.id === a.id && "bg-primary/5")}
+                  type="button" onClick={() => (multi ? toggleMulti(a) : pick({ level: "Area", id: a.id, name: a.name }))}
+                  className={cn("flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left hover:bg-muted", (multi ? values.includes(a.id) : value?.id === a.id) && "bg-primary/5")}
                 >
-                  <span className="min-w-0">
+                  {multi && <CheckBox state={values.includes(a.id) ? "on" : "off"} />}
+                  <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium text-foreground">{a.name}</span>
                     <IdTag value={a.id} />
                   </span>
@@ -1070,10 +1096,11 @@ export function AreaTreeSelect({ tree, value, onChange, className, placeholder =
                 </button>
                 {a.subareas.map((s) => (
                   <button
-                    key={s.id} type="button" onClick={() => pick({ level: "Subarea", id: s.id, name: s.name, parent: a.name })}
-                    className={cn("flex w-full items-center justify-between gap-2 rounded py-1.5 pl-7 pr-2 text-left hover:bg-muted", value?.id === s.id && "bg-primary/5")}
+                    key={s.id} type="button" onClick={() => (multi ? toggleMulti(a, s.id) : pick({ level: "Subarea", id: s.id, name: s.name, parent: a.name }))}
+                    className={cn("flex w-full items-center justify-between gap-2 rounded py-1.5 pl-7 pr-2 text-left hover:bg-muted", (multi ? values.includes(s.id) : value?.id === s.id) && "bg-primary/5")}
                   >
-                    <span className="min-w-0">
+                    {multi && <CheckBox state={values.includes(s.id) ? "on" : "off"} />}
+                    <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm text-foreground">{s.name}</span>
                       <span className="flex items-center gap-1.5">
                         <IdTag value={s.id} />
@@ -1094,10 +1121,14 @@ export function AreaTreeSelect({ tree, value, onChange, className, placeholder =
 }
 
 /** Canonical developer dropdown: name + listing-status tag, ID captioned below. */
-export function DeveloperSelect({ developers, value, onChange, className, placeholder = "Select developer…", valueExtra }: {
+export function DeveloperSelect({ developers, value = "", onChange, values = [], onValuesChange, multi = false, className, placeholder = "Select developer…", valueExtra }: {
   developers: { id: string; name: string; status?: "Active" | "Hidden" }[]
-  value: string
-  onChange: (id: string) => void
+  value?: string
+  onChange?: (id: string) => void
+  /** Multi mode (filters): selected developer ids. */
+  values?: string[]
+  onValuesChange?: (ids: string[]) => void
+  multi?: boolean
   className?: string
   placeholder?: string
   /** Rendered inside the trigger, right of the selected name (e.g. status tags). */
@@ -1113,13 +1144,24 @@ export function DeveloperSelect({ developers, value, onChange, className, placeh
   }, [])
   const selected = developers.find((d) => d.id === value)
   const list = developers.filter((d) => !q.trim() || `${d.name} ${d.id}`.toLowerCase().includes(q.trim().toLowerCase()))
+  const toggle = (id: string) => {
+    if (!onValuesChange) return
+    const set = new Set(values)
+    set.has(id) ? set.delete(id) : set.add(id)
+    onValuesChange([...set])
+  }
+  const multiActive = multi && values.length > 0
   return (
     <div ref={ref} className={cn("relative w-full", className)}>
       <button
         type="button" onClick={() => setOpen((o) => !o)}
-        className={cn("flex h-8 w-full items-center justify-between gap-1.5 rounded-md border border-input bg-white px-2.5 text-sm transition-colors hover:bg-muted/50", selected ? "text-foreground" : "text-muted-foreground")}
+        className={cn("flex h-8 w-full items-center justify-between gap-1.5 rounded-md border bg-white px-2.5 text-sm transition-colors hover:bg-muted/50", multiActive ? "border-primary text-primary" : selected ? "border-input text-foreground" : "border-input text-muted-foreground")}
       >
-        <span className="truncate text-left">{selected?.name ?? placeholder}</span>
+        <span className="flex min-w-0 items-center gap-1 truncate text-left">
+          {multi
+            ? (multiActive ? <>{placeholder.replace(/Select |…/g, "") || "Developers"}<span className="ml-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold">{values.length}</span></> : placeholder)
+            : (selected?.name ?? placeholder)}
+        </span>
         {valueExtra && <span className="ml-auto flex flex-shrink-0 items-center gap-1">{valueExtra}</span>}
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
@@ -1127,12 +1169,18 @@ export function DeveloperSelect({ developers, value, onChange, className, placeh
         <div className="absolute left-0 top-9 z-50 w-full rounded-md border border-border bg-popover p-1 shadow-md">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search developers…" className="mb-1 h-7 text-xs" autoFocus />
           <div className="max-h-64 overflow-y-auto">
+            {multi && values.length > 0 && (
+              <button type="button" onClick={() => onValuesChange?.([])} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-primary hover:bg-muted">
+                Clear selection ({values.length})
+              </button>
+            )}
             {list.map((d) => (
               <button
-                key={d.id} type="button" onClick={() => { onChange(d.id); setOpen(false); setQ("") }}
-                className={cn("flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left hover:bg-muted", value === d.id && "bg-primary/5")}
+                key={d.id} type="button" onClick={() => { if (multi) { toggle(d.id) } else { onChange?.(d.id); setOpen(false); setQ("") } }}
+                className={cn("flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left hover:bg-muted", (multi ? values.includes(d.id) : value === d.id) && "bg-primary/5")}
               >
-                <span className="min-w-0">
+                {multi && <CheckBox state={values.includes(d.id) ? "on" : "off"} />}
+                <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-foreground">{d.name}</span>
                   <IdTag value={d.id} />
                 </span>

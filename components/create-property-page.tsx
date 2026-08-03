@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { DeveloperSelect, ProjectTreeSelect } from "@/components/table-kit"
 import {
   type Variation, isRangeVariation,
   FieldShell, TextInput, NumberInput, SelectInput, RangeInput, BooleanToggle, MultiChips,
@@ -316,12 +317,29 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
 
             <SubSection label="Developer & Project">
               <FieldShell label="Developer" icon={<Building2 className="h-3 w-3" />} required error={errors.developer}>
-                <SelectInput value={form.developer as string} onChange={(v) => setField("developer", v)} options={DEVELOPERS.map((d) => d.name)} error={errors.developer} placeholder="Select developer…" />
+                <DeveloperSelect
+                  developers={DEVELOPERS}
+                  value={DEVELOPERS.find((d) => d.name === form.developer)?.id ?? ""}
+                  onChange={(id) => { setField("developer", DEVELOPERS.find((d) => d.id === id)?.name ?? ""); setField("project", ""); setField("phase", "") }}
+                  className={cn(errors.developer && "[&>button]:border-red-400")}
+                />
               </FieldShell>
               <FieldShell label="Project" icon={<Home className="h-3 w-3" />} required error={errors.project}>
-                <SelectInput value={selectedProject?.name ?? ""} onChange={(name) => setField("project", PROJECTS.find((x) => x.name === name)?.id ?? "")}
-                  options={PROJECTS.filter((p) => !form.developer || DEVELOPERS.find((d) => d.name === form.developer)?.id === p.devId).map((p) => p.name)} error={errors.project}
-                  placeholder={form.developer ? "Select project…" : "Pick a developer first"} />
+                <ProjectTreeSelect
+                  label={form.developer ? "Select project…" : "Pick a developer first"}
+                  projects={PROJECTS
+                    .filter((p) => !form.developer || DEVELOPERS.find((d) => d.name === form.developer)?.id === p.devId)
+                    .map((p) => ({ id: p.id, name: p.name, phases: PHASES.filter((ph) => ph.projId === p.id).map((ph) => ({ id: ph.id, name: ph.name })) }))}
+                  value={selectedProject ? { kind: "project", id: selectedProject.id, label: selectedProject.name, projectIds: [selectedProject.id] } : null}
+                  onChange={(sel) => {
+                    if (!sel) { setField("project", ""); setField("phase", ""); return }
+                    // Picking a phase from the tree fills both fields; a main fills project only
+                    const phase = PHASES.find((ph) => ph.id === sel.id)
+                    setField("project", phase ? phase.projId : sel.id)
+                    setField("phase", phase ? phase.id : "")
+                  }}
+                  className={cn(errors.project && "[&>button]:border-red-400")}
+                />
               </FieldShell>
               <FieldShell label="Phase" icon={<Layers className="h-3 w-3" />}>
                 <SelectInput value={PHASES.find((p) => p.id === form.phase)?.name ?? ""} onChange={(name) => setField("phase", phasesForProject.find((x) => x.name === name)?.id ?? "")}

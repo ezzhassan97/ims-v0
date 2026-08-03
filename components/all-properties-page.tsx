@@ -80,7 +80,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { initialUnits, projectPhases, type Unit } from "@/lib/mock-data"
 import { GroupedPropertiesView, type SharedFilterState, type GroupDetailPayload } from "@/components/grouped-properties-page"
-import { GroupPager } from "@/components/table-kit"
+import { GroupPager, AreaTreeSelect, DeveloperSelect, ProjectTreeSelect } from "@/components/table-kit"
 import type { Variation } from "@/components/additional-info-tab"
 import { AddMediaDialog } from "@/components/add-media-dialog"
 import { ChooseAssetsDrawer } from "@/components/choose-assets-drawer"
@@ -5066,10 +5066,56 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
   // ── Shared filter state ────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("")
   const [districtFilter, setDistrictFilter] = useState<Set<string>>(new Set())
-  const [areaFilter, setAreaFilter] = useState<Set<string>>(new Set())
   const [planTypeFilter, setPlanTypeFilter] = useState<Set<string>>(new Set())
-  const [developerFilter, setDeveloperFilter] = useState<Set<string>>(new Set())
-  const [projectFilter, setProjectFilter] = useState<Set<string>>(new Set())
+  // Canonical pickers select by ID (areas tree / developers / project tree); the
+  // name-based Sets the rest of the page filters on are derived from them.
+  const [areaSelIds, setAreaSelIds] = useState<string[]>([])
+  const [devSelIds, setDevSelIds] = useState<string[]>([])
+  const [projSelIds, setProjSelIds] = useState<string[]>([])
+  const pickerData = useMemo(() => {
+    const devMap = new Map<string, { id: string; name: string }>()
+    const projMap = new Map<string, { id: string; name: string; phases: Map<string, { id: string; name: string }> }>()
+    const areaMap = new Map<string, Set<string>>()
+    for (const r of allRows) {
+      devMap.set(r.developer.id, { id: r.developer.id, name: r.developer.name })
+      const p = projMap.get(r.project.id) ?? { id: r.project.id, name: r.project.name, phases: new Map() }
+      if (r.phase) p.phases.set(r.phase.id, { id: r.phase.id, name: r.phase.name })
+      projMap.set(r.project.id, p)
+      const subs = areaMap.get(r.area) ?? new Set<string>()
+      if (r.subarea) subs.add(r.subarea)
+      areaMap.set(r.area, subs)
+    }
+    const areas = [...areaMap.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([name, subs], i) => ({
+      id: `AR-${String(i + 1).padStart(3, "0")}`,
+      name,
+      subareas: [...subs].sort().map((sn, j) => ({ id: `SUB-${String(i + 1).padStart(2, "0")}${j + 1}`, name: sn })),
+    }))
+    return {
+      developers: [...devMap.values()].sort((a, b) => a.name.localeCompare(b.name)),
+      projectTree: [...projMap.values()].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ id: p.id, name: p.name, phases: [...p.phases.values()] })),
+      areas,
+    }
+  }, [allRows])
+  // id → name translation keeps every downstream predicate untouched
+  const areaFilter = useMemo(() => {
+    const names = new Set<string>()
+    for (const a of pickerData.areas) {
+      if (areaSelIds.includes(a.id)) names.add(a.name)
+      for (const sub of a.subareas) if (areaSelIds.includes(sub.id)) names.add(sub.name)
+    }
+    return names
+  }, [areaSelIds, pickerData])
+  const developerFilter = useMemo(
+    () => new Set(pickerData.developers.filter((d) => devSelIds.includes(d.id)).map((d) => d.name)),
+    [devSelIds, pickerData],
+  )
+  const projectFilter = useMemo(() => {
+    const names = new Set<string>()
+    for (const p of pickerData.projectTree) {
+      if (projSelIds.includes(p.id) || p.phases.some((ph) => projSelIds.includes(ph.id))) names.add(p.name)
+    }
+    return names
+  }, [projSelIds, pickerData])
   const [saleTypeFilter, setSaleTypeFilter] = useState<Set<string>>(() => (fixedSaleType ? new Set([fixedSaleType]) : new Set()))
   const [availabilityFilter, setAvailabilityFilter] = useState<Set<string>>(new Set())
   const [entryTypeFilter, setEntryTypeFilter] = useState<Set<string>>(new Set())
@@ -5116,10 +5162,10 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
   const clearAllFilters = () => {
     setSearchQuery("")
     setDistrictFilter(new Set())
-    setAreaFilter(new Set())
+    setAreaSelIds([])
     setPlanTypeFilter(new Set())
-    setDeveloperFilter(new Set())
-    setProjectFilter(new Set())
+    setDevSelIds([])
+    setProjSelIds([])
     setSaleTypeFilter(fixedSaleType ? new Set([fixedSaleType]) : new Set())
     setAvailabilityFilter(new Set())
     setEntryTypeFilter(new Set())
@@ -5319,9 +5365,9 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                 </div>
                 <div className="flex flex-1 gap-2">
                   {!embedded && <FilterDropdown label="District"       options={filterOptions.districts}       selected={districtFilter}      onChange={setDistrictFilter}      className="flex-1" />}
-                  {!embedded && <FilterDropdown label="Area"           options={filterOptions.areas}           selected={areaFilter}          onChange={setAreaFilter}          className="flex-1" />}
-                  {!embedded && <FilterDropdown label="Developer"      options={filterOptions.developers}      selected={developerFilter}     onChange={setDeveloperFilter}     className="flex-1" />}
-                  <FilterDropdown label="Project"        options={filterOptions.projects}        selected={projectFilter}       onChange={setProjectFilter}       className="flex-1" />
+                  {!embedded && <AreaTreeSelect multi tree={pickerData.areas} values={areaSelIds} onValuesChange={setAreaSelIds} placeholder="Area" className="w-40 flex-1" />}
+                  {!embedded && <DeveloperSelect multi developers={pickerData.developers} values={devSelIds} onValuesChange={setDevSelIds} placeholder="Developer" className="w-44 flex-1" />}
+                  <ProjectTreeSelect multi projects={pickerData.projectTree} values={projSelIds} onValuesChange={setProjSelIds} label="Project" className="w-44 flex-1" />
                   {!fixedSaleType && <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter}      className="flex-1" />}
                   <FilterDropdown label="Status"         options={filterOptions.availability}    selected={availabilityFilter}  onChange={setAvailabilityFilter}  className="flex-1" />
                   <FilterDropdown label="Entry Type"     options={filterOptions.entryTypes}      selected={entryTypeFilter}     onChange={setEntryTypeFilter}     className="flex-1" />
@@ -5505,14 +5551,27 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                 </SheetHeader>
 
                 <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                  {!embedded && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-foreground">Area</p>
+                      <AreaTreeSelect multi tree={pickerData.areas} values={areaSelIds} onValuesChange={setAreaSelIds} placeholder="Area" className="w-full" />
+                    </div>
+                  )}
+                  {!embedded && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-foreground">Developer</p>
+                      <DeveloperSelect multi developers={pickerData.developers} values={devSelIds} onValuesChange={setDevSelIds} placeholder="Developer" className="w-full" />
+                    </div>
+                  )}
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-foreground">Project</p>
+                    <ProjectTreeSelect multi projects={pickerData.projectTree} values={projSelIds} onValuesChange={setProjSelIds} label="Project" className="w-full" />
+                  </div>
                   {(
                     [
                       ...(embedded ? [] : [
                         { label: "District",           filter: districtFilter,           setFilter: setDistrictFilter,           options: filterOptions.districts },
-                        { label: "Area",               filter: areaFilter,               setFilter: setAreaFilter,               options: filterOptions.areas },
-                        { label: "Developer",          filter: developerFilter,          setFilter: setDeveloperFilter,          options: filterOptions.developers },
                       ]),
-                      { label: "Project",            filter: projectFilter,            setFilter: setProjectFilter,            options: filterOptions.projects },
                       ...(fixedSaleType ? [] : [
                         { label: "Sale Type",          filter: saleTypeFilter,           setFilter: setSaleTypeFilter,           options: filterOptions.saleTypes },
                       ]),
