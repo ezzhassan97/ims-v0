@@ -718,14 +718,14 @@ function AddImageDialog({ open, onClose, onSave }: {
   const canSave = !!devId && !!projectSel && allDone
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && close()}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+    <Sheet open={open} onOpenChange={(o) => !o && close()}>
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
+        <div className="border-b border-border bg-card px-5 py-4">
+          <SheetTitle className="flex items-center gap-2 text-base font-semibold">
             <Plus className="h-4 w-4 text-muted-foreground" /> Add Render Images
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-1">
+          </SheetTitle>
+        </div>
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-xs font-medium">Developer <span className="text-red-500">*</span></label>
@@ -769,7 +769,7 @@ function AddImageDialog({ open, onClose, onSave }: {
 
           {/* Picked files — each with its own loading state */}
           {files.length > 0 && (
-            <div className="grid max-h-56 grid-cols-4 gap-2 overflow-y-auto">
+            <div className="grid grid-cols-4 gap-2">
               {files.map((f) => (
                 <div key={f.key} className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-border bg-muted">
                   <img src={f.url} alt={f.name} className={cn("h-full w-full object-cover transition-opacity", f.status === "loading" && "opacity-40")} />
@@ -797,14 +797,14 @@ function AddImageDialog({ open, onClose, onSave }: {
             <p className="text-xs text-muted-foreground">Uploading {files.filter((f) => f.status === "loading").length} of {files.length}…</p>
           )}
         </div>
-        <DialogFooter className="gap-2">
+        <div className="flex justify-end gap-2 border-t border-border bg-card px-5 py-4">
           <Button variant="outline" size="sm" onClick={close}>Cancel</Button>
           <Button size="sm" disabled={!canSave} onClick={() => { if (projectSel) { onSave(files, devId, projectSel); reset() } }}>
             Save {files.length > 0 && `${files.length} image${files.length === 1 ? "" : "s"}`}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </SheetContent>
+    </Sheet>
   )
 }
 
