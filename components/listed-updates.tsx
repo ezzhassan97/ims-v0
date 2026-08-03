@@ -67,7 +67,7 @@ interface ListedUpdatesProps {
   updates: ConstructionUpdate[]
 }
 
-export function ListedUpdates({ updates }: ListedUpdatesProps) {
+export function ListedUpdates({ updates, hideToolbar = false }: ListedUpdatesProps & { hideToolbar?: boolean }) {
   const [selectedUpdate, setSelectedUpdate] = useState<ConstructionUpdate | null>(null)
   const [showDrawer, setShowDrawer] = useState(false)
   const [galleryOpen, setGalleryOpen] = useState(false)
@@ -108,6 +108,7 @@ export function ListedUpdates({ updates }: ListedUpdatesProps) {
 
   return (
     <div className="space-y-4">
+      {!hideToolbar && (<>
       {/* Toolbar */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
@@ -135,6 +136,7 @@ export function ListedUpdates({ updates }: ListedUpdatesProps) {
         {listedUpdates.length} {listedUpdates.length === 1 ? "update" : "updates"}
         {search ? " found" : ""}
       </p>
+      </>)}
 
       {listedUpdates.length === 0 ? (
         <div className="text-center py-16 border border-dashed border-border rounded-lg">

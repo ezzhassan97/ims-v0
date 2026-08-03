@@ -3,9 +3,10 @@
 import { useState, useMemo } from "react"
 import { initialConstructionUpdates } from "@/lib/mock-data"
 import type { ConstructionUpdate } from "@/lib/mock-data"
-import { ConstructionUpdatesTab } from "@/components/construction-updates-tab"
 import { CreateConstructionUpdateDrawer } from "@/components/construction-update-drawer"
-import { TableCard, TableCardHeader, TableFooter, TableToolbar, FiltersDrawer, FilterDrawerField, FilterMultiSelect, DateRangeFilter } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableFooter, TableToolbar, FiltersDrawer, FilterDrawerField, FilterMultiSelect, FilterSelect, DateRangeFilter } from "@/components/table-kit"
+import { AIWhatsappExtractions } from "@/components/ai-whatsapp-extractions"
+import { ListedUpdates } from "@/components/listed-updates"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -241,6 +242,8 @@ export function ConstructionUpdatesPage({ embedded = false, updates: extUpdates,
   const [selectedProjects, setSelectedProjects] = useState<string[]>([])
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
+  const [tab, setTab] = useState<"ai" | "listed">("ai")
+  const [statusF, setStatusF] = useState("")
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -267,6 +270,7 @@ export function ConstructionUpdatesPage({ embedded = false, updates: extUpdates,
 
   const filtered = useMemo(() => {
     return rows.filter((u) => {
+      if (tab === "listed" ? u.status !== "Listed" : u.status === "Listed") return false
       if (search) {
         const q = search.toLowerCase()
         const matches =
@@ -277,6 +281,7 @@ export function ConstructionUpdatesPage({ embedded = false, updates: extUpdates,
           (u.developerName ?? "").toLowerCase().includes(q)
         if (!matches) return false
       }
+      if (statusF && u.status !== statusF) return false
       if (selectedDevelopers.length > 0 && (!u.developerId || !selectedDevelopers.includes(u.developerId))) return false
       if (selectedProjects.length > 0 && (!u.projectId || !selectedProjects.includes(u.projectId))) return false
       if (dateFrom && u.createdAt < new Date(dateFrom)) return false
@@ -287,7 +292,7 @@ export function ConstructionUpdatesPage({ embedded = false, updates: extUpdates,
       }
       return true
     })
-  }, [rows, search, selectedDevelopers, selectedProjects, dateFrom, dateTo])
+  }, [rows, tab, search, statusF, selectedDevelopers, selectedProjects, dateFrom, dateTo])
 
   // Paginate by COLLECTION (a card per collection), newest first
   const collectionIds = useMemo(() => {
@@ -306,9 +311,9 @@ export function ConstructionUpdatesPage({ embedded = false, updates: extUpdates,
     else setInternalUpdates((prev) => prev.map((u) => (u.id === update.id ? { ...u, ...update } : u)))
   }
 
-  const activeFilterCount = selectedDevelopers.length + selectedProjects.length + (dateFrom || dateTo ? 1 : 0)
+  const activeFilterCount = selectedDevelopers.length + selectedProjects.length + (statusF ? 1 : 0) + (dateFrom || dateTo ? 1 : 0)
   const clearAll = () => {
-    setSelectedDevelopers([]); setSelectedProjects([]); setDateFrom(""); setDateTo(""); setPage(1)
+    setSelectedDevelopers([]); setSelectedProjects([]); setDateFrom(""); setDateTo(""); setStatusF(""); setPage(1)
   }
 
   const devOptions = DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))
@@ -323,6 +328,32 @@ export function ConstructionUpdatesPage({ embedded = false, updates: extUpdates,
         </div>
       )}
 
+      {/* Sub-tabs: AI extractions vs listed — before search/filters per the page layout */}
+      {(() => {
+        const pending = rows.filter((u) => u.status === "Pending Review").length
+        const rejected = rows.filter((u) => u.status === "Rejected").length
+        const listed = rows.filter((u) => u.status === "Listed").length
+        const chip = (n: number, cls: string) => n > 0 && <span className={cn("rounded-md border px-1.5 py-0 text-[11px] font-medium", cls)}>{n}</span>
+        return (
+          <div className="flex w-fit gap-1 rounded-lg bg-muted p-1">
+            {([
+              { key: "ai" as const, label: "AI WhatsApp Extractions", chips: <>{chip(rejected, "border-red-200 bg-red-100 text-red-700")}{chip(pending, "border-amber-200 bg-amber-100 text-amber-700")}</> },
+              { key: "listed" as const, label: "Listed Updates", chips: chip(listed, "border-emerald-200 bg-emerald-100 text-emerald-700") },
+            ]).map((t) => (
+              <button
+                key={t.key} type="button" onClick={() => { setTab(t.key); setStatusF(""); setPage(1) }}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  tab === t.key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t.label}{t.chips}
+              </button>
+            ))}
+          </div>
+        )
+      })()}
+
       {/* Toolbar — canonical: search + filters, divider, list controls */}
       <TableToolbar
         search={search}
@@ -332,6 +363,7 @@ export function ConstructionUpdatesPage({ embedded = false, updates: extUpdates,
           <>
             {!embedded && <FilterMultiSelect label="Developer" options={devOptions} value={selectedDevelopers} onChange={handleDeveloperChange} className="w-40" />}
             {!embedded && <FilterMultiSelect label="Project" options={projOptions} value={selectedProjects} onChange={(v) => { setSelectedProjects(v); setPage(1) }} className="w-40" />}
+            {tab === "ai" && <FilterSelect label="Status" value={statusF} options={["Pending Review", "Rejected", "Approved Listing"]} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-40" />}
             <DateRangeFilter label="Created Date Range" dateFrom={dateFrom} dateTo={dateTo} onChangeFrom={(v) => { setDateFrom(v); setPage(1) }} onChangeTo={(v) => { setDateTo(v); setPage(1) }} />
           </>
         }
@@ -345,7 +377,7 @@ export function ConstructionUpdatesPage({ embedded = false, updates: extUpdates,
 
       <TableCard>
         <TableCardHeader
-          title="Construction Updates"
+          title={tab === "ai" ? "AI WhatsApp Extractions" : "Listed Updates"}
           count={collectionIds.length}
           extra={<span className="text-xs text-muted-foreground">{filtered.length} update{filtered.length === 1 ? "" : "s"}</span>}
           cta={
@@ -363,8 +395,10 @@ export function ConstructionUpdatesPage({ embedded = false, updates: extUpdates,
           <p className="mt-1 text-sm text-muted-foreground/60">Try adjusting the search or filters</p>
           <Button variant="outline" size="sm" onClick={clearAll} className="mt-4 bg-transparent">Clear all filters</Button>
         </div>
+      ) : tab === "ai" ? (
+        <AIWhatsappExtractions key={[...pageIds].join("·")} updates={visibleUpdates as ConstructionUpdate[]} onUpdateChange={handleUpdateChange} hideToolbar />
       ) : (
-        <ConstructionUpdatesTab key={[...pageIds].join("·")} updates={visibleUpdates as ConstructionUpdate[]} onUpdateChange={handleUpdateChange} />
+        <ListedUpdates key={[...pageIds].join("·")} updates={visibleUpdates as ConstructionUpdate[]} hideToolbar />
       )}
 
       <TableCard>

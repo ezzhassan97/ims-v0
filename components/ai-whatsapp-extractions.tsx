@@ -102,7 +102,7 @@ interface AIWhatsappExtractionsProps {
   onUpdateChange?: (update: ConstructionUpdate) => void
 }
 
-export function AIWhatsappExtractions({ updates, onUpdateChange }: AIWhatsappExtractionsProps) {
+export function AIWhatsappExtractions({ updates, onUpdateChange, hideToolbar = false }: AIWhatsappExtractionsProps & { hideToolbar?: boolean }) {
   const [selectedUpdate, setSelectedUpdate] = useState<ConstructionUpdate | null>(null)
   const [showDrawer, setShowDrawer] = useState(false)
   const [galleryOpen, setGalleryOpen] = useState(false)
@@ -188,6 +188,7 @@ export function AIWhatsappExtractions({ updates, onUpdateChange }: AIWhatsappExt
 
   return (
     <div className="space-y-4">
+      {!hideToolbar && (<>
       {/* Toolbar: search + filter + sort */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
@@ -255,6 +256,7 @@ export function AIWhatsappExtractions({ updates, onUpdateChange }: AIWhatsappExt
       <p className="text-xs text-muted-foreground">
         {visibleUpdates.length} {visibleUpdates.length === 1 ? "update" : "updates"}{search || statusFilters.length > 0 ? " found" : ""}
       </p>
+      </>)}
 
       {/* Cards */}
       {visibleUpdates.length === 0 ? (
