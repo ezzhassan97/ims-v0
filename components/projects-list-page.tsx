@@ -319,6 +319,17 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         opts.launchTo,
       )
     }
+    // Cascaded phases leaving Launch: their active launches get the same
+    // Closed/Inactive choice and end date as the main's.
+    if (next !== "Launch") {
+      rows.forEach((x) => {
+        const hit = !r.isPhase && x.isPhase && x.mainProject?.id === r.id
+        if (hit && !excluded.has(x.id) && x.primaryStatus === "Launch") {
+          const act = launchesForProject(x.id).find((l) => l.launchStatus === "Active" && l.type === "Launch" && isIngestedLaunch(l))
+          if (act) closeLaunch(act.id, opts?.endDate || undefined, opts?.launchTo)
+        }
+      })
+    }
     // Persist onto the shared PROJECTS rows too — local table state resets on
     // navigation while the launch store doesn't, and the two must not disagree.
     rows.forEach((x) => {
@@ -1358,13 +1369,15 @@ const LAUNCH_STATUS_TONE: Record<Launch["launchStatus"], string> = {
 const fmtEgp = (n: number) => `${n.toLocaleString("en-US")} EGP`
 
 /** One launch row — name, ID, created at, EOI amount, available count, type, status, view. */
-function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {
+function LaunchRow({ l, radio, selected, onSelect, onView, topBorder, afterStatus }: {
   l: Launch
   radio?: boolean
   selected?: boolean
   onSelect?: () => void
   onView: () => void
   topBorder?: boolean
+  /** Rendered right after the status tag — e.g. the → destination-status picker. */
+  afterStatus?: React.ReactNode
 }) {
   const inner = (
     <>
@@ -1384,6 +1397,7 @@ function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {
         <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[l.launchStatus])}>
           {l.launchStatus}
         </span>
+        {afterStatus}
         <span
           role="button" title="View launch details"
           onClick={(e) => { e.stopPropagation(); onView() }}
@@ -1631,21 +1645,25 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
     : to === "On-Sale" && from === "On-Hold" ? "optin"
     : to === "On-Sale" && from === "Sold-Off" ? "optinSoldOff"
     : "info"
-  // From Launch to On-Hold/Sold-Off, Launch phases are never touched (closing their
-  // active launches needs an end date each) — only On-Sale phases cascade.
-  const fromLaunchSplit = (to: ProjPrimaryStatus | "") => from === "Launch" && (to === "On-Hold" || to === "Sold-Off")
+  const STATUS_ORDER: ProjPrimaryStatus[] = ["Launch", "On-Sale", "On-Hold", "Sold-Off"]
+  const byStatus = (a: ProjectRow, b: ProjectRow) => STATUS_ORDER.indexOf(a.primaryStatus) - STATUS_ORDER.indexOf(b.primaryStatus)
   const eligibleFor = (to: ProjPrimaryStatus | "") => {
     const mode = phaseModeFor(to)
-    if (mode === "optout") return fromLaunchSplit(to) ? phases.filter((p) => p.primaryStatus === "On-Sale") : phases
+    // From Launch → On-Hold/Sold-Off: Launch and On-Sale phases cascade (opt-out);
+    // already On-Hold/Sold-Off phases are not shown at all. From Launch → Launch/
+    // On-Sale: ALL phases listed view-only, ordered by status.
+    if (mode === "optout") return from === "Launch"
+      ? phases.filter((p) => p.primaryStatus === "Launch" || p.primaryStatus === "On-Sale").sort(byStatus)
+      : phases
     if (mode === "optin") return phases.filter((p) => p.primaryStatus === "On-Hold")
     if (mode === "optinSoldOff") return phases.filter((p) => p.primaryStatus === "Sold-Off")
-    if (to === "On-Sale" && from === "Launch") return phases.filter((p) => p.primaryStatus === "Launch")
+    if (from === "Launch") return [...phases].sort(byStatus)
     return phases.filter((p) => p.primaryStatus !== to)
   }
   const phaseMode = phaseModeFor(target)
   const eligiblePhases = cascading ? eligibleFor(target) : []
-  /** Launch phases listed for awareness only under the from-Launch split. */
-  const launchInfoPhases = cascading && fromLaunchSplit(target) ? phases.filter((p) => p.primaryStatus === "Launch") : []
+  /** Every phase already On-Hold or Sold-Off — nothing under this main is selling. */
+  const allPhasesClosed = phases.length > 0 && phases.every((p) => p.primaryStatus === "On-Hold" || p.primaryStatus === "Sold-Off")
   const selectable = phaseMode === "optout" || phaseMode === "optin" || phaseMode === "optinSoldOff"
   const includedPhases = selectable ? eligiblePhases.filter((p) => selectedPhases.has(p.id)) : []
   const scope = selectable ? [r, ...includedPhases] : [r]
@@ -1836,22 +1854,34 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
               Active {activeLaunch.type.toLowerCase()} that will be {launchTo === "Inactive" ? "set to Inactive" : "closed"}:
             </p>
             <div className="rounded-lg border border-border">
-              <LaunchRow l={activeLaunch} onView={() => setDrawerLaunch(activeLaunch)} />
-            </div>
-            <p className="pt-1 text-xs font-medium text-foreground">Set the launch status to</p>
-            <div className="grid grid-cols-2 gap-2">
-              {(["Closed", "Inactive"] as const).map((s) => (
-                <button
-                  key={s} type="button" onClick={() => setLaunchTo(s)}
-                  className={cn(
-                    "flex items-center justify-center gap-1.5 rounded-lg border py-2 transition-colors",
-                    launchTo === s ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
-                  )}
-                >
-                  <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[s])}>{s}</span>
-                  <span className="text-[10px] text-muted-foreground">{s === "Closed" ? "default — end date required" : "no end date needed"}</span>
-                </button>
-              ))}
+              <LaunchRow
+                l={activeLaunch}
+                onView={() => setDrawerLaunch(activeLaunch)}
+                afterStatus={
+                  <>
+                    <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button" title="Status the launch gets after this change"
+                          className={cn("inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80", LAUNCH_STATUS_TONE[launchTo])}
+                        >
+                          {launchTo}
+                          <ChevronDown className="h-3 w-3" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-60">
+                        {(["Closed", "Inactive"] as const).map((s) => (
+                          <DropdownMenuItem key={s} onClick={() => setLaunchTo(s)} className="gap-2">
+                            <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[s])}>{s}</span>
+                            <span className="text-xs text-muted-foreground">{s === "Closed" ? "End date required (default)" : "No end date needed"}</span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
+                }
+              />
             </div>
           </div>
         )}
@@ -1885,7 +1915,7 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
             </div>
             {launchTo === "Closed" && (
               <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
-                The date this launch stopped collecting EOIs — Nawy Sales Portal will be notified to flag EOIs collected after this date.
+                The dates when the launch was actively collecting EOIs — Sales Portal will be notified to flag EOIs outside this date range.
               </p>
             )}
           </div>
@@ -1959,9 +1989,9 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground">
                 {phaseMode === "optout"
-                  ? fromLaunchSplit(target)
+                  ? from === "Launch"
                     ? eligiblePhases.length > 0
-                      ? <>Main project and its {eligiblePhases.length} <span className="font-medium text-foreground">On-Sale</span> phase{eligiblePhases.length !== 1 ? "s" : ""} — untick a phase to exclude it:</>
+                      ? <>Main project and its {eligiblePhases.length} <span className="font-medium text-foreground">Launch / On-Sale</span> phase{eligiblePhases.length !== 1 ? "s" : ""} — untick a phase to exclude it:</>
                       : <>Main project:</>
                     : <>Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — untick a phase to exclude it:</>
                   : <>Phases currently <span className="font-medium text-foreground">{from}</span> — tick a phase to also apply this change to it (unselected by default):</>}
@@ -1992,6 +2022,11 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
                   )
                 })}
               </div>
+              {phaseMode === "optout" && from === "Launch" && includedPhases.some((p) => p.primaryStatus === "Launch") && (
+                <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
+                  Included <span className="font-semibold">Launch</span> phases' active launches will also be {launchTo === "Inactive" ? "set to Inactive" : "closed with the same end date"} — Sales Portal will be notified.
+                </p>
+              )}
             </div>
           ) : (
             <p className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
@@ -2001,8 +2036,8 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
         ) : eligiblePhases.length > 0 ? (
           <div className="space-y-1.5">
             <p className="text-xs text-muted-foreground">
-              {target === "On-Sale" && from === "Launch"
-                ? <>Phases currently <span className="font-medium text-foreground">Launch</span> — their primary status won't change:</>
+              {from === "Launch"
+                ? <>All phases under this main project — their primary statuses won't change:</>
                 : <>Phases under this main project that are not <span className="font-medium text-foreground">{target}</span> — their primary status won't change:</>}
             </p>
             <div className="max-h-60 overflow-y-auto rounded-lg border border-border">
@@ -2020,27 +2055,10 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
           </div>
         ) : null)}
 
-        {/* Launch phases under the from-Launch split — awareness only, never part of this action */}
-        {launchInfoPhases.length > 0 && (
-          <div className="space-y-1.5">
-            <p className="text-xs text-muted-foreground">
-              Phases currently <span className="font-medium text-foreground">Launch</span> — not changed by this action:
-            </p>
-            <div className="max-h-60 overflow-y-auto rounded-lg border border-border">
-              {launchInfoPhases.map((p, i) => (
-                <div key={p.id} className={cn("flex items-center gap-2.5 bg-muted/20 px-3 py-2.5", i > 0 && "border-t border-border/70")}>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
-                    <IdTag value={p.id} />
-                  </div>
-                  {rowTags(p)}
-                  {viewProjectBtn(p)}
-                </div>
-              ))}
-            </div>
-            <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
-              These phases have currently active launches — you can close them or change their primary status from each phase, but not during this action.
-            </p>
+        {/* From Launch → Launch/On-Sale while every phase is already closed — call it out */}
+        {cascading && from === "Launch" && (target === "Launch" || target === "On-Sale") && allPhasesClosed && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+            All phases under this main project are currently <span className="font-semibold">On-Hold or Sold-Off</span> — none of them is selling. This change affects the main project only.
           </div>
         )}
         </div>
