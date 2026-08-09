@@ -308,11 +308,16 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       return hit && !excluded.has(x.id) ? { ...x, listingStatus: next } : x
     }))
   }
-  const applyPrimary = (r: ProjectRow, next: ProjPrimaryStatus, opts?: { excludedPhaseIds?: string[]; launchId?: string; startDate?: string; endDate?: string; launchTo?: "Closed" | "Inactive" }) => {
+  const applyPrimary = (r: ProjectRow, next: ProjPrimaryStatus, opts?: { excludedPhaseIds?: string[]; launchId?: string; closeLaunchId?: string; startDate?: string; endDate?: string; launchTo?: "Closed" | "Inactive" }) => {
     const excluded = new Set(opts?.excludedPhaseIds ?? [])
     // Entering Launch activates the chosen launch; leaving it closes (or deactivates) the active one.
     if (opts?.launchId) {
-      if (next === "Launch") activateLaunch(opts.launchId, opts.startDate || new Date().toISOString().slice(0, 10))
+      if (next === "Launch") {
+        // Switching launches: close the outgoing one with the chosen status/date first.
+        if (opts.closeLaunchId && opts.closeLaunchId !== opts.launchId)
+          closeLaunch(opts.closeLaunchId, opts.endDate || undefined, opts.launchTo)
+        activateLaunch(opts.launchId, opts.startDate || new Date().toISOString().slice(0, 10))
+      }
       else closeLaunch(
         opts.launchId,
         opts.endDate || (opts.launchTo === "Inactive" ? undefined : new Date().toISOString().slice(0, 10)),
@@ -953,7 +958,9 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               applyPrimary(primaryDlg, next, opts)
               const phaseCount = phasesOf(primaryDlg).length
               const exCount = opts?.excludedPhaseIds?.length ?? 0
-              toast.success(`${primaryDlg.name} set to ${next}${!primaryDlg.isPhase && phaseCount ? ` with ${phaseCount - exCount} of ${phaseCount} phases${exCount ? ` (${exCount} excluded)` : ""}` : ""}`)
+              toast.success(next === primaryDlg.primaryStatus && next !== "Launch"
+                ? `${primaryDlg.name} — checks re-run, cascade re-applied where drifted`
+                : `${primaryDlg.name} set to ${next}${!primaryDlg.isPhase && phaseCount ? ` with ${phaseCount - exCount} of ${phaseCount} phases${exCount ? ` (${exCount} excluded)` : ""}` : ""}`)
               setPrimaryDlg(null)
             }}
           />
@@ -1616,7 +1623,7 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
   main?: ProjectRow
   onClose: () => void
   /** `opts` carries the launch the move activates or closes, so the launch record follows. */
-  onConfirm: (s: ProjPrimaryStatus, opts?: { excludedPhaseIds?: string[]; launchId?: string; startDate?: string; endDate?: string; launchTo?: "Closed" | "Inactive" }) => void
+  onConfirm: (s: ProjPrimaryStatus, opts?: { excludedPhaseIds?: string[]; launchId?: string; closeLaunchId?: string; startDate?: string; endDate?: string; launchTo?: "Closed" | "Inactive" }) => void
 }) {
   const from = r.primaryStatus
   // Only ingested launches of type "Launch" drive primary status — Releases never show here.
@@ -1638,27 +1645,30 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
   const mainRow = main ?? ((r.isPhase || r.isSubProject) && r.mainProject ? PROJECTS.find((x) => x.id === r.mainProject!.id) : undefined)
 
   const cascading = !r.isPhase && phases.length > 0
-  // How the phases participate for a given destination
+  // How the phases participate for a given destination — per the transition spec:
+  //  - to On-Hold / Sold-Off (any from, incl. re-runs): Launch + On-Sale phases cascade
+  //    pre-ticked (opt-out); a Sold-Off destination ALSO lists On-Hold phases unticked
+  //    (opt-in); phases already at/beyond the destination are not shown at all
+  //  - to On-Sale from On-Hold / Sold-Off: matching closed phases listed unticked (opt-in)
+  //  - to Launch / On-Sale otherwise: phases are never shown — only the
+  //    "no phase is selling" disclaimer below applies
   const phaseModeFor = (to: ProjPrimaryStatus | "") =>
     to === "" ? "none"
     : to === "On-Hold" || to === "Sold-Off" ? "optout"
     : to === "On-Sale" && from === "On-Hold" ? "optin"
     : to === "On-Sale" && from === "Sold-Off" ? "optinSoldOff"
-    : "info"
+    : "none"
   const STATUS_ORDER: ProjPrimaryStatus[] = ["Launch", "On-Sale", "On-Hold", "Sold-Off"]
   const byStatus = (a: ProjectRow, b: ProjectRow) => STATUS_ORDER.indexOf(a.primaryStatus) - STATUS_ORDER.indexOf(b.primaryStatus)
   const eligibleFor = (to: ProjPrimaryStatus | "") => {
     const mode = phaseModeFor(to)
-    // From Launch → On-Hold/Sold-Off: Launch and On-Sale phases cascade (opt-out);
-    // already On-Hold/Sold-Off phases are not shown at all. From Launch → Launch/
-    // On-Sale: ALL phases listed view-only, ordered by status.
-    if (mode === "optout") return from === "Launch"
-      ? phases.filter((p) => p.primaryStatus === "Launch" || p.primaryStatus === "On-Sale").sort(byStatus)
-      : phases
+    if (mode === "optout") return [
+      ...phases.filter((p) => p.primaryStatus === "Launch" || p.primaryStatus === "On-Sale").sort(byStatus),
+      ...(to === "Sold-Off" ? phases.filter((p) => p.primaryStatus === "On-Hold") : []),
+    ]
     if (mode === "optin") return phases.filter((p) => p.primaryStatus === "On-Hold")
     if (mode === "optinSoldOff") return phases.filter((p) => p.primaryStatus === "Sold-Off")
-    if (from === "Launch") return [...phases].sort(byStatus)
-    return phases.filter((p) => p.primaryStatus !== to)
+    return []
   }
   const phaseMode = phaseModeFor(target)
   const eligiblePhases = cascading ? eligibleFor(target) : []
@@ -1671,8 +1681,11 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
   const pickTarget = (s: ProjPrimaryStatus) => {
     setTarget(s)
     setHideAvailable(false)
-    // opt-out cascades start fully selected (eligible phases only); opt-in recoveries start empty
-    setSelectedPhases(phaseModeFor(s) === "optout" ? new Set(eligibleFor(s).map((p) => p.id)) : new Set())
+    // Opt-out cascades pre-tick the Launch / On-Sale phases only — On-Hold rows under
+    // a Sold-Off destination and all opt-in recoveries start unticked.
+    setSelectedPhases(phaseModeFor(s) === "optout"
+      ? new Set(eligibleFor(s).filter((p) => p.primaryStatus === "Launch" || p.primaryStatus === "On-Sale").map((p) => p.id))
+      : new Set())
   }
   const togglePhase = (id: string) =>
     setSelectedPhases((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -1680,9 +1693,18 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
   const devStatus = PROJECT_DEVELOPERS.find((d) => d.id === r.developer.id)?.status
   const selLaunch = linkedLaunches.find((l) => l.id === selLaunchId)
   const leavingLaunch = from === "Launch" && target !== "" && target !== "Launch"
+  /** Launch → Launch with a DIFFERENT launch picked = switching; the outgoing active launch closes too. */
+  const switchingLaunch = from === "Launch" && target === "Launch" && !!activeLaunch && !!selLaunch && selLaunch.id !== activeLaunch.id
+  /** Cascading a Launch phase closes its active launch — the end date is needed even when the main isn't leaving Launch. */
+  const phaseLaunchClose = phaseMode === "optout" && includedPhases.some((p) => p.primaryStatus === "Launch")
+  /** Same-status pick (non-Launch) = re-run: nothing moves, drifted data is reconciled. */
+  const rerun = target !== "" && target === from && target !== "Launch"
   const canSave = target !== ""
-    && (!leavingLaunch || launchTo === "Inactive" || !!endDate)
     && (target !== "Launch" || !!selLaunch)
+    // Closed needs start + end when the main's own launch closes; Inactive needs no dates
+    && (!(leavingLaunch && launchTo === "Closed") || (!!startDate && !!endDate))
+    && (!(switchingLaunch && launchTo === "Closed") || !!endDate)
+    && (!(phaseLaunchClose && !leavingLaunch) || !!endDate)
   const minStart = (() => { const d = new Date(); d.setMonth(d.getMonth() - 2); return d.toISOString().slice(0, 10) })()
 
   const sums = (rows: ProjectRow[]) => ({
@@ -1693,6 +1715,8 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
     paMatchG: rows.filter((x) => x.entryType === "Automatic").reduce((s, x) => s + x.primaryByEntry.Automatic.grouped, 0),
     paMatchD: rows.filter((x) => x.entryType === "Automatic").reduce((s, x) => s + x.primaryByEntry.Automatic.detailed, 0),
     pmMatchG: rows.filter((x) => x.entryType === "Manual").reduce((s, x) => s + x.primaryByEntry.Manual.grouped, 0),
+    onHoldG: rows.reduce((s, x) => s + x.primaryStatusProps.onHold.grouped, 0),
+    onHoldD: rows.reduce((s, x) => s + x.primaryStatusProps.onHold.detailed, 0),
   })
   const bMain = sums([r])
 
@@ -1701,6 +1725,7 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
     "Sold-Off": "border-red-200 bg-red-50 text-red-700",
     Shown: "border-emerald-200 bg-emerald-100 text-emerald-700",
     Published: "border-emerald-200 bg-emerald-100 text-emerald-700",
+    Available: "border-emerald-200 bg-emerald-50 text-emerald-700",
     Hidden: "border-red-200 bg-red-100 text-red-700",
   }
   const ptag = (v: string) => <span className={cn("mx-0.5 inline-flex items-center rounded border px-1 py-0 align-[1px] text-[9px] font-medium leading-4", PTONE[v])}>{v}</span>
@@ -1708,26 +1733,46 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
   const paText = (g: number, d: number) => `${g} Propert${g !== 1 ? "ies" : "y"} · ${d} Detailed Propert${d !== 1 ? "ies" : "y"}`
 
   type Outcome = { label: string; countText: string; sale?: string; listing: "Shown" | "Hidden" | "Published" }
+  /**
+   * Per the transition spec: entry-matched Available Primary publishes and the
+   * OPPOSITE entry side hides; On-Hold recoveries move Hold → Available; leaving
+   * Launch never changes the launch properties' sale status (listing only);
+   * Sold-Off units are never reopened in bulk.
+   */
   const outcomesFor = (rows: ProjectRow[], to: ProjPrimaryStatus | ""): Outcome[] => {
     if (!to) return []
     const s = sums(rows)
+    const paOppG = s.paG - s.paMatchG, paOppD = s.paD - s.paMatchD, pmOppG = s.pmG - s.pmMatchG
     const out: Outcome[] = []
+    const pubMatched = () => {
+      if (s.paMatchG > 0 || s.paMatchD > 0) out.push({ label: "Available Primary Automatic (entry-matched)", countText: paText(s.paMatchG, s.paMatchD), listing: "Published" })
+      if (s.pmMatchG > 0) out.push({ label: "Available Primary Manual (entry-matched)", countText: props(s.pmMatchG), listing: "Published" })
+      if (paOppG > 0 || paOppD > 0) out.push({ label: "Available Primary Automatic (other entry)", countText: paText(paOppG, paOppD), listing: "Hidden" })
+      if (pmOppG > 0) out.push({ label: "Available Primary Manual (other entry)", countText: props(pmOppG), listing: "Hidden" })
+    }
+    const holdRecovery = (listing: "Published" | "Hidden") => {
+      if (s.onHoldG > 0 || s.onHoldD > 0) out.push({ label: "On-Hold Primary Properties", countText: paText(s.onHoldG, s.onHoldD), sale: "Available", listing })
+    }
     if (to === "Launch") {
-      if (selLaunch) out.push({ label: "Launch Properties", countText: props(launchPropsOf(selLaunch)), listing: "Shown" })
+      if (!selLaunch) return out
+      out.push({ label: "Launch Properties (selected launch)", countText: props(launchPropsOf(selLaunch)), listing: "Published" })
       if (hideAvailable) {
         if (s.paG > 0 || s.paD > 0) out.push({ label: "Available Primary Automatic", countText: paText(s.paG, s.paD), listing: "Hidden" })
         if (s.pmG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmG), listing: "Hidden" })
+        if (from === "On-Hold") holdRecovery("Hidden")
+      } else if (from === "On-Hold") {
+        holdRecovery("Published")
+      } else if (from === "Sold-Off") {
+        pubMatched() // only what's already Available — Sold-Off units never reopen in bulk
       }
+      // from On-Sale (or same-launch re-pick): Available Primary untouched by default
       return out
     }
-    // Leaving Launch for On-Hold/Sold-Off also moves the launch properties to that sale status.
-    const launchSale = from === "Launch" && (to === "On-Hold" || to === "Sold-Off") ? (to === "On-Hold" ? "Hold" : "Sold-Off") : undefined
-    if (s.launchAll > 0) out.push({ label: "Launch Properties", countText: props(s.launchAll), sale: launchSale, listing: "Hidden" })
-    // Sold-Off recovery: primary statuses recover but Primary PROPERTIES stay untouched
-    if (phaseModeFor(to) === "optinSoldOff") return out
+    // Launch properties always leave the site — their sale status never changes here.
+    if (s.launchAll > 0) out.push({ label: "Launch Properties", countText: props(s.launchAll), listing: "Hidden" })
     if (to === "On-Sale") {
-      if (s.paMatchG > 0 || s.paMatchD > 0) out.push({ label: "Available Primary Automatic", countText: paText(s.paMatchG, s.paMatchD), listing: "Published" })
-      if (s.pmMatchG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmMatchG), listing: "Published" })
+      if (from === "On-Hold") holdRecovery("Published")
+      else pubMatched() // from Launch, Sold-Off ("if any") and the On-Sale re-run
     } else {
       const sale = to === "On-Hold" ? "Hold" : "Sold-Off"
       if (s.paG > 0 || s.paD > 0) out.push({ label: "Available Primary Automatic", countText: paText(s.paG, s.paD), sale, listing: "Hidden" })
@@ -1859,10 +1904,10 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
             </div>
           )
         )}
-        {leavingLaunch && activeLaunch && (
+        {(leavingLaunch || switchingLaunch) && activeLaunch && (
           <div className="space-y-1.5">
             <p className="text-xs text-muted-foreground">
-              Active {activeLaunch.type.toLowerCase()} that will be {launchTo === "Inactive" ? "set to Inactive" : "closed"}:
+              Active {activeLaunch.type.toLowerCase()} that will be {launchTo === "Inactive" ? "set to Inactive" : "closed"}{switchingLaunch ? " by activating the selected launch" : ""}:
             </p>
             <div className="rounded-lg border border-border">
               <LaunchRow
@@ -1894,6 +1939,17 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
                 }
               />
             </div>
+            {switchingLaunch && (
+              <div className="space-y-1 pt-1">
+                <div className="text-xs font-medium text-foreground">
+                  Launch End Date
+                  {launchTo === "Closed"
+                    ? <span className="ml-0.5 text-red-500">*</span>
+                    : <span className="ml-1 font-normal text-muted-foreground">(optional)</span>}
+                </div>
+                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 w-52 text-sm" />
+              </div>
+            )}
           </div>
         )}
 
@@ -1911,7 +1967,12 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
           <div className="space-y-1.5">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <div className="text-xs font-medium text-foreground">Launch Start Date <span className="font-normal text-muted-foreground">(optional)</span></div>
+                <div className="text-xs font-medium text-foreground">
+                  Launch Start Date
+                  {launchTo === "Closed"
+                    ? <span className="ml-0.5 text-red-500">*</span>
+                    : <span className="ml-1 font-normal text-muted-foreground">(optional)</span>}
+                </div>
                 <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 w-full text-sm" />
               </div>
               <div className="space-y-1">
@@ -1979,9 +2040,14 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
                   : "No properties change."}
               </p>
             )}
-            {phaseMode === "optinSoldOff" && (
+            {totalOutcomes.some((o) => o.sale === "Available" && o.listing === "Published") && (
               <p className="text-[10px] text-muted-foreground/80">
-                Primary properties status will not be changed unless edited for manual properties or with finalized entry ingested.
+                One primary side is published and the opposite hidden — driven by each compound's entry type.
+              </p>
+            )}
+            {rerun && (
+              <p className="text-[10px] text-muted-foreground/80">
+                Re-run — nothing changes on a clean project; the effects above are re-applied only where current data drifted.
               </p>
             )}
           </div>
@@ -1994,17 +2060,31 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
           </div>
         )}
 
+        {/* Leaving Sold-Off never reopens units in bulk */}
+        {from === "Sold-Off" && (target === "Launch" || target === "On-Sale") && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+            Changing from Sold-Off to {target} doesn't open Sold-Off primary units — they will be reopened with ingestion.
+          </div>
+        )}
+        {from === "Sold-Off" && target === "On-Hold" && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+            Only units already Available (usually none) go on Hold — Sold-Off units stay Sold-Off.
+          </div>
+        )}
+
         {/* Main & phases — after a destination is picked */}
         {cascading && target !== "" && (selectable ? (
           eligiblePhases.length > 0 || phaseMode === "optout" ? (
             <div className="space-y-1.5">
               <p className="text-xs text-muted-foreground">
                 {phaseMode === "optout"
-                  ? from === "Launch"
-                    ? eligiblePhases.length > 0
-                      ? <>Main project and its {eligiblePhases.length} <span className="font-medium text-foreground">Launch / On-Sale</span> phase{eligiblePhases.length !== 1 ? "s" : ""} — untick a phase to exclude it:</>
-                      : <>Main project:</>
-                    : <>Main project and its {phases.length} phase{phases.length > 1 ? "s" : ""} — untick a phase to exclude it:</>
+                  ? eligiblePhases.length > 0
+                    ? <>
+                        Main project and its phases — <span className="font-medium text-foreground">Launch / On-Sale</span> phases are pre-ticked (untick to exclude)
+                        {target === "Sold-Off" && eligiblePhases.some((p) => p.primaryStatus === "On-Hold")
+                          ? <>; <span className="font-medium text-foreground">On-Hold</span> phases can be ticked to also cascade</> : null}:
+                      </>
+                    : <>Main project:</>
                   : <>Phases currently <span className="font-medium text-foreground">{from}</span> — tick a phase to also apply this change to it (unselected by default):</>}
               </p>
               <div className="max-h-96 overflow-y-auto rounded-lg border border-border">
@@ -2033,10 +2113,18 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
                   )
                 })}
               </div>
-              {phaseMode === "optout" && from === "Launch" && includedPhases.some((p) => p.primaryStatus === "Launch") && (
+              {phaseLaunchClose && (
                 <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
-                  Included <span className="font-semibold">Launch</span> phases' active launches will also be {launchTo === "Inactive" ? "set to Inactive" : "closed with the same end date"} — Sales Portal will be notified.
+                  {leavingLaunch
+                    ? <>Included <span className="font-semibold">Launch</span> phases' active launches will also be {launchTo === "Inactive" ? "set to Inactive" : "closed with the same end date"} — Sales Portal will be notified.</>
+                    : <>These phases have currently active launches — this action will close them. Sales Portal will be notified with the end date.</>}
                 </p>
+              )}
+              {phaseLaunchClose && !leavingLaunch && (
+                <div className="space-y-1 pt-1">
+                  <div className="text-xs font-medium text-foreground">Launch End Date<span className="ml-0.5 text-red-500">*</span></div>
+                  <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 w-52 text-sm" />
+                </div>
               )}
             </div>
           ) : (
@@ -2044,30 +2132,10 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
               No phases are currently {from} — only the main project changes.
             </p>
           )
-        ) : eligiblePhases.length > 0 ? (
-          <div className="space-y-1.5">
-            <p className="text-xs text-muted-foreground">
-              {from === "Launch"
-                ? <>All phases under this main project — their primary statuses won't change:</>
-                : <>Phases under this main project that are not <span className="font-medium text-foreground">{target}</span> — their primary status won't change:</>}
-            </p>
-            <div className="max-h-60 overflow-y-auto rounded-lg border border-border">
-              {eligiblePhases.map((p, i) => (
-                <div key={p.id} className={cn("flex items-center gap-2.5 bg-muted/20 px-3 py-2.5", i > 0 && "border-t border-border/70")}>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
-                    <IdTag value={p.id} />
-                  </div>
-                  {rowTags(p)}
-                  {viewProjectBtn(p)}
-                </div>
-              ))}
-            </div>
-          </div>
         ) : null)}
 
-        {/* From Launch → Launch/On-Sale while every phase is already closed — call it out */}
-        {cascading && from === "Launch" && (target === "Launch" || target === "On-Sale") && allPhasesClosed && (
+        {/* Launch/On-Sale destination while every phase is already closed — call it out */}
+        {cascading && (target === "Launch" || target === "On-Sale") && allPhasesClosed && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
             All phases under this main project are currently <span className="font-semibold">On-Hold or Sold-Off</span> — none of them is selling. This change affects the main project only.
           </div>
@@ -2077,18 +2145,18 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
         <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" disabled={!canSave} onClick={() => {
-            // Everything not explicitly included is excluded — info-mode listings and
-            // non-eligible phases (e.g. Launch phases under the from-Launch split) never change.
+            // Everything not explicitly included is excluded — phases never change implicitly.
             const includeIds = new Set(includedPhases.map((p) => p.id))
             onConfirm(target as ProjPrimaryStatus, {
               excludedPhaseIds: cascading ? phases.filter((p) => !includeIds.has(p.id)).map((p) => p.id) : undefined,
               launchId: target === "Launch" ? selLaunch?.id : leavingLaunch ? activeLaunch?.id : undefined,
+              closeLaunchId: switchingLaunch ? activeLaunch?.id : undefined,
               startDate: target === "Launch" ? startDate : undefined,
-              endDate: leavingLaunch ? endDate : undefined,
-              launchTo: leavingLaunch ? launchTo : undefined,
+              endDate: leavingLaunch || switchingLaunch || phaseLaunchClose ? endDate : undefined,
+              launchTo: leavingLaunch || switchingLaunch || phaseLaunchClose ? launchTo : undefined,
             })
           }}>
-            {target === "" ? "Change" : `Change to ${target}`}
+            {target === "" ? "Change" : rerun ? "Re-run checks & cascade" : `Change to ${target}`}
           </Button>
         </DialogFooter>
 
