@@ -6,6 +6,8 @@ import { ProjectsPage } from "@/components/projects-list-page"
 import { ComingSoon } from "@/components/coming-soon"
 import { TestingPlayground } from "@/components/testing-playground"
 import { ValidationRulesPage } from "@/components/validation-rules-page"
+import { DataIssuesPage } from "@/components/data-issues-page"
+import { QualityConfigurationsPage } from "@/components/quality-configurations-page"
 import { LaunchesPage } from "@/components/launches-page"
 import { SoldUnitsPage } from "@/components/sold-units-page"
 import { AuditLogsPage } from "@/components/audit-logs-page"
@@ -96,6 +98,10 @@ export function AppShell() {
         return <PropertiesConfigurationsPage />
       case "Validation Rules":
         return <ValidationRulesPage />
+      case "Data Issues":
+        return <DataIssuesPage />
+      case "Quality Configurations":
+        return <QualityConfigurationsPage />
       case "Sold Units":
         return <SoldUnitsPage />
       case "Audit Logs":
