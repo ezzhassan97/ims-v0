@@ -1641,6 +1641,8 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
   /** Leaving Launch: the active launch defaults to Closed (end date mandatory); Inactive needs no end date. */
   const [launchTo, setLaunchTo] = useState<"Closed" | "Inactive">("Closed")
   const [hideAvailable, setHideAvailable] = useState(false)
+  /** On-Hold primary UNITS follow the transition (→ Sold-Off, or Sold-Off → On-Sale) — opt-out, ticked by default. */
+  const [holdUnits, setHoldUnits] = useState(true)
   const [drawerLaunch, setDrawerLaunch] = useState<Launch | null>(null)
   const mainRow = main ?? ((r.isPhase || r.isSubProject) && r.mainProject ? PROJECTS.find((x) => x.id === r.mainProject!.id) : undefined)
 
@@ -1681,6 +1683,7 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
   const pickTarget = (s: ProjPrimaryStatus) => {
     setTarget(s)
     setHideAvailable(false)
+    setHoldUnits(true)
     // Opt-out cascades pre-tick the Launch / On-Sale phases only — On-Hold rows under
     // a Sold-Off destination and all opt-in recoveries start unticked.
     setSelectedPhases(phaseModeFor(s) === "optout"
@@ -1772,11 +1775,18 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
     if (s.launchAll > 0) out.push({ label: "Launch Properties", countText: props(s.launchAll), listing: "Hidden" })
     if (to === "On-Sale") {
       if (from === "On-Hold") holdRecovery("Published")
-      else pubMatched() // from Launch, Sold-Off ("if any") and the On-Sale re-run
+      else {
+        pubMatched() // from Launch, Sold-Off ("if any") and the On-Sale re-run
+        // Sold-Off → On-Sale also recovers the On-Hold units unless opted out
+        if (from === "Sold-Off" && holdUnits) holdRecovery("Published")
+      }
     } else {
       const sale = to === "On-Hold" ? "Hold" : "Sold-Off"
       if (s.paG > 0 || s.paD > 0) out.push({ label: "Available Primary Automatic", countText: paText(s.paG, s.paD), sale, listing: "Hidden" })
       if (s.pmG > 0) out.push({ label: "Available Primary Manual", countText: props(s.pmG), sale, listing: "Hidden" })
+      // Any → Sold-Off also takes the On-Hold units to Sold-Off unless opted out
+      if (to === "Sold-Off" && holdUnits && (s.onHoldG > 0 || s.onHoldD > 0))
+        out.push({ label: "On-Hold Primary Properties", countText: paText(s.onHoldG, s.onHoldD), sale: "Sold-Off", listing: "Hidden" })
     }
     return out
   }
@@ -2010,6 +2020,30 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
             {hideAvailable && (
               <span className="ml-auto inline-flex shrink-0 items-center rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-600">Hidden</span>
             )}
+          </label>
+        )}
+
+        {/* On-Hold primary units follow the transition — opt-out, ticked by default */}
+        {(target === "Sold-Off" || (from === "Sold-Off" && target === "On-Sale")) && (
+          <label className={cn(
+            "flex cursor-pointer items-center gap-2.5 rounded-lg border p-3 transition-colors",
+            holdUnits ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-muted-foreground/40",
+          )}>
+            <Checkbox checked={holdUnits} onCheckedChange={() => setHoldUnits((v) => !v)} className="h-4 w-4" />
+            <Repeat className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 text-xs font-medium text-foreground">
+              <span className="flex flex-wrap items-center gap-1.5">
+                Change Primary units
+                <Tag value="On-Hold" cls={PRIMARY_COLORS["On-Hold"]} />
+                <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                {holdUnits
+                  ? <Tag value={target === "Sold-Off" ? "Sold-Off" : "On-Sale"} cls={PRIMARY_COLORS[target === "Sold-Off" ? "Sold-Off" : "On-Sale"]} />
+                  : <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unchanged</span>}
+              </span>
+              <span className="block text-[11px] font-normal text-muted-foreground">
+                {paText(sums(scope).onHoldG, sums(scope).onHoldD)} currently On-Hold
+              </span>
+            </span>
           </label>
         )}
 
