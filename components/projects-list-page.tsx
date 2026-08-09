@@ -1825,6 +1825,16 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
           </div>
         </div>
 
+        {/* Phase going Launch/On-Sale under a closed parent — heads-up only, never blocking */}
+        {r.isPhase && !r.isSubProject && (target === "Launch" || target === "On-Sale") && mainRow
+          && (mainRow.primaryStatus === "On-Hold" || mainRow.primaryStatus === "Sold-Off") && (
+          <div className="flex flex-wrap items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+            <span>The parent project <span className="font-semibold">{mainRow.name}</span> is currently</span>
+            <Tag value={mainRow.primaryStatus} cls={PRIMARY_COLORS[mainRow.primaryStatus]} />
+            <span>— you will need to update the main project's primary status accordingly.</span>
+          </div>
+        )}
+
         {/* Launch linkage — picker (into Launch) or the active launch being closed (out of Launch) */}
         {target === "Launch" && (
           linkedLaunches.length === 0 ? (
