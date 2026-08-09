@@ -1435,7 +1435,14 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: Launch; pro
     <Sheet open onOpenChange={(o) => { if (!o) onClose() }}>
       <SheetContent side="right" className="!w-[520px] !max-w-[95vw] p-0 flex flex-col">
         <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
-          <SheetTitle className="flex items-center gap-2 text-base">{launchLabel(launch)} <IdTag value={launch.id} /></SheetTitle>
+          <span
+            role="button" title="Open launch details page in a new tab"
+            onClick={() => window.open(`/launches/${launch.id}`, "_blank", "noopener,noreferrer")}
+            className="absolute right-12 top-2.5 inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </span>
+          <SheetTitle className="flex items-center gap-2 pr-14 text-base">{launchLabel(launch)} <IdTag value={launch.id} /></SheetTitle>
           <SheetDescription className="flex items-center gap-1.5 text-xs">
             <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[launch.type])}>{launch.type}</span>
             <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[launch.launchStatus])}>{launch.launchStatus}</span>
@@ -1445,24 +1452,24 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: Launch; pro
           {/* Project details — same sectioned layout as the ingestion summary */}
           <div className="rounded-lg border border-border">
             <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project Details</p>
-            <div className="grid grid-cols-3 gap-x-6 gap-y-3 px-4 py-3 text-sm">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 px-4 py-3 text-sm">
               {cell("Developer", nameId(project.developer.name, project.developer.id))}
               {cell("Project", nameId(mainName, mainId))}
               {launch.phase
                 ? cell("Phase", nameId(project.isPhase ? project.name : launch.phase, project.isPhase ? project.id : mainId))
                 : cell("Phase", "—")}
               {cell("Area", project.area)}
-              {cell("Type", launch.type)}
+              {cell("Type", <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[launch.type])}>{launch.type}</span>)}
             </div>
           </div>
 
           {/* Launch details — start/end, EOIs, source, incentives, taskeen, released offerings, contacts, created/updated */}
           <div className="rounded-lg border border-border">
             <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Launch Details</p>
-            <div className="grid grid-cols-3 gap-x-6 gap-y-3 px-4 py-3 text-sm">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 px-4 py-3 text-sm">
               {cell("Start Date", fmtDay(launch.startDate))}
               {cell("End Date", fmtDay(launch.endDate))}
-              <div className="col-span-3 space-y-0.5">
+              <div className="col-span-2 space-y-0.5">
                 {subLabel("EOIs")}
                 <p className="text-sm font-medium text-foreground">General: {launch.eoiAmount ? fmtEgp(launch.eoiAmount) : "—"}</p>
                 {(launch.eoiByType ?? []).length > 0 && (
@@ -1471,18 +1478,31 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: Launch; pro
                   </p>
                 )}
               </div>
-              {cell("Source", launch.source)}
-              <div className="col-span-3">
+              {cell("Source", (
+                <span className={cn(
+                  "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
+                  launch.source === "WhatsApp" ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-border bg-white text-gray-700",
+                )}>{launch.source}</span>
+              ))}
+              {/* Incentives — mirrors the Launch Incentives tab: broker commission + notes */}
+              <div className="col-span-2">
                 {subLabel("Incentives")}
-                {(launch.incentives ?? []).length > 0 ? (
-                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-sm font-medium text-foreground">
-                    {(launch.incentives ?? []).map((inc) => <li key={inc}>{inc}</li>)}
-                  </ul>
+                {launch.incentives ? (
+                  <>
+                    <p className="text-sm font-medium text-foreground">
+                      Broker Commission: {launch.incentives.commissionType === "percentage"
+                        ? `${launch.incentives.commissionValue}%`
+                        : `${Number(launch.incentives.commissionValue).toLocaleString("en-US")} EGP`}
+                    </p>
+                    {launch.incentives.brokerNotes && (
+                      <p className="text-xs text-muted-foreground">{launch.incentives.brokerNotes}</p>
+                    )}
+                  </>
                 ) : (
                   <p className="text-sm font-medium text-foreground">—</p>
                 )}
               </div>
-              <div className="col-span-3">
+              <div className="col-span-2">
                 {subLabel("Taskeen Info")}
                 {(launch.taskeen ?? []).length > 0 ? (
                   <div className="mt-0.5 space-y-0.5">
@@ -1497,7 +1517,7 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: Launch; pro
                   <p className="text-sm font-medium text-foreground">—</p>
                 )}
               </div>
-              <div className="col-span-3">
+              <div className="col-span-2">
                 {subLabel("Released Offerings")}
                 {launch.released ? (
                   <>
@@ -1512,7 +1532,7 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: Launch; pro
                   <p className="text-sm font-medium text-foreground">—</p>
                 )}
               </div>
-              <div className="col-span-3">
+              <div className="col-span-2">
                 {subLabel("Contacts")}
                 {(launch.contacts ?? []).length > 0 ? (
                   <div className="mt-0.5 space-y-0.5">

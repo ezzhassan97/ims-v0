@@ -50,7 +50,8 @@ export interface Launch {
   endDate?: string
   plans: { name: string; planType: string; dp: string; duration: string }[]
   offerings: { name: string; propertyType: string; grossAreaRange: string; priceRange: string }[]
-  incentives?: string[]
+  /** Mirrors the Launch Incentives tab — broker/agent commission + notes. */
+  incentives?: { commissionType: "percentage" | "amount"; commissionValue: string; brokerNotes?: string }
   /** Taskeen (allocation) days — same shape as the launch details page editor. */
   taskeen?: { date: string; types: string[]; address: string }[]
   /** Released offerings metadata — counts only, no unit records. */
@@ -71,11 +72,11 @@ export interface Launch {
 const LOGO = "/placeholder.svg?height=32&width=32"
 const COVER = "/placeholder.svg?height=200&width=300"
 
-const INCENTIVE_POOL = [
-  "5% discount on the down payment for launch EOIs",
-  "Free clubhouse membership for 2 years",
-  "Guaranteed unit allocation for the first 50 EOIs",
-  "1-year free maintenance on all launch units",
+const BROKER_NOTES = [
+  "Extra 0.5% for the first 10 contracted units.",
+  "Commission paid on contract signature, not on EOI.",
+  "Double commission on penthouse units during launch week.",
+  "",
 ]
 const CONTACT_POOL = [
   { name: "Ahmed Samir", phone: "+20 100 123 4567" },
@@ -160,8 +161,12 @@ function seedForProject(r: ProjectRow): Launch[] {
       ].slice(0, 1 + ((seed + i) % 2)),
       offerings,
       incentives: type === "Launch"
-        ? Array.from({ length: 1 + ((seed + i) % 3) }, (_, k) => INCENTIVE_POOL[(seed + i + k) % INCENTIVE_POOL.length])
-        : [],
+        ? {
+            commissionType: (seed + i) % 2 === 0 ? ("percentage" as const) : ("amount" as const),
+            commissionValue: (seed + i) % 2 === 0 ? `${2 + ((seed + i) % 4)}` : `${(1 + ((seed + i) % 6)) * 25_000}`,
+            brokerNotes: BROKER_NOTES[(seed + i) % BROKER_NOTES.length] || undefined,
+          }
+        : undefined,
       taskeen: type === "Launch"
         ? Array.from({ length: 1 + ((seed + i) % 2) }, (_, k) => ({
             date: `2026-0${3 + (i % 3)}-${String(10 + ((seed + k * 3) % 18)).padStart(2, "0")}`,
