@@ -156,11 +156,12 @@ export const navItems: NavItem[] = [
     ],
   },
   {
-    label: "Data Validation",
+    label: "Data Quality",
     icon: <ShieldCheck className="h-4 w-4" />,
     children: [
       { label: "Validation Rules", icon: <ShieldCheck className="h-4 w-4" /> },
       { label: "Data Issues", icon: <AlertTriangle className="h-4 w-4" /> },
+      { label: "Quality Configurations", icon: <SlidersHorizontal className="h-4 w-4" /> },
     ],
   },
   {

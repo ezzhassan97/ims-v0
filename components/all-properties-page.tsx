@@ -2559,12 +2559,13 @@ export function PropertyDetailTab({
   )
 }
 
-function ViewPropertyDrawer({
+export function ViewPropertyDrawer({
   row,
   defaultTab,
   onClose,
   onUpdateRow,
   editableTabs = [],
+  highlightField,
 }: {
   row: PropertyRow | null
   defaultTab: string
@@ -2572,6 +2573,8 @@ function ViewPropertyDrawer({
   onUpdateRow: (id: string, updates: Partial<PropertyRow>) => void
   // Shared-panel tab ids that should be editable (default: all read-only)
   editableTabs?: string[]
+  /** Field label to highlight (Data Issues: the field the issue was reported on). */
+  highlightField?: string
 }) {
   const [activeTab, setActiveTab] = useState(defaultTab)
   const [amenityDraft, setAmenityDraft] = useState<string[]>([])
@@ -2612,9 +2615,14 @@ function ViewPropertyDrawer({
   ]
 
   function Field({ label, value, span = 1 }: { label: string; value: React.ReactNode; span?: 1 | 2 }) {
+    const highlighted = !!highlightField && label === highlightField
     return (
-      <div className={cn("space-y-0.5", span === 2 && "col-span-2")}>
-        <dt className="text-[11px] font-medium text-muted-foreground">{label}</dt>
+      <div className={cn("space-y-0.5", span === 2 && "col-span-2", highlighted && "-mx-2 -my-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5")}>
+        <dt className={cn("text-[11px] font-medium text-muted-foreground", highlighted && "flex items-center gap-1 text-amber-700")}>
+          {highlighted && <AlertTriangle className="h-3 w-3" />}
+          {label}
+          {highlighted && <span className="ml-auto rounded-md border border-amber-300 bg-amber-100 px-1.5 py-px text-[10px] font-semibold text-amber-700">Reported issue</span>}
+        </dt>
         <dd className="text-sm text-foreground">{value ?? <span className="text-muted-foreground">—</span>}</dd>
       </div>
     )
