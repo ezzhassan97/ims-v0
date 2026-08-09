@@ -22,7 +22,7 @@ import {
   type SortLevel, type ProjectTreeSelection, type AreaPick,
 } from "@/components/table-kit"
 import { ProjectDetails } from "@/components/projects-page"
-import { useLaunches, launchesForProject, launchPropsOf, isIngestedLaunch, launchLabel, eoiRangeText, activateLaunch, closeLaunch, useProjectPrimaryVersion, type Launch } from "@/lib/launches-mock"
+import { useLaunches, launchesForProject, launchPropsOf, isIngestedLaunch, launchLabel, eoiRangeText, activateLaunch, closeLaunch, setProjectPrimary, useProjectPrimaryVersion, type Launch } from "@/lib/launches-mock"
 import {
   PROJECTS, PROJECT_DEVELOPERS, AREAS, DISTRICTS, SUBAREAS, AREA_TREE,
   type ProjectRow, type ProjListingStatus, type ProjPrimaryStatus, type ProjEntryType, type ProjOrg,
@@ -319,6 +319,12 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         opts.launchTo,
       )
     }
+    // Persist onto the shared PROJECTS rows too — local table state resets on
+    // navigation while the launch store doesn't, and the two must not disagree.
+    rows.forEach((x) => {
+      const hit = x.id === r.id || (!r.isPhase && x.isPhase && x.mainProject?.id === r.id)
+      if (hit && !excluded.has(x.id)) setProjectPrimary(x.id, next)
+    })
     setRows((rs) => rs.map((x) => {
       const hit = x.id === r.id || (!r.isPhase && x.isPhase && x.mainProject?.id === r.id)
       return hit && !excluded.has(x.id) ? { ...x, primaryStatus: next } : x
@@ -2021,13 +2027,18 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
 
         <DialogFooter className="shrink-0 border-t border-border px-6 py-4">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={!canSave} onClick={() => onConfirm(target as ProjPrimaryStatus, {
-              excludedPhaseIds: selectable ? eligiblePhases.filter((p) => !selectedPhases.has(p.id)).map((p) => p.id) : undefined,
+          <Button size="sm" disabled={!canSave} onClick={() => {
+            // Everything not explicitly included is excluded — info-mode listings and
+            // non-eligible phases (e.g. Launch phases under the from-Launch split) never change.
+            const includeIds = new Set(includedPhases.map((p) => p.id))
+            onConfirm(target as ProjPrimaryStatus, {
+              excludedPhaseIds: cascading ? phases.filter((p) => !includeIds.has(p.id)).map((p) => p.id) : undefined,
               launchId: target === "Launch" ? selLaunch?.id : leavingLaunch ? activeLaunch?.id : undefined,
               startDate: target === "Launch" ? startDate : undefined,
               endDate: leavingLaunch ? endDate : undefined,
               launchTo: leavingLaunch ? launchTo : undefined,
-            })}>
+            })
+          }}>
             {target === "" ? "Change" : `Change to ${target}`}
           </Button>
         </DialogFooter>

@@ -109,7 +109,9 @@ function seedForProject(r: ProjectRow): Launch[] {
   const projectNameEn = r.isPhase ? r.mainProject?.name ?? r.name : r.name
   return Array.from({ length: n }, (_, i) => {
     // The active launch driving a Launch primary status is always of type "Launch".
-    const type: Launch["type"] = isLaunch && i === 0 ? "Launch" : (seed + i) % 3 === 2 ? "Release" : "Launch"
+    // Non-Launch projects only get the occasional Release, so some rows carry TWO
+    // ingested type="Launch" launches — the multi-option activate picker stays visible.
+    const type: Launch["type"] = isLaunch ? "Launch" : (seed + i) % 4 === 2 ? "Release" : "Launch"
     // EOI amounts are reservation fees — 50,000 to 1,000,000 EGP. Releases collect none.
     const eoi = type === "Launch" ? (1 + ((seed * 7 + i * 31) % 20)) * 50_000 : undefined
     const differsByType = eoi ? (seed + i) % 2 === 0 : false
