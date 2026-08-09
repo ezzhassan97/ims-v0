@@ -1784,7 +1784,7 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
         {target === "Launch" && (
           linkedLaunches.length === 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
-              No launch is linked to this {r.isPhase ? "phase" : "project"} — create and ingest a launch from the Launches flow to be able to set it to <span className="font-semibold">Launch</span>.
+              No launch was ingested for this {r.isPhase ? "phase" : "project"} — create and ingest a launch from the <span className="font-semibold">Launches</span> flow, then activate it from here.
             </div>
           ) : (
             <div className="space-y-1.5">
