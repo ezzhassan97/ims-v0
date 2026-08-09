@@ -1779,6 +1779,7 @@ export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
               <IdTag value={r.id} />
               <Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} />
               <Tag value={r.entryType} cls={ENTRY_COLORS[r.entryType]} />
+              <Tag value={r.primaryStatus} cls={PRIMARY_COLORS[r.primaryStatus]} />
             </div>
             {(r.isPhase || r.isSubProject) && r.mainProject && (
               <div className="flex flex-wrap items-center gap-1.5">
