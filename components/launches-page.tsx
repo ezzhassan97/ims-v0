@@ -171,7 +171,7 @@ const EMPTY_FORM: Omit<Launch, "id" | "createdAt" | "updatedAt"> = {
   approvalStatus: "Pending Review",
   ingestionStatus: "Not Ingested",
   listingStatus: "Hidden",
-  launchStatus: "Upcoming",
+  launchStatus: "Inactive",
   type: "Launch",
   source: "Manual",
   listingCompletion: 0,
@@ -221,7 +221,7 @@ const INGESTION_TONE: Record<Launch["ingestionStatus"], keyof typeof CHIP_TONES>
   "Ingested": "green", "Not Ingested": "grey",
 }
 const LAUNCH_STATUS_TONE: Record<Launch["launchStatus"], keyof typeof CHIP_TONES> = {
-  "Active": "green", "Upcoming": "blue", "Closed": "redSoft",
+  "Active": "green", "Inactive": "grey", "Closed": "redSoft",
 }
 
 /** Canonical launches timestamp format: "10 Jan 2024, 07:00 AM". */
@@ -755,7 +755,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     approved: allTabRows.filter((l) => l.approvalStatus === "Approved").length,
     listed: allTabRows.filter((l) => l.listingStatus === "Active").length,
     active: allTabRows.filter((l) => l.launchStatus === "Active").length,
-    upcoming: allTabRows.filter((l) => l.launchStatus === "Upcoming").length,
+    inactive: allTabRows.filter((l) => l.launchStatus === "Inactive").length,
   }
   const pendingCount = launches.filter((l) => l.approvalStatus === "Pending Review").length
 
@@ -1337,7 +1337,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           <FilterSelect label="Already Created" value={alreadyCreatedF === "all" ? "" : alreadyCreatedF} options={["Existing", "New"]} onChange={(v) => { setAlreadyCreatedF(v || "all"); setPage(1) }} className="w-40" />
           <FilterSelect label="AI Updates" value={aiUpdatesF === "all" ? "" : aiUpdatesF} options={["New update"]} onChange={(v) => { setAiUpdatesF(v || "all"); setPage(1) }} className="w-36" />
           {tab !== "active" && (
-            <FilterSelect label="Launch Status" value={launchStatusF === "all" ? "" : launchStatusF} options={["Upcoming", "Active", "Closed"]} onChange={(v) => { setLaunchStatusF(v || "all"); setPage(1) }} className="w-38" />
+            <FilterSelect label="Launch Status" value={launchStatusF === "all" ? "" : launchStatusF} options={["Inactive", "Active", "Closed"]} onChange={(v) => { setLaunchStatusF(v || "all"); setPage(1) }} className="w-38" />
           )}
           {!scoped && tab !== "pending" && (
             <FilterSelect label="Approval" value={approvalF === "all" ? "" : approvalF} options={["Pending Review", "Approved", "Rejected"]} onChange={(v) => { setApprovalF(v || "all"); setPage(1) }} className="w-36" />
@@ -1424,7 +1424,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
               { label: "Approved", value: stats.approved, icon: CheckCircle, color: "green" },
               { label: "Listed (Active)", value: stats.listed, icon: ListChecks, color: "purple" },
               { label: "Active Launch", value: stats.active, icon: Activity, color: "emerald" },
-              { label: "Upcoming", value: stats.upcoming, icon: XCircle, color: "gray" },
+              { label: "Inactive", value: stats.inactive, icon: XCircle, color: "gray" },
             ].map(({ label, value, icon: Icon, color }) => (
               <Card key={label} className="p-4">
                 <div className="flex items-center gap-3">
@@ -1541,7 +1541,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
             {tab !== "active" && (
               <div className="space-y-1.5">
                 <p className="text-xs font-medium text-foreground">Launch Status</p>
-                <FilterSelect label="Launch Status" value={launchStatusF === "all" ? "" : launchStatusF} options={["Upcoming", "Active", "Closed"]} onChange={(v) => { setLaunchStatusF(v || "all"); setPage(1) }} className="w-full" />
+                <FilterSelect label="Launch Status" value={launchStatusF === "all" ? "" : launchStatusF} options={["Inactive", "Active", "Closed"]} onChange={(v) => { setLaunchStatusF(v || "all"); setPage(1) }} className="w-full" />
               </div>
             )}
             {!scoped && tab !== "pending" && (

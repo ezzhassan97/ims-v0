@@ -308,12 +308,16 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       return hit && !excluded.has(x.id) ? { ...x, listingStatus: next } : x
     }))
   }
-  const applyPrimary = (r: ProjectRow, next: ProjPrimaryStatus, opts?: { excludedPhaseIds?: string[]; launchId?: string; startDate?: string; endDate?: string }) => {
+  const applyPrimary = (r: ProjectRow, next: ProjPrimaryStatus, opts?: { excludedPhaseIds?: string[]; launchId?: string; startDate?: string; endDate?: string; launchTo?: "Closed" | "Inactive" }) => {
     const excluded = new Set(opts?.excludedPhaseIds ?? [])
-    // Entering Launch activates the chosen launch; leaving it closes the active one.
+    // Entering Launch activates the chosen launch; leaving it closes (or deactivates) the active one.
     if (opts?.launchId) {
       if (next === "Launch") activateLaunch(opts.launchId, opts.startDate || new Date().toISOString().slice(0, 10))
-      else closeLaunch(opts.launchId, opts.endDate || new Date().toISOString().slice(0, 10))
+      else closeLaunch(
+        opts.launchId,
+        opts.endDate || (opts.launchTo === "Inactive" ? undefined : new Date().toISOString().slice(0, 10)),
+        opts.launchTo,
+      )
     }
     setRows((rs) => rs.map((x) => {
       const hit = x.id === r.id || (!r.isPhase && x.isPhase && x.mainProject?.id === r.id)
@@ -926,6 +930,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           <PrimaryStatusDialog
             r={primaryDlg}
             phases={phasesOf(primaryDlg)}
+            main={primaryDlg.mainProject ? rows.find((x) => x.id === primaryDlg.mainProject!.id) : undefined}
             onClose={() => setPrimaryDlg(null)}
             onConfirm={(next, opts) => {
               applyPrimary(primaryDlg, next, opts)
@@ -1341,7 +1346,7 @@ const LAUNCH_TYPE_TONE: Record<Launch["type"], string> = {
 }
 const LAUNCH_STATUS_TONE: Record<Launch["launchStatus"], string> = {
   Active: "border-emerald-200 bg-emerald-100 text-emerald-700",
-  Upcoming: "border-blue-200 bg-blue-50 text-blue-700",
+  Inactive: "border-gray-200 bg-gray-100 text-gray-600",
   Closed: "border-red-200 bg-red-50 text-red-600",
 }
 const fmtEgp = (n: number) => `${n.toLocaleString("en-US")} EGP`
@@ -1364,14 +1369,14 @@ function LaunchRow({ l, radio, selected, onSelect, onView, topBorder }: {
             {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
           </span>
         )}
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">{launchLabel(l)}</p>
           <IdTag value={l.id} />
         </div>
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground"><span className="font-semibold text-foreground">{launchPropsOf(l)}</span> Properties</span>
         <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[l.type])}>{l.type}</span>
         <span className={cn("inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[l.launchStatus])}>
-          {l.launchStatus === "Active" ? "Currently active" : l.launchStatus}
+          {l.launchStatus}
         </span>
         <span
           role="button" title="View launch details"
@@ -1410,6 +1415,16 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: Launch; pro
   const cell = (label: string, value: React.ReactNode) => (
     <div><p className="text-[10px] uppercase text-muted-foreground">{label}</p><div className="text-sm font-medium text-foreground">{value}</div></div>
   )
+  /** Name with its id as a caption underneath. */
+  const nameId = (name: string, id: string) => (
+    <><div>{name}</div><IdTag value={id} /></>
+  )
+  const subLabel = (label: string) => (
+    <p className="text-[10px] uppercase text-muted-foreground">{label}</p>
+  )
+  const fmtDay = (s?: string) => (s ? fmtDateTime(`${s}T00:00:00Z`).split(",")[0] : "—")
+  const mainName = project.mainProject?.name ?? project.name
+  const mainId = project.mainProject?.id ?? project.id
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose() }}>
       <SheetContent side="right" className="!w-[520px] !max-w-[95vw] p-0 flex flex-col">
@@ -1418,52 +1433,95 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: Launch; pro
           <SheetDescription className="flex items-center gap-1.5 text-xs">
             <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_TYPE_TONE[launch.type])}>{launch.type}</span>
             <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[launch.launchStatus])}>{launch.launchStatus}</span>
-            <span className="inline-flex items-center rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{launch.source}</span>
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
           {/* Project details — same sectioned layout as the ingestion summary */}
           <div className="rounded-lg border border-border">
             <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project Details</p>
-            <div className="grid grid-cols-3 gap-x-6 gap-y-2 px-4 py-3 text-sm">
-              {cell("Developer", launch && project.developer.name)}
-              {cell(project.isPhase ? "Phase" : "Project", project.name)}
+            <div className="grid grid-cols-3 gap-x-6 gap-y-3 px-4 py-3 text-sm">
+              {cell("Developer", nameId(project.developer.name, project.developer.id))}
+              {cell("Project", nameId(mainName, mainId))}
+              {launch.phase
+                ? cell("Phase", nameId(project.isPhase ? project.name : launch.phase, project.isPhase ? project.id : mainId))
+                : cell("Phase", "—")}
               {cell("Area", project.area)}
-              {cell("Level", project.isPhase ? "Phase" : "Main Project")}
-              {cell("Listing Status", <Tag value={project.listingStatus} cls={LISTING_COLORS[project.listingStatus]} />)}
               {cell("Type", launch.type)}
             </div>
           </div>
 
-          {/* Launch details */}
+          {/* Launch details — start/end, EOIs, source, incentives, taskeen, released offerings, contacts, created/updated */}
           <div className="rounded-lg border border-border">
             <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Launch Details</p>
-            <div className="grid grid-cols-3 gap-x-6 gap-y-2 px-4 py-3 text-sm">
-              {cell("General EOI", launch.eoiAmount ? fmtEgp(launch.eoiAmount) : "—")}
-              {cell("Start Date", launch.startDate || "—")}
-              {cell("End Date", launch.endDate || "—")}
-              <div className="col-span-3">
-                <p className="text-[10px] uppercase text-muted-foreground">EOI by Property Type</p>
-                <p className="text-sm font-medium text-foreground">
-                  {(launch.eoiByType ?? []).length > 0
-                    ? (launch.eoiByType ?? []).map((e) => `${e.type}: ${fmtEgp(e.amount)}`).join(" · ")
-                    : "—"}
-                </p>
+            <div className="grid grid-cols-3 gap-x-6 gap-y-3 px-4 py-3 text-sm">
+              {cell("Start Date", fmtDay(launch.startDate))}
+              {cell("End Date", fmtDay(launch.endDate))}
+              <div className="col-span-3 space-y-0.5">
+                {subLabel("EOIs")}
+                <p className="text-sm font-medium text-foreground">General: {launch.eoiAmount ? fmtEgp(launch.eoiAmount) : "—"}</p>
+                {(launch.eoiByType ?? []).length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {(launch.eoiByType ?? []).map((e) => `${e.type}: ${fmtEgp(e.amount)}`).join(" · ")}
+                  </p>
+                )}
               </div>
-            </div>
-          </div>
-
-          {/* Payment plans */}
-          <div className="rounded-lg border border-border">
-            <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment Plans ({launch.plans.length})</p>
-            <div className="divide-y divide-border">
-              {launch.plans.map((p) => (
-                <div key={p.name} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
-                  <span className="font-medium">{p.name}</span>
-                  <span className="text-xs text-muted-foreground">{p.planType} · DP {p.dp} · {p.duration}</span>
-                </div>
-              ))}
-              {launch.plans.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">No payment plans</p>}
+              {cell("Source", launch.source)}
+              <div className="col-span-3">
+                {subLabel("Incentives")}
+                {(launch.incentives ?? []).length > 0 ? (
+                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-sm font-medium text-foreground">
+                    {(launch.incentives ?? []).map((inc) => <li key={inc}>{inc}</li>)}
+                  </ul>
+                ) : (
+                  <p className="text-sm font-medium text-foreground">—</p>
+                )}
+              </div>
+              <div className="col-span-3">
+                {subLabel("Taskeen Info")}
+                {(launch.taskeen ?? []).length > 0 ? (
+                  <div className="mt-0.5 space-y-0.5">
+                    {(launch.taskeen ?? []).map((d, i) => (
+                      <p key={i} className="text-sm font-medium text-foreground">
+                        {fmtDay(d.date)}
+                        <span className="font-normal text-muted-foreground"> · {d.types.join(", ")} · {d.address}</span>
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm font-medium text-foreground">—</p>
+                )}
+              </div>
+              <div className="col-span-3">
+                {subLabel("Released Offerings")}
+                {launch.released ? (
+                  <>
+                    <p className="text-sm font-medium text-foreground">
+                      {launch.released.units} Units · {launch.released.buildings} Buildings
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {launch.released.byType.map((t) => `${t.type}: ${t.units} units`).join(" · ")}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm font-medium text-foreground">—</p>
+                )}
+              </div>
+              <div className="col-span-3">
+                {subLabel("Contacts")}
+                {(launch.contacts ?? []).length > 0 ? (
+                  <div className="mt-0.5 space-y-0.5">
+                    {(launch.contacts ?? []).map((c) => (
+                      <p key={c.phone} className="text-sm font-medium text-foreground">
+                        {c.name} <span className="font-normal tabular-nums text-muted-foreground">· {c.phone}</span>
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm font-medium text-foreground">—</p>
+                )}
+              </div>
+              {cell("Created At", fmtDateTime(launch.createdAt))}
+              {cell("Updated At", fmtDateTime(launch.updatedAt))}
             </div>
           </div>
 
@@ -1478,6 +1536,20 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: Launch; pro
                 </div>
               ))}
               {launch.offerings.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">No property offerings</p>}
+            </div>
+          </div>
+
+          {/* Payment plans */}
+          <div className="rounded-lg border border-border">
+            <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment Plans ({launch.plans.length})</p>
+            <div className="divide-y divide-border">
+              {launch.plans.map((p) => (
+                <div key={p.name} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+                  <span className="font-medium">{p.name}</span>
+                  <span className="text-xs text-muted-foreground">{p.planType} · DP {p.dp} · {p.duration}</span>
+                </div>
+              ))}
+              {launch.plans.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">No payment plans</p>}
             </div>
           </div>
         </div>
@@ -1497,12 +1569,14 @@ function LaunchSummaryDrawer({ launch, project, onClose }: { launch: Launch; pro
  *    Primary properties); Launch and other On-Sale moves list phases for
  *    awareness only.
  */
-export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: {
+export function PrimaryStatusDialog({ r, phases, main, onClose, onConfirm }: {
   r: ProjectRow
   phases: ProjectRow[]
+  /** Live parent row when r is a phase/sub-project — falls back to the PROJECTS seed. */
+  main?: ProjectRow
   onClose: () => void
   /** `opts` carries the launch the move activates or closes, so the launch record follows. */
-  onConfirm: (s: ProjPrimaryStatus, opts?: { excludedPhaseIds?: string[]; launchId?: string; startDate?: string; endDate?: string }) => void
+  onConfirm: (s: ProjPrimaryStatus, opts?: { excludedPhaseIds?: string[]; launchId?: string; startDate?: string; endDate?: string; launchTo?: "Closed" | "Inactive" }) => void
 }) {
   const from = r.primaryStatus
   // Only ingested launches of type "Launch" drive primary status — Releases never show here.
@@ -1517,8 +1591,11 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: {
   const [selLaunchId, setSelLaunchId] = useState("")
   const [startDate, setStartDate] = useState(activeLaunch?.startDate ?? "")
   const [endDate, setEndDate] = useState(activeLaunch?.endDate ?? "")
+  /** Leaving Launch: the active launch defaults to Closed (end date mandatory); Inactive needs no end date. */
+  const [launchTo, setLaunchTo] = useState<"Closed" | "Inactive">("Closed")
   const [hideAvailable, setHideAvailable] = useState(false)
   const [drawerLaunch, setDrawerLaunch] = useState<Launch | null>(null)
+  const mainRow = main ?? ((r.isPhase || r.isSubProject) && r.mainProject ? PROJECTS.find((x) => x.id === r.mainProject!.id) : undefined)
 
   const cascading = !r.isPhase && phases.length > 0
   // How the phases participate for a given destination
@@ -1560,7 +1637,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: {
   const selLaunch = linkedLaunches.find((l) => l.id === selLaunchId)
   const leavingLaunch = from === "Launch" && target !== "" && target !== "Launch"
   const canSave = target !== ""
-    && (!leavingLaunch || !!endDate)
+    && (!leavingLaunch || launchTo === "Inactive" || !!endDate)
     && (target !== "Launch" || !!selLaunch)
   const minStart = (() => { const d = new Date(); d.setMonth(d.getMonth() - 2); return d.toISOString().slice(0, 10) })()
 
@@ -1645,7 +1722,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-2xl" style={{ maxHeight: "90vh" }}>
+      <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-3xl" style={{ maxHeight: "90vh" }}>
         <DialogHeader className="shrink-0 border-b border-border px-6 py-4"><DialogTitle>Change Primary Status</DialogTitle></DialogHeader>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
@@ -1659,11 +1736,17 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: {
               <Tag value={r.listingStatus} cls={LISTING_COLORS[r.listingStatus]} />
               <Tag value={r.entryType} cls={ENTRY_COLORS[r.entryType]} />
             </div>
-            {r.isPhase && r.mainProject && (
+            {(r.isPhase || r.isSubProject) && r.mainProject && (
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Main project</span>
                 <span className="text-xs font-medium text-foreground">{r.mainProject.name}</span>
                 <IdTag value={r.mainProject.id} />
+                {mainRow && (
+                  <>
+                    <Tag value={mainRow.listingStatus} cls={LISTING_COLORS[mainRow.listingStatus]} />
+                    <Tag value={mainRow.primaryStatus} cls={PRIMARY_COLORS[mainRow.primaryStatus]} />
+                  </>
+                )}
               </div>
             )}
             <div className="flex flex-wrap items-center gap-1.5">
@@ -1723,9 +1806,26 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: {
         )}
         {leavingLaunch && activeLaunch && (
           <div className="space-y-1.5">
-            <p className="text-xs text-muted-foreground">Active {activeLaunch.type.toLowerCase()} that will be closed:</p>
+            <p className="text-xs text-muted-foreground">
+              Active {activeLaunch.type.toLowerCase()} that will be {launchTo === "Inactive" ? "set to Inactive" : "closed"}:
+            </p>
             <div className="rounded-lg border border-border">
               <LaunchRow l={activeLaunch} onView={() => setDrawerLaunch(activeLaunch)} />
+            </div>
+            <p className="pt-1 text-xs font-medium text-foreground">Set the launch status to</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(["Closed", "Inactive"] as const).map((s) => (
+                <button
+                  key={s} type="button" onClick={() => setLaunchTo(s)}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-lg border py-2 transition-colors",
+                    launchTo === s ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+                  )}
+                >
+                  <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LAUNCH_STATUS_TONE[s])}>{s}</span>
+                  <span className="text-[10px] text-muted-foreground">{s === "Closed" ? "default — end date required" : "no end date needed"}</span>
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -1748,13 +1848,20 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: {
                 <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 w-full text-sm" />
               </div>
               <div className="space-y-1">
-                <div className="text-xs font-medium text-foreground">Launch End Date<span className="ml-0.5 text-red-500">*</span></div>
+                <div className="text-xs font-medium text-foreground">
+                  Launch End Date
+                  {launchTo === "Closed"
+                    ? <span className="ml-0.5 text-red-500">*</span>
+                    : <span className="ml-1 font-normal text-muted-foreground">(optional)</span>}
+                </div>
                 <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 w-full text-sm" />
               </div>
             </div>
-            <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
-              The date this launch stopped collecting EOIs — Nawy Sales Portal will be notified to flag EOIs collected after this date.
-            </p>
+            {launchTo === "Closed" && (
+              <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
+                The date this launch stopped collecting EOIs — Nawy Sales Portal will be notified to flag EOIs collected after this date.
+              </p>
+            )}
           </div>
         )}
 
@@ -1919,6 +2026,7 @@ export function PrimaryStatusDialog({ r, phases, onClose, onConfirm }: {
               launchId: target === "Launch" ? selLaunch?.id : leavingLaunch ? activeLaunch?.id : undefined,
               startDate: target === "Launch" ? startDate : undefined,
               endDate: leavingLaunch ? endDate : undefined,
+              launchTo: leavingLaunch ? launchTo : undefined,
             })}>
             {target === "" ? "Change" : `Change to ${target}`}
           </Button>

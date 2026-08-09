@@ -1237,7 +1237,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   const getLaunchStatusBadge = (status: Launch["launchStatus"]) => {
     const map: Record<Launch["launchStatus"], string> = {
       "Active": "bg-emerald-100 text-emerald-700 hover:bg-emerald-100",
-      "Upcoming": "bg-blue-100 text-blue-700 hover:bg-blue-100",
+      "Inactive": "bg-gray-100 text-gray-600 hover:bg-gray-100",
       "Closed": "border border-red-200 bg-red-50 text-red-600 hover:bg-red-50",
     }
     return <Badge className={map[status]}>{status}</Badge>

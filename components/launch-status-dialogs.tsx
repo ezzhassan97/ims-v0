@@ -19,7 +19,7 @@ import { type Launch } from "@/lib/launches-mock"
 
 const LAUNCH_STATUS_TONE: Record<Launch["launchStatus"], string> = {
   Active: "border-emerald-200 bg-emerald-100 text-emerald-700",
-  Upcoming: "border-blue-200 bg-blue-50 text-blue-700",
+  Inactive: "border-gray-200 bg-gray-100 text-gray-600",
   Closed: "border-red-200 bg-red-50 text-red-600",
 }
 

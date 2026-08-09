@@ -32,7 +32,7 @@ export interface Launch {
   /** Already-created project in the system — undefined ⇒ green "New" tag. */
   existingProject?: LaunchRef
   listingProject?: LaunchRef
-  launchStatus: "Upcoming" | "Active" | "Closed"
+  launchStatus: "Inactive" | "Active" | "Closed"
   type: "Launch" | "Release"
   source: "WhatsApp" | "Manual"
   listingCompletion: number
@@ -50,6 +50,12 @@ export interface Launch {
   endDate?: string
   plans: { name: string; planType: string; dp: string; duration: string }[]
   offerings: { name: string; propertyType: string; grossAreaRange: string; priceRange: string }[]
+  incentives?: string[]
+  /** Taskeen (allocation) days — same shape as the launch details page editor. */
+  taskeen?: { date: string; types: string[]; address: string }[]
+  /** Released offerings metadata — counts only, no unit records. */
+  released?: { units: number; buildings: number; byType: { type: string; units: number }[] }
+  contacts?: { name: string; phone: string }[]
   /** Archived launches leave the default tabs but are never destroyed. */
   archived?: boolean
   rejectionReason?: string
@@ -64,6 +70,19 @@ export interface Launch {
 
 const LOGO = "/placeholder.svg?height=32&width=32"
 const COVER = "/placeholder.svg?height=200&width=300"
+
+const INCENTIVE_POOL = [
+  "5% discount on the down payment for launch EOIs",
+  "Free clubhouse membership for 2 years",
+  "Guaranteed unit allocation for the first 50 EOIs",
+  "1-year free maintenance on all launch units",
+]
+const CONTACT_POOL = [
+  { name: "Ahmed Samir", phone: "+20 100 123 4567" },
+  { name: "Sara El Din", phone: "+20 111 234 5678" },
+  { name: "Omar Farouk", phone: "+20 122 345 6789" },
+  { name: "Nour Hassan", phone: "+20 106 456 7890" },
+]
 
 const AREA_ID: Record<string, string> = {
   "New Cairo": "AR-101",
@@ -95,8 +114,13 @@ function seedForProject(r: ProjectRow): Launch[] {
     const eoi = type === "Launch" ? (1 + ((seed * 7 + i * 31) % 20)) * 50_000 : undefined
     const differsByType = eoi ? (seed + i) % 2 === 0 : false
     const launchStatus: Launch["launchStatus"] =
-      isLaunch && i === 0 ? "Active" : (seed + i) % 2 === 0 ? "Upcoming" : "Closed"
+      isLaunch && i === 0 ? "Active" : (seed + i) % 2 === 0 ? "Inactive" : "Closed"
     const day = String(10 + (seed % 18)).padStart(2, "0")
+    const offerings = [
+      { name: "Apartments", propertyType: "Apartment", grossAreaRange: "110–180 SQM", priceRange: `${5 + (seed % 4)}M – ${9 + (seed % 5)}M` },
+      { name: "Villas", propertyType: "Villa", grossAreaRange: "220–340 SQM", priceRange: `${14 + (seed % 5)}M – ${22 + (seed % 6)}M` },
+    ].slice(0, 1 + ((seed + i + 1) % 2))
+    const relByType = offerings.map((o, j) => ({ type: o.propertyType, units: 20 + ((seed + i * 7 + j * 13) % 120) }))
     return {
       id: `LCH-${String(1000 + ((seed * 13 + i * 47) % 8000))}`,
       developer: { name: r.developer.name, logo: LOGO, id: r.developer.id },
@@ -126,16 +150,29 @@ function seedForProject(r: ProjectRow): Launch[] {
         : undefined,
       coverImage: COVER,
       // Only an activated launch has a start date; only a closed one has an end date.
-      startDate: launchStatus === "Upcoming" ? undefined : `2026-0${3 + (i % 3)}-${day}`,
+      startDate: launchStatus === "Inactive" ? undefined : `2026-0${3 + (i % 3)}-${day}`,
       endDate: launchStatus === "Closed" ? `2026-0${5 + (i % 3)}-${day}` : undefined,
       plans: [
         { name: "Standard Plan", planType: "Equal Installments", dp: "10%", duration: `${6 + (seed % 3)} years` },
         { name: "Extended Plan", planType: "Backloaded", dp: "5%", duration: `${8 + (seed % 3)} years` },
       ].slice(0, 1 + ((seed + i) % 2)),
-      offerings: [
-        { name: "Apartments", propertyType: "Apartment", grossAreaRange: "110–180 SQM", priceRange: `${5 + (seed % 4)}M – ${9 + (seed % 5)}M` },
-        { name: "Villas", propertyType: "Villa", grossAreaRange: "220–340 SQM", priceRange: `${14 + (seed % 5)}M – ${22 + (seed % 6)}M` },
-      ].slice(0, 1 + ((seed + i + 1) % 2)),
+      offerings,
+      incentives: type === "Launch"
+        ? Array.from({ length: 1 + ((seed + i) % 3) }, (_, k) => INCENTIVE_POOL[(seed + i + k) % INCENTIVE_POOL.length])
+        : [],
+      taskeen: type === "Launch"
+        ? Array.from({ length: 1 + ((seed + i) % 2) }, (_, k) => ({
+            date: `2026-0${3 + (i % 3)}-${String(10 + ((seed + k * 3) % 18)).padStart(2, "0")}`,
+            types: offerings.map((o) => o.propertyType),
+            address: (seed + i) % 2 === 0 ? "Developer Sales Center — New Cairo" : "Nawy HQ — Sheikh Zayed",
+          }))
+        : undefined,
+      released: {
+        units: relByType.reduce((s, t) => s + t.units, 0),
+        buildings: 2 + ((seed + i) % 9),
+        byType: relByType,
+      },
+      contacts: Array.from({ length: 1 + ((seed + i) % 2) }, (_, k) => CONTACT_POOL[(seed + i + k) % CONTACT_POOL.length]),
       aiUpdates: (seed + i) % 2 === 0 ? { count: 1 + (seed % 4), lastAt: `2026-0${4 + (i % 3)}-${day}T09:00:00` } : undefined,
       ingestedAt: `2026-0${2 + (i % 3)}-${day}T10:30:00`,
       sentAt: `2026-0${2 + (i % 3)}-${day}T07:30:00`,
@@ -169,7 +206,7 @@ function pendingSeed(): Launch[] {
       listingStatus: "Hidden",
       // Matched an existing phase that already has an Active launch → ingestion conflict.
       existingProject: matchedPhase ? { id: matchedPhase.id, name: matchedPhase.name } : undefined,
-      launchStatus: "Upcoming",
+      launchStatus: "Inactive",
       type: "Launch",
       source: "Manual",
       listingCompletion: 45,
@@ -193,7 +230,7 @@ function pendingSeed(): Launch[] {
       ingestionStatus: "Not Ingested",
       listingStatus: "Hidden",
       existingProject: mains[3] ? { id: mains[3].id, name: mains[3].name } : undefined,
-      launchStatus: "Upcoming",
+      launchStatus: "Inactive",
       type: "Release",
       source: "Manual",
       listingCompletion: 0,
@@ -216,7 +253,7 @@ function pendingSeed(): Launch[] {
       approvalStatus: "Pending Review",
       ingestionStatus: "Not Ingested",
       listingStatus: "Hidden",
-      launchStatus: "Upcoming",
+      launchStatus: "Inactive",
       type: "Launch",
       source: "WhatsApp",
       listingCompletion: 60,
@@ -239,7 +276,7 @@ function pendingSeed(): Launch[] {
       approvalStatus: "Rejected",
       ingestionStatus: "Not Ingested",
       listingStatus: "Hidden",
-      launchStatus: "Upcoming",
+      launchStatus: "Inactive",
       type: "Launch",
       source: "Manual",
       listingCompletion: 20,
@@ -262,7 +299,7 @@ function pendingSeed(): Launch[] {
       approvalStatus: "Pending Review",
       ingestionStatus: "Not Ingested",
       listingStatus: "Hidden",
-      launchStatus: "Upcoming",
+      launchStatus: "Inactive",
       type: "Launch",
       source: "WhatsApp",
       listingCompletion: 35,
@@ -356,8 +393,12 @@ export function activateLaunch(id: string, startDate: string): { closedId?: stri
   return { closedId: conflict?.id }
 }
 
-export function closeLaunch(id: string, endDate: string) {
-  patchLaunches([id], { launchStatus: "Closed", endDate })
+/**
+ * Takes a launch out of Active. Default is Closed (end date mandatory in the
+ * dialogs); "Inactive" needs no end date — the launch simply stops running.
+ */
+export function closeLaunch(id: string, endDate?: string, to: "Closed" | "Inactive" = "Closed") {
+  patchLaunches([id], endDate ? { launchStatus: to, endDate } : { launchStatus: to })
 }
 
 /** Every launch linked to a project or phase id. */
