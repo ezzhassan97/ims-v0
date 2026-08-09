@@ -61,6 +61,8 @@ import { Button } from "@/components/ui/button"
 import { TabStrip } from "@/components/table-kit"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { ReportIssueDrawer, RowIssuesBadge } from "@/components/report-issue-drawer"
+import { openIssuesByProperty, type PropertyIssue as QaPropertyIssue } from "@/lib/property-issues-mock"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -622,6 +624,8 @@ function GroupCard({
   onSelect,
   onView,
   detailView = false,
+  issuesByProp = null,
+  onIssuesReported,
 }: {
   group: GroupedProperty
   globalIndex: number
@@ -634,6 +638,9 @@ function GroupCard({
   onView: () => void
   /** When rendered inside the details page: no checkbox, edit instead of view, no expand, no media section */
   detailView?: boolean
+  /** Data quality: open issues per property id — non-null only while Show Issues is on. */
+  issuesByProp?: Map<string, QaPropertyIssue[]> | null
+  onIssuesReported?: () => void
 }) {
   const [descExpanded, setDescExpanded] = useState(false)
   const [descOverflows, setDescOverflows] = useState(false)
@@ -643,6 +650,7 @@ function GroupCard({
   const [financing, setFinancing] = useState(!!group.financingAvailable)
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [ppDrawerOpen, setPpDrawerOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false) // Report an Issue drawer
   const descRef = useRef<HTMLParagraphElement>(null)
   const desc = group.description || ""
   const isAvailable = saleStatus === "Available"
@@ -775,8 +783,28 @@ function GroupCard({
     setDescOverflows(el.scrollHeight > el.clientHeight)
   }, [desc])
 
+  // Data quality — open issues across this card's units (Show Issues toggle)
+  const cardUnits = allRows.slice(globalIndex * 3, globalIndex * 3 + group.details.length)
+  const cardIssues = issuesByProp
+    ? cardUnits.flatMap((u) => issuesByProp.get(u.propertyId) ?? [])
+    : []
+  const cardHasBlocking = cardIssues.some((i) => i.severity === "Blocking")
+  const repRow = cardUnits[0] ?? allRows[globalIndex % Math.max(1, allRows.length)] ?? allRows[0]
+
   return (
-    <div className={cn("rounded-lg border bg-card overflow-hidden relative", isSelected ? "border-primary ring-1 ring-primary/30" : "border-border")}>
+    <div className={cn(
+      "rounded-lg border bg-card overflow-hidden relative",
+      isSelected
+        ? "border-primary ring-1 ring-primary/30"
+        : cardIssues.length > 0
+          ? cardHasBlocking ? "border-red-300 ring-1 ring-red-200" : "border-amber-300 ring-1 ring-amber-200"
+          : "border-border",
+    )}>
+
+      {/* Report an Issue drawer — reports against the group's representative unit */}
+      {reportOpen && repRow && (
+        <ReportIssueDrawer row={repRow} onClose={() => setReportOpen(false)} onSubmitted={() => onIssuesReported?.()} />
+      )}
 
       {/* ── Archive confirmation overlay ── */}
       {confirmArchive && (
@@ -860,6 +888,7 @@ function GroupCard({
 
         {/* Tags — no labels, compact row */}
         <div className="flex flex-1 items-center justify-end gap-2">
+          {cardIssues.length > 0 && <RowIssuesBadge issues={cardIssues} />}
           <Badge variant="outline" className="text-xs font-normal">
             {group.availableUnits} / {group.totalUnits} Available
           </Badge>
@@ -918,6 +947,10 @@ function GroupCard({
                     <DropdownMenuItem onClick={() => setMoveOpen(true)}>
                       <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setReportOpen(true)}>
+                      <AlertTriangle className="h-3.5 w-3.5 mr-2" /> Report an Issue
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </>
@@ -950,6 +983,10 @@ function GroupCard({
                   )}
                   <DropdownMenuItem onClick={() => setMoveOpen(true)}>
                     <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setReportOpen(true)}>
+                    <AlertTriangle className="h-3.5 w-3.5 mr-2" /> Report an Issue
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -2665,6 +2702,7 @@ export function GroupedPropertiesView({
   scopeProjectName,
   onOpenGroupDetail,
   onCreateProperty,
+  showIssues = false,
 }: {
   filters: SharedFilterState
   sortConfigs?: SortConfig[]
@@ -2675,6 +2713,8 @@ export function GroupedPropertiesView({
   scopeProjectName?: string
   onOpenGroupDetail?: (d: GroupDetailPayload) => void
   onCreateProperty?: (v: Variation) => void
+  /** Data quality: badge cards whose units have open issues. */
+  showIssues?: boolean
 }) {
   const [allGroups, setGroups] = useState<GroupedProperty[]>(() => makeGroups())
   const groups = useMemo(() => {
@@ -2694,6 +2734,10 @@ export function GroupedPropertiesView({
 
   const openDetail = (group: GroupedProperty, index: number) =>
     onOpenGroupDetail?.({ group, allRows, index })
+
+  // Data quality — open issues per property id (recomputed after in-session reports)
+  const [issuesVersion, setIssuesVersion] = useState(0)
+  const issuesByProp = useMemo(() => (showIssues ? openIssuesByProperty() : null), [showIssues, issuesVersion])
 
   const filteredGroups = useMemo(() => {
     const query = filters.searchQuery.toLowerCase()
@@ -2851,6 +2895,8 @@ export function GroupedPropertiesView({
                         isSelected={selectedCards.has(group.id)}
                         onSelect={(shiftKey) => handleCardSelect(group.id, globalIndex, shiftKey)}
                         onView={() => openDetail(group, (currentPage - 1) * pageSize + globalIndex)}
+                        issuesByProp={issuesByProp}
+                        onIssuesReported={() => setIssuesVersion((v) => v + 1)}
                       />
                     )
                   })}
@@ -2871,6 +2917,8 @@ export function GroupedPropertiesView({
                 isSelected={selectedCards.has(group.id)}
                 onSelect={(shiftKey) => handleCardSelect(group.id, groupIndex, shiftKey)}
                 onView={() => openDetail(group, globalIndex)}
+                issuesByProp={issuesByProp}
+                onIssuesReported={() => setIssuesVersion((v) => v + 1)}
               />
             )
           })}

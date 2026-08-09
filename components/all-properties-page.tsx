@@ -86,6 +86,8 @@ import { AddMediaDialog } from "@/components/add-media-dialog"
 import { ChooseAssetsDrawer } from "@/components/choose-assets-drawer"
 import { PaymentPlanDrawer } from "@/components/payment-plan-builder"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
+import { ReportIssueDrawer, RowIssuesBadge } from "@/components/report-issue-drawer"
+import { openIssuesByProperty, type PropertyIssue, type PropIssueSeverity } from "@/lib/property-issues-mock"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Availability = "Available" | "Hold" | "Sold-Off" | "Archived"
@@ -2440,6 +2442,7 @@ export function ViewPropertyDrawer({
   onUpdateRow,
   editableTabs = [],
   highlightField,
+  highlightFields,
 }: {
   row: PropertyRow | null
   defaultTab: string
@@ -2449,6 +2452,8 @@ export function ViewPropertyDrawer({
   editableTabs?: string[]
   /** Field label to highlight (Data Issues: the field the issue was reported on). */
   highlightField?: string
+  /** Multiple field labels → severity (Show Issues toggle: every open-issue field). */
+  highlightFields?: Record<string, PropIssueSeverity>
 }) {
   const [activeTab, setActiveTab] = useState(defaultTab)
   const [amenityDraft, setAmenityDraft] = useState<string[]>([])
@@ -2489,13 +2494,26 @@ export function ViewPropertyDrawer({
   ]
 
   function Field({ label, value, span = 1 }: { label: string; value: React.ReactNode; span?: 1 | 2 }) {
-    const highlighted = !!highlightField && label === highlightField
+    const severity: PropIssueSeverity | undefined =
+      highlightFields?.[label] ?? (highlightField === label ? "Warning" : undefined)
+    const blocking = severity === "Blocking"
     return (
-      <div className={cn("space-y-0.5", span === 2 && "col-span-2", highlighted && "-mx-2 -my-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5")}>
-        <dt className={cn("text-[11px] font-medium text-muted-foreground", highlighted && "flex items-center gap-1 text-amber-700")}>
-          {highlighted && <AlertTriangle className="h-3 w-3" />}
+      <div className={cn(
+        "space-y-0.5",
+        span === 2 && "col-span-2",
+        severity && (blocking ? "-mx-2 -my-1.5 rounded-md border border-red-300 bg-red-50 px-2 py-1.5" : "-mx-2 -my-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5"),
+      )}>
+        <dt className={cn("text-[11px] font-medium text-muted-foreground", severity && cn("flex items-center gap-1", blocking ? "text-red-700" : "text-amber-700"))}>
+          {severity && <AlertTriangle className="h-3 w-3" />}
           {label}
-          {highlighted && <span className="ml-auto rounded-md border border-amber-300 bg-amber-100 px-1.5 py-px text-[10px] font-semibold text-amber-700">Reported issue</span>}
+          {severity && (
+            <span className={cn(
+              "ml-auto rounded-md border px-1.5 py-px text-[10px] font-semibold",
+              blocking ? "border-red-300 bg-red-100 text-red-700" : "border-amber-300 bg-amber-100 text-amber-700",
+            )}>
+              {blocking ? "Blocking issue" : "Reported issue"}
+            </span>
+          )}
         </dt>
         <dd className="text-sm text-foreground">{value ?? <span className="text-muted-foreground">—</span>}</dd>
       </div>
@@ -3275,7 +3293,7 @@ export function EmbeddedPropertyTable({
 }
 
 // ── Main view ──────────────────────────────────────────────────────────────────
-export function DetailedPropertiesView({ filters, onCreateProperty, scopeProjectName }: { filters: FilterProps; onCreateProperty?: (v: Variation) => void; /** Project-details embed: keep only this project's rows (falls back to all when mock names don't match). */ scopeProjectName?: string }) {
+export function DetailedPropertiesView({ filters, onCreateProperty, scopeProjectName, showIssues = false }: { filters: FilterProps; onCreateProperty?: (v: Variation) => void; /** Project-details embed: keep only this project's rows (falls back to all when mock names don't match). */ scopeProjectName?: string; /** Data quality: highlight units/fields with open issues + issue badges. */ showIssues?: boolean }) {
   const {
     searchQuery,
     developerFilter,
@@ -3354,15 +3372,26 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
     () => orderedColumns.filter((c) => !frozenColIds.has(c.id)),
     [orderedColumns, frozenColIds],
   )
+  // Data quality — open issues per property (Show Issues toggle)
+  const [reportRow, setReportRow] = useState<PropertyRow | null>(null)
+  const [issuesVersion, setIssuesVersion] = useState(0)
+  const issuesByProp = useMemo(() => openIssuesByProperty(), [issuesVersion])
+  const cellIssueCls = (rowIssues: PropertyIssue[] | undefined, colId: string): string | null => {
+    if (!rowIssues) return null
+    const cellIssues = rowIssues.filter((i) => i.fieldId === colId)
+    if (cellIssues.length === 0) return null
+    return cellIssues.some((i) => i.severity === "Blocking") ? "bg-red-100/80" : "bg-amber-100/80"
+  }
+
   const frozenPositions = useMemo(() => {
     const map: Record<string, number> = {}
-    let left = 40 // checkbox width
+    let left = 40 + (showIssues ? 48 : 0) // checkbox width (+ issues badge column)
     for (const col of frozenCols) {
       map[col.id] = left
       left += col.width
     }
     return map
-  }, [frozenCols])
+  }, [frozenCols, showIssues])
 
   // Filtering + sorting
   const filteredRows = useMemo(() => {
@@ -3861,35 +3890,50 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
           >
             <Checkbox checked={isSelected} onCheckedChange={() => {}} />
           </div>
+          {/* Open-issues badge column (Show Issues toggle) */}
+          {showIssues && (
+            <div className={cn("sticky z-10 flex w-12 shrink-0 items-center justify-center border-r border-border px-1 py-2", stickyBg)} style={{ left: 40 }}>
+              {(issuesByProp.get(row.propertyId)?.length ?? 0) > 0 && (
+                <RowIssuesBadge issues={issuesByProp.get(row.propertyId)!} compact />
+              )}
+            </div>
+          )}
           {/* Frozen cols — sticky */}
-          {frozenCols.map((col) => (
-            <div
-              key={col.id}
-              className={cn(
-                "sticky z-10 flex items-center border-r border-border px-3 py-2",
-                col.align === "right" && "justify-end text-right",
-                col.align === "center" && "justify-center text-center",
-                stickyBg,
-              )}
-              style={{ left: frozenPositions[col.id], width: col.width }}
-            >
-              {renderCell(row, col)}
-            </div>
-          ))}
+          {frozenCols.map((col) => {
+            const hl = showIssues ? cellIssueCls(issuesByProp.get(row.propertyId), col.id) : null
+            return (
+              <div
+                key={col.id}
+                className={cn(
+                  "sticky z-10 flex items-center border-r border-border px-3 py-2",
+                  col.align === "right" && "justify-end text-right",
+                  col.align === "center" && "justify-center text-center",
+                  hl ?? stickyBg,
+                )}
+                style={{ left: frozenPositions[col.id], width: col.width }}
+              >
+                {renderCell(row, col)}
+              </div>
+            )
+          })}
           {/* Scrollable cols */}
-          {scrollCols.map((col) => (
-            <div
-              key={col.id}
-              className={cn(
-                "flex items-center border-r border-border px-3 py-2",
-                col.align === "right" && "justify-end text-right",
-                col.align === "center" && "justify-center text-center",
-              )}
-              style={{ width: col.width }}
-            >
-              {renderCell(row, col)}
-            </div>
-          ))}
+          {scrollCols.map((col) => {
+            const hl = showIssues ? cellIssueCls(issuesByProp.get(row.propertyId), col.id) : null
+            return (
+              <div
+                key={col.id}
+                className={cn(
+                  "flex items-center border-r border-border px-3 py-2",
+                  col.align === "right" && "justify-end text-right",
+                  col.align === "center" && "justify-center text-center",
+                  hl,
+                )}
+                style={{ width: col.width }}
+              >
+                {renderCell(row, col)}
+              </div>
+            )
+          })}
           {/* Actions — sticky right */}
           <div
             className={cn(
@@ -3920,6 +3964,11 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
                 <DropdownMenuItem onClick={() => window.open(`/e-realty/properties/${row.propertyId}`, "_blank", "noopener")}>
                   <Building2 className="h-4 w-4 mr-2 text-muted-foreground" />
                   View on E-realty
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setReportRow(row)}>
+                  <AlertTriangle className="h-4 w-4 mr-2 text-muted-foreground" />
+                  Report an Issue
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -4027,6 +4076,12 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
                   onCheckedChange={handleSelectAll}
                 />
               </div>
+              {/* Issues badge column header (Show Issues toggle) */}
+              {showIssues && (
+                <div className="sticky z-30 flex w-12 shrink-0 items-center justify-center border-r border-border bg-muted px-1 py-2" style={{ left: 40 }} title="Open data issues">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                </div>
+              )}
               {/* Frozen col headers */}
               {frozenCols.map((col) => (
                 <div
@@ -4315,7 +4370,20 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
         defaultTab={viewDrawer?.tab ?? "unit-details"}
         onClose={() => setViewDrawer(null)}
         onUpdateRow={updateRow}
+        highlightFields={
+          showIssues && viewDrawerRow
+            ? Object.fromEntries(
+                (issuesByProp.get(viewDrawerRow.propertyId) ?? []).map((i) => [
+                  i.fieldLabel,
+                  i.severity,
+                ]),
+              )
+            : undefined
+        }
       />
+
+      {/* Report an Issue drawer */}
+      <ReportIssueDrawer row={reportRow} onClose={() => setReportRow(null)} onSubmitted={() => setIssuesVersion((v) => v + 1)} />
 
       {/* Payment options / prices drawer */}
       <PropertyDrawer drawer={drawer} onClose={() => setDrawer(null)} />
@@ -5204,6 +5272,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
   const [draggedSortIndex, setDraggedSortIndex] = useState<number | null>(null)
   // Columns sheet — lifted from DetailedPropertiesView so toolbar button can open it
   const [showColumnSheet, setShowColumnSheet] = useState(false)
+  const [showIssues, setShowIssues] = useState(false) // data quality highlights (both tabs)
 
   const handleSortDragStart = (index: number) => setDraggedSortIndex(index)
   const handleSortDragOver = (e: React.DragEvent, targetIndex: number) => {
@@ -5489,6 +5558,16 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                       Columns
                     </Button>
                   )}
+                  {/* Data quality — highlight units/fields with open issues */}
+                  <Button
+                    variant={showIssues ? "default" : "outline"}
+                    size="sm"
+                    className={cn("h-8", showIssues && "bg-amber-500 text-white hover:bg-amber-600")}
+                    onClick={() => setShowIssues((v) => !v)}
+                  >
+                    <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
+                    Show Issues
+                  </Button>
                 </div>
               </div>
             </div>
@@ -5644,10 +5723,11 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
               scopeProjectName={scopeTarget}
               onOpenGroupDetail={onOpenGroupDetail}
               onCreateProperty={onCreateProperty}
+              showIssues={showIssues}
             />
           </TabsContent>
           <TabsContent value="detailed" className="mt-0">
-            <DetailedPropertiesView filters={filterPropsWithClear} onCreateProperty={onCreateProperty} scopeProjectName={scopeTarget} />
+            <DetailedPropertiesView filters={filterPropsWithClear} onCreateProperty={onCreateProperty} scopeProjectName={scopeTarget} showIssues={showIssues} />
           </TabsContent>
         </Tabs>
       </div>
