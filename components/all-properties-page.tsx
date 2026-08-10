@@ -87,7 +87,7 @@ import { ChooseAssetsDrawer } from "@/components/choose-assets-drawer"
 import { PaymentPlanDrawer } from "@/components/payment-plan-builder"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
 import { ReportIssueDrawer, RowIssuesBadge } from "@/components/report-issue-drawer"
-import { openIssuesByProperty, type PropertyIssue, type PropIssueSeverity } from "@/lib/property-issues-mock"
+import { openIssuesByProperty, isCriticalSeverity, type PropertyIssue, type PropIssueSeverity } from "@/lib/property-issues-mock"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Availability = "Available" | "Hold" | "Sold-Off" | "Archived"
@@ -2495,8 +2495,8 @@ export function ViewPropertyDrawer({
 
   function Field({ label, value, span = 1 }: { label: string; value: React.ReactNode; span?: 1 | 2 }) {
     const severity: PropIssueSeverity | undefined =
-      highlightFields?.[label] ?? (highlightField === label ? "Warning" : undefined)
-    const blocking = severity === "Blocking"
+      highlightFields?.[label] ?? (highlightField === label ? "Medium" : undefined)
+    const blocking = severity != null && isCriticalSeverity(severity)
     return (
       <div className={cn(
         "space-y-0.5",
@@ -2511,7 +2511,7 @@ export function ViewPropertyDrawer({
               "ml-auto rounded-md border px-1.5 py-px text-[10px] font-semibold",
               blocking ? "border-red-300 bg-red-100 text-red-700" : "border-amber-300 bg-amber-100 text-amber-700",
             )}>
-              {blocking ? "Blocking issue" : "Reported issue"}
+              {severity} issue
             </span>
           )}
         </dt>
@@ -2935,15 +2935,19 @@ export function EmbeddedPropertyTable({
   rows: initialRows,
   hiddenColumns,
   variation,
+  allowReportIssue = false,
 }: {
   rows: PropertyRow[]
   hiddenColumns: ColId[]
   variation?: Variation
+  /** Primary Automatic groups: issues are reported per-unit here, not on the grouped card. */
+  allowReportIssue?: boolean
 }) {
   // Floor plans editable per-unit only when sale type is Primary Automatic;
   // amenities/services/images are always view-only in this embedded table.
   const floorPlansEditable = variation === "primary-automatic"
   const [rows, setRows] = useState<PropertyRow[]>(initialRows)
+  const [reportRow, setReportRow] = useState<PropertyRow | null>(null)
   const [editingPrice, setEditingPrice] = useState<string | null>(null)
   const [priceDraft, setPriceDraft] = useState("")
   const [viewDrawer, setViewDrawer] = useState<{ propertyId: string; tab: string } | null>(null)
@@ -3233,7 +3237,7 @@ export function EmbeddedPropertyTable({
                 </div>
               ))}
               {/* Actions header */}
-              <div className="sticky right-0 z-10 w-12 shrink-0 border-l border-border bg-muted/80" />
+              <div className={cn("sticky right-0 z-10 shrink-0 border-l border-border bg-muted/80", allowReportIssue ? "w-20" : "w-12")} />
             </div>
 
             {/* Body rows */}
@@ -3258,7 +3262,7 @@ export function EmbeddedPropertyTable({
                   </div>
                 ))}
                 {/* Sticky right action */}
-                <div className="sticky right-0 z-10 flex w-12 shrink-0 items-center justify-center border-l border-border bg-card group-hover/row:bg-muted/40 transition-colors">
+                <div className={cn("sticky right-0 z-10 flex shrink-0 items-center justify-center gap-1 border-l border-border bg-card group-hover/row:bg-muted/40 transition-colors", allowReportIssue ? "w-20" : "w-12")}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
@@ -3270,6 +3274,19 @@ export function EmbeddedPropertyTable({
                     </TooltipTrigger>
                     <TooltipContent>View details</TooltipContent>
                   </Tooltip>
+                  {allowReportIssue && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setReportRow(row) }}
+                          className="h-7 w-7 rounded border border-border bg-white hover:bg-amber-50 flex items-center justify-center text-muted-foreground hover:text-amber-600 transition-colors"
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Report an issue</TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
               </div>
             ))}
@@ -3285,6 +3302,9 @@ export function EmbeddedPropertyTable({
         onUpdateRow={updateRow}
         editableTabs={floorPlansEditable ? ["floor-plans", "payment-plans"] : []}
       />
+
+      {/* Report an Issue (Primary Automatic groups report per-unit here) */}
+      {allowReportIssue && <ReportIssueDrawer row={reportRow} onClose={() => setReportRow(null)} />}
 
       {/* Mini drawers */}
       <PropertyDrawer drawer={drawer} onClose={() => setDrawer(null)} />
@@ -3380,7 +3400,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
     if (!rowIssues) return null
     const cellIssues = rowIssues.filter((i) => i.fieldId === colId)
     if (cellIssues.length === 0) return null
-    return cellIssues.some((i) => i.severity === "Blocking") ? "bg-red-100/80" : "bg-amber-100/80"
+    return cellIssues.some((i) => isCriticalSeverity(i.severity)) ? "bg-red-100/80" : "bg-amber-100/80"
   }
 
   const frozenPositions = useMemo(() => {

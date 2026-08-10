@@ -3,7 +3,8 @@
 import { Fragment, useMemo, useState } from "react"
 import {
   AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Building2, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
-  ChevronsDownUp, ChevronsUpDown, CircleDot, Clock, Eye, LayoutGrid, Loader2, MoreHorizontal, Send, UserRound, Users, XCircle,
+  ChevronsDownUp, ChevronsUpDown, CircleDot, Clock, Download, Eye, FileDown, FileSpreadsheet, FileText, LayoutGrid,
+  Loader2, MoreHorizontal, Send, UserRound, Users, XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -21,8 +22,9 @@ import {
 import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
 import { ViewPropertyDrawer, createRows } from "@/components/all-properties-page"
 import {
-  PROPERTY_ISSUES, PROP_ISSUE_STATUSES, STATUS_COLORS, SEVERITY_COLORS, SOURCE_COLORS, ISSUE_FIELDS, KIND_TAXONOMY,
-  QUALITY_TEAM, ALL_PEOPLE, type PropertyIssue, type PropIssueStatus,
+  PROPERTY_ISSUES, PROP_ISSUE_STATUSES, PROP_ISSUE_SEVERITIES, PROP_ISSUE_SOURCES, STATUS_COLORS, SEVERITY_COLORS,
+  SOURCE_COLORS, ISSUE_FIELDS, ALL_ISSUE_TYPES, ALL_ISSUE_SUBTYPES, QUALITY_TEAM, SALES_AGENTS, ALL_PEOPLE,
+  ALL_REPORTERS, isCriticalSeverity, type PropertyIssue, type PropIssueStatus,
 } from "@/lib/property-issues-mock"
 import { cn } from "@/lib/utils"
 
@@ -42,75 +44,96 @@ export function IssueSourceTag({ source }: { source: PropertyIssue["source"] }) 
   return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", SOURCE_COLORS[source])}>{source}</span>
 }
 
-const ALL_TYPES = Array.from(new Set(Object.values(KIND_TAXONOMY).flat().map((t) => t.type)))
+/** Initials avatar + name — Reported By / Assigned To cells. */
+function PersonCell({ name, muted }: { name: string | null; muted?: boolean }) {
+  if (!name) return <span className="text-muted-foreground">—</span>
+  const initials = name === "System" ? "SYS" : name.split(" ").map((x) => x[0]).join("").slice(0, 2)
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      <span className={cn(
+        "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold",
+        name === "System" ? "bg-emerald-100 text-emerald-700" : "bg-primary/10 text-primary",
+      )}>
+        {initials}
+      </span>
+      <span className={cn("text-sm", muted && "text-muted-foreground")}>{name}</span>
+    </span>
+  )
+}
+
 const PROJECT_OPTIONS = ["New Cairo Residences", "North Coast Bay", "West Gate", "Lagoon District", "Capital Gardens"]
+const DEVELOPER_OPTIONS = ["Palm Hills", "Sodic", "Mountain View", "Emaar"]
 const PHASE_OPTIONS = ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5", "Phase 6"]
 
 const COLS = [
-  { id: "id", label: "Issue ID", width: 130 },
-  { id: "source", label: "Source", width: 100 },
-  { id: "severity", label: "Severity", width: 110 },
-  { id: "status", label: "Status", width: 140 },
-  { id: "field", label: "Category (Field)", width: 150 },
-  { id: "type", label: "Type", width: 150 },
-  { id: "subtype", label: "Subtype", width: 190 },
-  { id: "description", label: "Description", width: 260 },
-  { id: "expected", label: "Expected", width: 170 },
-  { id: "assignedTo", label: "Assigned To", width: 150 },
-  { id: "reportedBy", label: "Reported By", width: 130 },
-  { id: "developer", label: "Developer", width: 150 },
+  { id: "id", label: "Issue ID", width: 120 },
+  { id: "source", label: "Reported By Type", width: 130 },
+  { id: "severity", label: "Severity", width: 100 },
+  { id: "status", label: "Status", width: 130 },
+  { id: "field", label: "Category (Field)", width: 140 },
+  { id: "type", label: "Type", width: 140 },
+  { id: "subtype", label: "Subtype", width: 180 },
+  { id: "description", label: "Description", width: 240 },
+  { id: "expected", label: "Expected", width: 150 },
+  { id: "assignedTo", label: "Assigned To", width: 140 },
+  { id: "reportedBy", label: "Reported By", width: 140 },
+  { id: "developer", label: "Developer", width: 170 },
   { id: "project", label: "Project", width: 180 },
   { id: "phase", label: "Phase", width: 120 },
-  { id: "propertyId", label: "Property ID", width: 130 },
-  { id: "detailedPropertyId", label: "Detailed Property ID", width: 160 },
-  { id: "createdAt", label: "Created At", width: 170 },
-  { id: "updatedAt", label: "Updated At", width: 170 },
-  { id: "resolvedAt", label: "Resolved At", width: 170 },
-  { id: "closedAt", label: "Closed At", width: 170 },
+  { id: "propertyId", label: "Property ID", width: 125 },
+  { id: "detailedPropertyId", label: "Detailed Property ID", width: 150 },
+  { id: "createdAt", label: "Created At", width: 160 },
+  { id: "updatedAt", label: "Updated At", width: 160 },
+  { id: "resolvedAt", label: "Resolved At", width: 160 },
+  { id: "closedAt", label: "Closed At", width: 160 },
 ]
-const DEFAULT_HIDDEN = new Set(["subtype", "developer", "detailedPropertyId", "updatedAt"])
+const DEFAULT_HIDDEN = new Set(["detailedPropertyId"])
 
+// Header-click + multi-level sorting is limited to these columns
 const SORT_FIELDS = [
+  { key: "status", label: "Status" },
   { key: "createdAt", label: "Created At" },
   { key: "updatedAt", label: "Updated At" },
   { key: "resolvedAt", label: "Resolved At" },
   { key: "closedAt", label: "Closed At" },
-  { key: "status", label: "Status" },
   { key: "severity", label: "Severity" },
-  { key: "field", label: "Category (Field)" },
-  { key: "assignedTo", label: "Assigned To" },
-  { key: "reportedBy", label: "Reported By" },
 ]
 const SORTABLE_COLS = new Set(SORT_FIELDS.map((f) => f.key))
 
-type GroupByKey = "none" | "status" | "severity" | "field" | "project" | "assignedTo" | "source"
+type GroupByKey =
+  | "none" | "source" | "assignedTo" | "reportedBy" | "developer" | "project" | "phase"
+  | "status" | "field" | "type" | "subtype" | "severity"
 const GROUP_LABEL: Record<GroupByKey, string> = {
-  none: "Group by", status: "Status", severity: "Severity", field: "Category (Field)", project: "Project", assignedTo: "Assigned To", source: "Source",
+  none: "Group by", source: "Reported By Type", assignedTo: "Assigned To", reportedBy: "Reported By",
+  developer: "Developer", project: "Project", phase: "Phase", status: "Status", field: "Category (Field)",
+  type: "Type", subtype: "Subtype", severity: "Severity",
 }
 
 function getSortValue(r: PropertyIssue, key: string): string | number {
   switch (key) {
+    case "status": return PROP_ISSUE_STATUSES.indexOf(r.status)
     case "createdAt": return r.createdAt
     case "updatedAt": return r.updatedAt
     case "resolvedAt": return r.resolvedAt ?? ""
     case "closedAt": return r.closedAt ?? ""
-    case "status": return PROP_ISSUE_STATUSES.indexOf(r.status)
-    case "severity": return r.severity === "Blocking" ? 0 : 1
-    case "field": return r.fieldLabel
-    case "assignedTo": return r.assignedTo ?? ""
-    case "reportedBy": return r.reportedBy
+    case "severity": return PROP_ISSUE_SEVERITIES.indexOf(r.severity)
     default: return ""
   }
 }
 
 function groupKeyOf(r: PropertyIssue, key: GroupByKey): string {
   switch (key) {
-    case "status": return r.status
-    case "severity": return r.severity
-    case "field": return r.fieldLabel
-    case "project": return r.project.name
-    case "assignedTo": return r.assignedTo ?? "Unassigned"
     case "source": return r.source
+    case "assignedTo": return r.assignedTo ?? "Unassigned"
+    case "reportedBy": return r.reportedBy
+    case "developer": return r.developer.name
+    case "project": return r.project.name
+    case "phase": return r.phase?.name ?? "No phase"
+    case "status": return r.status
+    case "field": return r.fieldLabel
+    case "type": return r.type
+    case "subtype": return r.subtype
+    case "severity": return r.severity
     default: return ""
   }
 }
@@ -137,9 +160,18 @@ export function statusPatch(next: PropIssueStatus): Partial<PropertyIssue> {
     updatedAt: now,
     ...(next === "Resolved" ? { resolvedAt: now, closedAt: null } : {}),
     ...(next === "Closed" ? { closedAt: now } : {}),
-    ...(next === "To Do" || next === "In Progress" ? { resolvedAt: null, closedAt: null } : {}),
-    ...(next === "Invalid" ? { resolvedAt: null, closedAt: null } : {}),
+    ...(next === "To Do" || next === "In Progress" || next === "Invalid" ? { resolvedAt: null, closedAt: null } : {}),
   }
+}
+
+type DateRange = { from: string; to: string }
+const emptyRange: DateRange = { from: "", to: "" }
+function inRange(value: string | null, r: DateRange): boolean {
+  if (!r.from && !r.to) return true
+  if (value == null) return false
+  if (r.from && value < new Date(r.from).toISOString()) return false
+  if (r.to && value > new Date(r.to).toISOString()) return false
+  return true
 }
 
 export function DataIssuesPage() {
@@ -148,19 +180,23 @@ export function DataIssuesPage() {
   const [issues, setIssues] = useState<PropertyIssue[]>(() => [...PROPERTY_ISSUES])
   const [tab, setTab] = useState<"Property" | "Project" | "Developer">("Property")
 
-  // toolbar state
+  // toolbar state — search is issue id / description only
   const [q, setQ] = useState("")
+  const [developerF, setDeveloperF] = useState<string[]>([])
+  const [projectF, setProjectF] = useState<string[]>([])
   const [statusF, setStatusF] = useState<string[]>([])
   const [severityF, setSeverityF] = useState<string[]>([])
   const [sourceF, setSourceF] = useState<string[]>([])
   const [fieldF, setFieldF] = useState<string[]>([])
   const [typeF, setTypeF] = useState<string[]>([])
+  const [subtypeF, setSubtypeF] = useState<string[]>([])
   const [reporterF, setReporterF] = useState<string[]>([])
   const [assigneeF, setAssigneeF] = useState<string[]>([])
-  const [projectF, setProjectF] = useState<string[]>([])
-  const [phaseF, setPhaseF] = useState<string[]>([])
-  const [dateFrom, setDateFrom] = useState("")
-  const [dateTo, setDateTo] = useState("")
+  const [createdR, setCreatedR] = useState<DateRange>(emptyRange)
+  const [updatedR, setUpdatedR] = useState<DateRange>(emptyRange)
+  const [resolvedR, setResolvedR] = useState<DateRange>(emptyRange)
+  const [closedR, setClosedR] = useState<DateRange>(emptyRange)
+  // Default order: newest reported first
   const [sorts, setSorts] = useState<SortLevel[]>([{ key: "createdAt", dir: "desc" }])
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -181,36 +217,32 @@ export function DataIssuesPage() {
   const propertyRows = useMemo(() => createRows(), [])
   const propertyById = useMemo(() => new Map(propertyRows.map((r) => [r.propertyId, r])), [propertyRows])
 
+  const rangeCount = [createdR, updatedR, resolvedR, closedR].filter((r) => r.from || r.to).length
   const activeFilterCount =
-    [statusF, severityF, sourceF, fieldF, typeF, reporterF, assigneeF, projectF, phaseF].filter((f) => f.length > 0).length +
-    (dateFrom || dateTo ? 1 : 0)
+    [developerF, projectF, statusF, severityF, sourceF, fieldF, typeF, subtypeF, reporterF, assigneeF].filter((f) => f.length > 0).length + rangeCount
 
   const clearAllFilters = () => {
-    setStatusF([]); setSeverityF([]); setSourceF([]); setFieldF([]); setTypeF([]); setReporterF([]); setAssigneeF([])
-    setProjectF([]); setPhaseF([]); setDateFrom(""); setDateTo(""); setPage(1)
+    setDeveloperF([]); setProjectF([]); setStatusF([]); setSeverityF([]); setSourceF([]); setFieldF([])
+    setTypeF([]); setSubtypeF([]); setReporterF([]); setAssigneeF([])
+    setCreatedR(emptyRange); setUpdatedR(emptyRange); setResolvedR(emptyRange); setClosedR(emptyRange)
+    setPage(1)
   }
 
   const filtered = useMemo(() => {
     let rows = issues
     const needle = q.trim().toLowerCase()
-    if (needle) {
-      rows = rows.filter((r) =>
-        [r.id, r.description, r.fieldLabel, r.type, r.subtype, r.expected, r.project.name, r.phase?.name, r.developer.name, r.propertyId, r.detailedPropertyId, r.reportedBy, r.assignedTo]
-          .filter(Boolean)
-          .some((v) => String(v).toLowerCase().includes(needle)),
-      )
-    }
+    if (needle) rows = rows.filter((r) => r.id.toLowerCase().includes(needle) || r.description.toLowerCase().includes(needle))
+    if (developerF.length) rows = rows.filter((r) => developerF.includes(r.developer.name))
+    if (projectF.length) rows = rows.filter((r) => projectF.includes(r.project.name))
     if (statusF.length) rows = rows.filter((r) => statusF.includes(r.status))
     if (severityF.length) rows = rows.filter((r) => severityF.includes(r.severity))
     if (sourceF.length) rows = rows.filter((r) => sourceF.includes(r.source))
     if (fieldF.length) rows = rows.filter((r) => fieldF.includes(r.fieldLabel))
     if (typeF.length) rows = rows.filter((r) => typeF.includes(r.type))
+    if (subtypeF.length) rows = rows.filter((r) => subtypeF.includes(r.subtype))
     if (reporterF.length) rows = rows.filter((r) => reporterF.includes(r.reportedBy))
     if (assigneeF.length) rows = rows.filter((r) => (r.assignedTo ? assigneeF.includes(r.assignedTo) : assigneeF.includes("Unassigned")))
-    if (projectF.length) rows = rows.filter((r) => projectF.includes(r.project.name))
-    if (phaseF.length) rows = rows.filter((r) => r.phase != null && phaseF.includes(r.phase.name))
-    if (dateFrom) rows = rows.filter((r) => r.createdAt >= new Date(dateFrom).toISOString())
-    if (dateTo) rows = rows.filter((r) => r.createdAt <= new Date(dateTo).toISOString())
+    rows = rows.filter((r) => inRange(r.createdAt, createdR) && inRange(r.updatedAt, updatedR) && inRange(r.resolvedAt, resolvedR) && inRange(r.closedAt, closedR))
     if (sorts.length) {
       rows = [...rows].sort((a, b) => {
         for (const s of sorts) {
@@ -222,7 +254,7 @@ export function DataIssuesPage() {
       })
     }
     return rows
-  }, [issues, q, statusF, severityF, sourceF, fieldF, typeF, reporterF, assigneeF, projectF, phaseF, dateFrom, dateTo, sorts])
+  }, [issues, q, developerF, projectF, statusF, severityF, sourceF, fieldF, typeF, subtypeF, reporterF, assigneeF, createdR, updatedR, resolvedR, closedR, sorts])
 
   const groups = useMemo(() => {
     if (groupBy === "none") return null
@@ -288,6 +320,10 @@ export function DataIssuesPage() {
     patchIssues(ids, () => ({ assignedTo: person, updatedAt: new Date().toISOString() }))
     toast.success(person ? `Assigned to ${person}` : "Unassigned")
   }
+  const exportSelected = (fmt: string) => {
+    toast.success(`Exporting ${selected.size.toLocaleString()} issue${selected.size !== 1 ? "s" : ""} as ${fmt} (mock)`)
+    setSelected(new Set())
+  }
 
   const count = (s: PropIssueStatus) => filtered.filter((r) => r.status === s).length
 
@@ -309,8 +345,8 @@ export function DataIssuesPage() {
   const AssigneeCell = ({ r }: { r: PropertyIssue }) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="inline-flex items-center gap-1 whitespace-nowrap text-sm hover:text-foreground">
-          {r.assignedTo ?? <span className="text-muted-foreground">Unassigned</span>}
+        <button className="inline-flex items-center gap-1 whitespace-nowrap hover:opacity-80">
+          <PersonCell name={r.assignedTo} muted={!r.assignedTo} />
           <ChevronDown className="h-3 w-3 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
@@ -324,6 +360,9 @@ export function DataIssuesPage() {
     </DropdownMenu>
   )
 
+  const ts = (v: string | null) =>
+    v ? <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtDateTime(v)}</span> : <span className="text-muted-foreground">—</span>
+
   const renderCell = (r: PropertyIssue, colId: string) => {
     switch (colId) {
       case "id": return <IdTag value={r.id} />
@@ -332,38 +371,69 @@ export function DataIssuesPage() {
       case "status": return <StatusCell r={r} />
       case "field": return <ColorTag value={r.fieldLabel} />
       case "type": return <ColorTag value={r.type} />
-      case "subtype": return <span className="block max-w-[190px] truncate text-sm" title={r.subtype}>{r.subtype}</span>
-      case "description": return <span className="block max-w-[260px] truncate text-sm" title={r.description}>{r.description}</span>
-      case "expected": return r.expected ? <span className="block max-w-[170px] truncate text-sm" title={r.expected}>{r.expected}</span> : <span className="text-muted-foreground">—</span>
+      case "subtype": return <span className="block max-w-[180px] truncate text-sm" title={r.subtype}>{r.subtype}</span>
+      case "description": return <span className="block max-w-[240px] truncate text-sm" title={r.description}>{r.description}</span>
+      case "expected": return r.expected ? <span className="block max-w-[150px] truncate text-sm" title={r.expected}>{r.expected}</span> : <span className="text-muted-foreground">—</span>
       case "assignedTo": return <AssigneeCell r={r} />
-      case "reportedBy": return <span className="whitespace-nowrap text-sm">{r.reportedBy}</span>
-      case "developer": return <span className="whitespace-nowrap text-sm">{r.developer.name}</span>
+      case "reportedBy": return <PersonCell name={r.reportedBy} />
+      case "developer": return (
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-50 text-[10px] font-bold text-blue-700">
+            {r.developer.name.split(" ").map((x) => x[0]).join("").slice(0, 2).toUpperCase()}
+          </span>
+          <div>
+            <button
+              className="block text-sm font-medium text-foreground hover:underline"
+              onClick={() => window.open(`/developers/${r.developer.id}`, "_blank", "noopener")}
+            >
+              {r.developer.name}
+            </button>
+            <IdTag value={r.developer.id} />
+          </div>
+        </div>
+      )
       case "project": return (
         <div className="whitespace-nowrap">
-          <p className="text-sm font-medium text-foreground">{r.project.name}</p>
+          <button
+            className="block text-sm font-medium text-foreground hover:underline"
+            onClick={() => window.open(`/projects/${r.project.id}`, "_blank", "noopener")}
+          >
+            {r.project.name}
+          </button>
           <IdTag value={r.project.id} />
         </div>
       )
-      case "phase": return r.phase ? <span className="whitespace-nowrap text-sm">{r.phase.name}</span> : <span className="text-muted-foreground">—</span>
+      case "phase": return r.phase ? (
+        <div className="whitespace-nowrap">
+          <button
+            className="block text-sm text-foreground hover:underline"
+            onClick={() => window.open(`/projects/${r.project.id}/phases/${r.phase!.id}`, "_blank", "noopener")}
+          >
+            {r.phase.name}
+          </button>
+          <IdTag value={r.phase.id} />
+        </div>
+      ) : <span className="text-muted-foreground">—</span>
       case "propertyId": return <IdTag value={r.propertyId} />
       case "detailedPropertyId": return <IdTag value={r.detailedPropertyId} />
-      case "createdAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtDateTime(r.createdAt)}</span>
-      case "updatedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtDateTime(r.updatedAt)}</span>
-      case "resolvedAt": return r.resolvedAt ? <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtDateTime(r.resolvedAt)}</span> : <span className="text-muted-foreground">—</span>
-      case "closedAt": return r.closedAt ? <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtDateTime(r.closedAt)}</span> : <span className="text-muted-foreground">—</span>
+      case "createdAt": return ts(r.createdAt)
+      case "updatedAt": return ts(r.updatedAt)
+      case "resolvedAt": return ts(r.resolvedAt)
+      case "closedAt": return ts(r.closedAt)
       default: return null
     }
   }
 
+  // Compact rows: py-1.5 instead of the default py-3
   const renderRow = (r: PropertyIssue) => (
     <tr key={r.id} className={cn("hover:bg-muted/40", selected.has(r.id) && "bg-primary/5")}>
-      <td className="sticky left-0 z-10 w-10 bg-card py-2.5 pl-4 pr-0">
+      <td className="sticky left-0 z-10 w-10 bg-card py-1.5 pl-4 pr-0">
         <Checkbox className="h-4 w-4" checked={selected.has(r.id)} onCheckedChange={(v) => toggleRow(r.id, !!v)} />
       </td>
       {visibleCols.map((c) => (
         <td
           key={c.id}
-          className={cn("px-4 py-2.5 align-middle", frozenCols.has(c.id) && "sticky z-10 bg-card")}
+          className={cn("px-3 py-1.5 align-middle", frozenCols.has(c.id) && "sticky z-10 bg-card")}
           style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
         >
           {renderCell(r, c.id)}
@@ -372,7 +442,7 @@ export function DataIssuesPage() {
       <td className="sticky right-0 z-10 w-12 border-l border-border bg-card p-0">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex h-full min-h-[40px] w-12 items-center justify-center text-muted-foreground hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
+            <button className="flex h-full min-h-[36px] w-12 items-center justify-center text-muted-foreground hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuItem onClick={() => setTrackIssue(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
@@ -395,7 +465,7 @@ export function DataIssuesPage() {
       <div className="space-y-4 p-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Data Issues</h1>
-          <p className="text-sm text-muted-foreground">Issue tracking for property data — reported by the quality team or raised automatically by validation rules</p>
+          <p className="text-sm text-muted-foreground">Issue tracking for property data — reported by the quality team, sales agents, or raised automatically by validation rules</p>
         </div>
 
         <Tabs value={tab} onValueChange={(v) => { setTab(v as typeof tab); setSelected(new Set()); setPage(1) }} className="w-full">
@@ -437,23 +507,27 @@ export function DataIssuesPage() {
             <TableToolbar
               search={q}
               onSearch={(v) => { setQ(v); setPage(1) }}
-              searchPlaceholder="Issue ID, field, description, property or project"
+              searchPlaceholder="Search by issue ID or description"
               hideAdvanced
               onAllFilters={() => setShowFilters(true)}
               onColumns={() => setShowColumns(true)}
               activeFilters={activeFilterCount}
               filters={
                 <>
-                  <FilterMultiSelect label="Status" value={statusF} options={PROP_ISSUE_STATUSES} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-36" />
-                  <FilterMultiSelect label="Severity" value={severityF} options={["Warning", "Blocking"]} onChange={(v) => { setSeverityF(v); setPage(1) }} className="w-32" />
-                  <FilterMultiSelect label="Source" value={sourceF} options={["System", "User"]} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-32" />
-                  <FilterMultiSelect label="Category (Field)" value={fieldF} options={ISSUE_FIELDS.map((f) => f.label)} onChange={(v) => { setFieldF(v); setPage(1) }} className="w-44" />
-                  <FilterMultiSelect label="Type" value={typeF} options={ALL_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-36" />
-                  <FilterMultiSelect label="Project" value={projectF} options={PROJECT_OPTIONS} onChange={(v) => { setProjectF(v); setPage(1) }} className="w-40" />
-                  <FilterMultiSelect label="Phase" value={phaseF} options={PHASE_OPTIONS} onChange={(v) => { setPhaseF(v); setPage(1) }} className="w-32" />
-                  <FilterMultiSelect label="Reported By" value={reporterF} options={["System", ...QUALITY_TEAM]} onChange={(v) => { setReporterF(v); setPage(1) }} className="w-38" />
-                  <FilterMultiSelect label="Assigned To" value={assigneeF} options={["Unassigned", ...ALL_PEOPLE]} onChange={(v) => { setAssigneeF(v); setPage(1) }} className="w-38" />
-                  <DateRangeFilter label="Created At" dateFrom={dateFrom} dateTo={dateTo} onChangeFrom={(v) => { setDateFrom(v); setPage(1) }} onChangeTo={(v) => { setDateTo(v); setPage(1) }} withTime />
+                  <FilterMultiSelect label="Developer" value={developerF} options={DEVELOPER_OPTIONS} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-38" />
+                  <FilterMultiSelect label="Project" value={projectF} options={PROJECT_OPTIONS} onChange={(v) => { setProjectF(v); setPage(1) }} className="w-38" />
+                  <FilterMultiSelect label="Status" value={statusF} options={PROP_ISSUE_STATUSES} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-32" />
+                  <FilterMultiSelect label="Severity" value={severityF} options={PROP_ISSUE_SEVERITIES} onChange={(v) => { setSeverityF(v); setPage(1) }} className="w-32" />
+                  <FilterMultiSelect label="Reported By Type" value={sourceF} options={PROP_ISSUE_SOURCES} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-40" />
+                  <FilterMultiSelect label="Category" value={fieldF} options={ISSUE_FIELDS.map((f) => f.label)} onChange={(v) => { setFieldF(v); setPage(1) }} className="w-36" />
+                  <FilterMultiSelect label="Type" value={typeF} options={ALL_ISSUE_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-32" />
+                  <FilterMultiSelect label="Subtype" value={subtypeF} options={ALL_ISSUE_SUBTYPES} onChange={(v) => { setSubtypeF(v); setPage(1) }} className="w-36" />
+                  <FilterMultiSelect label="Reported By" value={reporterF} options={ALL_REPORTERS} onChange={(v) => { setReporterF(v); setPage(1) }} className="w-36" />
+                  <FilterMultiSelect label="Assigned To" value={assigneeF} options={["Unassigned", ...ALL_PEOPLE]} onChange={(v) => { setAssigneeF(v); setPage(1) }} className="w-36" />
+                  <DateRangeFilter label="Created At" dateFrom={createdR.from} dateTo={createdR.to} onChangeFrom={(v) => { setCreatedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setCreatedR((r) => ({ ...r, to: v })); setPage(1) }} withTime />
+                  <DateRangeFilter label="Updated At" dateFrom={updatedR.from} dateTo={updatedR.to} onChangeFrom={(v) => { setUpdatedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setUpdatedR((r) => ({ ...r, to: v })); setPage(1) }} withTime />
+                  <DateRangeFilter label="Resolved At" dateFrom={resolvedR.from} dateTo={resolvedR.to} onChangeFrom={(v) => { setResolvedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setResolvedR((r) => ({ ...r, to: v })); setPage(1) }} withTime />
+                  <DateRangeFilter label="Closed At" dateFrom={closedR.from} dateTo={closedR.to} onChangeFrom={(v) => { setClosedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setClosedR((r) => ({ ...r, to: v })); setPage(1) }} withTime />
                 </>
               }
               sortControl={<MultiSortControl fields={SORT_FIELDS} sorts={sorts} onChange={setSorts} />}
@@ -462,7 +536,7 @@ export function DataIssuesPage() {
                   <DropdownMenuTrigger asChild>
                     <Button variant={groupBy === "none" ? "outline" : "default"} size="sm" className="h-8 gap-1.5"><LayoutGrid className="h-3.5 w-3.5" />{GROUP_LABEL[groupBy]}</Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
                     {(Object.keys(GROUP_LABEL) as GroupByKey[]).map((k) => (
                       <DropdownMenuItem key={k} onClick={() => { setGroupBy(k); setCollapsedGroups(new Set()); setGroupPages({}) }} className="text-sm">
                         {k === "none" ? "No grouping" : GROUP_LABEL[k]}
@@ -492,7 +566,7 @@ export function DataIssuesPage() {
                 <table className={cn("w-max min-w-full text-sm", COL_SEP)}>
                   <thead className="border-b border-border bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     <tr>
-                      <th className="sticky left-0 z-20 w-10 bg-muted/60 py-3 pl-4 pr-0">
+                      <th className="sticky left-0 z-20 w-10 bg-muted/60 py-2.5 pl-4 pr-0">
                         <Checkbox className="h-4 w-4" checked={allPageSelected} onCheckedChange={(v) => togglePageSelect(!!v)} />
                       </th>
                       {visibleCols.map((c) => {
@@ -500,7 +574,7 @@ export function DataIssuesPage() {
                         return (
                           <th
                             key={c.id}
-                            className={cn("whitespace-nowrap px-4 py-3 text-left", frozenCols.has(c.id) && "sticky z-20 bg-muted/60")}
+                            className={cn("whitespace-nowrap px-3 py-2.5 text-left", frozenCols.has(c.id) && "sticky z-20 bg-muted/60")}
                             style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
                           >
                             {SORTABLE_COLS.has(c.id) ? (
@@ -599,6 +673,18 @@ export function DataIssuesPage() {
                   <DropdownMenuItem onClick={() => { setAssignee(selected, null); setSelected(new Set()) }}>Unassigned</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <div className="h-8 w-px bg-zinc-700" />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className={bulkBtnCls}><Download className="h-3.5 w-3.5" />Export<ChevronDown className="h-3 w-3" /></button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center" side="top" className="min-w-[140px]">
+                  <DropdownMenuItem onClick={() => exportSelected("CSV")}><FileText className="mr-2 h-4 w-4" />CSV</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => exportSelected("Excel")}><FileSpreadsheet className="mr-2 h-4 w-4" />Excel</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => exportSelected("PDF")}><FileDown className="mr-2 h-4 w-4" />PDF</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </FloatingBulkBar>
 
             <ColumnsSheet
@@ -614,16 +700,20 @@ export function DataIssuesPage() {
             />
 
             <FiltersDrawer open={showFilters} onClose={() => setShowFilters(false)} activeCount={activeFilterCount} onClear={clearAllFilters}>
-              <FilterDrawerField label="Status"><FilterMultiSelect label="Status" value={statusF} options={PROP_ISSUE_STATUSES} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-              <FilterDrawerField label="Severity"><FilterMultiSelect label="Severity" value={severityF} options={["Warning", "Blocking"]} onChange={(v) => { setSeverityF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-              <FilterDrawerField label="Source"><FilterMultiSelect label="Source" value={sourceF} options={["System", "User"]} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-              <FilterDrawerField label="Category (Field)"><FilterMultiSelect label="Category (Field)" value={fieldF} options={ISSUE_FIELDS.map((f) => f.label)} onChange={(v) => { setFieldF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-              <FilterDrawerField label="Type"><FilterMultiSelect label="Type" value={typeF} options={ALL_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Developer"><FilterMultiSelect label="Developer" value={developerF} options={DEVELOPER_OPTIONS} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
               <FilterDrawerField label="Project"><FilterMultiSelect label="Project" value={projectF} options={PROJECT_OPTIONS} onChange={(v) => { setProjectF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-              <FilterDrawerField label="Phase"><FilterMultiSelect label="Phase" value={phaseF} options={PHASE_OPTIONS} onChange={(v) => { setPhaseF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-              <FilterDrawerField label="Reported By"><FilterMultiSelect label="Reported By" value={reporterF} options={["System", ...QUALITY_TEAM]} onChange={(v) => { setReporterF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Status"><FilterMultiSelect label="Status" value={statusF} options={PROP_ISSUE_STATUSES} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Severity"><FilterMultiSelect label="Severity" value={severityF} options={PROP_ISSUE_SEVERITIES} onChange={(v) => { setSeverityF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Reported By Type"><FilterMultiSelect label="Reported By Type" value={sourceF} options={PROP_ISSUE_SOURCES} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Category (Field)"><FilterMultiSelect label="Category (Field)" value={fieldF} options={ISSUE_FIELDS.map((f) => f.label)} onChange={(v) => { setFieldF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Type"><FilterMultiSelect label="Type" value={typeF} options={ALL_ISSUE_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Subtype"><FilterMultiSelect label="Subtype" value={subtypeF} options={ALL_ISSUE_SUBTYPES} onChange={(v) => { setSubtypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Reported By"><FilterMultiSelect label="Reported By" value={reporterF} options={ALL_REPORTERS} onChange={(v) => { setReporterF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
               <FilterDrawerField label="Assigned To"><FilterMultiSelect label="Assigned To" value={assigneeF} options={["Unassigned", ...ALL_PEOPLE]} onChange={(v) => { setAssigneeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-              <FilterDrawerField label="Created At"><DateRangeFilter label="Created At" dateFrom={dateFrom} dateTo={dateTo} onChangeFrom={(v) => { setDateFrom(v); setPage(1) }} onChangeTo={(v) => { setDateTo(v); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Created At"><DateRangeFilter label="Created At" dateFrom={createdR.from} dateTo={createdR.to} onChangeFrom={(v) => { setCreatedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setCreatedR((r) => ({ ...r, to: v })); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Updated At"><DateRangeFilter label="Updated At" dateFrom={updatedR.from} dateTo={updatedR.to} onChangeFrom={(v) => { setUpdatedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setUpdatedR((r) => ({ ...r, to: v })); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Resolved At"><DateRangeFilter label="Resolved At" dateFrom={resolvedR.from} dateTo={resolvedR.to} onChangeFrom={(v) => { setResolvedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setResolvedR((r) => ({ ...r, to: v })); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Closed At"><DateRangeFilter label="Closed At" dateFrom={closedR.from} dateTo={closedR.to} onChangeFrom={(v) => { setClosedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setClosedR((r) => ({ ...r, to: v })); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
             </FiltersDrawer>
 
             <IssueTrackingDrawer
@@ -646,7 +736,7 @@ export function DataIssuesPage() {
               defaultTab="unit-details"
               onClose={() => setViewProperty(null)}
               onUpdateRow={() => {}}
-              highlightField={viewProperty?.fieldLabel}
+              highlightFields={viewProperty ? { [viewProperty.fieldLabel]: viewProperty.severity } : undefined}
             />
           </>
         )}
@@ -690,6 +780,9 @@ function IssueTrackingDrawer({
     return String(v)
   }
   const snapshot: { label: string; fieldId: string; value: string }[] = unit ? [
+    { label: "Developer", fieldId: "developer", value: unit.developer.name },
+    { label: "Project", fieldId: "project", value: unit.project.name },
+    { label: "Phase", fieldId: "phase", value: unit.phase?.name ?? "—" },
     { label: "Unit Code", fieldId: "unitCode", value: fmtVal(unit.unitCode) },
     { label: "Unit Model", fieldId: "unitModel", value: fmtVal(unit.unitModel) },
     { label: "Category", fieldId: "propertyCategory", value: fmtVal(unit.propertyCategory) },
@@ -709,8 +802,9 @@ function IssueTrackingDrawer({
     { label: "Render Images", fieldId: "images", value: `${unit.images.length} image${unit.images.length !== 1 ? "s" : ""}` },
   ] : []
 
-  const hlCls = issue.severity === "Blocking" ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"
-  const hlText = issue.severity === "Blocking" ? "text-red-700" : "text-amber-700"
+  const critical = isCriticalSeverity(issue.severity)
+  const hlCls = critical ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"
+  const hlText = critical ? "text-red-700" : "text-amber-700"
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose() }}>
@@ -725,7 +819,6 @@ function IssueTrackingDrawer({
               <IssueSeverityTag severity={issue.severity} />
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {/* Fast status + assignee changes, right in the header */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button><IssueStatusTag status={issue.status} chevron /></button>
@@ -773,7 +866,7 @@ function IssueTrackingDrawer({
                 <Field label="Category (Field)" value={<ColorTag value={issue.fieldLabel} />} />
                 <Field label="Type" value={<ColorTag value={issue.type} />} />
                 <Field label="Subtype" value={issue.subtype} />
-                <Field label="Reported By" value={issue.reportedBy} />
+                <Field label="Reported By" value={<PersonCell name={issue.reportedBy} />} />
               </dl>
             </div>
 

@@ -947,10 +947,15 @@ function GroupCard({
                     <DropdownMenuItem onClick={() => setMoveOpen(true)}>
                       <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setReportOpen(true)}>
-                      <AlertTriangle className="h-3.5 w-3.5 mr-2" /> Report an Issue
-                    </DropdownMenuItem>
+                    {/* Primary Automatic: issues are reported per-unit on the detailed table below */}
+                    {!isPA && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setReportOpen(true)}>
+                          <AlertTriangle className="h-3.5 w-3.5 mr-2" /> Report an Issue
+                        </DropdownMenuItem>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </>
@@ -984,10 +989,14 @@ function GroupCard({
                   <DropdownMenuItem onClick={() => setMoveOpen(true)}>
                     <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setReportOpen(true)}>
-                    <AlertTriangle className="h-3.5 w-3.5 mr-2" /> Report an Issue
-                  </DropdownMenuItem>
+                  {!isPA && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => setReportOpen(true)}>
+                        <AlertTriangle className="h-3.5 w-3.5 mr-2" /> Report an Issue
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button variant="outline" size="icon-sm" className="bg-transparent h-6 w-6" onClick={onToggle} title="Expand units">
@@ -1228,6 +1237,7 @@ function GroupCard({
           <EmbeddedPropertyTable
             rows={allRows.slice(globalIndex * 3, globalIndex * 3 + group.details.length)}
             hiddenColumns={hiddenCols}
+            allowReportIssue={isPA}
           />
         </div>
       )}
@@ -2660,7 +2670,7 @@ export function GroupedPropertyDetails({
                 <h3 className="text-sm font-semibold">Detailed Properties</h3>
                 <span className="text-xs text-muted-foreground">({group.details.length} units)</span>
               </div>
-              <EmbeddedPropertyTable rows={units} hiddenColumns={GROUPED_HIDDEN_COLS} variation={variationOf(group)} />
+              <EmbeddedPropertyTable rows={units} hiddenColumns={GROUPED_HIDDEN_COLS} variation={variationOf(group)} allowReportIssue={variationOf(group) === "primary-automatic"} />
             </div>
           </TabsContent>
 

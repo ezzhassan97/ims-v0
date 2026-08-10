@@ -12,9 +12,17 @@
 // cell/drawer highlighting work without any mapping tables.
 
 export type PropIssueStatus = "To Do" | "In Progress" | "Resolved" | "Closed" | "Invalid"
-export type PropIssueSeverity = "Warning" | "Blocking"
-export type PropIssueSource = "System" | "User"
+// Jira-style priority scale
+export type PropIssueSeverity = "Highest" | "High" | "Medium" | "Low" | "Lowest"
+// Who raised the issue: quality team, automated validation rules, or a sales agent
+export type PropIssueSource = "Data Quality" | "System" | "Sales Agent"
 export type FieldKind = "value" | "plans" | "floorPlans" | "images"
+
+export const PROP_ISSUE_SEVERITIES: PropIssueSeverity[] = ["Highest", "High", "Medium", "Low", "Lowest"]
+/** Highest/High issues render red (blocking-grade); the rest amber. */
+export function isCriticalSeverity(s: PropIssueSeverity): boolean {
+  return s === "Highest" || s === "High"
+}
 
 export interface IssueField {
   id: string // detailed-table column id where applicable
@@ -24,6 +32,10 @@ export interface IssueField {
 }
 
 export const ISSUE_FIELDS: IssueField[] = [
+  // Placement — the unit itself may be right but sit under the wrong developer/project/phase
+  { id: "developer", label: "Developer", group: "Placement", kind: "value" },
+  { id: "project", label: "Project", group: "Placement", kind: "value" },
+  { id: "phase", label: "Phase", group: "Placement", kind: "value" },
   // Identity
   { id: "unitCode", label: "Unit Code", group: "Identity", kind: "value" },
   { id: "unitNumber", label: "Unit Number", group: "Identity", kind: "value" },
@@ -102,6 +114,9 @@ export const KIND_TAXONOMY: Record<FieldKind, { type: string; subtypes: string[]
   ],
 }
 
+export const ALL_ISSUE_TYPES = Array.from(new Set(Object.values(KIND_TAXONOMY).flat().map((t) => t.type)))
+export const ALL_ISSUE_SUBTYPES = Array.from(new Set(Object.values(KIND_TAXONOMY).flat().flatMap((t) => t.subtypes)))
+
 export interface IssueComment {
   id: string
   author: string
@@ -151,18 +166,24 @@ export const STATUS_COLORS: Record<PropIssueStatus, string> = {
   Invalid: "bg-red-50 text-red-600 border-red-200",
 }
 export const SEVERITY_COLORS: Record<PropIssueSeverity, string> = {
-  Warning: "bg-amber-100 text-amber-700 border-amber-200",
-  Blocking: "bg-red-100 text-red-700 border-red-200",
+  Highest: "bg-red-100 text-red-800 border-red-300",
+  High: "bg-orange-100 text-orange-700 border-orange-200",
+  Medium: "bg-amber-100 text-amber-700 border-amber-200",
+  Low: "bg-sky-50 text-sky-700 border-sky-200",
+  Lowest: "bg-gray-100 text-gray-600 border-gray-200",
 }
-// Same tones as Entry Type: automatic → emerald, human → blue
 export const SOURCE_COLORS: Record<PropIssueSource, string> = {
   System: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  User: "bg-blue-50 text-blue-700 border-blue-200",
+  "Data Quality": "bg-blue-50 text-blue-700 border-blue-200",
+  "Sales Agent": "bg-purple-50 text-purple-700 border-purple-200",
 }
+export const PROP_ISSUE_SOURCES: PropIssueSource[] = ["Data Quality", "System", "Sales Agent"]
 
 export const QUALITY_TEAM = ["Ezz H.", "Sarah M.", "Ahmed K.", "Mariam N.", "Youssef T.", "Nour H."]
 export const DATA_OPS_TEAM = ["Karim S.", "Laila A.", "Omar F.", "Hana E.", "Mostafa G."]
+export const SALES_AGENTS = ["Tarek B.", "Dina R.", "Sherif M.", "Aya K."]
 export const ALL_PEOPLE = [...QUALITY_TEAM, ...DATA_OPS_TEAM]
+export const ALL_REPORTERS = ["System", ...QUALITY_TEAM, ...SALES_AGENTS]
 
 // Mirrors mapUnitToProperty in all-properties-page so issues line up with real rows.
 export const ROW_COUNT = 72
@@ -203,6 +224,9 @@ function commentsFor(i: number, status: PropIssueStatus, created: number): Issue
 
 const EXPECTED_SAMPLES: Record<string, [string, string][]> = {
   // fieldId → [current, expected] samples
+  developer: [["Sodic", "Palm Hills"]],
+  project: [["North Coast Bay", "New Cairo Residences"]],
+  phase: [["Phase 2", "Phase 3"], ["—", "Phase 1"]],
   price: [["7,850,000 EGP", "8,100,000 EGP"], ["No price set", "6,450,000 EGP"]],
   bedrooms: [["2", "3"], ["—", "2"]],
   bathrooms: [["1", "2"], ["3", "2"]],
@@ -222,8 +246,8 @@ function makeIssue(i: number): PropertyIssue {
   const tax = KIND_TAXONOMY[field.kind]
   const t = tax[i % tax.length]
   const subtype = t.subtypes[i % t.subtypes.length]
-  const source: PropIssueSource = i % 5 < 2 ? "System" : "User" // 40% system
-  const severity: PropIssueSeverity = i % 10 < 3 ? "Blocking" : "Warning"
+  const source: PropIssueSource = (["Data Quality", "System", "Sales Agent", "Data Quality", "System"] as const)[i % 5]
+  const severity: PropIssueSeverity = PROP_ISSUE_SEVERITIES[[2, 1, 3, 0, 2, 4, 1, 2, 3, 2][i % 10]] // mostly Medium/High/Low
   const status = PROP_ISSUE_STATUSES[[0, 0, 1, 0, 2, 3, 1, 3, 4, 0][i % 10]] // ~40% todo, 20% in prog, 10% resolved, 20% closed, 10% invalid
   const created = 12 + (i % 700) * 3 // spread over ~90 days
   const updated = status === "To Do" ? created : Math.max(2, created - 24 - (i % 48))
@@ -252,7 +276,7 @@ function makeIssue(i: number): PropertyIssue {
     expected,
     current,
     linkedItems,
-    reportedBy: source === "System" ? "System" : QUALITY_TEAM[i % QUALITY_TEAM.length],
+    reportedBy: source === "System" ? "System" : source === "Sales Agent" ? SALES_AGENTS[i % SALES_AGENTS.length] : QUALITY_TEAM[i % QUALITY_TEAM.length],
     assignedTo: status === "To Do" && i % 4 === 0 ? null : DATA_OPS_TEAM[i % DATA_OPS_TEAM.length],
     ...ctx,
     createdAt: ts(created),

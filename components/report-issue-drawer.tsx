@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { AlertTriangle, Search, X } from "lucide-react"
+import { AlertTriangle, Check, Search, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -13,8 +13,8 @@ import { IdTag } from "@/components/table-kit"
 import type { PropertyRow } from "@/components/all-properties-page"
 import {
   ISSUE_FIELDS, ISSUE_FIELD_GROUPS, KIND_TAXONOMY, DATA_OPS_TEAM, SEVERITY_COLORS, STATUS_COLORS,
-  addPropertyIssues, nextIssueId,
-  type IssueField, type PropertyIssue, type PropIssueSeverity,
+  addPropertyIssues, nextIssueId, isCriticalSeverity,
+  type IssueField, type PropertyIssue,
 } from "@/lib/property-issues-mock"
 import { cn } from "@/lib/utils"
 
@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils"
 // Lives here (not data-issues-page) so all-properties can import it without a
 // runtime import cycle.
 export function RowIssuesBadge({ issues, compact }: { issues: PropertyIssue[]; compact?: boolean }) {
-  const blocking = issues.some((i) => i.severity === "Blocking")
+  const critical = issues.some((i) => isCriticalSeverity(i.severity))
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -30,7 +30,7 @@ export function RowIssuesBadge({ issues, compact }: { issues: PropertyIssue[]; c
           onClick={(e) => e.stopPropagation()}
           className={cn(
             "inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
-            blocking ? "border-red-200 bg-red-100 text-red-700" : "border-amber-200 bg-amber-100 text-amber-700",
+            critical ? "border-red-200 bg-red-100 text-red-700" : "border-amber-200 bg-amber-100 text-amber-700",
           )}
           title={`${issues.length} open issue${issues.length !== 1 ? "s" : ""}`}
         >
@@ -63,7 +63,6 @@ export function RowIssuesBadge({ issues, compact }: { issues: PropertyIssue[]; c
 }
 
 interface FieldDraft {
-  severity: PropIssueSeverity
   type: string
   subtype: string
   expected: string
@@ -72,11 +71,14 @@ interface FieldDraft {
 
 function emptyDraft(field: IssueField): FieldDraft {
   const tax = KIND_TAXONOMY[field.kind]
-  return { severity: "Warning", type: tax[0].type, subtype: tax[0].subtypes[0], expected: "", items: [] }
+  return { type: tax[0].type, subtype: tax[0].subtypes[0], expected: "", items: [] }
 }
 
 /** The unit's current value for a field, formatted for display + issue context. */
 function currentValue(row: PropertyRow, field: IssueField): string {
+  if (field.id === "developer") return row.developer.name
+  if (field.id === "project") return row.project.name
+  if (field.id === "phase") return row.phase?.name ?? "—"
   if (field.kind === "plans") return `${row.paymentPlans} plan${row.paymentPlans !== 1 ? "s" : ""}`
   if (field.kind === "floorPlans") return `${row.floorPlans.length} file${row.floorPlans.length !== 1 ? "s" : ""}`
   if (field.kind === "images") return `${row.images.length} image${row.images.length !== 1 ? "s" : ""}`
@@ -87,13 +89,15 @@ function currentValue(row: PropertyRow, field: IssueField): string {
   return String(v)
 }
 
-/** Selectable items for attachment-kind fields, derived from the unit. */
-function itemOptions(row: PropertyRow, field: IssueField): string[] {
-  if (field.kind === "plans")
-    return ["Standard Plan", "Flexible Plan", "Premium Plan", "Investor Plan"].slice(0, Math.max(row.paymentPlans, 0))
-  if (field.kind === "floorPlans") return row.floorPlans.map((_, i) => `Floor Plan ${i + 1}`)
-  if (field.kind === "images") return row.images.map((_, i) => `Render ${i + 1}`)
-  return []
+// Same derivation as the unit drawer's payment-plan cards, so the picker shows
+// the unit's actual plans (mock).
+function planOptions(row: PropertyRow) {
+  return Array.from({ length: Math.max(row.paymentPlans, 0) }, (_, i) => ({
+    name: ["Standard Plan", "Flexible Plan", "Premium Plan", "Investor Plan"][i % 4],
+    downPayment: [10, 15, 20, 25][i % 4],
+    installmentPct: [5, 4, 3, 5][i % 4],
+    duration: [60, 48, 72, 36][i % 4],
+  }))
 }
 
 let assignSeq = 0 // round-robin auto-assignment to data ops (mock)
@@ -128,10 +132,20 @@ export function ReportIssueDrawer({
       if (cur) n.set(fieldId, { ...cur, ...patch })
       return n
     })
+  const toggleItem = (fieldId: string, item: string) =>
+    setDrafts((prev) => {
+      const n = new Map(prev)
+      const cur = n.get(fieldId)
+      if (cur) {
+        const items = cur.items.includes(item) ? cur.items.filter((x) => x !== item) : [...cur.items, item]
+        n.set(fieldId, { ...cur, items })
+      }
+      return n
+    })
 
+  // Attachment fields need the specific item(s) selected unless it's a "missing" type
   const invalids = [...drafts.entries()].filter(([fieldId, d]) => {
     const field = ISSUE_FIELDS.find((f) => f.id === fieldId)!
-    // attachment fields need at least one item unless the issue is a "missing" type
     return field.kind !== "value" && d.items.length === 0 && !d.type.toLowerCase().includes("missing")
   })
 
@@ -143,8 +157,8 @@ export function ReportIssueDrawer({
       const assignedTo = DATA_OPS_TEAM[assignSeq++ % DATA_OPS_TEAM.length] // auto-assignment
       return {
         id: nextIssueId(),
-        source: "User",
-        severity: d.severity,
+        source: "Data Quality",
+        severity: "Medium", // severity is set by triage / scoring config, not the reporter
         status: "To Do",
         fieldId: field.id,
         fieldLabel: field.label,
@@ -174,9 +188,75 @@ export function ReportIssueDrawer({
     onClose()
   }
 
+  /** Per-kind picker for WHAT exactly has the issue. */
+  const ItemPicker = ({ field, draft }: { field: IssueField; draft: FieldDraft }) => {
+    if (field.kind === "plans") {
+      const plans = planOptions(row)
+      if (plans.length === 0) return <p className="text-xs text-muted-foreground">No payment plans on this unit — use a "missing" type.</p>
+      return (
+        <div className="grid grid-cols-2 gap-2">
+          {plans.map((p) => {
+            const on = draft.items.includes(p.name)
+            return (
+              <button
+                key={p.name}
+                onClick={() => toggleItem(field.id, p.name)}
+                className={cn(
+                  "relative rounded-lg border p-2.5 text-left transition-colors",
+                  on ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border bg-card hover:bg-muted/40",
+                )}
+              >
+                {on && (
+                  <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Check className="h-3 w-3" />
+                  </span>
+                )}
+                <p className="pr-5 text-xs font-semibold text-foreground">{p.name}</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">DP {p.downPayment}% · {p.duration} mo · {p.installmentPct}%/mo</p>
+              </button>
+            )
+          })}
+        </div>
+      )
+    }
+    if (field.kind === "floorPlans" || field.kind === "images") {
+      const srcs = field.kind === "floorPlans" ? row.floorPlans : row.images
+      const label = field.kind === "floorPlans" ? "Floor Plan" : "Render"
+      if (srcs.length === 0) return <p className="text-xs text-muted-foreground">Nothing uploaded on this unit — use a "missing" type.</p>
+      return (
+        <div className="grid grid-cols-3 gap-2">
+          {srcs.map((src, i) => {
+            const name = `${label} ${i + 1}`
+            const on = draft.items.includes(name)
+            return (
+              <button
+                key={name}
+                onClick={() => toggleItem(field.id, name)}
+                className={cn(
+                  "group relative overflow-hidden rounded-lg border transition-all",
+                  on ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+                )}
+              >
+                {on && (
+                  <span className="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Check className="h-3 w-3" />
+                  </span>
+                )}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src || "/placeholder.svg"} alt={name} className="h-16 w-full object-cover" />
+                <span className="block bg-card px-1.5 py-1 text-left text-[10px] font-medium text-foreground">{name}</span>
+              </button>
+            )
+          })}
+        </div>
+      )
+    }
+    return null
+  }
+
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose() }}>
-      <SheetContent side="right" className="flex !w-[560px] !max-w-[93vw] flex-col gap-0 overflow-hidden p-0">
+      <SheetContent side="right" className="flex !w-[600px] !max-w-[93vw] flex-col gap-0 overflow-hidden p-0">
         <SheetHeader className="shrink-0 border-b border-border bg-card px-5 py-4">
           <SheetTitle className="text-base font-semibold">Report an Issue</SheetTitle>
           <div className="flex items-center gap-2">
@@ -192,7 +272,7 @@ export function ReportIssueDrawer({
             {q && <button onClick={() => setQ("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>}
           </div>
           <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-            Check every field that has an issue, then classify it and enter the expected result. One ticket is created per field and auto-assigned to data operations.
+            Check every field that has an issue, classify it, and enter the expected result. One ticket is created per field and auto-assigned to data operations.
           </p>
         </div>
 
@@ -208,93 +288,62 @@ export function ReportIssueDrawer({
                     const draft = drafts.get(field.id)
                     const tax = KIND_TAXONOMY[field.kind]
                     const typeDef = draft ? tax.find((t) => t.type === draft.type) ?? tax[0] : tax[0]
-                    const options = itemOptions(row, field)
                     return (
-                      <div key={field.id} className={cn("px-5 py-2.5", draft && "bg-primary/5")}>
+                      <div key={field.id} className="px-5 py-2.5">
                         <label className="flex cursor-pointer items-center justify-between gap-2">
                           <span className="flex items-center gap-2.5">
                             <Checkbox className="h-4 w-4" checked={!!draft} onCheckedChange={(v) => toggleField(field, !!v)} />
                             <span className="text-sm font-medium text-foreground">{field.label}</span>
                           </span>
-                          <span className="max-w-[180px] truncate text-xs text-muted-foreground">{currentValue(row, field)}</span>
+                          <span className="max-w-[200px] truncate text-xs text-muted-foreground">{currentValue(row, field)}</span>
                         </label>
 
                         {draft && (
-                          <div className="ml-6.5 mt-2.5 space-y-2.5 pl-0.5">
-                            {/* Severity */}
-                            <div className="flex items-center gap-1.5">
-                              {(["Warning", "Blocking"] as PropIssueSeverity[]).map((s) => (
-                                <button
-                                  key={s}
-                                  onClick={() => patchDraft(field.id, { severity: s })}
-                                  className={cn(
-                                    "rounded-md border px-2 py-0.5 text-xs font-medium transition-colors",
-                                    draft.severity === s
-                                      ? s === "Blocking" ? "border-red-200 bg-red-100 text-red-700" : "border-amber-200 bg-amber-100 text-amber-700"
-                                      : "border-border bg-card text-muted-foreground hover:bg-muted",
-                                  )}
-                                >
-                                  {s === "Blocking" && <AlertTriangle className="mr-1 inline h-3 w-3" />}{s}
-                                </button>
-                              ))}
-                            </div>
-                            {/* Type + Subtype */}
+                          <div className="mt-2.5 space-y-3 rounded-lg border border-border bg-muted/30 p-3">
+                            {/* What exactly has the issue (plans / floor plans / renders) */}
+                            {field.kind !== "value" && (
+                              <div className="space-y-1.5">
+                                <p className="text-[11px] font-medium text-foreground">
+                                  Select the {field.label.toLowerCase()} with the issue
+                                  {invalids.some(([id]) => id === field.id) && <span className="ml-1 text-red-600">— required</span>}
+                                </p>
+                                <ItemPicker field={field} draft={draft} />
+                              </div>
+                            )}
+                            {/* Classification */}
                             <div className="grid grid-cols-2 gap-2">
-                              <Select value={draft.type} onValueChange={(v) => {
-                                const t = tax.find((x) => x.type === v) ?? tax[0]
-                                patchDraft(field.id, { type: v, subtype: t.subtypes[0] })
-                              }}>
-                                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {tax.map((t) => <SelectItem key={t.type} value={t.type} className="text-sm">{t.type}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                              <Select value={draft.subtype} onValueChange={(v) => patchDraft(field.id, { subtype: v })}>
-                                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {typeDef.subtypes.map((s) => <SelectItem key={s} value={s} className="text-sm">{s}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
+                              <div className="space-y-1">
+                                <p className="text-[11px] font-medium text-muted-foreground">Type</p>
+                                <Select value={draft.type} onValueChange={(v) => {
+                                  const t = tax.find((x) => x.type === v) ?? tax[0]
+                                  patchDraft(field.id, { type: v, subtype: t.subtypes[0] })
+                                }}>
+                                  <SelectTrigger className="h-8 bg-card text-sm"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    {tax.map((t) => <SelectItem key={t.type} value={t.type} className="text-sm">{t.type}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-[11px] font-medium text-muted-foreground">Subtype</p>
+                                <Select value={draft.subtype} onValueChange={(v) => patchDraft(field.id, { subtype: v })}>
+                                  <SelectTrigger className="h-8 bg-card text-sm"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    {typeDef.subtypes.map((s) => <SelectItem key={s} value={s} className="text-sm">{s}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                              </div>
                             </div>
-                            {/* Expected result / affected items */}
-                            {field.kind === "value" ? (
+                            {/* Expected result */}
+                            <div className="space-y-1">
+                              <p className="text-[11px] font-medium text-muted-foreground">Expected result</p>
                               <Input
                                 value={draft.expected}
                                 onChange={(e) => patchDraft(field.id, { expected: e.target.value })}
-                                placeholder={`Expected ${field.label.toLowerCase()} (current: ${currentValue(row, field)})`}
-                                className="h-8 text-sm"
+                                placeholder={field.kind === "value" ? `Expected ${field.label.toLowerCase()} (current: ${currentValue(row, field)})` : "What should it be? (helps data ops fix & auto-close)"}
+                                className="h-8 bg-card text-sm"
                               />
-                            ) : (
-                              <div className="space-y-1.5">
-                                {options.length > 0 ? (
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {options.map((opt) => {
-                                      const on = draft.items.includes(opt)
-                                      return (
-                                        <button
-                                          key={opt}
-                                          onClick={() => patchDraft(field.id, { items: on ? draft.items.filter((x) => x !== opt) : [...draft.items, opt] })}
-                                          className={cn(
-                                            "rounded-md border px-2 py-0.5 text-xs font-medium transition-colors",
-                                            on ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:bg-muted",
-                                          )}
-                                        >
-                                          {opt}
-                                        </button>
-                                      )
-                                    })}
-                                  </div>
-                                ) : (
-                                  <p className="text-xs text-muted-foreground">Nothing uploaded on this unit — use a "missing" type.</p>
-                                )}
-                                <Input
-                                  value={draft.expected}
-                                  onChange={(e) => patchDraft(field.id, { expected: e.target.value })}
-                                  placeholder="Expected result (optional note)"
-                                  className="h-8 text-sm"
-                                />
-                              </div>
-                            )}
+                            </div>
                           </div>
                         )}
                       </div>
