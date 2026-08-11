@@ -51,6 +51,7 @@ export interface ProjectRow {
    *  (never Resale / Nawy Now / Rental). */
   primaryStatusProps: { launch: EntryPropCount; available: EntryPropCount; onHold: EntryPropCount; soldOff: EntryPropCount }
   /** Sale-type unit counts: available / total */
+  launchUnits: UnitCount
   primaryUnits: UnitCount
   resaleUnits: UnitCount
   nawyNowUnits: UnitCount
@@ -152,6 +153,8 @@ function buildRows(): ProjectRow[] {
         onHold: { grouped: i % 4, detailed: (i * 2) % 10 },
         soldOff: { grouped: (i * 3) % 7, detailed: (i * 7) % 26 },
       },
+      // Total mirrors primaryStatusProps.launch.grouped; listed only while in Launch
+      launchUnits: { available: PRIMARY[i % PRIMARY.length] === "Launch" ? 2 + (i % 6) - (i % 2) : 0, total: 2 + (i % 6) },
       primaryUnits: { available: 12 + ((i * 7) % 60), total: 40 + ((i * 13) % 120) },
       resaleUnits: { available: (i * 5) % 25, total: ((i * 5) % 25) + ((i * 9) % 40) },
       nawyNowUnits: { available: (i * 3) % 12, total: ((i * 3) % 12) + ((i * 5) % 18) },
@@ -207,6 +210,12 @@ function buildRows(): ProjectRow[] {
           onHold: { grouped: seed % 3, detailed: seed % 6 },
           soldOff: { grouped: seed % 4, detailed: (seed * 4) % 12 },
         },
+        launchUnits: {
+          available: (p === 0 ? project.primaryStatus : p === 1 && project.primaryStatus === "Launch" ? "On-Sale" : PRIMARY[seed % PRIMARY.length]) === "Launch"
+            ? 1 + (seed % 4) - (seed % 2)
+            : 0,
+          total: 1 + (seed % 4),
+        },
         primaryUnits: { available: 4 + ((seed * 3) % 30), total: 15 + ((seed * 7) % 60) },
         resaleUnits: { available: (seed * 2) % 14, total: ((seed * 2) % 14) + (seed % 20) },
         nawyNowUnits: { available: seed % 8, total: (seed % 8) + ((seed * 3) % 10) },
@@ -259,6 +268,8 @@ function buildRows(): ProjectRow[] {
           onHold: { grouped: seed % 3, detailed: seed % 6 },
           soldOff: { grouped: seed % 4, detailed: (seed * 4) % 12 },
         },
+        // Sub-projects never sit in Launch — historical launch units exist, none listed
+        launchUnits: { available: 0, total: 1 + (seed % 4) },
         primaryUnits: { available: 4 + ((seed * 3) % 30), total: 15 + ((seed * 7) % 60) },
         resaleUnits: { available: (seed * 2) % 14, total: ((seed * 2) % 14) + (seed % 20) },
         nawyNowUnits: { available: seed % 8, total: (seed % 8) + ((seed * 3) % 10) },

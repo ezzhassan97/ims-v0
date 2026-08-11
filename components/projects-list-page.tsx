@@ -155,6 +155,7 @@ const SORT_FIELDS = [
   { key: "updatedAt", label: "Updated at" },
   { key: "buildingsCount", label: "Buildings count" },
   { key: "areaKm2", label: "Area (km²)" },
+  { key: "launchUnits", label: "Launch units" },
   { key: "primaryUnits", label: "Primary units" },
   { key: "resaleUnits", label: "Resale units" },
   { key: "nawyNowUnits", label: "Nawy Now units" },
@@ -168,6 +169,7 @@ function sortVal(r: ProjectRow, k: string): number {
     case "updatedAt": return new Date(r.updatedAt).getTime()
     case "buildingsCount": return r.buildingsCount
     case "areaKm2": return r.areaKm2 ?? -1
+    case "launchUnits": return r.launchUnits.total
     case "primaryUnits": return r.primaryUnits.total
     case "resaleUnits": return r.resaleUnits.total
     case "nawyNowUnits": return r.nawyNowUnits.total
@@ -211,6 +213,7 @@ const PROJ_COLS = [
   { id: "listingMp", label: "Listing Masterplans", width: 150 },
   { id: "gisMp", label: "GIS Masterplan", width: 140 },
   { id: "buildingsCount", label: "Buildings", width: 130 },
+  { id: "launchUnits", label: "Launch Properties", width: 170 },
   { id: "primaryUnits", label: "Primary Properties", width: 170 },
   { id: "resaleUnits", label: "Resale Properties", width: 170 },
   { id: "nawyNowUnits", label: "Nawy Now", width: 160 },
@@ -415,7 +418,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const aggOf = (m: ProjectRow): ProjectRow => {
     const phs = phasesOf(m)
     if (phs.length === 0) return m
-    const sumUnits = (k: "primaryUnits" | "resaleUnits" | "nawyNowUnits" | "rentalUnits") => ({
+    const sumUnits = (k: "launchUnits" | "primaryUnits" | "resaleUnits" | "nawyNowUnits" | "rentalUnits") => ({
       available: m[k].available + phs.reduce((s, p) => s + p[k].available, 0),
       total: m[k].total + phs.reduce((s, p) => s + p[k].total, 0),
     })
@@ -425,6 +428,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       areaKm2: kmVals.length ? Number(kmVals.reduce((s, x) => s + x, 0).toFixed(2)) : null,
       brochureCount: m.brochureCount + phs.reduce((s, p) => s + p.brochureCount, 0),
       buildingsCount: m.buildingsCount + phs.reduce((s, p) => s + p.buildingsCount, 0),
+      launchUnits: sumUnits("launchUnits"),
       primaryUnits: sumUnits("primaryUnits"),
       resaleUnits: sumUnits("resaleUnits"),
       nawyNowUnits: sumUnits("nawyNowUnits"),
@@ -615,6 +619,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         return d.buildingsCount === 0
           ? <Tag value="No buildings" cls={RED_TAG} />
           : <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground"><Building2 className="h-3.5 w-3.5 text-muted-foreground" />{d.buildingsCount}</span>
+      case "launchUnits": return <UnitsCell u={d.launchUnits} />
       case "primaryUnits": return <UnitsCell u={d.primaryUnits} />
       case "resaleUnits": return <UnitsCell u={d.resaleUnits} />
       case "nawyNowUnits": return <UnitsCell u={d.nawyNowUnits} />
