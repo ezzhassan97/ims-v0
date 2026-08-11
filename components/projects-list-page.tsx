@@ -3224,7 +3224,7 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
         onHold: { grouped: 0, detailed: 0 },
         soldOff: { grouped: 0, detailed: 0 },
       },
-      primaryUnits: zero, resaleUnits: zero, nawyNowUnits: zero, rentalUnits: zero,
+      launchUnits: zero, primaryUnits: zero, resaleUnits: zero, nawyNowUnits: zero, rentalUnits: zero,
       createdAt: stamp,
       updatedAt: stamp,
     }
