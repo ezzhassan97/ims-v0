@@ -3,8 +3,8 @@
 import { Fragment, useMemo, useState } from "react"
 import {
   AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Building2, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
-  ChevronsDownUp, ChevronsUpDown, CircleDot, Clock, Download, Eye, FileDown, FileSpreadsheet, FileText, LayoutGrid,
-  Loader2, MoreHorizontal, Send, UserRound, Users, XCircle,
+  ChevronsDownUp, ChevronsUpDown, CircleDot, Clock, Download, ExternalLink, Eye, FileDown, FileSpreadsheet, FileText,
+  LayoutGrid, Loader2, MoreHorizontal, Send, UserRound, Users, XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -19,8 +19,9 @@ import {
   TableCard, TableCardHeader, TableToolbar, TableFooter, FilterMultiSelect, DateRangeFilter, FiltersDrawer,
   FilterDrawerField, FloatingBulkBar, MultiSortControl, ColumnsSheet, GroupPager, IdTag, COL_SEP, type SortLevel,
 } from "@/components/table-kit"
+import { Badge } from "@/components/ui/badge"
 import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
-import { ViewPropertyDrawer, createRows } from "@/components/all-properties-page"
+import { ViewPropertyDrawer, createRows, BADGE_CLASS } from "@/components/all-properties-page"
 import {
   PROPERTY_ISSUES, PROP_ISSUE_STATUSES, PROP_ISSUE_SEVERITIES, PROP_ISSUE_SOURCES, STATUS_COLORS, SEVERITY_COLORS,
   SOURCE_COLORS, ISSUE_FIELDS, ALL_ISSUE_TYPES, ALL_ISSUE_SUBTYPES, QUALITY_TEAM, SALES_AGENTS, ALL_PEOPLE,
@@ -61,6 +62,12 @@ function PersonCell({ name, muted }: { name: string | null; muted?: boolean }) {
   )
 }
 
+/** Unit tag with the shared properties palette; "Hold" reads as "On Hold". */
+function UnitTag({ value }: { value: string | null | undefined }) {
+  if (!value) return <span className="text-muted-foreground">—</span>
+  return <Badge variant="outline" className={cn("border text-xs whitespace-nowrap", BADGE_CLASS[value])}>{value === "Hold" ? "On Hold" : value}</Badge>
+}
+
 const PROJECT_OPTIONS = ["New Cairo Residences", "North Coast Bay", "West Gate", "Lagoon District", "Capital Gardens"]
 const DEVELOPER_OPTIONS = ["Palm Hills", "Sodic", "Mountain View", "Emaar"]
 const PHASE_OPTIONS = ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5", "Phase 6"]
@@ -70,9 +77,8 @@ const COLS = [
   { id: "source", label: "Reported By Type", width: 130 },
   { id: "severity", label: "Severity", width: 100 },
   { id: "status", label: "Status", width: 130 },
-  { id: "field", label: "Category (Field)", width: 140 },
-  { id: "type", label: "Type", width: 140 },
-  { id: "subtype", label: "Subtype", width: 180 },
+  { id: "field", label: "Issue Category", width: 140 },
+  { id: "type", label: "Issue Type", width: 140 },
   { id: "description", label: "Description", width: 240 },
   { id: "expected", label: "Expected", width: 150 },
   { id: "assignedTo", label: "Assigned To", width: 140 },
@@ -80,14 +86,17 @@ const COLS = [
   { id: "developer", label: "Developer", width: 170 },
   { id: "project", label: "Project", width: 180 },
   { id: "phase", label: "Phase", width: 120 },
-  { id: "propertyId", label: "Property ID", width: 125 },
-  { id: "detailedPropertyId", label: "Detailed Property ID", width: 150 },
+  { id: "entryType", label: "Entry Type", width: 110 },
+  { id: "saleType", label: "Sale Type", width: 110 },
+  { id: "propertyId", label: "Property ID", width: 145 },
+  { id: "detailedPropertyId", label: "Detailed Property ID", width: 170 },
+  { id: "unitStatus", label: "Property Status", width: 120 },
   { id: "createdAt", label: "Created At", width: 160 },
   { id: "updatedAt", label: "Updated At", width: 160 },
   { id: "resolvedAt", label: "Resolved At", width: 160 },
   { id: "closedAt", label: "Closed At", width: 160 },
 ]
-const DEFAULT_HIDDEN = new Set(["detailedPropertyId"])
+const DEFAULT_HIDDEN = new Set<string>()
 
 // Header-click + multi-level sorting is limited to these columns
 const SORT_FIELDS = [
@@ -105,8 +114,8 @@ type GroupByKey =
   | "status" | "field" | "type" | "subtype" | "severity"
 const GROUP_LABEL: Record<GroupByKey, string> = {
   none: "Group by", source: "Reported By Type", assignedTo: "Assigned To", reportedBy: "Reported By",
-  developer: "Developer", project: "Project", phase: "Phase", status: "Status", field: "Category (Field)",
-  type: "Type", subtype: "Subtype", severity: "Severity",
+  developer: "Developer", project: "Project", phase: "Phase", status: "Status", field: "Issue Category",
+  type: "Issue Type", subtype: "Subtype", severity: "Severity",
 }
 
 function getSortValue(r: PropertyIssue, key: string): string | number {
@@ -371,7 +380,6 @@ export function DataIssuesPage() {
       case "status": return <StatusCell r={r} />
       case "field": return <ColorTag value={r.fieldLabel} />
       case "type": return <ColorTag value={r.type} />
-      case "subtype": return <span className="block max-w-[180px] truncate text-sm" title={r.subtype}>{r.subtype}</span>
       case "description": return <span className="block max-w-[240px] truncate text-sm" title={r.description}>{r.description}</span>
       case "expected": return r.expected ? <span className="block max-w-[150px] truncate text-sm" title={r.expected}>{r.expected}</span> : <span className="text-muted-foreground">—</span>
       case "assignedTo": return <AssigneeCell r={r} />
@@ -414,8 +422,33 @@ export function DataIssuesPage() {
           <IdTag value={r.phase.id} />
         </div>
       ) : <span className="text-muted-foreground">—</span>
-      case "propertyId": return <IdTag value={r.propertyId} />
-      case "detailedPropertyId": return <IdTag value={r.detailedPropertyId} />
+      case "entryType": return <UnitTag value={propertyById.get(r.propertyId)?.entryType} />
+      case "saleType": return <UnitTag value={propertyById.get(r.propertyId)?.saleType} />
+      case "propertyId": return (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+          <IdTag value={r.propertyId} />
+          <button
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Open grouped property details"
+            onClick={() => window.open(`/properties/grouped/${r.propertyId}`, "_blank", "noopener")}
+          >
+            <ExternalLink className="h-3 w-3" />
+          </button>
+        </span>
+      )
+      case "detailedPropertyId": return (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+          <IdTag value={r.detailedPropertyId} />
+          <button
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="View detailed property"
+            onClick={() => setViewProperty(r)}
+          >
+            <Eye className="h-3 w-3" />
+          </button>
+        </span>
+      )
+      case "unitStatus": return <UnitTag value={propertyById.get(r.propertyId)?.availability} />
       case "createdAt": return ts(r.createdAt)
       case "updatedAt": return ts(r.updatedAt)
       case "resolvedAt": return ts(r.resolvedAt)
@@ -519,8 +552,8 @@ export function DataIssuesPage() {
                   <FilterMultiSelect label="Status" value={statusF} options={PROP_ISSUE_STATUSES} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-32" />
                   <FilterMultiSelect label="Severity" value={severityF} options={PROP_ISSUE_SEVERITIES} onChange={(v) => { setSeverityF(v); setPage(1) }} className="w-32" />
                   <FilterMultiSelect label="Reported By Type" value={sourceF} options={PROP_ISSUE_SOURCES} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-40" />
-                  <FilterMultiSelect label="Category" value={fieldF} options={ISSUE_FIELDS.map((f) => f.label)} onChange={(v) => { setFieldF(v); setPage(1) }} className="w-36" />
-                  <FilterMultiSelect label="Type" value={typeF} options={ALL_ISSUE_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-32" />
+                  <FilterMultiSelect label="Issue Category" value={fieldF} options={ISSUE_FIELDS.map((f) => f.label)} onChange={(v) => { setFieldF(v); setPage(1) }} className="w-38" />
+                  <FilterMultiSelect label="Issue Type" value={typeF} options={ALL_ISSUE_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-34" />
                   <FilterMultiSelect label="Subtype" value={subtypeF} options={ALL_ISSUE_SUBTYPES} onChange={(v) => { setSubtypeF(v); setPage(1) }} className="w-36" />
                   <FilterMultiSelect label="Reported By" value={reporterF} options={ALL_REPORTERS} onChange={(v) => { setReporterF(v); setPage(1) }} className="w-36" />
                   <FilterMultiSelect label="Assigned To" value={assigneeF} options={["Unassigned", ...ALL_PEOPLE]} onChange={(v) => { setAssigneeF(v); setPage(1) }} className="w-36" />
@@ -705,8 +738,8 @@ export function DataIssuesPage() {
               <FilterDrawerField label="Status"><FilterMultiSelect label="Status" value={statusF} options={PROP_ISSUE_STATUSES} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
               <FilterDrawerField label="Severity"><FilterMultiSelect label="Severity" value={severityF} options={PROP_ISSUE_SEVERITIES} onChange={(v) => { setSeverityF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
               <FilterDrawerField label="Reported By Type"><FilterMultiSelect label="Reported By Type" value={sourceF} options={PROP_ISSUE_SOURCES} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-              <FilterDrawerField label="Category (Field)"><FilterMultiSelect label="Category (Field)" value={fieldF} options={ISSUE_FIELDS.map((f) => f.label)} onChange={(v) => { setFieldF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-              <FilterDrawerField label="Type"><FilterMultiSelect label="Type" value={typeF} options={ALL_ISSUE_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Issue Category"><FilterMultiSelect label="Issue Category" value={fieldF} options={ISSUE_FIELDS.map((f) => f.label)} onChange={(v) => { setFieldF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Issue Type"><FilterMultiSelect label="Issue Type" value={typeF} options={ALL_ISSUE_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
               <FilterDrawerField label="Subtype"><FilterMultiSelect label="Subtype" value={subtypeF} options={ALL_ISSUE_SUBTYPES} onChange={(v) => { setSubtypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
               <FilterDrawerField label="Reported By"><FilterMultiSelect label="Reported By" value={reporterF} options={ALL_REPORTERS} onChange={(v) => { setReporterF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
               <FilterDrawerField label="Assigned To"><FilterMultiSelect label="Assigned To" value={assigneeF} options={["Unassigned", ...ALL_PEOPLE]} onChange={(v) => { setAssigneeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
