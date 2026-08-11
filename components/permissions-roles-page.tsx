@@ -10,26 +10,33 @@
 import { useMemo, useState } from "react"
 import {
   Crown, DatabaseZap, Handshake, FileSpreadsheet, Repeat, MonitorSmartphone,
-  Search, ShieldCheck, FileBarChart, CornerDownRight, Unlock, LayoutGrid, ChevronDown, ChevronsUpDown, ChevronsDownUp,
+  Search, ShieldCheck, FileBarChart, CornerDownRight, Unlock, LayoutGrid, ChevronDown, ChevronsUpDown, ChevronsDownUp, Download,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { navItems, type NavItem } from "@/components/sidebar"
 
 // ─── Access model ─────────────────────────────────────────────────────────────
 
-type Level = "none" | "view" | "edit" | "create" | "all"
+type Level = "none" | "view" | "full"
 
-const LEVELS: Level[] = ["all", "create", "edit", "view", "none"]
+const LEVELS: Level[] = ["full", "view", "none"]
 
 const LEVEL_META: Record<Level, { label: string; tag: string; dot: string }> = {
-  all: { label: "All Actions", tag: "border-emerald-200 bg-emerald-100 text-emerald-700", dot: "bg-emerald-500" },
-  create: { label: "Create", tag: "border-indigo-200 bg-indigo-100 text-indigo-700", dot: "bg-indigo-500" },
-  edit: { label: "Edit", tag: "border-blue-200 bg-blue-100 text-blue-700", dot: "bg-blue-500" },
+  full: { label: "Full Access", tag: "border-emerald-200 bg-emerald-100 text-emerald-700", dot: "bg-emerald-500" },
   view: { label: "View Only", tag: "border-amber-200 bg-amber-50 text-amber-700", dot: "bg-amber-400" },
   none: { label: "No Access", tag: "border-red-200 bg-red-50 text-red-600", dot: "bg-red-300" },
 }
 
-interface Rule { level: Level; note?: string }
+/** Beyond the level, a rule can carry specific access types (e.g. "map" on projects-table). */
+interface Rule { level: Level; note?: string; extras?: string[] }
+
+/** Exported permission names are slug-level; the catalog also enumerates these mid levels. */
+const EXPORT_LEVELS = ["view", "edit", "full-access"]
+
+/** Specific access types per page/tab slug — exported as `${slug}-${extra}`. */
+const EXTRA_PERMISSIONS: Record<string, string[]> = {
+  "projects-table": ["map"],
+}
 
 interface Team {
   id: string
@@ -106,16 +113,19 @@ const TEAMS: Team[] = [
   {
     id: "admins", name: "Admins", short: "Admins",
     blurb: "Can view, edit and do everything — no constraints.",
-    icon: Crown, default: "all", overrides: {},
+    icon: Crown, default: "full", overrides: {},
   },
   {
     id: "unlocked-keys", name: "Unlocked Keys", short: "Unlocked",
-    blurb: "Full access on Rental Properties only; view-only elsewhere — no ingestion, quality, configuration, collection or audit surfaces.",
+    blurb: "Full access on Rental Properties only; the rest is view-only or fully off-limits.",
     icon: Unlock, default: "view",
     overrides: {
-      Dashboards: { level: "all" },
-      "Rental Properties": { level: "all", note: "Every action, incl. all tabs under it" },
-      "Whatsapp Configurations": { level: "none", note: "Admins only" },
+      Dashboards: { level: "none" },
+      Whatsapp: { level: "none" },
+      "Market Updates": { level: "none" },
+      Launches: { level: "none" },
+      Properties: { level: "none" },
+      "Rental Properties": { level: "full", note: "Every action, incl. all tabs under it" },
       "Data Ingestion": { level: "none" },
       "Data Quality": { level: "none" },
       "General Configurations": { level: "none" },
@@ -125,22 +135,25 @@ const TEAMS: Team[] = [
   },
   {
     id: "data-ops", name: "Data Ops Managers", short: "Data Ops",
-    blurb: "Like Admins — every action on everything, except the WhatsApp configurations page.",
-    icon: DatabaseZap, default: "all",
+    blurb: "Like Admins — every action on everything, except WhatsApp configurations and groups.",
+    icon: DatabaseZap, default: "full",
     overrides: {
       "Whatsapp Configurations": { level: "none", note: "Admins only" },
+      "Whatsapp Groups": { level: "view" },
     },
   },
   {
     id: "dev-relations", name: "Dev Relations", short: "Dev Rel",
-    blurb: "Own developers and the projects table; content and inventory tabs read-only; run Data Collection.",
+    blurb: "Own developers, WhatsApp, launches and the projects table; content and inventory tabs read-only; run Data Collection.",
     icon: Handshake, default: "view",
     overrides: {
-      Dashboards: { level: "all" },
-      Developers: { level: "all", note: "Main page + details; SEO / FAQs tabs stay view-only" },
+      Dashboards: { level: "full" },
+      Whatsapp: { level: "full", note: "Groups & media; configurations stay Admins-only" },
+      Launches: { level: "full", note: "All launch tabs" },
+      Developers: { level: "full", note: "Main page + details; SEO / FAQs tabs stay view-only" },
       "Developer Details / SEO": { level: "view", note: "SEO copy is owned by the SEO team" },
       "Developer Details / FAQs": { level: "view" },
-      Projects: { level: "all", note: "Projects table + main info; content/inventory tabs stay view-only" },
+      Projects: { level: "full", note: "Projects table + main info; content/inventory tabs stay view-only" },
       "Project Details / SEO": { level: "view" },
       "Project Details / FAQs": { level: "view" },
       "Project Details / Payment Plans": { level: "view" },
@@ -152,7 +165,7 @@ const TEAMS: Team[] = [
       "Project Details / Masterplan Buildings": { level: "view" },
       "Project Details / Construction Updates": { level: "view" },
       "Project Details / Ingestion Entries": { level: "view" },
-      "Data Collection": { level: "all", note: "Masterplan & brochure chasing with the developers" },
+      "Data Collection": { level: "full", note: "Masterplan & brochure chasing with the developers" },
       "Whatsapp Configurations": { level: "none", note: "Admins only" },
       "Data Ingestion": { level: "none" },
       "Data Quality": { level: "none" },
@@ -164,46 +177,48 @@ const TEAMS: Team[] = [
     blurb: "Run the primary pipeline — primary properties, sheets ingestion and data quality; plans & media tabs on projects.",
     icon: FileSpreadsheet, default: "view",
     overrides: {
-      Dashboards: { level: "all" },
-      "Primary Properties": { level: "all" },
-      "Data Ingestion": { level: "all", note: "Automatic sheets + manual entries" },
-      "Data Quality": { level: "all" },
-      "Project Details / Payment Plans": { level: "all" },
-      "Project Details / Render Images": { level: "all" },
-      "Project Details / Floor Plans": { level: "all" },
-      "Project Details / Properties": { level: "all" },
-      "Project Details / Ingestion Entries": { level: "all" },
-      "Floor Plans": { level: "all", note: "Projects Attachments" },
-      "Render Images": { level: "all" },
-      "Payment Plans": { level: "all" },
-      Brochures: { level: "all" },
+      Dashboards: { level: "full" },
+      "Primary Properties": { level: "full" },
+      "Data Ingestion": { level: "full", note: "Automatic sheets + manual entries" },
+      "Data Quality": { level: "full" },
+      "Quality Configurations": { level: "view" },
+      "Project Details / Payment Plans": { level: "full" },
+      "Project Details / Render Images": { level: "full" },
+      "Project Details / Floor Plans": { level: "full" },
+      "Project Details / Properties": { level: "full" },
+      "Project Details / Ingestion Entries": { level: "full" },
+      "Floor Plans": { level: "full", note: "Projects Attachments" },
+      "Render Images": { level: "full" },
+      "Payment Plans": { level: "full" },
+      Brochures: { level: "full" },
       "Whatsapp Configurations": { level: "none", note: "Admins only" },
     },
   },
   {
     id: "resale-nawynow", name: "Resale & Nawy Now Ingestion", short: "Resale/NN",
-    blurb: "Full control of the Resale-family properties pages; view-only on the rest.",
+    blurb: "Full control of the Resale Properties page; no other properties pages.",
     icon: Repeat, default: "view",
     overrides: {
-      Dashboards: { level: "all" },
-      "Resale Properties": { level: "all" },
-      "Nawy Now Properties": { level: "all" },
-      "Resale Marketplace": { level: "all" },
+      Dashboards: { level: "full" },
+      Properties: { level: "none" },
+      "Resale Properties": { level: "full" },
       "Whatsapp Configurations": { level: "none", note: "Admins only" },
     },
   },
   {
     id: "erealty-ingestion", name: "E-realty Ingestion", short: "E-realty",
-    blurb: "Own the masterplan surfaces — project masterplan tabs, area hierarchy, masterplan attachments and collection.",
+    blurb: "Own the masterplan surfaces and data issues; map access on the projects table.",
     icon: MonitorSmartphone, default: "view",
     overrides: {
-      Dashboards: { level: "all" },
-      "Project Details / Masterplans": { level: "all" },
-      "Project Details / Masterplan Amenities": { level: "all" },
-      "Project Details / Masterplan Buildings": { level: "all" },
-      "Areas / Hierarchy": { level: "all", note: "Area hierarchy tab" },
-      Masterplans: { level: "all", note: "Projects Attachments" },
-      "Masterplan Collection": { level: "all" },
+      Dashboards: { level: "full" },
+      Projects: { level: "view", extras: ["map"] },
+      "Project Details / Masterplans": { level: "full" },
+      "Project Details / Masterplan Amenities": { level: "full" },
+      "Project Details / Masterplan Buildings": { level: "full" },
+      "Areas / Hierarchy": { level: "full", note: "Area hierarchy tab" },
+      Masterplans: { level: "full", note: "Projects Attachments" },
+      "Masterplan Collection": { level: "full" },
+      "Data Issues": { level: "full" },
       "Whatsapp Configurations": { level: "none", note: "Admins only" },
     },
   },
@@ -212,21 +227,21 @@ const TEAMS: Team[] = [
     blurb: "Own website copy — SEO descriptions, titles, FAQs and gallery content.",
     icon: Search, default: "view",
     overrides: {
-      Dashboards: { level: "all" },
+      Dashboards: { level: "full" },
       "Whatsapp Configurations": { level: "none", note: "Admins only" },
-      "Project Details / SEO": { level: "edit" },
-      "Project Details / FAQs": { level: "edit" },
-      "Project Details / Project Gallery": { level: "edit" },
-      "Developer Details / SEO": { level: "edit" },
-      "Developer Details / FAQs": { level: "edit" },
-      "Areas / SEO": { level: "edit", note: "Area SEO descriptions" },
-      "Areas / FAQs": { level: "edit" },
-      "Grouped Property Details / Additional Info": { level: "edit", note: "Titles & descriptions (Resale / Nawy Now / Rental)" },
-      "Grouped Property Details / Gallery": { level: "edit" },
+      "Project Details / SEO": { level: "full" },
+      "Project Details / FAQs": { level: "full" },
+      "Project Details / Project Gallery": { level: "view" },
+      "Developer Details / SEO": { level: "full" },
+      "Developer Details / FAQs": { level: "full" },
+      "Areas / SEO": { level: "full", note: "Area SEO descriptions" },
+      "Areas / FAQs": { level: "full" },
+      "Grouped Property Details": { level: "view", note: "All property tabs are read-only" },
+      "Data Collection": { level: "none" },
       "Data Ingestion": { level: "none" },
       "Data Quality": { level: "none" },
       "General Configurations": { level: "none" },
-      "Audit Logs": { level: "none" },
+      "Audit Logs": { level: "view" },
     },
   },
   {
@@ -234,26 +249,25 @@ const TEAMS: Team[] = [
     blurb: "Guard data integrity — validation rules, issues and checks across the system.",
     icon: ShieldCheck, default: "view",
     overrides: {
-      Dashboards: { level: "all" },
-      "Data Quality": { level: "all", note: "Rules & issue lifecycle" },
+      Dashboards: { level: "full" },
+      "Data Quality": { level: "full", note: "Rules & issue lifecycle" },
       Projects: { level: "view", note: "Data checks only" },
       "Audit Logs": { level: "view" },
       "Whatsapp Configurations": { level: "none", note: "Admins only" },
-      "General Configurations": { level: "none" },
+      "General Configurations": { level: "view" },
     },
   },
   {
     id: "market-research", name: "Market Research", short: "Mkt Res",
-    blurb: "Publish market intelligence; read-only on the rest of the inventory.",
-    icon: FileBarChart, default: "none",
+    blurb: "Publish market intelligence and run launches; view-only elsewhere, no data pipelines.",
+    icon: FileBarChart, default: "view",
     overrides: {
-      "Market Updates": { level: "all", note: "Nawy Space, newsfeed, construction updates & reports" },
-      Dashboards: { level: "all" },
-      Areas: { level: "view" },
-      Developers: { level: "view" },
-      Projects: { level: "view" },
-      Launches: { level: "view" },
-      Properties: { level: "view" },
+      "Market Updates": { level: "full", note: "Nawy Space, newsfeed, construction updates & reports" },
+      Launches: { level: "full" },
+      "Data Collection": { level: "none" },
+      "Data Ingestion": { level: "none" },
+      "Data Quality": { level: "none" },
+      "Whatsapp Configurations": { level: "none", note: "Admins only" },
     },
   },
 ]
@@ -265,12 +279,21 @@ interface PageRow {
   icon?: React.ReactNode
   depth: number
   kind: "page" | "detail" | "tab"
+  /** Export permission name base — e.g. "projects-table", "projects-details-main". */
+  slug: string
+  /** Navbar group container (has child pages) — carries no permission of its own; shows child counts. */
+  group?: boolean
   /** Chain used for permission resolution: own key first, then ancestors. */
   chain: string[]
   /** Unique row id + structural parent — drives expand/collapse. */
   key: string
   parentKey?: string
 }
+
+const kebab = (s: string) => s.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "-").replace(/(^-+|-+$)/g, "")
+const tabSlug = (t: string) => (t === "Main Info" ? "main" : kebab(t))
+/** Page slugs follow the export convention — the projects table page is "projects-table". */
+const pageSlug = (label: string) => (label === "Projects" ? "projects-table" : kebab(label))
 
 function buildRows(): PageRow[] {
   const rows: PageRow[] = []
@@ -279,32 +302,35 @@ function buildRows(): PageRow[] {
     return rows[rows.length - 1].key
   }
 
-  const pushDetail = (d: DetailExt, parentChain: string[], depth: number, parentKey: string) => {
+  const pushDetail = (d: DetailExt, parentChain: string[], depth: number, parentKey: string, hostPageLabel: string) => {
     const detailChain = [d.label, ...parentChain]
-    const k = push({ label: d.label, depth, kind: "detail", chain: detailChain, parentKey })
+    const detailSlug = `${kebab(hostPageLabel)}-details`
+    const k = push({ label: d.label, depth, kind: "detail", slug: detailSlug, chain: detailChain, parentKey })
     for (const tab of d.tabs ?? []) {
-      push({ label: tab, depth: depth + 1, kind: "tab", chain: [`${d.label} / ${tab}`, ...detailChain], parentKey: k })
+      push({ label: tab, depth: depth + 1, kind: "tab", slug: `${detailSlug}-${tabSlug(tab)}`, chain: [`${d.label} / ${tab}`, ...detailChain], parentKey: k })
     }
   }
 
   const pushExt = (pageLabel: string, parentChain: string[], depth: number, parentKey: string) => {
     const ext = EXTENSIONS[pageLabel]
     if (!ext) return
+    const base = pageSlug(pageLabel)
     for (const tab of ext.tabs ?? []) {
       const tabChain = [`${pageLabel} / ${tab.label}`, ...parentChain]
-      const k = push({ label: tab.label, depth, kind: "tab", chain: tabChain, parentKey })
-      for (const d of tab.details ?? []) pushDetail(d, tabChain, depth + 1, k)
+      const k = push({ label: tab.label, depth, kind: "tab", slug: `${base}-${tabSlug(tab.label)}`, chain: tabChain, parentKey })
+      for (const d of tab.details ?? []) pushDetail(d, tabChain, depth + 1, k, pageLabel)
     }
-    for (const d of ext.details ?? []) pushDetail(d, parentChain, depth, parentKey)
+    for (const d of ext.details ?? []) pushDetail(d, parentChain, depth, parentKey, pageLabel)
   }
 
   for (const item of navItems as NavItem[]) {
     if (EXCLUDED_PAGES.has(item.label)) continue
-    const topKey = push({ label: item.label, icon: item.icon, depth: 0, kind: "page", chain: [item.label] })
+    const group = (item.children?.length ?? 0) > 0
+    const topKey = push({ label: item.label, icon: item.icon, depth: 0, kind: "page", slug: pageSlug(item.label), group, chain: [item.label] })
     pushExt(item.label, [item.label], 1, topKey)
     for (const child of item.children ?? []) {
       const childChain = [child.label, item.label]
-      const childKey = push({ label: child.label, icon: child.icon, depth: 1, kind: "page", chain: childChain, parentKey: topKey })
+      const childKey = push({ label: child.label, icon: child.icon, depth: 1, kind: "page", slug: pageSlug(child.label), chain: childChain, parentKey: topKey })
       pushExt(child.label, childChain, 2, childKey)
     }
   }
@@ -324,6 +350,43 @@ function resolve(team: Team, row: PageRow): Rule {
 function LevelTag({ level }: { level: Level }) {
   const m = LEVEL_META[level]
   return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium", m.tag)}>{m.label}</span>
+}
+
+/** JSON / CSV download pair — used at the page top and above each table. */
+function ExportButtons({ onExport }: { onExport: (fmt: "json" | "csv") => void }) {
+  return (
+    <span className="flex items-center gap-1">
+      {(["json", "csv"] as const).map((f) => (
+        <button
+          key={f} type="button" onClick={() => onExport(f)}
+          className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <Download className="h-3.5 w-3.5" />{f.toUpperCase()}
+        </button>
+      ))}
+    </span>
+  )
+}
+
+/** Per-level counts of a group's descendant pages — rendered instead of a single tag. */
+function GroupCountTags({ c, compact }: { c: Record<Level, number>; compact?: boolean }) {
+  return (
+    <span className={cn("inline-flex items-center", compact ? "justify-center gap-1.5" : "flex-wrap justify-end gap-1")}>
+      {LEVELS.map((l) => {
+        const n = c[l]
+        if (n === 0) return null
+        return compact ? (
+          <span key={l} title={`${n} ${LEVEL_META[l].label}`} className="inline-flex items-center gap-0.5 text-[9px] tabular-nums text-muted-foreground">
+            <span className={cn("h-2 w-2 rounded-sm", LEVEL_META[l].dot)} />{n}
+          </span>
+        ) : (
+          <span key={l} className={cn("inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-medium", LEVEL_META[l].tag)}>
+            {n} {LEVEL_META[l].label}
+          </span>
+        )
+      })}
+    </span>
+  )
 }
 
 function LevelDot({ level, title }: { level: Level; title: string }) {
@@ -361,9 +424,53 @@ export function PermissionsRolesPage() {
   const team = TEAMS.find((t) => t.id === teamId)
 
   const counts = (t: Team) => {
-    const c: Record<Level, number> = { all: 0, create: 0, edit: 0, view: 0, none: 0 }
-    rows.forEach((r) => { c[resolve(t, r).level]++ })
+    const c: Record<Level, number> = { full: 0, view: 0, none: 0 }
+    rows.forEach((r) => { if (!r.group) c[resolve(t, r).level]++ })
     return c
+  }
+  /** Level counts across a navbar group's descendant pages/tabs — groups have no permission of their own. */
+  const groupCounts = (t: Team, g: PageRow) => {
+    const c: Record<Level, number> = { full: 0, view: 0, none: 0 }
+    rows.forEach((r) => { if (!r.group && r.key.endsWith(`·${g.key}`)) c[resolve(t, r).level]++ })
+    return c
+  }
+
+  // ── Permission export — slug-level names, e.g. "projects-details-payment-plans-full-access" ──
+  const exportRows = rows.filter((r) => !r.group)
+  const download = (name: string, content: string, mime: string) => {
+    const url = URL.createObjectURL(new Blob([content], { type: mime }))
+    const a = document.createElement("a")
+    a.href = url; a.download = name; a.click()
+    URL.revokeObjectURL(url)
+  }
+  /** Global catalog: every page/tab × every level, plus the specific access types. */
+  const catalogPerms = () => {
+    const perms = exportRows.flatMap((r) => [
+      ...EXPORT_LEVELS.map((l) => ({ permission: `${r.slug}-${l}`, kind: r.kind, path: r.chain.slice().reverse().join(" / ") })),
+      ...(EXTRA_PERMISSIONS[r.slug] ?? []).map((e) => ({ permission: `${r.slug}-${e}`, kind: "specific", path: r.chain.slice().reverse().join(" / ") })),
+    ])
+    return Array.from(new Map(perms.map((p) => [p.permission, p])).values())
+  }
+  /** A team's granted permission names (No Access rows are omitted). */
+  const teamPermList = (t: Team) => exportRows.flatMap((r) => {
+    const rule = resolve(t, r)
+    const out: string[] = []
+    if (rule.level === "view") out.push(`${r.slug}-view`)
+    if (rule.level === "full") out.push(`${r.slug}-full-access`)
+    for (const e of t.overrides[r.chain[0]]?.extras ?? []) out.push(`${r.slug}-${e}`)
+    return out
+  })
+  const exportCatalog = (fmt: "json" | "csv") => {
+    const perms = catalogPerms()
+    if (fmt === "json") download("ims-permissions-catalog.json", JSON.stringify({ count: perms.length, permissions: perms }, null, 2), "application/json")
+    else download("ims-permissions-catalog.csv", ["permission,kind,path", ...perms.map((p) => `${p.permission},${p.kind},"${p.path}"`)].join("\n"), "text/csv")
+  }
+  const exportTeams = (ts: Team[], name: string, fmt: "json" | "csv") => {
+    if (fmt === "json") {
+      download(`${name}.json`, JSON.stringify(ts.map((t) => ({ team: t.name, permissions: teamPermList(t) })), null, 2), "application/json")
+    } else {
+      download(`${name}.csv`, ["team,permission", ...ts.flatMap((t) => teamPermList(t).map((p) => `"${t.name}",${p}`))].join("\n"), "text/csv")
+    }
   }
 
   // Expand/collapse — shared between the matrix and the team panel
@@ -400,9 +507,14 @@ export function PermissionsRolesPage() {
             Which team can see and do what across the IMS — a visual reference for the tech team. Pages, subpages, in-page tabs and details pages mirror the navbar automatically.
           </p>
         </div>
-        {/* Legend */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {LEVELS.map((l) => <LevelTag key={l} level={l} />)}
+        {/* Legend + global permission-catalog export */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {LEVELS.map((l) => <LevelTag key={l} level={l} />)}
+          </div>
+          <span className="h-4 w-px bg-border" />
+          <span className="text-[11px] text-muted-foreground">Export all permissions</span>
+          <ExportButtons onExport={exportCatalog} />
         </div>
       </div>
 
@@ -461,6 +573,7 @@ export function PermissionsRolesPage() {
           <h3 className="text-sm font-semibold">All Teams</h3>
           <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{rows.length} pages & tabs</span>
           <span className="ml-auto text-[11px] text-muted-foreground">Click a team column — or a card above — to inspect it</span>
+          <ExportButtons onExport={(f) => exportTeams(TEAMS, "ims-team-permissions", f)} />
           {expandCollapseAll}
         </div>
         <div className="overflow-x-auto">
@@ -487,6 +600,13 @@ export function PermissionsRolesPage() {
                     <RowLabel r={r} expandable={parentKeys.has(r.key)} collapsed={collapsedKeys.has(r.key)} onToggle={() => toggleKey(r.key)} />
                   </td>
                   {TEAMS.map((t) => {
+                    if (r.group) {
+                      return (
+                        <td key={t.id} className="px-2 py-1.5 text-center">
+                          <GroupCountTags c={groupCounts(t, r)} compact />
+                        </td>
+                      )
+                    }
                     const rule = resolve(t, r)
                     return (
                       <td key={t.id} className="px-2 py-1.5 text-center">
@@ -521,17 +641,34 @@ export function PermissionsRolesPage() {
               ) : null
             })}
           </div>
+          <ExportButtons onExport={(f) => exportTeams([team], `${kebab(team.name)}-permissions`, f)} />
           {expandCollapseAll}
         </div>
         <div className="divide-y divide-border/60">
           {visibleRows.map((r) => {
+            if (r.group) {
+              return (
+                <div key={r.key} className={cn("flex items-center gap-3 px-4 py-2", r.depth === 0 && "bg-muted/20")}>
+                  <div className="min-w-0 flex-1">
+                    <RowLabel r={r} expandable={parentKeys.has(r.key)} collapsed={collapsedKeys.has(r.key)} onToggle={() => toggleKey(r.key)} />
+                  </div>
+                  <GroupCountTags c={groupCounts(team, r)} />
+                </div>
+              )
+            }
             const rule = resolve(team, r)
+            const extras = team.overrides[r.chain[0]]?.extras ?? []
             return (
               <div key={r.key} className={cn("flex items-center gap-3 px-4 py-2", r.depth === 0 && "bg-muted/20")}>
                 <div className="min-w-0 flex-1">
                   <RowLabel r={r} expandable={parentKeys.has(r.key)} collapsed={collapsedKeys.has(r.key)} onToggle={() => toggleKey(r.key)} />
                 </div>
                 {rule.note && <span className="hidden max-w-xs truncate text-right text-[11px] text-muted-foreground sm:block" title={rule.note}>{rule.note}</span>}
+                {extras.map((e) => (
+                  <span key={e} className="inline-flex items-center whitespace-nowrap rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700">
+                    {r.slug}-{e}
+                  </span>
+                ))}
                 <LevelTag level={rule.level} />
               </div>
             )
