@@ -183,7 +183,7 @@ export function QualityConfigurationsPage() {
       <div className="space-y-4 p-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Quality Configurations</h1>
-          <p className="text-sm text-muted-foreground">Manage the issue taxonomy — categories, types and subtypes per entity — and their scoring weights</p>
+          <p className="text-sm text-muted-foreground">Manage the issue taxonomy — property fields are the categories, each with its types and subtypes — and their scoring weights</p>
         </div>
 
         {/* Single tab for now — future configuration tabs slot in here */}
@@ -200,14 +200,25 @@ export function QualityConfigurationsPage() {
             {QC_ENTITIES.map((e) => (
               <TabsTrigger key={e} value={e} className="data-[state=active]:bg-card">
                 {ENTITY_META[e].icon}{ENTITY_META[e].label}
-                <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-blue-200 bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">
-                  {taxonomy[e].length}
-                </span>
+                {e === "Property" ? (
+                  <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-blue-200 bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">
+                    {taxonomy[e].length}
+                  </span>
+                ) : (
+                  <span className="ml-1.5 inline-flex h-4 items-center justify-center rounded border border-gray-200 bg-gray-100 px-1 text-[10px] font-semibold text-gray-500">Soon</span>
+                )}
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
 
+        {entity !== "Property" ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-24 text-center">
+            <ListTree className="mb-3 h-8 w-8 text-muted-foreground" />
+            <p className="text-sm font-semibold text-foreground">{ENTITY_META[entity].label} taxonomy is coming soon</p>
+            <p className="mt-1 text-xs text-muted-foreground">Property fields are live — project and developer issue taxonomies follow the same structure.</p>
+          </div>
+        ) : (
         <TableCard>
           <TableCardHeader
             title={`${ENTITY_META[entity].label} Categories`}
@@ -351,6 +362,7 @@ export function QualityConfigurationsPage() {
             )}
           </div>
         </TableCard>
+        )}
 
         {/* Add / Rename dialog */}
         <Dialog open={!!nameDlg} onOpenChange={(o) => { if (!o) setNameDlg(null) }}>

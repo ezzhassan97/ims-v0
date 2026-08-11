@@ -3,11 +3,13 @@
 import { Fragment, useMemo, useState } from "react"
 import {
   AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Building2, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
-  ChevronsDownUp, ChevronsUpDown, CircleDot, Eye, LayoutGrid, Loader2, MoreHorizontal, Plus, UserRound, Users, XCircle,
+  ChevronsDownUp, ChevronsUpDown, CircleDot, Clock, Download, ExternalLink, Eye, FileDown, FileSpreadsheet, FileText,
+  LayoutGrid, Loader2, MoreHorizontal, Send, UserRound, Users, XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import {
@@ -15,91 +17,141 @@ import {
 } from "@/components/ui/dropdown-menu"
 import {
   TableCard, TableCardHeader, TableToolbar, TableFooter, FilterMultiSelect, DateRangeFilter, FiltersDrawer,
-  FilterDrawerField, FloatingBulkBar, BulkBarButton, MultiSortControl, ColumnsSheet, IdTag, COL_SEP, type SortLevel,
+  FilterDrawerField, FloatingBulkBar, MultiSortControl, ColumnsSheet, GroupPager, IdTag, COL_SEP, type SortLevel,
 } from "@/components/table-kit"
+import { Badge } from "@/components/ui/badge"
 import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
-import { ViewPropertyDrawer, createRows } from "@/components/all-properties-page"
-import { DATA_ISSUES, ISSUE_CATEGORIES, ISSUE_PEOPLE, ISSUE_STATUSES, ISSUE_TYPES, type DataIssue, type IssueStatus } from "@/lib/data-issues-mock"
+import { ViewPropertyDrawer, createRows, BADGE_CLASS } from "@/components/all-properties-page"
+import {
+  PROPERTY_ISSUES, PROP_ISSUE_STATUSES, PROP_ISSUE_SEVERITIES, PROP_ISSUE_SOURCES, STATUS_COLORS, SEVERITY_COLORS,
+  SOURCE_COLORS, ISSUE_FIELDS, ALL_ISSUE_TYPES, ALL_ISSUE_SUBTYPES, QUALITY_TEAM, SALES_AGENTS, ALL_PEOPLE,
+  ALL_REPORTERS, isCriticalSeverity, type PropertyIssue, type PropIssueStatus,
+} from "@/lib/property-issues-mock"
 import { cn } from "@/lib/utils"
 
-const STATUS_COLORS: Record<IssueStatus, string> = {
-  Open: "bg-red-100 text-red-700 border-red-200",
-  "In Progress": "bg-amber-100 text-amber-700 border-amber-200",
-  Fixed: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  Rejected: "bg-gray-100 text-gray-600 border-gray-200",
+// ── Tags ──────────────────────────────────────────────────────────────────────
+export function IssueStatusTag({ status, chevron }: { status: PropIssueStatus; chevron?: boolean }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", STATUS_COLORS[status])}>
+      {status}
+      {chevron && <ChevronDown className="h-3 w-3 opacity-60" />}
+    </span>
+  )
+}
+export function IssueSeverityTag({ severity }: { severity: PropertyIssue["severity"] }) {
+  return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", SEVERITY_COLORS[severity])}>{severity}</span>
+}
+export function IssueSourceTag({ source }: { source: PropertyIssue["source"] }) {
+  return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", SOURCE_COLORS[source])}>{source}</span>
 }
 
-function StatusTag({ status }: { status: IssueStatus }) {
-  return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", STATUS_COLORS[status])}>{status}</span>
+/** Initials avatar + name — Reported By / Assigned To cells. */
+function PersonCell({ name, muted }: { name: string | null; muted?: boolean }) {
+  if (!name) return <span className="text-muted-foreground">—</span>
+  const initials = name === "System" ? "SYS" : name.split(" ").map((x) => x[0]).join("").slice(0, 2)
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      <span className={cn(
+        "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold",
+        name === "System" ? "bg-emerald-100 text-emerald-700" : "bg-primary/10 text-primary",
+      )}>
+        {initials}
+      </span>
+      <span className={cn("text-sm", muted && "text-muted-foreground")}>{name}</span>
+    </span>
+  )
 }
+
+/** Unit tag with the shared properties palette; "Hold" reads as "On Hold". */
+function UnitTag({ value }: { value: string | null | undefined }) {
+  if (!value) return <span className="text-muted-foreground">—</span>
+  return <Badge variant="outline" className={cn("border text-xs whitespace-nowrap", BADGE_CLASS[value])}>{value === "Hold" ? "On Hold" : value}</Badge>
+}
+
+const PROJECT_OPTIONS = ["New Cairo Residences", "North Coast Bay", "West Gate", "Lagoon District", "Capital Gardens"]
+const DEVELOPER_OPTIONS = ["Palm Hills", "Sodic", "Mountain View", "Emaar"]
+const SALE_TYPE_OPTIONS = ["Launch", "Primary", "Resale", "Nawy Now", "Rental", "Financing"]
+const ENTRY_TYPE_OPTIONS = ["Automatic", "Manual"]
+const UNIT_STATUS_OPTIONS = ["Available", "On Hold", "Sold-Off", "Archived"]
+const LISTING_STATUS_OPTIONS = ["Active", "Hidden"]
+const PHASE_OPTIONS = ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5", "Phase 6"]
 
 const COLS = [
   { id: "id", label: "Issue ID", width: 120 },
-  { id: "reportedBy", label: "Reported By", width: 130 },
-  { id: "assignedTo", label: "Assigned To", width: 130 },
-  { id: "status", label: "Status", width: 120 },
-  { id: "category", label: "Category", width: 130 },
-  { id: "type", label: "Type", width: 130 },
-  { id: "description", label: "Description", width: 280 },
-  { id: "developer", label: "Developer", width: 160 },
+  { id: "source", label: "Reported By Type", width: 130 },
+  { id: "severity", label: "Severity", width: 100 },
+  { id: "status", label: "Status", width: 130 },
+  { id: "field", label: "Issue Category", width: 140 },
+  { id: "type", label: "Issue Type", width: 140 },
+  { id: "description", label: "Description", width: 240 },
+  { id: "expected", label: "Expected", width: 150 },
+  { id: "assignedTo", label: "Assigned To", width: 140 },
+  { id: "reportedBy", label: "Reported By", width: 140 },
+  { id: "developer", label: "Developer", width: 170 },
   { id: "project", label: "Project", width: 180 },
   { id: "phase", label: "Phase", width: 120 },
-  { id: "propertyId", label: "Property ID", width: 130 },
-  { id: "detailedPropertyId", label: "Detailed Property ID", width: 160 },
-  { id: "createdAt", label: "Created At", width: 170 },
-  { id: "updatedAt", label: "Updated At", width: 170 },
-  { id: "fixedAt", label: "Fixed At", width: 170 },
+  { id: "entryType", label: "Entry Type", width: 110 },
+  { id: "saleType", label: "Sale Type", width: 110 },
+  { id: "propertyId", label: "Property ID", width: 145 },
+  { id: "detailedPropertyId", label: "Detailed Property ID", width: 170 },
+  { id: "unitStatus", label: "Property Status", width: 120 },
+  { id: "listingStatus", label: "Listing Status", width: 115 },
+  { id: "createdAt", label: "Created At", width: 160 },
+  { id: "updatedAt", label: "Updated At", width: 160 },
+  { id: "resolvedAt", label: "Resolved At", width: 160 },
+  { id: "closedAt", label: "Closed At", width: 160 },
 ]
+const DEFAULT_HIDDEN = new Set<string>()
 
+// Header-click + multi-level sorting is limited to these columns
 const SORT_FIELDS = [
+  { key: "status", label: "Status" },
   { key: "createdAt", label: "Created At" },
   { key: "updatedAt", label: "Updated At" },
-  { key: "fixedAt", label: "Fixed At" },
-  { key: "status", label: "Status" },
-  { key: "category", label: "Category" },
-  { key: "reportedBy", label: "Reported By" },
-  { key: "assignedTo", label: "Assigned To" },
+  { key: "resolvedAt", label: "Resolved At" },
+  { key: "closedAt", label: "Closed At" },
+  { key: "severity", label: "Severity" },
 ]
 const SORTABLE_COLS = new Set(SORT_FIELDS.map((f) => f.key))
 
-type GroupByKey = "none" | "status" | "category" | "type" | "developer" | "project"
+type GroupByKey =
+  | "none" | "source" | "assignedTo" | "reportedBy" | "developer" | "project" | "phase"
+  | "status" | "field" | "type" | "subtype" | "severity"
 const GROUP_LABEL: Record<GroupByKey, string> = {
-  none: "Group by", status: "Status", category: "Category", type: "Type", developer: "Developer", project: "Project",
+  none: "Group by", source: "Reported By Type", assignedTo: "Assigned To", reportedBy: "Reported By",
+  developer: "Developer", project: "Project", phase: "Phase", status: "Status", field: "Issue Category",
+  type: "Issue Type", subtype: "Subtype", severity: "Severity",
 }
 
-type TabKey = "Property" | "Project" | "Developer"
-// Columns that don't apply per entity tab (a project issue has no property id, etc.)
-const HIDDEN_BY_TAB: Record<TabKey, Set<string>> = {
-  Property: new Set(),
-  Project: new Set(["propertyId", "detailedPropertyId", "phase"]),
-  Developer: new Set(["propertyId", "detailedPropertyId", "phase", "project"]),
-}
-
-function getSortValue(r: DataIssue, key: string): string | number {
+function getSortValue(r: PropertyIssue, key: string): string | number {
   switch (key) {
+    case "status": return PROP_ISSUE_STATUSES.indexOf(r.status)
     case "createdAt": return r.createdAt
     case "updatedAt": return r.updatedAt
-    case "fixedAt": return r.fixedAt ?? ""
-    case "status": return ISSUE_STATUSES.indexOf(r.status)
-    case "category": return r.category
-    case "reportedBy": return r.reportedBy
-    case "assignedTo": return r.assignedTo ?? ""
+    case "resolvedAt": return r.resolvedAt ?? ""
+    case "closedAt": return r.closedAt ?? ""
+    case "severity": return PROP_ISSUE_SEVERITIES.indexOf(r.severity)
     default: return ""
   }
 }
 
-function groupKeyOf(r: DataIssue, key: GroupByKey): string {
+function groupKeyOf(r: PropertyIssue, key: GroupByKey): string {
   switch (key) {
-    case "status": return r.status
-    case "category": return r.category
-    case "type": return r.type
+    case "source": return r.source
+    case "assignedTo": return r.assignedTo ?? "Unassigned"
+    case "reportedBy": return r.reportedBy
     case "developer": return r.developer.name
-    case "project": return r.project?.name ?? "No project"
+    case "project": return r.project.name
+    case "phase": return r.phase?.name ?? "No phase"
+    case "status": return r.status
+    case "field": return r.fieldLabel
+    case "type": return r.type
+    case "subtype": return r.subtype
+    case "severity": return r.severity
     default: return ""
   }
 }
 
-/** Issue-count stat card (same flat card family as the projects coverage cards). */
 function StatCard({ icon, label, value, total }: { icon: React.ReactNode; label: string; value: number; total?: number }) {
   return (
     <div className="rounded-lg border border-border bg-card p-3">
@@ -114,70 +166,117 @@ function StatCard({ icon, label, value, total }: { icon: React.ReactNode; label:
   )
 }
 
-export function DataIssuesPage() {
-  const [issues, setIssues] = useState<DataIssue[]>(DATA_ISSUES)
-  const [tab, setTab] = useState<TabKey>("Property")
+/** Apply a status change with its timestamp side effects. */
+export function statusPatch(next: PropIssueStatus): Partial<PropertyIssue> {
+  const now = new Date().toISOString()
+  return {
+    status: next,
+    updatedAt: now,
+    ...(next === "Resolved" ? { resolvedAt: now, closedAt: null } : {}),
+    ...(next === "Closed" ? { closedAt: now } : {}),
+    ...(next === "To Do" || next === "In Progress" || next === "Invalid" ? { resolvedAt: null, closedAt: null } : {}),
+  }
+}
 
-  // toolbar state
+type DateRange = { from: string; to: string }
+const emptyRange: DateRange = { from: "", to: "" }
+function inRange(value: string | null, r: DateRange): boolean {
+  if (!r.from && !r.to) return true
+  if (value == null) return false
+  if (r.from && value < new Date(r.from).toISOString()) return false
+  if (r.to && value > new Date(r.to).toISOString()) return false
+  return true
+}
+
+export function DataIssuesPage() {
+  // Local copy for rendering; edits are written back into the module store so
+  // properties views see the same state during this session. (mock)
+  const [issues, setIssues] = useState<PropertyIssue[]>(() => [...PROPERTY_ISSUES])
+  const [tab, setTab] = useState<"Property" | "Project" | "Developer">("Property")
+
+  // toolbar state — search is issue id / description only
   const [q, setQ] = useState("")
+  const [developerF, setDeveloperF] = useState<string[]>([])
+  const [projectF, setProjectF] = useState<string[]>([])
   const [statusF, setStatusF] = useState<string[]>([])
-  const [categoryF, setCategoryF] = useState<string[]>([])
+  const [severityF, setSeverityF] = useState<string[]>([])
+  const [sourceF, setSourceF] = useState<string[]>([])
+  const [fieldF, setFieldF] = useState<string[]>([])
   const [typeF, setTypeF] = useState<string[]>([])
+  const [subtypeF, setSubtypeF] = useState<string[]>([])
   const [reporterF, setReporterF] = useState<string[]>([])
   const [assigneeF, setAssigneeF] = useState<string[]>([])
-  const [developerF, setDeveloperF] = useState<string[]>([])
-  const [dateFrom, setDateFrom] = useState("")
-  const [dateTo, setDateTo] = useState("")
+  const [saleTypeF, setSaleTypeF] = useState<string[]>([])
+  const [entryTypeF, setEntryTypeF] = useState<string[]>([])
+  const [unitStatusF, setUnitStatusF] = useState<string[]>([])
+  const [listingStatusF, setListingStatusF] = useState<string[]>([])
+  const [createdR, setCreatedR] = useState<DateRange>(emptyRange)
+  const [updatedR, setUpdatedR] = useState<DateRange>(emptyRange)
+  const [resolvedR, setResolvedR] = useState<DateRange>(emptyRange)
+  const [closedR, setClosedR] = useState<DateRange>(emptyRange)
+  // Default order: newest reported first
   const [sorts, setSorts] = useState<SortLevel[]>([{ key: "createdAt", dir: "desc" }])
   const [groupBy, setGroupBy] = useState<GroupByKey>("none")
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [groupPages, setGroupPages] = useState<Record<string, number>>({})
   const [showFilters, setShowFilters] = useState(false)
   const [showColumns, setShowColumns] = useState(false)
   const [colOrder, setColOrder] = useState<string[]>(COLS.map((c) => c.id))
-  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set())
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(DEFAULT_HIDDEN))
   const [frozenCols, setFrozenCols] = useState<Set<string>>(new Set())
 
-  // table state
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = useState(25)
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
-  // drawers
-  const [viewIssue, setViewIssue] = useState<DataIssue | null>(null)
-  const [viewProperty, setViewProperty] = useState<DataIssue | null>(null)
+  const [trackIssue, setTrackIssue] = useState<PropertyIssue | null>(null)
+  const [viewProperty, setViewProperty] = useState<PropertyIssue | null>(null)
 
   const propertyRows = useMemo(() => createRows(), [])
   const propertyById = useMemo(() => new Map(propertyRows.map((r) => [r.propertyId, r])), [propertyRows])
 
-  const developers = useMemo(() => Array.from(new Map(issues.map((x) => [x.developer.id, x.developer])).values()), [issues])
-
+  const rangeCount = [createdR, updatedR, resolvedR, closedR].filter((r) => r.from || r.to).length
   const activeFilterCount =
-    [statusF, categoryF, typeF, reporterF, assigneeF, developerF].filter((f) => f.length > 0).length +
-    (dateFrom || dateTo ? 1 : 0)
+    [developerF, projectF, statusF, severityF, sourceF, fieldF, typeF, subtypeF, reporterF, assigneeF, saleTypeF, entryTypeF, unitStatusF, listingStatusF].filter((f) => f.length > 0).length + rangeCount
 
   const clearAllFilters = () => {
-    setStatusF([]); setCategoryF([]); setTypeF([]); setReporterF([]); setAssigneeF([]); setDeveloperF([])
-    setDateFrom(""); setDateTo(""); setPage(1)
+    setDeveloperF([]); setProjectF([]); setStatusF([]); setSeverityF([]); setSourceF([]); setFieldF([])
+    setTypeF([]); setSubtypeF([]); setReporterF([]); setAssigneeF([])
+    setSaleTypeF([]); setEntryTypeF([]); setUnitStatusF([]); setListingStatusF([])
+    setCreatedR(emptyRange); setUpdatedR(emptyRange); setResolvedR(emptyRange); setClosedR(emptyRange)
+    setPage(1)
   }
 
   const filtered = useMemo(() => {
-    let rows = issues.filter((r) => r.entity === tab)
+    let rows = issues
     const needle = q.trim().toLowerCase()
-    if (needle) {
+    if (needle)
       rows = rows.filter((r) =>
-        [r.id, r.description, r.category, r.type, r.developer.name, r.project?.name, r.phase?.name, r.propertyId, r.detailedPropertyId, r.reportedBy, r.assignedTo]
-          .filter(Boolean)
-          .some((v) => String(v).toLowerCase().includes(needle)),
+        r.id.toLowerCase().includes(needle) ||
+        r.description.toLowerCase().includes(needle) ||
+        r.propertyId.toLowerCase().includes(needle) ||
+        r.detailedPropertyId.toLowerCase().includes(needle),
       )
-    }
+    // Unit-context filters resolve through the linked property row
+    const unitOf = (r: PropertyIssue) => propertyById.get(r.propertyId)
+    if (saleTypeF.length) rows = rows.filter((r) => saleTypeF.includes(unitOf(r)?.saleType ?? ""))
+    if (entryTypeF.length) rows = rows.filter((r) => entryTypeF.includes(unitOf(r)?.entryType ?? ""))
+    if (unitStatusF.length) rows = rows.filter((r) => {
+      const a = unitOf(r)?.availability
+      return a != null && unitStatusF.includes(a === "Hold" ? "On Hold" : a)
+    })
+    if (listingStatusF.length) rows = rows.filter((r) => listingStatusF.includes(unitOf(r)?.listingStatus ?? ""))
+    if (developerF.length) rows = rows.filter((r) => developerF.includes(r.developer.name))
+    if (projectF.length) rows = rows.filter((r) => projectF.includes(r.project.name))
     if (statusF.length) rows = rows.filter((r) => statusF.includes(r.status))
-    if (categoryF.length) rows = rows.filter((r) => categoryF.includes(r.category))
+    if (severityF.length) rows = rows.filter((r) => severityF.includes(r.severity))
+    if (sourceF.length) rows = rows.filter((r) => sourceF.includes(r.source))
+    if (fieldF.length) rows = rows.filter((r) => fieldF.includes(r.fieldLabel))
     if (typeF.length) rows = rows.filter((r) => typeF.includes(r.type))
+    if (subtypeF.length) rows = rows.filter((r) => subtypeF.includes(r.subtype))
     if (reporterF.length) rows = rows.filter((r) => reporterF.includes(r.reportedBy))
-    if (assigneeF.length) rows = rows.filter((r) => r.assignedTo != null && assigneeF.includes(r.assignedTo))
-    if (developerF.length) rows = rows.filter((r) => developerF.includes(r.developer.id))
-    if (dateFrom) rows = rows.filter((r) => r.createdAt >= new Date(dateFrom).toISOString())
-    if (dateTo) rows = rows.filter((r) => r.createdAt <= new Date(dateTo).toISOString())
+    if (assigneeF.length) rows = rows.filter((r) => (r.assignedTo ? assigneeF.includes(r.assignedTo) : assigneeF.includes("Unassigned")))
+    rows = rows.filter((r) => inRange(r.createdAt, createdR) && inRange(r.updatedAt, updatedR) && inRange(r.resolvedAt, resolvedR) && inRange(r.closedAt, closedR))
     if (sorts.length) {
       rows = [...rows].sort((a, b) => {
         for (const s of sorts) {
@@ -189,11 +288,11 @@ export function DataIssuesPage() {
       })
     }
     return rows
-  }, [issues, tab, q, statusF, categoryF, typeF, reporterF, assigneeF, developerF, dateFrom, dateTo, sorts])
+  }, [issues, q, developerF, projectF, statusF, severityF, sourceF, fieldF, typeF, subtypeF, reporterF, assigneeF, saleTypeF, entryTypeF, unitStatusF, listingStatusF, createdR, updatedR, resolvedR, closedR, sorts, propertyById])
 
   const groups = useMemo(() => {
     if (groupBy === "none") return null
-    const map = new Map<string, DataIssue[]>()
+    const map = new Map<string, PropertyIssue[]>()
     for (const r of filtered) {
       const k = groupKeyOf(r, groupBy)
       if (!map.has(k)) map.set(k, [])
@@ -204,7 +303,7 @@ export function DataIssuesPage() {
 
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
   const visibleCols = colOrder
-    .filter((id) => !hiddenCols.has(id) && !HIDDEN_BY_TAB[tab].has(id))
+    .filter((id) => !hiddenCols.has(id))
     .map((id) => COLS.find((c) => c.id === id)!)
     .filter(Boolean)
 
@@ -238,80 +337,162 @@ export function DataIssuesPage() {
       return n
     })
 
-  const updateIssues = (ids: Set<string>, patch: (r: DataIssue) => Partial<DataIssue>) =>
-    setIssues((prev) => prev.map((r) => (ids.has(r.id) ? { ...r, ...patch(r), updatedAt: new Date().toISOString() } : r)))
+  /** Patch issues by id — updates render state AND the shared module store. */
+  const patchIssues = (ids: Set<string>, patch: (r: PropertyIssue) => Partial<PropertyIssue>) => {
+    setIssues((prev) => prev.map((r) => (ids.has(r.id) ? { ...r, ...patch(r) } : r)))
+    for (const stored of PROPERTY_ISSUES) {
+      if (ids.has(stored.id)) Object.assign(stored, patch(stored))
+    }
+    setTrackIssue((cur) => (cur && ids.has(cur.id) ? { ...cur, ...patch(cur) } : cur))
+  }
 
-  const markFixed = (ids: Set<string>) => {
-    updateIssues(ids, () => ({ status: "Fixed", fixedAt: new Date().toISOString() }))
-    toast.success(`${ids.size > 1 ? `${ids.size} issues` : "Issue"} marked as fixed`)
+  const setStatus = (ids: Set<string>, next: PropIssueStatus) => {
+    patchIssues(ids, () => statusPatch(next))
+    toast.success(`${ids.size > 1 ? `${ids.size} issues` : "Issue"} moved to ${next}`)
+  }
+  const setAssignee = (ids: Set<string>, person: string | null) => {
+    patchIssues(ids, () => ({ assignedTo: person, updatedAt: new Date().toISOString() }))
+    toast.success(person ? `Assigned to ${person}` : "Unassigned")
+  }
+  const exportSelected = (fmt: string) => {
+    toast.success(`Exporting ${selected.size.toLocaleString()} issue${selected.size !== 1 ? "s" : ""} as ${fmt} (mock)`)
     setSelected(new Set())
   }
-  const reject = (ids: Set<string>) => {
-    updateIssues(ids, () => ({ status: "Rejected", fixedAt: null }))
-    toast.success(`${ids.size > 1 ? `${ids.size} issues` : "Issue"} rejected`)
-    setSelected(new Set())
-  }
-  const assignToMe = (ids: Set<string>) => {
-    updateIssues(ids, (r) => ({ assignedTo: "Ezz H.", status: r.status === "Open" ? "In Progress" : r.status }))
-    toast.success(`Assigned ${ids.size > 1 ? `${ids.size} issues` : "issue"} to you`)
-    setSelected(new Set())
-  }
 
-  const openPropertyOf = (issue: DataIssue) => {
-    if (!issue.propertyId) return
-    setViewProperty(issue)
-  }
-  const propertyRowOf = (issue: DataIssue | null) =>
-    issue?.propertyId ? propertyById.get(issue.propertyId) ?? propertyRows[0] ?? null : null
+  const count = (s: PropIssueStatus) => filtered.filter((r) => r.status === s).length
 
-  const count = (s: IssueStatus) => filtered.filter((r) => r.status === s).length
-  const tabCount = (t: TabKey) => issues.filter((r) => r.entity === t).length
+  const StatusCell = ({ r }: { r: PropertyIssue }) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="cursor-pointer"><IssueStatusTag status={r.status} chevron /></button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-40">
+        {PROP_ISSUE_STATUSES.filter((s) => s !== r.status).map((s) => (
+          <DropdownMenuItem key={s} onClick={() => setStatus(new Set([r.id]), s)}>
+            <span className={cn("mr-2 h-2 w-2 rounded-full", STATUS_COLORS[s].split(" ")[0])} />{s}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 
-  const renderCell = (r: DataIssue, colId: string) => {
+  const AssigneeCell = ({ r }: { r: PropertyIssue }) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="inline-flex items-center gap-1 whitespace-nowrap hover:opacity-80">
+          <PersonCell name={r.assignedTo} muted={!r.assignedTo} />
+          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 w-44 overflow-y-auto">
+        {ALL_PEOPLE.map((p) => (
+          <DropdownMenuItem key={p} onClick={() => setAssignee(new Set([r.id]), p)}>{p}</DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => setAssignee(new Set([r.id]), null)}>Unassigned</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
+  const ts = (v: string | null) =>
+    v ? <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtDateTime(v)}</span> : <span className="text-muted-foreground">—</span>
+
+  const renderCell = (r: PropertyIssue, colId: string) => {
     switch (colId) {
       case "id": return <IdTag value={r.id} />
-      case "reportedBy": return <span className="whitespace-nowrap text-sm">{r.reportedBy}</span>
-      case "assignedTo": return r.assignedTo ? <span className="whitespace-nowrap text-sm">{r.assignedTo}</span> : <span className="text-muted-foreground">—</span>
-      case "status": return <StatusTag status={r.status} />
-      case "category": return <ColorTag value={r.category} />
+      case "source": return <IssueSourceTag source={r.source} />
+      case "severity": return <IssueSeverityTag severity={r.severity} />
+      case "status": return <StatusCell r={r} />
+      case "field": return <ColorTag value={r.fieldLabel} />
       case "type": return <ColorTag value={r.type} />
-      case "description": return <span className="block max-w-[280px] truncate text-sm" title={r.description}>{r.description}</span>
+      case "description": return <span className="block max-w-[240px] truncate text-sm" title={r.description}>{r.description}</span>
+      case "expected": return r.expected ? <span className="block max-w-[150px] truncate text-sm" title={r.expected}>{r.expected}</span> : <span className="text-muted-foreground">—</span>
+      case "assignedTo": return <AssigneeCell r={r} />
+      case "reportedBy": return <PersonCell name={r.reportedBy} />
       case "developer": return (
-        <div className="whitespace-nowrap">
-          <p className="text-sm font-medium text-foreground">{r.developer.name}</p>
-          <IdTag value={r.developer.id} />
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-50 text-[10px] font-bold text-blue-700">
+            {r.developer.name.split(" ").map((x) => x[0]).join("").slice(0, 2).toUpperCase()}
+          </span>
+          <div>
+            <button
+              className="block text-sm font-medium text-foreground hover:underline"
+              onClick={() => window.open(`/developers/${r.developer.id}`, "_blank", "noopener")}
+            >
+              {r.developer.name}
+            </button>
+            <IdTag value={r.developer.id} />
+          </div>
         </div>
       )
-      case "project": return r.project ? (
+      case "project": return (
         <div className="whitespace-nowrap">
-          <p className="text-sm font-medium text-foreground">{r.project.name}</p>
+          <button
+            className="block text-sm font-medium text-foreground hover:underline"
+            onClick={() => window.open(`/projects/${r.project.id}`, "_blank", "noopener")}
+          >
+            {r.project.name}
+          </button>
           <IdTag value={r.project.id} />
         </div>
-      ) : <span className="text-muted-foreground">—</span>
+      )
       case "phase": return r.phase ? (
         <div className="whitespace-nowrap">
-          <p className="text-sm text-foreground">{r.phase.name}</p>
+          <button
+            className="block text-sm text-foreground hover:underline"
+            onClick={() => window.open(`/projects/${r.project.id}/phases/${r.phase!.id}`, "_blank", "noopener")}
+          >
+            {r.phase.name}
+          </button>
           <IdTag value={r.phase.id} />
         </div>
       ) : <span className="text-muted-foreground">—</span>
-      case "propertyId": return r.propertyId ? <IdTag value={r.propertyId} /> : <span className="text-muted-foreground">—</span>
-      case "detailedPropertyId": return r.detailedPropertyId ? <IdTag value={r.detailedPropertyId} /> : <span className="text-muted-foreground">—</span>
-      case "createdAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtDateTime(r.createdAt)}</span>
-      case "updatedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtDateTime(r.updatedAt)}</span>
-      case "fixedAt": return r.fixedAt ? <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtDateTime(r.fixedAt)}</span> : <span className="text-muted-foreground">—</span>
+      case "entryType": return <UnitTag value={propertyById.get(r.propertyId)?.entryType} />
+      case "saleType": return <UnitTag value={propertyById.get(r.propertyId)?.saleType} />
+      case "propertyId": return (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+          <IdTag value={r.propertyId} />
+          <button
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Open grouped property details"
+            onClick={() => window.open(`/properties/grouped/${r.propertyId}`, "_blank", "noopener")}
+          >
+            <ExternalLink className="h-3 w-3" />
+          </button>
+        </span>
+      )
+      case "detailedPropertyId": return (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+          <IdTag value={r.detailedPropertyId} />
+          <button
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="View detailed property"
+            onClick={() => setViewProperty(r)}
+          >
+            <Eye className="h-3 w-3" />
+          </button>
+        </span>
+      )
+      case "unitStatus": return <UnitTag value={propertyById.get(r.propertyId)?.availability} />
+      case "listingStatus": return <UnitTag value={propertyById.get(r.propertyId)?.listingStatus} />
+      case "createdAt": return ts(r.createdAt)
+      case "updatedAt": return ts(r.updatedAt)
+      case "resolvedAt": return ts(r.resolvedAt)
+      case "closedAt": return ts(r.closedAt)
       default: return null
     }
   }
 
-  const renderRow = (r: DataIssue) => (
+  // Compact rows: py-1.5 instead of the default py-3
+  const renderRow = (r: PropertyIssue) => (
     <tr key={r.id} className={cn("hover:bg-muted/40", selected.has(r.id) && "bg-primary/5")}>
-      <td className="sticky left-0 z-10 w-10 bg-card py-3 pl-4 pr-0">
+      <td className="sticky left-0 z-10 w-10 bg-card py-1.5 pl-4 pr-0">
         <Checkbox className="h-4 w-4" checked={selected.has(r.id)} onCheckedChange={(v) => toggleRow(r.id, !!v)} />
       </td>
       {visibleCols.map((c) => (
         <td
           key={c.id}
-          className={cn("px-4 py-3 align-middle", frozenCols.has(c.id) && "sticky z-10 bg-card")}
+          className={cn("px-3 py-1.5 align-middle", frozenCols.has(c.id) && "sticky z-10 bg-card")}
           style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
         >
           {renderCell(r, c.id)}
@@ -320,340 +501,566 @@ export function DataIssuesPage() {
       <td className="sticky right-0 z-10 w-12 border-l border-border bg-card p-0">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex h-full min-h-[44px] w-12 items-center justify-center text-muted-foreground hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
+            <button className="flex h-full min-h-[36px] w-12 items-center justify-center text-muted-foreground hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuItem onClick={() => setViewIssue(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
-            {r.propertyId && (
-              <DropdownMenuItem onClick={() => openPropertyOf(r)}><Building2 className="mr-2 h-3.5 w-3.5" />View Property</DropdownMenuItem>
-            )}
+            <DropdownMenuItem onClick={() => setTrackIssue(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setViewProperty(r)}><Building2 className="mr-2 h-3.5 w-3.5" />View Property</DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => assignToMe(new Set([r.id]))}><UserRound className="mr-2 h-3.5 w-3.5" />Assign to Me</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => markFixed(new Set([r.id]))}><CheckCircle2 className="mr-2 h-3.5 w-3.5" />Mark as Fixed</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => reject(new Set([r.id]))} className="text-red-600 focus:text-red-600"><XCircle className="mr-2 h-3.5 w-3.5" />Reject</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setAssignee(new Set([r.id]), "Ezz H.")}><UserRound className="mr-2 h-3.5 w-3.5" />Assign to Me</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStatus(new Set([r.id]), "Resolved")}><CheckCircle2 className="mr-2 h-3.5 w-3.5" />Mark Resolved</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStatus(new Set([r.id]), "Closed")}><CheckCircle2 className="mr-2 h-3.5 w-3.5" />Close</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStatus(new Set([r.id]), "Invalid")} className="text-red-600 focus:text-red-600"><XCircle className="mr-2 h-3.5 w-3.5" />Mark Invalid</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </td>
     </tr>
   )
 
+  const bulkBtnCls = "flex items-center gap-1.5 px-4 py-2.5 transition-colors hover:bg-zinc-800"
+
   return (
     <div className="min-h-screen bg-secondary/40">
       <div className="space-y-4 p-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Data Issues</h1>
-          <p className="text-sm text-muted-foreground">All data issue tickets reported on properties, projects and developers</p>
+          <p className="text-sm text-muted-foreground">Issue tracking for property data — reported by the quality team, sales agents, or raised automatically by validation rules</p>
         </div>
 
-        <Tabs value={tab} onValueChange={(v) => { setTab(v as TabKey); setSelected(new Set()); setPage(1) }} className="w-full">
+        <Tabs value={tab} onValueChange={(v) => { setTab(v as typeof tab); setSelected(new Set()); setPage(1) }} className="w-full">
           <TabsList className="bg-secondary">
-            {([
-              { key: "Property" as TabKey, label: "Properties", icon: <LayoutGrid className="mr-1.5 h-3.5 w-3.5" /> },
-              { key: "Project" as TabKey, label: "Projects", icon: <Building2 className="mr-1.5 h-3.5 w-3.5" /> },
-              { key: "Developer" as TabKey, label: "Developers", icon: <Users className="mr-1.5 h-3.5 w-3.5" /> },
-            ]).map((t) => (
-              <TabsTrigger key={t.key} value={t.key} className="data-[state=active]:bg-card">
-                {t.icon}{t.label}
-                <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-blue-200 bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">
-                  {tabCount(t.key)}
-                </span>
-              </TabsTrigger>
-            ))}
+            <TabsTrigger value="Property" className="data-[state=active]:bg-card">
+              <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />Properties
+              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-blue-200 bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">
+                {issues.length.toLocaleString()}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="Project" className="data-[state=active]:bg-card">
+              <Building2 className="mr-1.5 h-3.5 w-3.5" />Projects
+              <span className="ml-1.5 inline-flex h-4 items-center justify-center rounded border border-gray-200 bg-gray-100 px-1 text-[10px] font-semibold text-gray-500">Soon</span>
+            </TabsTrigger>
+            <TabsTrigger value="Developer" className="data-[state=active]:bg-card">
+              <Users className="mr-1.5 h-3.5 w-3.5" />Developers
+              <span className="ml-1.5 inline-flex h-4 items-center justify-center rounded border border-gray-200 bg-gray-100 px-1 text-[10px] font-semibold text-gray-500">Soon</span>
+            </TabsTrigger>
           </TabsList>
         </Tabs>
 
-        {/* Issue analytics for the current tab + filters */}
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-          <StatCard icon={<AlertTriangle className="h-4 w-4 text-primary" />} label="Total Issues" value={filtered.length} />
-          <StatCard icon={<CircleDot className="h-4 w-4 text-red-600" />} label="Open" value={count("Open")} total={filtered.length} />
-          <StatCard icon={<Loader2 className="h-4 w-4 text-amber-500" />} label="In Progress" value={count("In Progress")} total={filtered.length} />
-          <StatCard icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} label="Fixed" value={count("Fixed")} total={filtered.length} />
-          <StatCard icon={<XCircle className="h-4 w-4 text-gray-500" />} label="Rejected" value={count("Rejected")} total={filtered.length} />
-        </div>
-
-        <TableToolbar
-          search={q}
-          onSearch={(v) => { setQ(v); setPage(1) }}
-          searchPlaceholder="Issue ID, description, property or project"
-          hideAdvanced
-          onAllFilters={() => setShowFilters(true)}
-          onColumns={() => setShowColumns(true)}
-          activeFilters={activeFilterCount}
-          filters={
-            <>
-              <FilterMultiSelect label="Status" value={statusF} options={ISSUE_STATUSES} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-36" />
-              <FilterMultiSelect label="Category" value={categoryF} options={ISSUE_CATEGORIES} onChange={(v) => { setCategoryF(v); setPage(1) }} className="w-40" />
-              <FilterMultiSelect label="Type" value={typeF} options={ISSUE_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-40" />
-              <FilterMultiSelect label="Reported By" value={reporterF} options={ISSUE_PEOPLE} onChange={(v) => { setReporterF(v); setPage(1) }} className="w-40" />
-              <FilterMultiSelect label="Assigned To" value={assigneeF} options={ISSUE_PEOPLE} onChange={(v) => { setAssigneeF(v); setPage(1) }} className="w-40" />
-              <FilterMultiSelect label="Developer" value={developerF} options={developers.map((d) => ({ value: d.id, label: d.name }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-44" />
-              <DateRangeFilter label="Created At" dateFrom={dateFrom} dateTo={dateTo} onChangeFrom={(v) => { setDateFrom(v); setPage(1) }} onChangeTo={(v) => { setDateTo(v); setPage(1) }} withTime />
-            </>
-          }
-          sortControl={<MultiSortControl fields={SORT_FIELDS} sorts={sorts} onChange={setSorts} />}
-          groupControl={
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant={groupBy === "none" ? "outline" : "default"} size="sm" className="h-8 gap-1.5"><LayoutGrid className="h-3.5 w-3.5" />{GROUP_LABEL[groupBy]}</Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {(Object.keys(GROUP_LABEL) as GroupByKey[]).map((k) => (
-                  <DropdownMenuItem key={k} onClick={() => { setGroupBy(k); setCollapsedGroups(new Set()) }} className="text-sm">
-                    {k === "none" ? "No grouping" : GROUP_LABEL[k]}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          }
-        />
-
-        <TableCard>
-          <TableCardHeader
-            title="Issues"
-            count={filtered.length}
-            extra={groupBy !== "none" ? (
-              <div className="ml-2 flex items-center gap-1">
-                <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => setCollapsedGroups(new Set())}>
-                  <ChevronsUpDown className="h-3.5 w-3.5" />Expand all
-                </Button>
-                <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => setCollapsedGroups(new Set(groups?.map((g) => g.label) ?? []))}>
-                  <ChevronsDownUp className="h-3.5 w-3.5" />Collapse all
-                </Button>
-              </div>
-            ) : undefined}
-            cta={
-              <Button size="sm" className="h-8 gap-1.5" onClick={() => toast.info("Report Issue flow is coming soon")}>
-                <Plus className="h-3.5 w-3.5" />Report Issue
-              </Button>
-            }
-          />
-          <div className="overflow-x-auto">
-            <table className={cn("w-max min-w-full text-sm", COL_SEP)}>
-              <thead className="border-b border-border bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="sticky left-0 z-20 w-10 bg-muted/60 py-3 pl-4 pr-0">
-                    <Checkbox className="h-4 w-4" checked={allPageSelected} onCheckedChange={(v) => togglePageSelect(!!v)} />
-                  </th>
-                  {visibleCols.map((c) => {
-                    const s = sorts.find((x) => x.key === c.id)
-                    return (
-                      <th
-                        key={c.id}
-                        className={cn("whitespace-nowrap px-4 py-3 text-left", frozenCols.has(c.id) && "sticky z-20 bg-muted/60")}
-                        style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
-                      >
-                        {SORTABLE_COLS.has(c.id) ? (
-                          <button onClick={() => cycleHeaderSort(c.id)} className="inline-flex items-center gap-1 uppercase hover:text-foreground">
-                            {c.label}
-                            {s ? (s.dir === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
-                          </button>
-                        ) : c.label}
-                      </th>
-                    )
-                  })}
-                  <th className="sticky right-0 z-10 w-12 border-l border-border bg-muted/60" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {groups ? (
-                  groups.map((g) => (
-                    <Fragment key={g.label}>
-                      <tr
-                        className="cursor-pointer bg-muted/40 hover:bg-muted/60"
-                        onClick={() => setCollapsedGroups((prev) => {
-                          const n = new Set(prev)
-                          if (n.has(g.label)) n.delete(g.label); else n.add(g.label)
-                          return n
-                        })}
-                      >
-                        <td colSpan={visibleCols.length + 2} className="p-0">
-                          <div className="sticky left-0 flex w-max items-center gap-2 px-5 py-2">
-                            <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", collapsedGroups.has(g.label) && "-rotate-90")} />
-                            <span className="text-sm font-semibold text-foreground">{g.label}</span>
-                            <span className="text-xs text-muted-foreground">{g.rows.length} issue{g.rows.length !== 1 ? "s" : ""}</span>
-                          </div>
-                        </td>
-                      </tr>
-                      {!collapsedGroups.has(g.label) && g.rows.map(renderRow)}
-                    </Fragment>
-                  ))
-                ) : (
-                  pageRows.map(renderRow)
-                )}
-                {filtered.length === 0 && (
-                  <tr><td colSpan={visibleCols.length + 2} className="px-5 py-16 text-center text-sm text-muted-foreground">No issues match your filters.</td></tr>
-                )}
-              </tbody>
-            </table>
+        {tab !== "Property" ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-24 text-center">
+            <Clock className="mb-3 h-8 w-8 text-muted-foreground" />
+            <p className="text-sm font-semibold text-foreground">{tab === "Project" ? "Project" : "Developer"} issues are coming soon</p>
+            <p className="mt-1 text-xs text-muted-foreground">Property issues are live — project and developer issue tracking follows the same flow.</p>
           </div>
-          {groups ? (
-            <div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">{filtered.length} issues in {groups.length} group{groups.length !== 1 ? "s" : ""}</div>
-          ) : (
-            <TableFooter page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="issues" />
-          )}
-        </TableCard>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+              <StatCard icon={<AlertTriangle className="h-4 w-4 text-primary" />} label="Total Issues" value={filtered.length} />
+              <StatCard icon={<CircleDot className="h-4 w-4 text-gray-500" />} label="To Do" value={count("To Do")} total={filtered.length} />
+              <StatCard icon={<Loader2 className="h-4 w-4 text-amber-500" />} label="In Progress" value={count("In Progress")} total={filtered.length} />
+              <StatCard icon={<CheckCircle2 className="h-4 w-4 text-blue-600" />} label="Resolved" value={count("Resolved")} total={filtered.length} />
+              <StatCard icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} label="Closed" value={count("Closed")} total={filtered.length} />
+              <StatCard icon={<XCircle className="h-4 w-4 text-red-500" />} label="Invalid" value={count("Invalid")} total={filtered.length} />
+            </div>
 
-        <FloatingBulkBar
-          count={selected.size}
-          total={filtered.length}
-          onSelectAll={() => setSelected(new Set(filtered.map((r) => r.id)))}
-          onClear={() => setSelected(new Set())}
-        >
-          <BulkBarButton icon={<UserRound className="h-3.5 w-3.5" />} onClick={() => assignToMe(selected)}>Assign to Me</BulkBarButton>
-          <BulkBarButton icon={<CheckCircle2 className="h-3.5 w-3.5" />} onClick={() => markFixed(selected)}>Mark as Fixed</BulkBarButton>
-          <BulkBarButton danger icon={<XCircle className="h-3.5 w-3.5" />} onClick={() => reject(selected)}>Reject</BulkBarButton>
-        </FloatingBulkBar>
+            <TableToolbar
+              search={q}
+              onSearch={(v) => { setQ(v); setPage(1) }}
+              searchPlaceholder="Search by issue ID, description, property ID or detailed property ID"
+              hideAdvanced
+              onAllFilters={() => setShowFilters(true)}
+              onColumns={() => setShowColumns(true)}
+              activeFilters={activeFilterCount}
+              filters={
+                <>
+                  <FilterMultiSelect label="Developer" value={developerF} options={DEVELOPER_OPTIONS} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-38" />
+                  <FilterMultiSelect label="Project" value={projectF} options={PROJECT_OPTIONS} onChange={(v) => { setProjectF(v); setPage(1) }} className="w-38" />
+                  <FilterMultiSelect label="Status" value={statusF} options={PROP_ISSUE_STATUSES} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-32" />
+                  <FilterMultiSelect label="Severity" value={severityF} options={PROP_ISSUE_SEVERITIES} onChange={(v) => { setSeverityF(v); setPage(1) }} className="w-32" />
+                  <FilterMultiSelect label="Reported By Type" value={sourceF} options={PROP_ISSUE_SOURCES} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-40" />
+                  <FilterMultiSelect label="Issue Category" value={fieldF} options={ISSUE_FIELDS.map((f) => f.label)} onChange={(v) => { setFieldF(v); setPage(1) }} className="w-38" />
+                  <FilterMultiSelect label="Issue Type" value={typeF} options={ALL_ISSUE_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-34" />
+                  <FilterMultiSelect label="Subtype" value={subtypeF} options={ALL_ISSUE_SUBTYPES} onChange={(v) => { setSubtypeF(v); setPage(1) }} className="w-36" />
+                  <FilterMultiSelect label="Reported By" value={reporterF} options={ALL_REPORTERS} onChange={(v) => { setReporterF(v); setPage(1) }} className="w-36" />
+                  <FilterMultiSelect label="Assigned To" value={assigneeF} options={["Unassigned", ...ALL_PEOPLE]} onChange={(v) => { setAssigneeF(v); setPage(1) }} className="w-36" />
+                  <FilterMultiSelect label="Sale Type" value={saleTypeF} options={SALE_TYPE_OPTIONS} onChange={(v) => { setSaleTypeF(v); setPage(1) }} className="w-34" />
+                  <FilterMultiSelect label="Entry Type" value={entryTypeF} options={ENTRY_TYPE_OPTIONS} onChange={(v) => { setEntryTypeF(v); setPage(1) }} className="w-34" />
+                  <FilterMultiSelect label="Property Status" value={unitStatusF} options={UNIT_STATUS_OPTIONS} onChange={(v) => { setUnitStatusF(v); setPage(1) }} className="w-38" />
+                  <FilterMultiSelect label="Listing Status" value={listingStatusF} options={LISTING_STATUS_OPTIONS} onChange={(v) => { setListingStatusF(v); setPage(1) }} className="w-36" />
+                  <DateRangeFilter label="Created At" dateFrom={createdR.from} dateTo={createdR.to} onChangeFrom={(v) => { setCreatedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setCreatedR((r) => ({ ...r, to: v })); setPage(1) }} withTime />
+                  <DateRangeFilter label="Updated At" dateFrom={updatedR.from} dateTo={updatedR.to} onChangeFrom={(v) => { setUpdatedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setUpdatedR((r) => ({ ...r, to: v })); setPage(1) }} withTime />
+                  <DateRangeFilter label="Resolved At" dateFrom={resolvedR.from} dateTo={resolvedR.to} onChangeFrom={(v) => { setResolvedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setResolvedR((r) => ({ ...r, to: v })); setPage(1) }} withTime />
+                  <DateRangeFilter label="Closed At" dateFrom={closedR.from} dateTo={closedR.to} onChangeFrom={(v) => { setClosedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setClosedR((r) => ({ ...r, to: v })); setPage(1) }} withTime />
+                </>
+              }
+              sortControl={<MultiSortControl fields={SORT_FIELDS} sorts={sorts} onChange={setSorts} />}
+              groupControl={
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant={groupBy === "none" ? "outline" : "default"} size="sm" className="h-8 gap-1.5"><LayoutGrid className="h-3.5 w-3.5" />{GROUP_LABEL[groupBy]}</Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
+                    {(Object.keys(GROUP_LABEL) as GroupByKey[]).map((k) => (
+                      <DropdownMenuItem key={k} onClick={() => { setGroupBy(k); setCollapsedGroups(new Set()); setGroupPages({}) }} className="text-sm">
+                        {k === "none" ? "No grouping" : GROUP_LABEL[k]}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              }
+            />
 
-        <ColumnsSheet
-          open={showColumns}
-          onClose={() => setShowColumns(false)}
-          columns={COLS}
-          order={colOrder}
-          onOrderChange={setColOrder}
-          hidden={hiddenCols}
-          onHiddenChange={setHiddenCols}
-          frozen={frozenCols}
-          onFrozenChange={setFrozenCols}
-        />
+            <TableCard>
+              <TableCardHeader
+                title="Issues"
+                count={filtered.length}
+                extra={groupBy !== "none" ? (
+                  <div className="ml-2 flex items-center gap-1">
+                    <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => setCollapsedGroups(new Set())}>
+                      <ChevronsUpDown className="h-3.5 w-3.5" />Expand all
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => setCollapsedGroups(new Set(groups?.map((g) => g.label) ?? []))}>
+                      <ChevronsDownUp className="h-3.5 w-3.5" />Collapse all
+                    </Button>
+                  </div>
+                ) : undefined}
+              />
+              <div className="overflow-x-auto">
+                <table className={cn("w-max min-w-full text-sm", COL_SEP)}>
+                  <thead className="border-b border-border bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="sticky left-0 z-20 w-10 bg-muted/60 py-2.5 pl-4 pr-0">
+                        <Checkbox className="h-4 w-4" checked={allPageSelected} onCheckedChange={(v) => togglePageSelect(!!v)} />
+                      </th>
+                      {visibleCols.map((c) => {
+                        const s = sorts.find((x) => x.key === c.id)
+                        return (
+                          <th
+                            key={c.id}
+                            className={cn("whitespace-nowrap px-3 py-2.5 text-left", frozenCols.has(c.id) && "sticky z-20 bg-muted/60")}
+                            style={frozenCols.has(c.id) ? { left: frozenLeft(c.id), minWidth: c.width } : undefined}
+                          >
+                            {SORTABLE_COLS.has(c.id) ? (
+                              <button onClick={() => cycleHeaderSort(c.id)} className="inline-flex items-center gap-1 uppercase hover:text-foreground">
+                                {c.label}
+                                {s ? (s.dir === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                              </button>
+                            ) : c.label}
+                          </th>
+                        )
+                      })}
+                      <th className="sticky right-0 z-10 w-12 border-l border-border bg-muted/60" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {groups ? (
+                      groups.map((g) => {
+                        const gPage = groupPages[g.label] ?? 1
+                        const gRows = g.rows.slice((gPage - 1) * 10, gPage * 10)
+                        return (
+                          <Fragment key={g.label}>
+                            <tr
+                              className="cursor-pointer bg-muted/40 hover:bg-muted/60"
+                              onClick={() => setCollapsedGroups((prev) => {
+                                const n = new Set(prev)
+                                if (n.has(g.label)) n.delete(g.label); else n.add(g.label)
+                                return n
+                              })}
+                            >
+                              <td colSpan={visibleCols.length + 2} className="p-0">
+                                <div className="sticky left-0 flex w-max items-center gap-2 px-5 py-2">
+                                  <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", collapsedGroups.has(g.label) && "-rotate-90")} />
+                                  <span className="text-sm font-semibold text-foreground">{g.label}</span>
+                                  <span className="text-xs text-muted-foreground">{g.rows.length.toLocaleString()} issue{g.rows.length !== 1 ? "s" : ""}</span>
+                                </div>
+                              </td>
+                            </tr>
+                            {!collapsedGroups.has(g.label) && gRows.map(renderRow)}
+                            {!collapsedGroups.has(g.label) && g.rows.length > 10 && (
+                              <tr>
+                                <td colSpan={visibleCols.length + 2} className="p-0">
+                                  <div className="sticky left-0 w-max px-5">
+                                    <GroupPager total={g.rows.length} page={gPage} pageSize={10} onPage={(p) => setGroupPages((prev) => ({ ...prev, [g.label]: p }))} />
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        )
+                      })
+                    ) : (
+                      pageRows.map(renderRow)
+                    )}
+                    {filtered.length === 0 && (
+                      <tr><td colSpan={visibleCols.length + 2} className="px-5 py-16 text-center text-sm text-muted-foreground">No issues match your filters.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {groups ? (
+                <div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">{filtered.length.toLocaleString()} issues in {groups.length} group{groups.length !== 1 ? "s" : ""}</div>
+              ) : (
+                <TableFooter page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="issues" />
+              )}
+            </TableCard>
 
-        {/* All Filters drawer — same filters, order and state as the toolbar */}
-        <FiltersDrawer open={showFilters} onClose={() => setShowFilters(false)} activeCount={activeFilterCount} onClear={clearAllFilters}>
-          <FilterDrawerField label="Status"><FilterMultiSelect label="Status" value={statusF} options={ISSUE_STATUSES} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-          <FilterDrawerField label="Category"><FilterMultiSelect label="Category" value={categoryF} options={ISSUE_CATEGORIES} onChange={(v) => { setCategoryF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-          <FilterDrawerField label="Type"><FilterMultiSelect label="Type" value={typeF} options={ISSUE_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-          <FilterDrawerField label="Reported By"><FilterMultiSelect label="Reported By" value={reporterF} options={ISSUE_PEOPLE} onChange={(v) => { setReporterF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-          <FilterDrawerField label="Assigned To"><FilterMultiSelect label="Assigned To" value={assigneeF} options={ISSUE_PEOPLE} onChange={(v) => { setAssigneeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-          <FilterDrawerField label="Developer"><FilterMultiSelect label="Developer" value={developerF} options={developers.map((d) => ({ value: d.id, label: d.name }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
-          <FilterDrawerField label="Created At"><DateRangeFilter label="Created At" dateFrom={dateFrom} dateTo={dateTo} onChangeFrom={(v) => { setDateFrom(v); setPage(1) }} onChangeTo={(v) => { setDateTo(v); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
-        </FiltersDrawer>
+            <FloatingBulkBar
+              count={selected.size}
+              total={filtered.length}
+              onSelectAll={() => setSelected(new Set(filtered.map((r) => r.id)))}
+              onClear={() => setSelected(new Set())}
+            >
+              <div className="h-8 w-px bg-zinc-700" />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className={bulkBtnCls}><CircleDot className="h-3.5 w-3.5" />Set Status<ChevronDown className="h-3 w-3" /></button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center" side="top" className="w-40">
+                  {PROP_ISSUE_STATUSES.map((s) => (
+                    <DropdownMenuItem key={s} onClick={() => { setStatus(selected, s); setSelected(new Set()) }}>
+                      <span className={cn("mr-2 h-2 w-2 rounded-full", STATUS_COLORS[s].split(" ")[0])} />{s}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <div className="h-8 w-px bg-zinc-700" />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className={bulkBtnCls}><UserRound className="h-3.5 w-3.5" />Assign<ChevronDown className="h-3 w-3" /></button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center" side="top" className="max-h-72 w-44 overflow-y-auto">
+                  {ALL_PEOPLE.map((p) => (
+                    <DropdownMenuItem key={p} onClick={() => { setAssignee(selected, p); setSelected(new Set()) }}>{p}</DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => { setAssignee(selected, null); setSelected(new Set()) }}>Unassigned</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <div className="h-8 w-px bg-zinc-700" />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className={bulkBtnCls}><Download className="h-3.5 w-3.5" />Export<ChevronDown className="h-3 w-3" /></button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center" side="top" className="min-w-[140px]">
+                  <DropdownMenuItem onClick={() => exportSelected("CSV")}><FileText className="mr-2 h-4 w-4" />CSV</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => exportSelected("Excel")}><FileSpreadsheet className="mr-2 h-4 w-4" />Excel</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => exportSelected("PDF")}><FileDown className="mr-2 h-4 w-4" />PDF</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </FloatingBulkBar>
 
-        <IssueDetailsDrawer
-          issue={viewIssue}
-          list={filtered}
-          onStep={(next) => setViewIssue(next)}
-          onClose={() => setViewIssue(null)}
-          onViewProperty={(iss) => { setViewIssue(null); openPropertyOf(iss) }}
-          onMarkFixed={(iss) => markFixed(new Set([iss.id]))}
-        />
+            <ColumnsSheet
+              open={showColumns}
+              onClose={() => setShowColumns(false)}
+              columns={COLS}
+              order={colOrder}
+              onOrderChange={setColOrder}
+              hidden={hiddenCols}
+              onHiddenChange={setHiddenCols}
+              frozen={frozenCols}
+              onFrozenChange={setFrozenCols}
+            />
 
-        <ViewPropertyDrawer
-          row={propertyRowOf(viewProperty)}
-          defaultTab="unit-details"
-          onClose={() => setViewProperty(null)}
-          onUpdateRow={() => {}}
-          highlightField={viewProperty?.field ?? undefined}
-        />
+            <FiltersDrawer open={showFilters} onClose={() => setShowFilters(false)} activeCount={activeFilterCount} onClear={clearAllFilters}>
+              <FilterDrawerField label="Developer"><FilterMultiSelect label="Developer" value={developerF} options={DEVELOPER_OPTIONS} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Project"><FilterMultiSelect label="Project" value={projectF} options={PROJECT_OPTIONS} onChange={(v) => { setProjectF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Status"><FilterMultiSelect label="Status" value={statusF} options={PROP_ISSUE_STATUSES} onChange={(v) => { setStatusF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Severity"><FilterMultiSelect label="Severity" value={severityF} options={PROP_ISSUE_SEVERITIES} onChange={(v) => { setSeverityF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Reported By Type"><FilterMultiSelect label="Reported By Type" value={sourceF} options={PROP_ISSUE_SOURCES} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Issue Category"><FilterMultiSelect label="Issue Category" value={fieldF} options={ISSUE_FIELDS.map((f) => f.label)} onChange={(v) => { setFieldF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Issue Type"><FilterMultiSelect label="Issue Type" value={typeF} options={ALL_ISSUE_TYPES} onChange={(v) => { setTypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Subtype"><FilterMultiSelect label="Subtype" value={subtypeF} options={ALL_ISSUE_SUBTYPES} onChange={(v) => { setSubtypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Reported By"><FilterMultiSelect label="Reported By" value={reporterF} options={ALL_REPORTERS} onChange={(v) => { setReporterF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Assigned To"><FilterMultiSelect label="Assigned To" value={assigneeF} options={["Unassigned", ...ALL_PEOPLE]} onChange={(v) => { setAssigneeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Sale Type"><FilterMultiSelect label="Sale Type" value={saleTypeF} options={SALE_TYPE_OPTIONS} onChange={(v) => { setSaleTypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Entry Type"><FilterMultiSelect label="Entry Type" value={entryTypeF} options={ENTRY_TYPE_OPTIONS} onChange={(v) => { setEntryTypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Property Status"><FilterMultiSelect label="Property Status" value={unitStatusF} options={UNIT_STATUS_OPTIONS} onChange={(v) => { setUnitStatusF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Listing Status"><FilterMultiSelect label="Listing Status" value={listingStatusF} options={LISTING_STATUS_OPTIONS} onChange={(v) => { setListingStatusF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Created At"><DateRangeFilter label="Created At" dateFrom={createdR.from} dateTo={createdR.to} onChangeFrom={(v) => { setCreatedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setCreatedR((r) => ({ ...r, to: v })); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Updated At"><DateRangeFilter label="Updated At" dateFrom={updatedR.from} dateTo={updatedR.to} onChangeFrom={(v) => { setUpdatedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setUpdatedR((r) => ({ ...r, to: v })); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Resolved At"><DateRangeFilter label="Resolved At" dateFrom={resolvedR.from} dateTo={resolvedR.to} onChangeFrom={(v) => { setResolvedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setResolvedR((r) => ({ ...r, to: v })); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Closed At"><DateRangeFilter label="Closed At" dateFrom={closedR.from} dateTo={closedR.to} onChangeFrom={(v) => { setClosedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setClosedR((r) => ({ ...r, to: v })); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
+            </FiltersDrawer>
+
+            <IssueTrackingDrawer
+              issue={trackIssue}
+              list={filtered}
+              unit={trackIssue ? propertyById.get(trackIssue.propertyId) ?? null : null}
+              onStep={setTrackIssue}
+              onClose={() => setTrackIssue(null)}
+              onViewProperty={(iss) => { setTrackIssue(null); setViewProperty(iss) }}
+              onSetStatus={(iss, s) => setStatus(new Set([iss.id]), s)}
+              onSetAssignee={(iss, p) => setAssignee(new Set([iss.id]), p)}
+              onAddComment={(iss, text) => {
+                const comment = { id: `CMT-${iss.id}-${iss.comments.length + 1}`, author: "Ezz H.", text, at: new Date().toISOString() }
+                patchIssues(new Set([iss.id]), (r) => ({ comments: [...r.comments, comment], updatedAt: comment.at }))
+              }}
+            />
+
+            <ViewPropertyDrawer
+              row={viewProperty ? propertyById.get(viewProperty.propertyId) ?? null : null}
+              defaultTab="unit-details"
+              onClose={() => setViewProperty(null)}
+              onUpdateRow={() => {}}
+              highlightFields={viewProperty ? { [viewProperty.fieldLabel]: viewProperty.severity } : undefined}
+            />
+          </>
+        )}
       </div>
     </div>
   )
 }
 
-// ── Issue details side drawer ─────────────────────────────────────────────────
-function IssueDetailsDrawer({
-  issue, list, onStep, onClose, onViewProperty, onMarkFixed,
+// ── Issue tracking drawer — details + unit snapshot + comments, side by side ──
+function IssueTrackingDrawer({
+  issue, list, unit, onStep, onClose, onViewProperty, onSetStatus, onSetAssignee, onAddComment,
 }: {
-  issue: DataIssue | null
-  list: DataIssue[]
-  onStep: (next: DataIssue) => void
+  issue: PropertyIssue | null
+  list: PropertyIssue[]
+  unit: import("@/components/all-properties-page").PropertyRow | null
+  onStep: (next: PropertyIssue) => void
   onClose: () => void
-  onViewProperty: (issue: DataIssue) => void
-  onMarkFixed: (issue: DataIssue) => void
+  onViewProperty: (issue: PropertyIssue) => void
+  onSetStatus: (issue: PropertyIssue, s: PropIssueStatus) => void
+  onSetAssignee: (issue: PropertyIssue, p: string | null) => void
+  onAddComment: (issue: PropertyIssue, text: string) => void
 }) {
+  const [draft, setDraft] = useState("")
   if (!issue) return null
   const idx = list.findIndex((r) => r.id === issue.id)
 
-  const Field = ({ label, value, span = 1 }: { label: string; value: React.ReactNode; span?: 1 | 2 }) => (
-    <div className={cn("space-y-0.5", span === 2 && "col-span-2")}>
+  const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
+    <div className="space-y-0.5">
       <dt className="text-[11px] font-medium text-muted-foreground">{label}</dt>
       <dd className="text-sm text-foreground">{value ?? <span className="text-muted-foreground">—</span>}</dd>
     </div>
   )
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div className="space-y-3">
-      <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</h4>
-      <dl className="grid grid-cols-2 gap-x-8 gap-y-3">{children}</dl>
-    </div>
+  const SectionTitle = ({ children }: { children: React.ReactNode }) => (
+    <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</h4>
   )
+
+  const fmtVal = (v: unknown): string => {
+    if (v == null || v === "") return "—"
+    if (typeof v === "boolean") return v ? "Yes" : "No"
+    if (typeof v === "number") return v.toLocaleString()
+    return String(v)
+  }
+  const snapshot: { label: string; fieldId: string; value: string }[] = unit ? [
+    { label: "Developer", fieldId: "developer", value: unit.developer.name },
+    { label: "Project", fieldId: "project", value: unit.project.name },
+    { label: "Phase", fieldId: "phase", value: unit.phase?.name ?? "—" },
+    { label: "Unit Code", fieldId: "unitCode", value: fmtVal(unit.unitCode) },
+    { label: "Unit Model", fieldId: "unitModel", value: fmtVal(unit.unitModel) },
+    { label: "Category", fieldId: "propertyCategory", value: fmtVal(unit.propertyCategory) },
+    { label: "Type", fieldId: "propertyType", value: fmtVal(unit.propertyType) },
+    { label: "Building Number", fieldId: "buildingNumber", value: fmtVal(unit.buildingNumber) },
+    { label: "Floor Number", fieldId: "floorNumber", value: fmtVal(unit.floorNumber) },
+    { label: "Gross BUA", fieldId: "grossBua", value: unit.grossBua ? `${unit.grossBua} m²` : "—" },
+    { label: "Net BUA", fieldId: "netBua", value: unit.netBua ? `${unit.netBua} m²` : "—" },
+    { label: "Bedrooms", fieldId: "bedrooms", value: fmtVal(unit.bedrooms) },
+    { label: "Bathrooms", fieldId: "bathrooms", value: fmtVal(unit.bathrooms) },
+    { label: "Price", fieldId: "price", value: unit.price ? `${unit.price.toLocaleString()} EGP` : "No price set" },
+    { label: "Availability", fieldId: "availability", value: fmtVal(unit.availability) },
+    { label: "Delivery Date", fieldId: "deliveryDate", value: fmtVal(unit.deliveryDate) },
+    { label: "Finishing Type", fieldId: "finishingType", value: fmtVal(unit.finishingType) },
+    { label: "Payment Plans", fieldId: "paymentPlans", value: `${unit.paymentPlans} plan${unit.paymentPlans !== 1 ? "s" : ""}` },
+    { label: "Floor Plans", fieldId: "floorPlans", value: `${unit.floorPlans.length} file${unit.floorPlans.length !== 1 ? "s" : ""}` },
+    { label: "Render Images", fieldId: "images", value: `${unit.images.length} image${unit.images.length !== 1 ? "s" : ""}` },
+  ] : []
+
+  const critical = isCriticalSeverity(issue.severity)
+  const hlCls = critical ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"
+  const hlText = critical ? "text-red-700" : "text-amber-700"
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose() }}>
-      <SheetContent side="right" className="flex !w-[560px] !max-w-[93vw] flex-col gap-0 overflow-hidden p-0">
-        <SheetHeader className="shrink-0 border-b border-border bg-card px-5 py-4">
-          <div className="flex items-center justify-between pr-10">
-            <div>
-              <SheetTitle className="text-base font-semibold">Issue Details</SheetTitle>
+      <SheetContent side="right" className="flex !w-[1120px] !max-w-[96vw] flex-col gap-0 overflow-hidden p-0">
+        {/* Header */}
+        <SheetHeader className="shrink-0 border-b border-border bg-card px-5 py-3.5">
+          <div className="flex items-center justify-between gap-3 pr-10">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <SheetTitle className="text-base font-semibold">Issue</SheetTitle>
               <IdTag value={issue.id} />
+              <IssueSourceTag source={issue.source} />
+              <IssueSeverityTag severity={issue.severity} />
             </div>
-            {idx >= 0 && list.length > 1 && (
-              <div className="flex items-center gap-1">
-                <Button variant="outline" size="icon" className="h-7 w-7" disabled={idx <= 0} onClick={() => onStep(list[idx - 1])}><ChevronLeft className="h-3.5 w-3.5" /></Button>
-                <span className="px-1 text-xs tabular-nums text-muted-foreground">{idx + 1}/{list.length}</span>
-                <Button variant="outline" size="icon" className="h-7 w-7" disabled={idx >= list.length - 1} onClick={() => onStep(list[idx + 1])}><ChevronRight className="h-3.5 w-3.5" /></Button>
-              </div>
-            )}
+            <div className="flex shrink-0 items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button><IssueStatusTag status={issue.status} chevron /></button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  {PROP_ISSUE_STATUSES.filter((s) => s !== issue.status).map((s) => (
+                    <DropdownMenuItem key={s} onClick={() => onSetStatus(issue, s)}>
+                      <span className={cn("mr-2 h-2 w-2 rounded-full", STATUS_COLORS[s].split(" ")[0])} />{s}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs">
+                    <UserRound className="h-3 w-3" />{issue.assignedTo ?? "Unassigned"}<ChevronDown className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="max-h-72 w-44 overflow-y-auto">
+                  {ALL_PEOPLE.map((p) => (
+                    <DropdownMenuItem key={p} onClick={() => onSetAssignee(issue, p)}>{p}</DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => onSetAssignee(issue, null)}>Unassigned</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {idx >= 0 && list.length > 1 && (
+                <div className="ml-1 flex items-center gap-1">
+                  <Button variant="outline" size="icon" className="h-7 w-7" disabled={idx <= 0} onClick={() => onStep(list[idx - 1])}><ChevronLeft className="h-3.5 w-3.5" /></Button>
+                  <span className="px-1 text-xs tabular-nums text-muted-foreground">{idx + 1}/{list.length.toLocaleString()}</span>
+                  <Button variant="outline" size="icon" className="h-7 w-7" disabled={idx >= list.length - 1} onClick={() => onStep(list[idx + 1])}><ChevronRight className="h-3.5 w-3.5" /></Button>
+                </div>
+              )}
+            </div>
           </div>
         </SheetHeader>
 
-        <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5">
-          <Section title="Classification">
-            <Field label="Status" value={<StatusTag status={issue.status} />} />
-            <Field label="Reported On" value={<ColorTag value={issue.entity} />} />
-            <Field label="Category" value={<ColorTag value={issue.category} />} />
-            <Field label="Type" value={<ColorTag value={issue.type} />} />
-            {issue.field && (
-              <Field span={2} label="Reported Field" value={
-                <span className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                  <AlertTriangle className="h-3 w-3" />{issue.field}
-                </span>
-              } />
+        {/* 3 panes: details | unit | comments */}
+        <div className="grid min-h-0 flex-1 grid-cols-3 divide-x divide-border">
+          {/* Pane 1 — issue details */}
+          <div className="space-y-5 overflow-y-auto px-5 py-4">
+            <div className="space-y-3">
+              <SectionTitle>Classification</SectionTitle>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                <Field label="Category (Field)" value={<ColorTag value={issue.fieldLabel} />} />
+                <Field label="Type" value={<ColorTag value={issue.type} />} />
+                <Field label="Subtype" value={issue.subtype} />
+                <Field label="Reported By" value={<PersonCell name={issue.reportedBy} />} />
+              </dl>
+            </div>
+
+            <div className="space-y-3">
+              <SectionTitle>Description</SectionTitle>
+              <p className="text-sm leading-relaxed text-foreground">{issue.description}</p>
+              {issue.linkedItems && issue.linkedItems.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {issue.linkedItems.map((x) => <ColorTag key={x} value={x} />)}
+                </div>
+              )}
+            </div>
+
+            {(issue.expected || issue.current) && (
+              <div className="space-y-3">
+                <SectionTitle>Expected Result</SectionTitle>
+                <div className="space-y-2">
+                  {issue.current && (
+                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-red-500">Current</p>
+                      <p className="text-sm text-red-700">{issue.current}</p>
+                    </div>
+                  )}
+                  {issue.expected && (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Expected</p>
+                      <p className="text-sm text-emerald-700">{issue.expected}</p>
+                    </div>
+                  )}
+                  <p className="text-[11px] leading-snug text-muted-foreground">Issues auto-move to Resolved when the field value matches the expected result after an update.</p>
+                </div>
+              </div>
             )}
-          </Section>
 
-          <Section title="Description">
-            <Field span={2} label="Issue" value={<p className="leading-relaxed">{issue.description}</p>} />
-          </Section>
+            <div className="space-y-3">
+              <SectionTitle>Linked Records</SectionTitle>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                <Field label="Developer" value={<div><p>{issue.developer.name}</p><IdTag value={issue.developer.id} /></div>} />
+                <Field label="Project" value={<div><p>{issue.project.name}</p><IdTag value={issue.project.id} /></div>} />
+                <Field label="Phase" value={issue.phase ? <div><p>{issue.phase.name}</p><IdTag value={issue.phase.id} /></div> : null} />
+                <Field label="Property ID" value={<IdTag value={issue.propertyId} />} />
+              </dl>
+            </div>
 
-          <Section title="Linked Records">
-            <Field label="Developer" value={
-              <div><p className="font-medium">{issue.developer.name}</p><IdTag value={issue.developer.id} /></div>
-            } />
-            {issue.project && (
-              <Field label="Project" value={
-                <div><p className="font-medium">{issue.project.name}</p><IdTag value={issue.project.id} /></div>
-              } />
-            )}
-            {issue.phase && (
-              <Field label="Phase" value={
-                <div><p>{issue.phase.name}</p><IdTag value={issue.phase.id} /></div>
-              } />
-            )}
-            {issue.propertyId && <Field label="Property ID" value={<IdTag value={issue.propertyId} />} />}
-            {issue.detailedPropertyId && <Field label="Detailed Property ID" value={<IdTag value={issue.detailedPropertyId} />} />}
-          </Section>
+            <div className="space-y-3">
+              <SectionTitle>Timeline</SectionTitle>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                <Field label="Created At" value={fmtDateTime(issue.createdAt)} />
+                <Field label="Updated At" value={fmtDateTime(issue.updatedAt)} />
+                <Field label="Resolved At" value={issue.resolvedAt ? fmtDateTime(issue.resolvedAt) : null} />
+                <Field label="Closed At" value={issue.closedAt ? fmtDateTime(issue.closedAt) : null} />
+              </dl>
+            </div>
+          </div>
 
-          <Section title="People">
-            <Field label="Reported By" value={issue.reportedBy} />
-            <Field label="Assigned To" value={issue.assignedTo} />
-          </Section>
+          {/* Pane 2 — unit snapshot with the issue field highlighted */}
+          <div className="flex min-h-0 flex-col">
+            <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">Unit Snapshot</p>
+                <IdTag value={issue.propertyId} />
+              </div>
+              <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => onViewProperty(issue)}>
+                <Building2 className="h-3 w-3" />Full Details
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {unit ? (
+                <dl className="space-y-1">
+                  {snapshot.map((f) => {
+                    const hl = f.fieldId === issue.fieldId
+                    return (
+                      <div key={f.fieldId} className={cn("flex items-center justify-between gap-3 rounded-md border border-transparent px-2 py-1.5", hl && hlCls)}>
+                        <dt className={cn("flex items-center gap-1 text-xs text-muted-foreground", hl && `font-semibold ${hlText}`)}>
+                          {hl && <AlertTriangle className="h-3 w-3" />}{f.label}
+                        </dt>
+                        <dd className={cn("truncate text-sm text-foreground", hl && `font-medium ${hlText}`)}>{f.value}</dd>
+                      </div>
+                    )
+                  })}
+                </dl>
+              ) : (
+                <p className="px-2 py-8 text-center text-sm text-muted-foreground">Unit not found in the current mock rows.</p>
+              )}
+            </div>
+          </div>
 
-          <Section title="Timeline">
-            <Field label="Created At" value={fmtDateTime(issue.createdAt)} />
-            <Field label="Updated At" value={fmtDateTime(issue.updatedAt)} />
-            <Field label="Fixed At" value={issue.fixedAt ? fmtDateTime(issue.fixedAt) : null} />
-          </Section>
-        </div>
-
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3">
-          {issue.propertyId && (
-            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => onViewProperty(issue)}>
-              <Building2 className="h-3.5 w-3.5" />View Property
-            </Button>
-          )}
-          {issue.status !== "Fixed" && (
-            <Button size="sm" className="h-8 gap-1.5" onClick={() => { onMarkFixed(issue); onClose() }}>
-              <CheckCircle2 className="h-3.5 w-3.5" />Mark as Fixed
-            </Button>
-          )}
+          {/* Pane 3 — comments thread */}
+          <div className="flex min-h-0 flex-col">
+            <div className="border-b border-border px-4 py-2.5">
+              <p className="text-sm font-semibold text-foreground">Comments</p>
+              <p className="text-[11px] text-muted-foreground">{issue.comments.length} comment{issue.comments.length !== 1 ? "s" : ""}</p>
+            </div>
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+              {issue.comments.length === 0 && (
+                <p className="py-8 text-center text-sm text-muted-foreground">No comments yet.</p>
+              )}
+              {issue.comments.map((c) => (
+                <div key={c.id} className="flex gap-2.5">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                    {c.author.split(" ").map((x) => x[0]).join("").slice(0, 2)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-xs font-semibold text-foreground">{c.author}</p>
+                      <p className="shrink-0 text-[10px] text-muted-foreground">{fmtDateTime(c.at)}</p>
+                    </div>
+                    <p className="mt-0.5 rounded-lg rounded-tl-none border border-border bg-muted/40 px-2.5 py-1.5 text-sm leading-snug text-foreground">{c.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex shrink-0 items-center gap-2 border-t border-border p-3">
+              <Input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Write a comment…"
+                className="h-8 text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && draft.trim()) { onAddComment(issue, draft.trim()); setDraft("") }
+                }}
+              />
+              <Button size="sm" className="h-8 gap-1.5" disabled={!draft.trim()} onClick={() => { onAddComment(issue, draft.trim()); setDraft("") }}>
+                <Send className="h-3.5 w-3.5" />Send
+              </Button>
+            </div>
+          </div>
         </div>
       </SheetContent>
     </Sheet>

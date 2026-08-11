@@ -3,6 +3,8 @@
 // to 100 within a type, type weights sum to 100 within a category, and category
 // weights sum to 100 within an entity.
 
+import { ISSUE_FIELDS, KIND_TAXONOMY, distribute } from "./property-issues-mock"
+
 export type QcEntity = "Property" | "Project" | "Developer"
 
 export interface QcSubtype {
@@ -42,51 +44,21 @@ function cat(name: string, weight: number, types: QcType[]): QcCategory {
 }
 
 export const QC_TAXONOMY: QcTaxonomy = {
-  Property: [
-    cat("Pricing", 30, [
-      typ("Incorrect Data", 50, [
-        sub("Price mismatch with price list", 60),
-        sub("Wrong currency or unit", 40),
-      ]),
-      typ("Missing Data", 30, [
-        sub("No price set", 70),
-        sub("Missing maintenance / storage price", 30),
-      ]),
-      typ("Outdated Data", 20, [
-        sub("Stale after sheet ingestion", 100),
-      ]),
-    ]),
-    cat("Areas & Sizes", 25, [
-      typ("Incorrect Data", 60, [
-        sub("Gross BUA mismatch", 50),
-        sub("Net larger than gross", 30),
-        sub("Land/garden area implausible", 20),
-      ]),
-      typ("Missing Data", 40, [
-        sub("Missing BUA", 60),
-        sub("Missing outdoor areas", 40),
-      ]),
-    ]),
-    cat("Unit Info", 25, [
-      typ("Incorrect Data", 40, [
-        sub("Bedrooms/bathrooms wrong", 50),
-        sub("Floor number inconsistent", 50),
-      ]),
-      typ("Duplicate", 35, [
-        sub("Duplicate unit number", 100),
-      ]),
-      typ("Formatting", 25, [
-        sub("Unit code format", 60),
-        sub("Naming convention", 40),
-      ]),
-    ]),
-    cat("Availability", 20, [
-      typ("Outdated Data", 100, [
-        sub("Sold on CRM but Available here", 70),
-        sub("Hold expired", 30),
-      ]),
-    ]),
-  ],
+  // Property categories ARE the reportable property fields (single source of
+  // truth: ISSUE_FIELDS in property-issues-mock) — ~35 fields incl. Payment
+  // Plans / Floor Plans / Render Images. Weights are evenly distributed and
+  // sum to 100 at every level.
+  Property: (() => {
+    const catW = distribute(100, ISSUE_FIELDS.length)
+    return ISSUE_FIELDS.map((f, i) => {
+      const tax = KIND_TAXONOMY[f.kind]
+      const tW = distribute(100, tax.length)
+      return cat(f.label, catW[i], tax.map((t, j) => {
+        const sW = distribute(100, t.subtypes.length)
+        return typ(t.type, tW[j], t.subtypes.map((s, k) => sub(s, sW[k])))
+      }))
+    })
+  })(),
   Project: [
     cat("Location", 40, [
       typ("Incorrect Data", 70, [
