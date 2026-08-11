@@ -70,6 +70,10 @@ function UnitTag({ value }: { value: string | null | undefined }) {
 
 const PROJECT_OPTIONS = ["New Cairo Residences", "North Coast Bay", "West Gate", "Lagoon District", "Capital Gardens"]
 const DEVELOPER_OPTIONS = ["Palm Hills", "Sodic", "Mountain View", "Emaar"]
+const SALE_TYPE_OPTIONS = ["Launch", "Primary", "Resale", "Nawy Now", "Rental", "Financing"]
+const ENTRY_TYPE_OPTIONS = ["Automatic", "Manual"]
+const UNIT_STATUS_OPTIONS = ["Available", "On Hold", "Sold-Off", "Archived"]
+const LISTING_STATUS_OPTIONS = ["Active", "Hidden"]
 const PHASE_OPTIONS = ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5", "Phase 6"]
 
 const COLS = [
@@ -91,6 +95,7 @@ const COLS = [
   { id: "propertyId", label: "Property ID", width: 145 },
   { id: "detailedPropertyId", label: "Detailed Property ID", width: 170 },
   { id: "unitStatus", label: "Property Status", width: 120 },
+  { id: "listingStatus", label: "Listing Status", width: 115 },
   { id: "createdAt", label: "Created At", width: 160 },
   { id: "updatedAt", label: "Updated At", width: 160 },
   { id: "resolvedAt", label: "Resolved At", width: 160 },
@@ -201,6 +206,10 @@ export function DataIssuesPage() {
   const [subtypeF, setSubtypeF] = useState<string[]>([])
   const [reporterF, setReporterF] = useState<string[]>([])
   const [assigneeF, setAssigneeF] = useState<string[]>([])
+  const [saleTypeF, setSaleTypeF] = useState<string[]>([])
+  const [entryTypeF, setEntryTypeF] = useState<string[]>([])
+  const [unitStatusF, setUnitStatusF] = useState<string[]>([])
+  const [listingStatusF, setListingStatusF] = useState<string[]>([])
   const [createdR, setCreatedR] = useState<DateRange>(emptyRange)
   const [updatedR, setUpdatedR] = useState<DateRange>(emptyRange)
   const [resolvedR, setResolvedR] = useState<DateRange>(emptyRange)
@@ -228,11 +237,12 @@ export function DataIssuesPage() {
 
   const rangeCount = [createdR, updatedR, resolvedR, closedR].filter((r) => r.from || r.to).length
   const activeFilterCount =
-    [developerF, projectF, statusF, severityF, sourceF, fieldF, typeF, subtypeF, reporterF, assigneeF].filter((f) => f.length > 0).length + rangeCount
+    [developerF, projectF, statusF, severityF, sourceF, fieldF, typeF, subtypeF, reporterF, assigneeF, saleTypeF, entryTypeF, unitStatusF, listingStatusF].filter((f) => f.length > 0).length + rangeCount
 
   const clearAllFilters = () => {
     setDeveloperF([]); setProjectF([]); setStatusF([]); setSeverityF([]); setSourceF([]); setFieldF([])
     setTypeF([]); setSubtypeF([]); setReporterF([]); setAssigneeF([])
+    setSaleTypeF([]); setEntryTypeF([]); setUnitStatusF([]); setListingStatusF([])
     setCreatedR(emptyRange); setUpdatedR(emptyRange); setResolvedR(emptyRange); setClosedR(emptyRange)
     setPage(1)
   }
@@ -240,7 +250,22 @@ export function DataIssuesPage() {
   const filtered = useMemo(() => {
     let rows = issues
     const needle = q.trim().toLowerCase()
-    if (needle) rows = rows.filter((r) => r.id.toLowerCase().includes(needle) || r.description.toLowerCase().includes(needle))
+    if (needle)
+      rows = rows.filter((r) =>
+        r.id.toLowerCase().includes(needle) ||
+        r.description.toLowerCase().includes(needle) ||
+        r.propertyId.toLowerCase().includes(needle) ||
+        r.detailedPropertyId.toLowerCase().includes(needle),
+      )
+    // Unit-context filters resolve through the linked property row
+    const unitOf = (r: PropertyIssue) => propertyById.get(r.propertyId)
+    if (saleTypeF.length) rows = rows.filter((r) => saleTypeF.includes(unitOf(r)?.saleType ?? ""))
+    if (entryTypeF.length) rows = rows.filter((r) => entryTypeF.includes(unitOf(r)?.entryType ?? ""))
+    if (unitStatusF.length) rows = rows.filter((r) => {
+      const a = unitOf(r)?.availability
+      return a != null && unitStatusF.includes(a === "Hold" ? "On Hold" : a)
+    })
+    if (listingStatusF.length) rows = rows.filter((r) => listingStatusF.includes(unitOf(r)?.listingStatus ?? ""))
     if (developerF.length) rows = rows.filter((r) => developerF.includes(r.developer.name))
     if (projectF.length) rows = rows.filter((r) => projectF.includes(r.project.name))
     if (statusF.length) rows = rows.filter((r) => statusF.includes(r.status))
@@ -263,7 +288,7 @@ export function DataIssuesPage() {
       })
     }
     return rows
-  }, [issues, q, developerF, projectF, statusF, severityF, sourceF, fieldF, typeF, subtypeF, reporterF, assigneeF, createdR, updatedR, resolvedR, closedR, sorts])
+  }, [issues, q, developerF, projectF, statusF, severityF, sourceF, fieldF, typeF, subtypeF, reporterF, assigneeF, saleTypeF, entryTypeF, unitStatusF, listingStatusF, createdR, updatedR, resolvedR, closedR, sorts, propertyById])
 
   const groups = useMemo(() => {
     if (groupBy === "none") return null
@@ -449,6 +474,7 @@ export function DataIssuesPage() {
         </span>
       )
       case "unitStatus": return <UnitTag value={propertyById.get(r.propertyId)?.availability} />
+      case "listingStatus": return <UnitTag value={propertyById.get(r.propertyId)?.listingStatus} />
       case "createdAt": return ts(r.createdAt)
       case "updatedAt": return ts(r.updatedAt)
       case "resolvedAt": return ts(r.resolvedAt)
@@ -540,7 +566,7 @@ export function DataIssuesPage() {
             <TableToolbar
               search={q}
               onSearch={(v) => { setQ(v); setPage(1) }}
-              searchPlaceholder="Search by issue ID or description"
+              searchPlaceholder="Search by issue ID, description, property ID or detailed property ID"
               hideAdvanced
               onAllFilters={() => setShowFilters(true)}
               onColumns={() => setShowColumns(true)}
@@ -557,6 +583,10 @@ export function DataIssuesPage() {
                   <FilterMultiSelect label="Subtype" value={subtypeF} options={ALL_ISSUE_SUBTYPES} onChange={(v) => { setSubtypeF(v); setPage(1) }} className="w-36" />
                   <FilterMultiSelect label="Reported By" value={reporterF} options={ALL_REPORTERS} onChange={(v) => { setReporterF(v); setPage(1) }} className="w-36" />
                   <FilterMultiSelect label="Assigned To" value={assigneeF} options={["Unassigned", ...ALL_PEOPLE]} onChange={(v) => { setAssigneeF(v); setPage(1) }} className="w-36" />
+                  <FilterMultiSelect label="Sale Type" value={saleTypeF} options={SALE_TYPE_OPTIONS} onChange={(v) => { setSaleTypeF(v); setPage(1) }} className="w-34" />
+                  <FilterMultiSelect label="Entry Type" value={entryTypeF} options={ENTRY_TYPE_OPTIONS} onChange={(v) => { setEntryTypeF(v); setPage(1) }} className="w-34" />
+                  <FilterMultiSelect label="Property Status" value={unitStatusF} options={UNIT_STATUS_OPTIONS} onChange={(v) => { setUnitStatusF(v); setPage(1) }} className="w-38" />
+                  <FilterMultiSelect label="Listing Status" value={listingStatusF} options={LISTING_STATUS_OPTIONS} onChange={(v) => { setListingStatusF(v); setPage(1) }} className="w-36" />
                   <DateRangeFilter label="Created At" dateFrom={createdR.from} dateTo={createdR.to} onChangeFrom={(v) => { setCreatedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setCreatedR((r) => ({ ...r, to: v })); setPage(1) }} withTime />
                   <DateRangeFilter label="Updated At" dateFrom={updatedR.from} dateTo={updatedR.to} onChangeFrom={(v) => { setUpdatedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setUpdatedR((r) => ({ ...r, to: v })); setPage(1) }} withTime />
                   <DateRangeFilter label="Resolved At" dateFrom={resolvedR.from} dateTo={resolvedR.to} onChangeFrom={(v) => { setResolvedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setResolvedR((r) => ({ ...r, to: v })); setPage(1) }} withTime />
@@ -743,6 +773,10 @@ export function DataIssuesPage() {
               <FilterDrawerField label="Subtype"><FilterMultiSelect label="Subtype" value={subtypeF} options={ALL_ISSUE_SUBTYPES} onChange={(v) => { setSubtypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
               <FilterDrawerField label="Reported By"><FilterMultiSelect label="Reported By" value={reporterF} options={ALL_REPORTERS} onChange={(v) => { setReporterF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
               <FilterDrawerField label="Assigned To"><FilterMultiSelect label="Assigned To" value={assigneeF} options={["Unassigned", ...ALL_PEOPLE]} onChange={(v) => { setAssigneeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Sale Type"><FilterMultiSelect label="Sale Type" value={saleTypeF} options={SALE_TYPE_OPTIONS} onChange={(v) => { setSaleTypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Entry Type"><FilterMultiSelect label="Entry Type" value={entryTypeF} options={ENTRY_TYPE_OPTIONS} onChange={(v) => { setEntryTypeF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Property Status"><FilterMultiSelect label="Property Status" value={unitStatusF} options={UNIT_STATUS_OPTIONS} onChange={(v) => { setUnitStatusF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
+              <FilterDrawerField label="Listing Status"><FilterMultiSelect label="Listing Status" value={listingStatusF} options={LISTING_STATUS_OPTIONS} onChange={(v) => { setListingStatusF(v); setPage(1) }} className="w-full" /></FilterDrawerField>
               <FilterDrawerField label="Created At"><DateRangeFilter label="Created At" dateFrom={createdR.from} dateTo={createdR.to} onChangeFrom={(v) => { setCreatedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setCreatedR((r) => ({ ...r, to: v })); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
               <FilterDrawerField label="Updated At"><DateRangeFilter label="Updated At" dateFrom={updatedR.from} dateTo={updatedR.to} onChangeFrom={(v) => { setUpdatedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setUpdatedR((r) => ({ ...r, to: v })); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
               <FilterDrawerField label="Resolved At"><DateRangeFilter label="Resolved At" dateFrom={resolvedR.from} dateTo={resolvedR.to} onChangeFrom={(v) => { setResolvedR((r) => ({ ...r, from: v })); setPage(1) }} onChangeTo={(v) => { setResolvedR((r) => ({ ...r, to: v })); setPage(1) }} withTime className="w-full" /></FilterDrawerField>
