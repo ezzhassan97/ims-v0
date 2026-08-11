@@ -12,16 +12,16 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { IdTag } from "@/components/table-kit"
 import type { PropertyRow } from "@/components/all-properties-page"
 import {
-  ISSUE_FIELDS, ISSUE_FIELD_GROUPS, KIND_TAXONOMY, DATA_OPS_TEAM, SEVERITY_COLORS, STATUS_COLORS,
+  ISSUE_FIELDS, ISSUE_FIELD_GROUPS, fieldTaxonomy, PLAN_ASPECTS, DATA_OPS_TEAM, SEVERITY_COLORS, STATUS_COLORS,
   addPropertyIssues, nextIssueId, isCriticalSeverity,
-  type IssueField, type PropertyIssue,
+  type IssueField, type IssueTypeDef, type PropertyIssue,
 } from "@/lib/property-issues-mock"
 import { cn } from "@/lib/utils"
 
 // ── Open-issues badge for property rows/cards (popover lists the open issues) ──
 // Lives here (not data-issues-page) so all-properties can import it without a
 // runtime import cycle.
-export function RowIssuesBadge({ issues, compact }: { issues: PropertyIssue[]; compact?: boolean }) {
+export function RowIssuesBadge({ issues, compact, onOpenIssue }: { issues: PropertyIssue[]; compact?: boolean; /** Makes each listed issue clickable (opens the tracking drawer). */ onOpenIssue?: (i: PropertyIssue) => void }) {
   const critical = issues.some((i) => isCriticalSeverity(i.severity))
   return (
     <Popover>
@@ -44,7 +44,11 @@ export function RowIssuesBadge({ issues, compact }: { issues: PropertyIssue[]; c
         </p>
         <div className="max-h-64 divide-y divide-border overflow-y-auto">
           {issues.map((i) => (
-            <div key={i.id} className="space-y-1 px-3 py-2">
+            <div
+              key={i.id}
+              className={cn("space-y-1 px-3 py-2", onOpenIssue && "cursor-pointer hover:bg-muted/50")}
+              onClick={onOpenIssue ? () => onOpenIssue(i) : undefined}
+            >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-foreground">{i.fieldLabel}</span>
                 <span className={cn("rounded-md border px-1.5 py-px text-[10px] font-medium", SEVERITY_COLORS[i.severity])}>{i.severity}</span>
@@ -64,14 +68,15 @@ export function RowIssuesBadge({ issues, compact }: { issues: PropertyIssue[]; c
 
 interface FieldDraft {
   type: string
-  subtype: string
+  subtype: string | null
   expected: string
-  items: string[] // selected payment plans / floor plans / renders
+  items: string[] // floor plans / renders / duplicate plans selection
+  planAspects: Record<string, string[]> // payment plans: plan name → aspects with issues
 }
 
 function emptyDraft(field: IssueField): FieldDraft {
-  const tax = KIND_TAXONOMY[field.kind]
-  return { type: tax[0].type, subtype: tax[0].subtypes[0], expected: "", items: [] }
+  const t = fieldTaxonomy(field)[0]
+  return { type: t.type, subtype: t.subtypes?.[0] ?? null, expected: "", items: [], planAspects: {} }
 }
 
 /** The unit's current value for a field, formatted for display + issue context. */
@@ -142,11 +147,43 @@ export function ReportIssueDrawer({
       }
       return n
     })
+  const togglePlanAspect = (fieldId: string, plan: string, aspect: string) =>
+    setDrafts((prev) => {
+      const n = new Map(prev)
+      const cur = n.get(fieldId)
+      if (cur) {
+        const aspects = cur.planAspects[plan] ?? []
+        const next = aspects.includes(aspect) ? aspects.filter((a) => a !== aspect) : [...aspects, aspect]
+        const planAspects = { ...cur.planAspects }
+        if (next.length) planAspects[plan] = next; else delete planAspects[plan]
+        n.set(fieldId, { ...cur, planAspects })
+      }
+      return n
+    })
+  const togglePlan = (fieldId: string, plan: string) =>
+    setDrafts((prev) => {
+      const n = new Map(prev)
+      const cur = n.get(fieldId)
+      if (cur) {
+        const planAspects = { ...cur.planAspects }
+        if (plan in planAspects) delete planAspects[plan]
+        else planAspects[plan] = []
+        n.set(fieldId, { ...cur, planAspects })
+      }
+      return n
+    })
 
-  // Attachment fields need the specific item(s) selected unless it's a "missing" type
+  const typeDefOf = (field: IssueField, d: FieldDraft): IssueTypeDef =>
+    fieldTaxonomy(field).find((t) => t.type === d.type) ?? fieldTaxonomy(field)[0]
+
+  // Selection-requiring types must have their items / plan aspects picked
   const invalids = [...drafts.entries()].filter(([fieldId, d]) => {
     const field = ISSUE_FIELDS.find((f) => f.id === fieldId)!
-    return field.kind !== "value" && d.items.length === 0 && !d.type.toLowerCase().includes("missing")
+    const def = typeDefOf(field, d)
+    if (!def.requiresSelection) return false
+    if (field.kind === "plans" && def.type === "Plan Terms Issue")
+      return Object.keys(d.planAspects).length === 0 || Object.values(d.planAspects).every((a) => a.length === 0)
+    return field.kind === "plans" ? d.items.length === 0 && Object.keys(d.planAspects).length === 0 : d.items.length === 0
   })
 
   const submit = () => {
@@ -154,20 +191,26 @@ export function ReportIssueDrawer({
     const now = new Date().toISOString()
     const created: PropertyIssue[] = [...drafts.entries()].map(([fieldId, d]) => {
       const field = ISSUE_FIELDS.find((f) => f.id === fieldId)!
+      const def = typeDefOf(field, d)
       const assignedTo = DATA_OPS_TEAM[assignSeq++ % DATA_OPS_TEAM.length] // auto-assignment
+      // Linked items: plans carry their per-plan aspect annotations
+      const linkedItems =
+        field.kind === "plans" && def.type === "Plan Terms Issue"
+          ? Object.entries(d.planAspects).map(([plan, aspects]) => `${plan} (${aspects.join(", ")})`)
+          : d.items.length ? d.items : null
       return {
         id: nextIssueId(),
         source: "Data Quality",
-        severity: "Medium", // severity is set by triage / scoring config, not the reporter
+        severity: def.priority, // inherits the type's configured priority
         status: "To Do",
         fieldId: field.id,
         fieldLabel: field.label,
-        type: d.type,
+        type: def.type,
         subtype: d.subtype,
-        description: `${field.label} — ${d.type.toLowerCase()}: ${d.subtype.toLowerCase()}`,
+        description: `${field.label} — ${def.type.toLowerCase()}${d.subtype ? `: ${d.subtype.toLowerCase()}` : ""}${d.expected.trim() ? ` — ${d.expected.trim()}` : ""}`,
         expected: d.expected.trim() || null,
         current: currentValue(row, field),
-        linkedItems: d.items.length ? d.items : null,
+        linkedItems,
         reportedBy: "Ezz H.",
         assignedTo,
         developer: { id: row.developer.id, name: row.developer.name },
@@ -180,6 +223,7 @@ export function ReportIssueDrawer({
         resolvedAt: null,
         closedAt: null,
         comments: [],
+        activity: [{ id: `ACT-${now}-${field.id}`, kind: "created", actor: "Ezz H.", at: now, detail: "Issue created — To Do" }],
       }
     })
     addPropertyIssues(created)
@@ -188,70 +232,114 @@ export function ReportIssueDrawer({
     onClose()
   }
 
-  /** Per-kind picker for WHAT exactly has the issue. */
-  const ItemPicker = ({ field, draft }: { field: IssueField; draft: FieldDraft }) => {
-    if (field.kind === "plans") {
-      const plans = planOptions(row)
-      if (plans.length === 0) return <p className="text-xs text-muted-foreground">No payment plans on this unit — use a "missing" type.</p>
-      return (
-        <div className="grid grid-cols-2 gap-2">
-          {plans.map((p) => {
-            const on = draft.items.includes(p.name)
-            return (
-              <button
-                key={p.name}
-                onClick={() => toggleItem(field.id, p.name)}
-                className={cn(
-                  "relative rounded-lg border p-2.5 text-left transition-colors",
-                  on ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border bg-card hover:bg-muted/40",
-                )}
-              >
-                {on && (
-                  <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                    <Check className="h-3 w-3" />
-                  </span>
-                )}
-                <p className="pr-5 text-xs font-semibold text-foreground">{p.name}</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">DP {p.downPayment}% · {p.duration} mo · {p.installmentPct}%/mo</p>
+  /** Item picker for floor plans / renders (only when the type requires it). */
+  const ThumbPicker = ({ field, draft }: { field: IssueField; draft: FieldDraft }) => {
+    const srcs = field.kind === "floorPlans" ? row.floorPlans : row.images
+    const label = field.kind === "floorPlans" ? "Floor Plan" : "Render"
+    if (srcs.length === 0) return <p className="text-xs text-muted-foreground">Nothing uploaded on this unit — use a "missing" type instead.</p>
+    return (
+      <div className="grid grid-cols-3 gap-2">
+        {srcs.map((s, i) => {
+          const name = `${label} ${i + 1}`
+          const on = draft.items.includes(name)
+          return (
+            <button
+              key={name}
+              onClick={() => toggleItem(field.id, name)}
+              className={cn(
+                "group relative overflow-hidden rounded-lg border transition-all",
+                on ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+              )}
+            >
+              {on && (
+                <span className="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <Check className="h-3 w-3" />
+                </span>
+              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={s || "/placeholder.svg"} alt={name} className="h-16 w-full object-cover" />
+              <span className="block bg-card px-1.5 py-1 text-left text-[10px] font-medium text-foreground">{name}</span>
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  /** Payment plans: select plan(s), then per-plan which aspects have issues. */
+  const PlanTermsPicker = ({ field, draft }: { field: IssueField; draft: FieldDraft }) => {
+    const plans = planOptions(row)
+    if (plans.length === 0) return <p className="text-xs text-muted-foreground">No payment plans on this unit — use "Missing Plan" instead.</p>
+    return (
+      <div className="space-y-2">
+        {plans.map((pl) => {
+          const on = pl.name in draft.planAspects
+          const aspects = draft.planAspects[pl.name] ?? []
+          return (
+            <div key={pl.name} className={cn("rounded-lg border transition-colors", on ? "border-primary bg-primary/5" : "border-border bg-card")}>
+              <button onClick={() => togglePlan(field.id, pl.name)} className="flex w-full items-center justify-between px-2.5 py-2 text-left">
+                <span>
+                  <span className="text-xs font-semibold text-foreground">{pl.name}</span>
+                  <span className="ml-2 text-[11px] text-muted-foreground">DP {pl.downPayment}% · {pl.duration} mo · {pl.installmentPct}%/mo</span>
+                </span>
+                {on && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground"><Check className="h-3 w-3" /></span>}
               </button>
-            )
-          })}
-        </div>
-      )
-    }
-    if (field.kind === "floorPlans" || field.kind === "images") {
-      const srcs = field.kind === "floorPlans" ? row.floorPlans : row.images
-      const label = field.kind === "floorPlans" ? "Floor Plan" : "Render"
-      if (srcs.length === 0) return <p className="text-xs text-muted-foreground">Nothing uploaded on this unit — use a "missing" type.</p>
-      return (
-        <div className="grid grid-cols-3 gap-2">
-          {srcs.map((src, i) => {
-            const name = `${label} ${i + 1}`
-            const on = draft.items.includes(name)
-            return (
-              <button
-                key={name}
-                onClick={() => toggleItem(field.id, name)}
-                className={cn(
-                  "group relative overflow-hidden rounded-lg border transition-all",
-                  on ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-muted-foreground/40",
-                )}
-              >
-                {on && (
-                  <span className="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                    <Check className="h-3 w-3" />
-                  </span>
-                )}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src || "/placeholder.svg"} alt={name} className="h-16 w-full object-cover" />
-                <span className="block bg-card px-1.5 py-1 text-left text-[10px] font-medium text-foreground">{name}</span>
-              </button>
-            )
-          })}
-        </div>
-      )
-    }
-    return null
+              {on && (
+                <div className="flex flex-wrap gap-1.5 border-t border-border/60 px-2.5 py-2">
+                  {PLAN_ASPECTS.map((a) => {
+                    const sel = aspects.includes(a)
+                    return (
+                      <button
+                        key={a}
+                        onClick={() => togglePlanAspect(field.id, pl.name, a)}
+                        className={cn(
+                          "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                          sel ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:bg-muted",
+                        )}
+                      >
+                        {a}
+                      </button>
+                    )
+                  })}
+                  {aspects.length === 0 && <span className="text-[10px] text-red-600">Pick what's wrong with this plan</span>}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  /** Duplicate plan: just pick the duplicated plan(s). */
+  const PlanSelectPicker = ({ field, draft }: { field: IssueField; draft: FieldDraft }) => {
+    const plans = planOptions(row)
+    if (plans.length === 0) return <p className="text-xs text-muted-foreground">No payment plans on this unit.</p>
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        {plans.map((pl) => {
+          const on = draft.items.includes(pl.name)
+          return (
+            <button
+              key={pl.name}
+              onClick={() => toggleItem(field.id, pl.name)}
+              className={cn(
+                "relative rounded-lg border p-2.5 text-left transition-colors",
+                on ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border bg-card hover:bg-muted/40",
+              )}
+            >
+              {on && (
+                <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <Check className="h-3 w-3" />
+                </span>
+              )}
+              <p className="pr-5 text-xs font-semibold text-foreground">{pl.name}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">DP {pl.downPayment}% · {pl.duration} mo · {pl.installmentPct}%/mo</p>
+            </button>
+          )
+        })}
+      </div>
+    )
   }
 
   return (
@@ -286,8 +374,8 @@ export function ReportIssueDrawer({
                 <div className="divide-y divide-border">
                   {fields.map((field) => {
                     const draft = drafts.get(field.id)
-                    const tax = KIND_TAXONOMY[field.kind]
-                    const typeDef = draft ? tax.find((t) => t.type === draft.type) ?? tax[0] : tax[0]
+                    const tax = fieldTaxonomy(field)
+                    const def = draft ? typeDefOf(field, draft) : tax[0]
                     return (
                       <div key={field.id} className="px-5 py-2.5">
                         <label className="flex cursor-pointer items-center justify-between gap-2">
@@ -300,47 +388,74 @@ export function ReportIssueDrawer({
 
                         {draft && (
                           <div className="mt-2.5 space-y-3 rounded-lg border border-border bg-muted/30 p-3">
-                            {/* What exactly has the issue (plans / floor plans / renders) */}
-                            {field.kind !== "value" && (
+                            {/* Type first — it decides the rest of the flow */}
+                            <div className={cn("grid gap-2", def.subtypes ? "grid-cols-2" : "grid-cols-1")}>
+                              <div className="space-y-1">
+                                <p className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+                                  Type
+                                  <span className={cn("rounded border px-1 py-px text-[9px] font-semibold", SEVERITY_COLORS[def.priority])}>{def.priority}</span>
+                                </p>
+                                <Select value={draft.type} onValueChange={(v) => {
+                                  const t = tax.find((x) => x.type === v) ?? tax[0]
+                                  patchDraft(field.id, { type: v, subtype: t.subtypes?.[0] ?? null, items: [], planAspects: {} })
+                                }}>
+                                  <SelectTrigger className="h-8 bg-card text-sm"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    {tax.filter((t) => t.active).map((t) => <SelectItem key={t.type} value={t.type} className="text-sm">{t.type}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              {def.subtypes && (
+                                <div className="space-y-1">
+                                  <p className="text-[11px] font-medium text-muted-foreground">Subtype</p>
+                                  <Select value={draft.subtype ?? ""} onValueChange={(v) => patchDraft(field.id, { subtype: v })}>
+                                    <SelectTrigger className="h-8 bg-card text-sm"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      {def.subtypes.map((s) => <SelectItem key={s} value={s} className="text-sm">{s}</SelectItem>)}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* What exactly — only when this type needs a selection */}
+                            {def.requiresSelection && field.kind === "plans" && def.type === "Plan Terms Issue" && (
+                              <div className="space-y-1.5">
+                                <p className="text-[11px] font-medium text-foreground">
+                                  Select the plan(s), then what's wrong with each
+                                  {invalids.some(([id]) => id === field.id) && <span className="ml-1 text-red-600">— required</span>}
+                                </p>
+                                <PlanTermsPicker field={field} draft={draft} />
+                              </div>
+                            )}
+                            {def.requiresSelection && field.kind === "plans" && def.type !== "Plan Terms Issue" && (
+                              <div className="space-y-1.5">
+                                <p className="text-[11px] font-medium text-foreground">
+                                  Select the affected plan(s)
+                                  {invalids.some(([id]) => id === field.id) && <span className="ml-1 text-red-600">— required</span>}
+                                </p>
+                                <PlanSelectPicker field={field} draft={draft} />
+                              </div>
+                            )}
+                            {def.requiresSelection && (field.kind === "floorPlans" || field.kind === "images") && (
                               <div className="space-y-1.5">
                                 <p className="text-[11px] font-medium text-foreground">
                                   Select the {field.label.toLowerCase()} with the issue
                                   {invalids.some(([id]) => id === field.id) && <span className="ml-1 text-red-600">— required</span>}
                                 </p>
-                                <ItemPicker field={field} draft={draft} />
+                                <ThumbPicker field={field} draft={draft} />
                               </div>
                             )}
-                            {/* Classification */}
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="space-y-1">
-                                <p className="text-[11px] font-medium text-muted-foreground">Type</p>
-                                <Select value={draft.type} onValueChange={(v) => {
-                                  const t = tax.find((x) => x.type === v) ?? tax[0]
-                                  patchDraft(field.id, { type: v, subtype: t.subtypes[0] })
-                                }}>
-                                  <SelectTrigger className="h-8 bg-card text-sm"><SelectValue /></SelectTrigger>
-                                  <SelectContent>
-                                    {tax.map((t) => <SelectItem key={t.type} value={t.type} className="text-sm">{t.type}</SelectItem>)}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-1">
-                                <p className="text-[11px] font-medium text-muted-foreground">Subtype</p>
-                                <Select value={draft.subtype} onValueChange={(v) => patchDraft(field.id, { subtype: v })}>
-                                  <SelectTrigger className="h-8 bg-card text-sm"><SelectValue /></SelectTrigger>
-                                  <SelectContent>
-                                    {typeDef.subtypes.map((s) => <SelectItem key={s} value={s} className="text-sm">{s}</SelectItem>)}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-                            {/* Expected result */}
+
+                            {/* Expected result / description */}
                             <div className="space-y-1">
-                              <p className="text-[11px] font-medium text-muted-foreground">Expected result</p>
+                              <p className="text-[11px] font-medium text-muted-foreground">
+                                {field.kind === "value" ? "Expected result" : "Description / expected result"}
+                              </p>
                               <Input
                                 value={draft.expected}
                                 onChange={(e) => patchDraft(field.id, { expected: e.target.value })}
-                                placeholder={field.kind === "value" ? `Expected ${field.label.toLowerCase()} (current: ${currentValue(row, field)})` : "What should it be? (helps data ops fix & auto-close)"}
+                                placeholder={field.kind === "value" ? `Expected ${field.label.toLowerCase()} (current: ${currentValue(row, field)})` : "Describe the issue / what it should be"}
                                 className="h-8 bg-card text-sm"
                               />
                             </div>
@@ -361,7 +476,7 @@ export function ReportIssueDrawer({
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-5 py-3">
           <p className="text-xs text-muted-foreground">
             {drafts.size === 0 ? "No fields selected" : `${drafts.size} issue${drafts.size !== 1 ? "s" : ""} will be created`}
-            {invalids.length > 0 && <span className="ml-1 text-red-600">— select the affected item(s)</span>}
+            {invalids.length > 0 && <span className="ml-1 text-red-600">— complete the required selections</span>}
           </p>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" className="h-8" onClick={onClose}>Cancel</Button>

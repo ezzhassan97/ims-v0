@@ -1,29 +1,38 @@
-// Data Quality → Quality Configurations — issue taxonomy (category → type → subtype)
-// per entity, with scoring weights. Invariant the UI enforces: subtype weights sum
-// to 100 within a type, type weights sum to 100 within a category, and category
-// weights sum to 100 within an entity.
+// Data Quality → Quality Configurations — the FIXED issue taxonomy
+// (category = property field → types → optional subtypes) with the three
+// editable knobs per node: priority (Critical…Lowest), score weight, and
+// Active/Hidden. The catalog itself (names/structure) is not editable.
+//
+// Weights sum to 100 at every level: subtypes within a type, types within a
+// category, categories within an entity.
 
-import { ISSUE_FIELDS, KIND_TAXONOMY, distribute } from "./property-issues-mock"
+import { ISSUE_FIELDS, fieldTaxonomy, distribute, type PropIssueSeverity } from "./property-issues-mock"
 
 export type QcEntity = "Property" | "Project" | "Developer"
 
 export interface QcSubtype {
-  id: string // SUB-101
+  id: string // SUB-001
   name: string
-  weight: number // % of its parent type
+  weight: number
+  priority: PropIssueSeverity
+  active: boolean
 }
 
 export interface QcType {
-  id: string // TYP-11
+  id: string // TYP-001
   name: string
-  weight: number // % of its parent category
-  subtypes: QcSubtype[]
+  weight: number
+  priority: PropIssueSeverity
+  active: boolean
+  subtypes: QcSubtype[] // may be empty — not all types have subtypes
 }
 
 export interface QcCategory {
-  id: string // CAT-1
+  id: string // CAT-001
   name: string
-  weight: number // % of the entity
+  weight: number
+  priority: PropIssueSeverity
+  active: boolean
   types: QcType[]
 }
 
@@ -32,104 +41,45 @@ export type QcTaxonomy = Record<QcEntity, QcCategory[]>
 let catSeq = 0
 let typSeq = 0
 let subSeq = 0
-
-function sub(name: string, weight: number): QcSubtype {
-  return { id: `SUB-${String(++subSeq).padStart(3, "0")}`, name, weight }
-}
-function typ(name: string, weight: number, subtypes: QcSubtype[]): QcType {
-  return { id: `TYP-${String(++typSeq).padStart(3, "0")}`, name, weight, subtypes }
-}
-function cat(name: string, weight: number, types: QcType[]): QcCategory {
-  return { id: `CAT-${String(++catSeq).padStart(3, "0")}`, name, weight, types }
-}
+const pad = (n: number) => String(n).padStart(3, "0")
 
 export const QC_TAXONOMY: QcTaxonomy = {
   // Property categories ARE the reportable property fields (single source of
-  // truth: ISSUE_FIELDS in property-issues-mock) — ~35 fields incl. Payment
-  // Plans / Floor Plans / Render Images. Weights are evenly distributed and
-  // sum to 100 at every level.
+  // truth: ISSUE_FIELDS + fieldTaxonomy in property-issues-mock).
   Property: (() => {
     const catW = distribute(100, ISSUE_FIELDS.length)
     return ISSUE_FIELDS.map((f, i) => {
-      const tax = KIND_TAXONOMY[f.kind]
+      const tax = fieldTaxonomy(f)
       const tW = distribute(100, tax.length)
-      return cat(f.label, catW[i], tax.map((t, j) => {
-        const sW = distribute(100, t.subtypes.length)
-        return typ(t.type, tW[j], t.subtypes.map((s, k) => sub(s, sW[k])))
-      }))
+      return {
+        id: `CAT-${pad(++catSeq)}`,
+        name: f.label,
+        weight: catW[i],
+        priority: tax[0].priority,
+        active: true,
+        types: tax.map((t, j) => {
+          const subs = t.subtypes ?? []
+          const sW = distribute(100, subs.length)
+          return {
+            id: `TYP-${pad(++typSeq)}`,
+            name: t.type,
+            weight: tW[j],
+            priority: t.priority,
+            active: t.active,
+            subtypes: subs.map((s, k) => ({
+              id: `SUB-${pad(++subSeq)}`,
+              name: s,
+              weight: sW[k],
+              priority: t.priority,
+              active: true,
+            })),
+          }
+        }),
+      }
     })
   })(),
-  Project: [
-    cat("Location", 40, [
-      typ("Incorrect Data", 70, [
-        sub("Coordinates outside district", 60),
-        sub("Polygon overlaps neighbour", 40),
-      ]),
-      typ("Missing Data", 30, [
-        sub("No coordinates", 50),
-        sub("No polygon", 50),
-      ]),
-    ]),
-    cat("Masterplans", 30, [
-      typ("Outdated Data", 60, [
-        sub("Old listing masterplan revision", 100),
-      ]),
-      typ("Missing Data", 40, [
-        sub("No GIS masterplan", 60),
-        sub("No listing masterplan", 40),
-      ]),
-    ]),
-    cat("Media", 15, [
-      typ("Incorrect Data", 100, [
-        sub("Low-res / watermarked renders", 70),
-        sub("Wrong project imagery", 30),
-      ]),
-    ]),
-    cat("General Info", 15, [
-      typ("Missing Data", 55, [
-        sub("SEO description missing", 100),
-      ]),
-      typ("Formatting", 45, [
-        sub("Phase naming inconsistent", 100),
-      ]),
-    ]),
-  ],
-  Developer: [
-    cat("General Info", 50, [
-      typ("Outdated Data", 60, [
-        sub("Founded year / portfolio counts", 100),
-      ]),
-      typ("Duplicate", 40, [
-        sub("Description duplicated across languages", 100),
-      ]),
-    ]),
-    cat("Media", 30, [
-      typ("Incorrect Data", 100, [
-        sub("Logo stretched / off-brand", 100),
-      ]),
-    ]),
-    cat("Contacts", 20, [
-      typ("Outdated Data", 100, [
-        sub("WhatsApp group link expired", 60),
-        sub("Sales contact unreachable", 40),
-      ]),
-    ]),
-  ],
+  Project: [],
+  Developer: [],
 }
 
 export const QC_ENTITIES: QcEntity[] = ["Property", "Project", "Developer"]
-
-/** Next mock id for items created in the UI. */
-export function nextQcId(prefix: "CAT" | "TYP" | "SUB", taxonomy: QcTaxonomy): string {
-  let max = 0
-  for (const cats of Object.values(taxonomy)) {
-    for (const c of cats) {
-      if (prefix === "CAT") max = Math.max(max, Number(c.id.slice(4)))
-      for (const t of c.types) {
-        if (prefix === "TYP") max = Math.max(max, Number(t.id.slice(4)))
-        if (prefix === "SUB") for (const s of t.subtypes) max = Math.max(max, Number(s.id.slice(4)))
-      }
-    }
-  }
-  return `${prefix}-${String(max + 1).padStart(3, "0")}`
-}

@@ -22,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
 import { ViewPropertyDrawer, createRows, BADGE_CLASS } from "@/components/all-properties-page"
+import { IssueTrackingDrawer, statusPatch, assigneePatch } from "@/components/issue-tracking-drawer"
 import {
   PROPERTY_ISSUES, PROP_ISSUE_STATUSES, PROP_ISSUE_SEVERITIES, PROP_ISSUE_SOURCES, STATUS_COLORS, SEVERITY_COLORS,
   SOURCE_COLORS, ISSUE_FIELDS, ALL_ISSUE_TYPES, ALL_ISSUE_SUBTYPES, QUALITY_TEAM, SALES_AGENTS, ALL_PEOPLE,
@@ -146,7 +147,7 @@ function groupKeyOf(r: PropertyIssue, key: GroupByKey): string {
     case "status": return r.status
     case "field": return r.fieldLabel
     case "type": return r.type
-    case "subtype": return r.subtype
+    case "subtype": return r.subtype ?? "No subtype"
     case "severity": return r.severity
     default: return ""
   }
@@ -164,18 +165,6 @@ function StatCard({ icon, label, value, total }: { icon: React.ReactNode; label:
       </div>
     </div>
   )
-}
-
-/** Apply a status change with its timestamp side effects. */
-export function statusPatch(next: PropIssueStatus): Partial<PropertyIssue> {
-  const now = new Date().toISOString()
-  return {
-    status: next,
-    updatedAt: now,
-    ...(next === "Resolved" ? { resolvedAt: now, closedAt: null } : {}),
-    ...(next === "Closed" ? { closedAt: now } : {}),
-    ...(next === "To Do" || next === "In Progress" || next === "Invalid" ? { resolvedAt: null, closedAt: null } : {}),
-  }
 }
 
 type DateRange = { from: string; to: string }
@@ -273,7 +262,7 @@ export function DataIssuesPage() {
     if (sourceF.length) rows = rows.filter((r) => sourceF.includes(r.source))
     if (fieldF.length) rows = rows.filter((r) => fieldF.includes(r.fieldLabel))
     if (typeF.length) rows = rows.filter((r) => typeF.includes(r.type))
-    if (subtypeF.length) rows = rows.filter((r) => subtypeF.includes(r.subtype))
+    if (subtypeF.length) rows = rows.filter((r) => r.subtype != null && subtypeF.includes(r.subtype))
     if (reporterF.length) rows = rows.filter((r) => reporterF.includes(r.reportedBy))
     if (assigneeF.length) rows = rows.filter((r) => (r.assignedTo ? assigneeF.includes(r.assignedTo) : assigneeF.includes("Unassigned")))
     rows = rows.filter((r) => inRange(r.createdAt, createdR) && inRange(r.updatedAt, updatedR) && inRange(r.resolvedAt, resolvedR) && inRange(r.closedAt, closedR))
@@ -347,11 +336,11 @@ export function DataIssuesPage() {
   }
 
   const setStatus = (ids: Set<string>, next: PropIssueStatus) => {
-    patchIssues(ids, () => statusPatch(next))
+    patchIssues(ids, (r) => statusPatch(r, next))
     toast.success(`${ids.size > 1 ? `${ids.size} issues` : "Issue"} moved to ${next}`)
   }
   const setAssignee = (ids: Set<string>, person: string | null) => {
-    patchIssues(ids, () => ({ assignedTo: person, updatedAt: new Date().toISOString() }))
+    patchIssues(ids, (r) => assigneePatch(r, person))
     toast.success(person ? `Assigned to ${person}` : "Unassigned")
   }
   const exportSelected = (fmt: string) => {
@@ -789,7 +778,6 @@ export function DataIssuesPage() {
               unit={trackIssue ? propertyById.get(trackIssue.propertyId) ?? null : null}
               onStep={setTrackIssue}
               onClose={() => setTrackIssue(null)}
-              onViewProperty={(iss) => { setTrackIssue(null); setViewProperty(iss) }}
               onSetStatus={(iss, s) => setStatus(new Set([iss.id]), s)}
               onSetAssignee={(iss, p) => setAssignee(new Set([iss.id]), p)}
               onAddComment={(iss, text) => {
@@ -809,260 +797,5 @@ export function DataIssuesPage() {
         )}
       </div>
     </div>
-  )
-}
-
-// ── Issue tracking drawer — details + unit snapshot + comments, side by side ──
-function IssueTrackingDrawer({
-  issue, list, unit, onStep, onClose, onViewProperty, onSetStatus, onSetAssignee, onAddComment,
-}: {
-  issue: PropertyIssue | null
-  list: PropertyIssue[]
-  unit: import("@/components/all-properties-page").PropertyRow | null
-  onStep: (next: PropertyIssue) => void
-  onClose: () => void
-  onViewProperty: (issue: PropertyIssue) => void
-  onSetStatus: (issue: PropertyIssue, s: PropIssueStatus) => void
-  onSetAssignee: (issue: PropertyIssue, p: string | null) => void
-  onAddComment: (issue: PropertyIssue, text: string) => void
-}) {
-  const [draft, setDraft] = useState("")
-  if (!issue) return null
-  const idx = list.findIndex((r) => r.id === issue.id)
-
-  const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
-    <div className="space-y-0.5">
-      <dt className="text-[11px] font-medium text-muted-foreground">{label}</dt>
-      <dd className="text-sm text-foreground">{value ?? <span className="text-muted-foreground">—</span>}</dd>
-    </div>
-  )
-  const SectionTitle = ({ children }: { children: React.ReactNode }) => (
-    <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</h4>
-  )
-
-  const fmtVal = (v: unknown): string => {
-    if (v == null || v === "") return "—"
-    if (typeof v === "boolean") return v ? "Yes" : "No"
-    if (typeof v === "number") return v.toLocaleString()
-    return String(v)
-  }
-  const snapshot: { label: string; fieldId: string; value: string }[] = unit ? [
-    { label: "Developer", fieldId: "developer", value: unit.developer.name },
-    { label: "Project", fieldId: "project", value: unit.project.name },
-    { label: "Phase", fieldId: "phase", value: unit.phase?.name ?? "—" },
-    { label: "Unit Code", fieldId: "unitCode", value: fmtVal(unit.unitCode) },
-    { label: "Unit Model", fieldId: "unitModel", value: fmtVal(unit.unitModel) },
-    { label: "Category", fieldId: "propertyCategory", value: fmtVal(unit.propertyCategory) },
-    { label: "Type", fieldId: "propertyType", value: fmtVal(unit.propertyType) },
-    { label: "Building Number", fieldId: "buildingNumber", value: fmtVal(unit.buildingNumber) },
-    { label: "Floor Number", fieldId: "floorNumber", value: fmtVal(unit.floorNumber) },
-    { label: "Gross BUA", fieldId: "grossBua", value: unit.grossBua ? `${unit.grossBua} m²` : "—" },
-    { label: "Net BUA", fieldId: "netBua", value: unit.netBua ? `${unit.netBua} m²` : "—" },
-    { label: "Bedrooms", fieldId: "bedrooms", value: fmtVal(unit.bedrooms) },
-    { label: "Bathrooms", fieldId: "bathrooms", value: fmtVal(unit.bathrooms) },
-    { label: "Price", fieldId: "price", value: unit.price ? `${unit.price.toLocaleString()} EGP` : "No price set" },
-    { label: "Availability", fieldId: "availability", value: fmtVal(unit.availability) },
-    { label: "Delivery Date", fieldId: "deliveryDate", value: fmtVal(unit.deliveryDate) },
-    { label: "Finishing Type", fieldId: "finishingType", value: fmtVal(unit.finishingType) },
-    { label: "Payment Plans", fieldId: "paymentPlans", value: `${unit.paymentPlans} plan${unit.paymentPlans !== 1 ? "s" : ""}` },
-    { label: "Floor Plans", fieldId: "floorPlans", value: `${unit.floorPlans.length} file${unit.floorPlans.length !== 1 ? "s" : ""}` },
-    { label: "Render Images", fieldId: "images", value: `${unit.images.length} image${unit.images.length !== 1 ? "s" : ""}` },
-  ] : []
-
-  const critical = isCriticalSeverity(issue.severity)
-  const hlCls = critical ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"
-  const hlText = critical ? "text-red-700" : "text-amber-700"
-
-  return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose() }}>
-      <SheetContent side="right" className="flex !w-[1120px] !max-w-[96vw] flex-col gap-0 overflow-hidden p-0">
-        {/* Header */}
-        <SheetHeader className="shrink-0 border-b border-border bg-card px-5 py-3.5">
-          <div className="flex items-center justify-between gap-3 pr-10">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <SheetTitle className="text-base font-semibold">Issue</SheetTitle>
-              <IdTag value={issue.id} />
-              <IssueSourceTag source={issue.source} />
-              <IssueSeverityTag severity={issue.severity} />
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button><IssueStatusTag status={issue.status} chevron /></button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40">
-                  {PROP_ISSUE_STATUSES.filter((s) => s !== issue.status).map((s) => (
-                    <DropdownMenuItem key={s} onClick={() => onSetStatus(issue, s)}>
-                      <span className={cn("mr-2 h-2 w-2 rounded-full", STATUS_COLORS[s].split(" ")[0])} />{s}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs">
-                    <UserRound className="h-3 w-3" />{issue.assignedTo ?? "Unassigned"}<ChevronDown className="h-3 w-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="max-h-72 w-44 overflow-y-auto">
-                  {ALL_PEOPLE.map((p) => (
-                    <DropdownMenuItem key={p} onClick={() => onSetAssignee(issue, p)}>{p}</DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => onSetAssignee(issue, null)}>Unassigned</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              {idx >= 0 && list.length > 1 && (
-                <div className="ml-1 flex items-center gap-1">
-                  <Button variant="outline" size="icon" className="h-7 w-7" disabled={idx <= 0} onClick={() => onStep(list[idx - 1])}><ChevronLeft className="h-3.5 w-3.5" /></Button>
-                  <span className="px-1 text-xs tabular-nums text-muted-foreground">{idx + 1}/{list.length.toLocaleString()}</span>
-                  <Button variant="outline" size="icon" className="h-7 w-7" disabled={idx >= list.length - 1} onClick={() => onStep(list[idx + 1])}><ChevronRight className="h-3.5 w-3.5" /></Button>
-                </div>
-              )}
-            </div>
-          </div>
-        </SheetHeader>
-
-        {/* 3 panes: details | unit | comments */}
-        <div className="grid min-h-0 flex-1 grid-cols-3 divide-x divide-border">
-          {/* Pane 1 — issue details */}
-          <div className="space-y-5 overflow-y-auto px-5 py-4">
-            <div className="space-y-3">
-              <SectionTitle>Classification</SectionTitle>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-                <Field label="Category (Field)" value={<ColorTag value={issue.fieldLabel} />} />
-                <Field label="Type" value={<ColorTag value={issue.type} />} />
-                <Field label="Subtype" value={issue.subtype} />
-                <Field label="Reported By" value={<PersonCell name={issue.reportedBy} />} />
-              </dl>
-            </div>
-
-            <div className="space-y-3">
-              <SectionTitle>Description</SectionTitle>
-              <p className="text-sm leading-relaxed text-foreground">{issue.description}</p>
-              {issue.linkedItems && issue.linkedItems.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {issue.linkedItems.map((x) => <ColorTag key={x} value={x} />)}
-                </div>
-              )}
-            </div>
-
-            {(issue.expected || issue.current) && (
-              <div className="space-y-3">
-                <SectionTitle>Expected Result</SectionTitle>
-                <div className="space-y-2">
-                  {issue.current && (
-                    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-red-500">Current</p>
-                      <p className="text-sm text-red-700">{issue.current}</p>
-                    </div>
-                  )}
-                  {issue.expected && (
-                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Expected</p>
-                      <p className="text-sm text-emerald-700">{issue.expected}</p>
-                    </div>
-                  )}
-                  <p className="text-[11px] leading-snug text-muted-foreground">Issues auto-move to Resolved when the field value matches the expected result after an update.</p>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <SectionTitle>Linked Records</SectionTitle>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-                <Field label="Developer" value={<div><p>{issue.developer.name}</p><IdTag value={issue.developer.id} /></div>} />
-                <Field label="Project" value={<div><p>{issue.project.name}</p><IdTag value={issue.project.id} /></div>} />
-                <Field label="Phase" value={issue.phase ? <div><p>{issue.phase.name}</p><IdTag value={issue.phase.id} /></div> : null} />
-                <Field label="Property ID" value={<IdTag value={issue.propertyId} />} />
-              </dl>
-            </div>
-
-            <div className="space-y-3">
-              <SectionTitle>Timeline</SectionTitle>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-                <Field label="Created At" value={fmtDateTime(issue.createdAt)} />
-                <Field label="Updated At" value={fmtDateTime(issue.updatedAt)} />
-                <Field label="Resolved At" value={issue.resolvedAt ? fmtDateTime(issue.resolvedAt) : null} />
-                <Field label="Closed At" value={issue.closedAt ? fmtDateTime(issue.closedAt) : null} />
-              </dl>
-            </div>
-          </div>
-
-          {/* Pane 2 — unit snapshot with the issue field highlighted */}
-          <div className="flex min-h-0 flex-col">
-            <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-foreground">Unit Snapshot</p>
-                <IdTag value={issue.propertyId} />
-              </div>
-              <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => onViewProperty(issue)}>
-                <Building2 className="h-3 w-3" />Full Details
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              {unit ? (
-                <dl className="space-y-1">
-                  {snapshot.map((f) => {
-                    const hl = f.fieldId === issue.fieldId
-                    return (
-                      <div key={f.fieldId} className={cn("flex items-center justify-between gap-3 rounded-md border border-transparent px-2 py-1.5", hl && hlCls)}>
-                        <dt className={cn("flex items-center gap-1 text-xs text-muted-foreground", hl && `font-semibold ${hlText}`)}>
-                          {hl && <AlertTriangle className="h-3 w-3" />}{f.label}
-                        </dt>
-                        <dd className={cn("truncate text-sm text-foreground", hl && `font-medium ${hlText}`)}>{f.value}</dd>
-                      </div>
-                    )
-                  })}
-                </dl>
-              ) : (
-                <p className="px-2 py-8 text-center text-sm text-muted-foreground">Unit not found in the current mock rows.</p>
-              )}
-            </div>
-          </div>
-
-          {/* Pane 3 — comments thread */}
-          <div className="flex min-h-0 flex-col">
-            <div className="border-b border-border px-4 py-2.5">
-              <p className="text-sm font-semibold text-foreground">Comments</p>
-              <p className="text-[11px] text-muted-foreground">{issue.comments.length} comment{issue.comments.length !== 1 ? "s" : ""}</p>
-            </div>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-              {issue.comments.length === 0 && (
-                <p className="py-8 text-center text-sm text-muted-foreground">No comments yet.</p>
-              )}
-              {issue.comments.map((c) => (
-                <div key={c.id} className="flex gap-2.5">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
-                    {c.author.split(" ").map((x) => x[0]).join("").slice(0, 2)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="text-xs font-semibold text-foreground">{c.author}</p>
-                      <p className="shrink-0 text-[10px] text-muted-foreground">{fmtDateTime(c.at)}</p>
-                    </div>
-                    <p className="mt-0.5 rounded-lg rounded-tl-none border border-border bg-muted/40 px-2.5 py-1.5 text-sm leading-snug text-foreground">{c.text}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="flex shrink-0 items-center gap-2 border-t border-border p-3">
-              <Input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Write a comment…"
-                className="h-8 text-sm"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && draft.trim()) { onAddComment(issue, draft.trim()); setDraft("") }
-                }}
-              />
-              <Button size="sm" className="h-8 gap-1.5" disabled={!draft.trim()} onClick={() => { onAddComment(issue, draft.trim()); setDraft("") }}>
-                <Send className="h-3.5 w-3.5" />Send
-              </Button>
-            </div>
-          </div>
-        </div>
-      </SheetContent>
-    </Sheet>
   )
 }

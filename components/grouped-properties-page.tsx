@@ -62,7 +62,8 @@ import { TabStrip } from "@/components/table-kit"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ReportIssueDrawer, RowIssuesBadge } from "@/components/report-issue-drawer"
-import { openIssuesByProperty, type PropertyIssue as QaPropertyIssue } from "@/lib/property-issues-mock"
+import { openIssuesByProperty, PROPERTY_ISSUES, type PropertyIssue as QaPropertyIssue } from "@/lib/property-issues-mock"
+import { IssueTrackingDrawer, statusPatch, assigneePatch } from "@/components/issue-tracking-drawer"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -790,6 +791,12 @@ function GroupCard({
     : []
   const cardHasBlocking = cardIssues.some((i) => i.severity === "Blocking")
   const repRow = cardUnits[0] ?? allRows[globalIndex % Math.max(1, allRows.length)] ?? allRows[0]
+  const [cardTrackIssue, setCardTrackIssue] = useState<QaPropertyIssue | null>(null)
+  const patchCardIssue = (iss: QaPropertyIssue, patch: Partial<QaPropertyIssue>) => {
+    for (const s of PROPERTY_ISSUES) if (s.id === iss.id) Object.assign(s, patch)
+    setCardTrackIssue((cur) => (cur && cur.id === iss.id ? { ...cur, ...patch } : cur))
+    onIssuesReported?.()
+  }
 
   return (
     <div className={cn(
@@ -805,6 +812,17 @@ function GroupCard({
       {reportOpen && repRow && (
         <ReportIssueDrawer row={repRow} onClose={() => setReportOpen(false)} onSubmitted={() => onIssuesReported?.()} />
       )}
+
+      {/* Unified issue tracking drawer (opened from the card's issues badge) */}
+      <IssueTrackingDrawer
+        issue={cardTrackIssue}
+        unit={cardTrackIssue ? cardUnits.find((u) => u.propertyId === cardTrackIssue.propertyId) ?? repRow ?? null : null}
+        onStep={setCardTrackIssue}
+        onClose={() => setCardTrackIssue(null)}
+        onSetStatus={(iss, s) => patchCardIssue(iss, statusPatch(iss, s))}
+        onSetAssignee={(iss, pr) => patchCardIssue(iss, assigneePatch(iss, pr))}
+        onAddComment={(iss, text) => patchCardIssue(iss, { comments: [...iss.comments, { id: `CMT-${iss.id}-${iss.comments.length + 1}`, author: "Ezz H.", text, at: new Date().toISOString() }], updatedAt: new Date().toISOString() })}
+      />
 
       {/* ── Archive confirmation overlay ── */}
       {confirmArchive && (
@@ -888,7 +906,7 @@ function GroupCard({
 
         {/* Tags — no labels, compact row */}
         <div className="flex flex-1 items-center justify-end gap-2">
-          {cardIssues.length > 0 && <RowIssuesBadge issues={cardIssues} />}
+          {cardIssues.length > 0 && <RowIssuesBadge issues={cardIssues} onOpenIssue={setCardTrackIssue} />}
           <Badge variant="outline" className="text-xs font-normal">
             {group.availableUnits} / {group.totalUnits} Available
           </Badge>
@@ -1238,6 +1256,8 @@ function GroupCard({
             rows={allRows.slice(globalIndex * 3, globalIndex * 3 + group.details.length)}
             hiddenColumns={hiddenCols}
             allowReportIssue={isPA}
+            issuesByProp={issuesByProp}
+            onIssuesChanged={onIssuesReported}
           />
         </div>
       )}
@@ -2713,6 +2733,7 @@ export function GroupedPropertiesView({
   onOpenGroupDetail,
   onCreateProperty,
   showIssues = false,
+  onToggleShowIssues,
 }: {
   filters: SharedFilterState
   sortConfigs?: SortConfig[]
@@ -2723,8 +2744,9 @@ export function GroupedPropertiesView({
   scopeProjectName?: string
   onOpenGroupDetail?: (d: GroupDetailPayload) => void
   onCreateProperty?: (v: Variation) => void
-  /** Data quality: badge cards whose units have open issues. */
+  /** Data quality: filter to cards whose units have open issues + badge them. */
   showIssues?: boolean
+  onToggleShowIssues?: () => void
 }) {
   const [allGroups, setGroups] = useState<GroupedProperty[]>(() => makeGroups())
   const groups = useMemo(() => {
@@ -2748,6 +2770,11 @@ export function GroupedPropertiesView({
   // Data quality — open issues per property id (recomputed after in-session reports)
   const [issuesVersion, setIssuesVersion] = useState(0)
   const issuesByProp = useMemo(() => (showIssues ? openIssuesByProperty() : null), [showIssues, issuesVersion])
+  // Show Issues filter: a card is visible when any of its (positional) units has open issues
+  const cardHasOpenIssues = (gi: number, unitCount: number) => {
+    if (!issuesByProp) return true
+    return allRows.slice(gi * 3, gi * 3 + unitCount).some((u) => issuesByProp.has(u.propertyId))
+  }
 
   const filteredGroups = useMemo(() => {
     const query = filters.searchQuery.toLowerCase()
@@ -2849,22 +2876,33 @@ export function GroupedPropertiesView({
             </>
           )}
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="sm" className="h-8">
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              Add Property
-              <ChevronDown className="h-3.5 w-3.5 ml-1" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => onCreateProperty?.("launch")}>Launch</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onCreateProperty?.("primary-manual")}>Primary Manual</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onCreateProperty?.("resale")}>Resale</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onCreateProperty?.("nawy-now")}>Nawy Now</DropdownMenuItem>
-            <DropdownMenuItem disabled>Rental</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={showIssues ? "default" : "outline"}
+            size="sm"
+            className={cn("h-8", showIssues && "bg-amber-500 text-white hover:bg-amber-600")}
+            onClick={onToggleShowIssues}
+          >
+            <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
+            Show Issues
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" className="h-8">
+                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                Add Property
+                <ChevronDown className="h-3.5 w-3.5 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => onCreateProperty?.("launch")}>Launch</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCreateProperty?.("primary-manual")}>Primary Manual</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCreateProperty?.("resale")}>Resale</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCreateProperty?.("nawy-now")}>Nawy Now</DropdownMenuItem>
+              <DropdownMenuItem disabled>Rental</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
         <div className="space-y-4">
@@ -2893,6 +2931,7 @@ export function GroupedPropertiesView({
                   </button>
                   {!isCollapsed && sectionGroups.map((group) => {
                     const globalIndex = paginatedGroups.indexOf(group)
+                    if (showIssues && !cardHasOpenIssues((currentPage - 1) * pageSize + globalIndex, group.details.length)) return null
                     return (
                       <GroupCard
                         key={group.id}
@@ -2915,6 +2954,7 @@ export function GroupedPropertiesView({
             })
           })() : paginatedGroups.map((group, groupIndex) => {
             const globalIndex = (currentPage - 1) * pageSize + groupIndex
+            if (showIssues && !cardHasOpenIssues(globalIndex, group.details.length)) return null
             return (
               <GroupCard
                 key={group.id}

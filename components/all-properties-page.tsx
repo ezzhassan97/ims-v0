@@ -87,7 +87,8 @@ import { ChooseAssetsDrawer } from "@/components/choose-assets-drawer"
 import { PaymentPlanDrawer } from "@/components/payment-plan-builder"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
 import { ReportIssueDrawer, RowIssuesBadge } from "@/components/report-issue-drawer"
-import { openIssuesByProperty, isCriticalSeverity, type PropertyIssue, type PropIssueSeverity } from "@/lib/property-issues-mock"
+import { openIssuesByProperty, isCriticalSeverity, PROPERTY_ISSUES, type PropertyIssue, type PropIssueSeverity } from "@/lib/property-issues-mock"
+import { IssueTrackingDrawer, statusPatch, assigneePatch } from "@/components/issue-tracking-drawer"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Availability = "Available" | "Hold" | "Sold-Off" | "Archived"
@@ -2443,6 +2444,9 @@ export function ViewPropertyDrawer({
   editableTabs = [],
   highlightField,
   highlightFields,
+  highlightTooltips,
+  onIssueFieldClick,
+  embedded = false,
 }: {
   row: PropertyRow | null
   defaultTab: string
@@ -2454,6 +2458,12 @@ export function ViewPropertyDrawer({
   highlightField?: string
   /** Multiple field labels → severity (Show Issues toggle: every open-issue field). */
   highlightFields?: Record<string, PropIssueSeverity>
+  /** Field label → hover tooltip (the issue type(s) reported on it). */
+  highlightTooltips?: Record<string, string>
+  /** Clicking a highlighted field (e.g. to open/switch the issue tracking drawer). */
+  onIssueFieldClick?: (fieldLabel: string) => void
+  /** Render inline (no Sheet) — the property pane of the issue tracking drawer. */
+  embedded?: boolean
 }) {
   const [activeTab, setActiveTab] = useState(defaultTab)
   const [amenityDraft, setAmenityDraft] = useState<string[]>([])
@@ -2497,12 +2507,18 @@ export function ViewPropertyDrawer({
     const severity: PropIssueSeverity | undefined =
       highlightFields?.[label] ?? (highlightField === label ? "Medium" : undefined)
     const blocking = severity != null && isCriticalSeverity(severity)
+    const clickable = severity != null && onIssueFieldClick != null
     return (
-      <div className={cn(
-        "space-y-0.5",
-        span === 2 && "col-span-2",
-        severity && (blocking ? "-mx-2 -my-1.5 rounded-md border border-red-300 bg-red-50 px-2 py-1.5" : "-mx-2 -my-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5"),
-      )}>
+      <div
+        className={cn(
+          "space-y-0.5",
+          span === 2 && "col-span-2",
+          severity && (blocking ? "-mx-2 -my-1.5 rounded-md border border-red-300 bg-red-50 px-2 py-1.5" : "-mx-2 -my-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5"),
+          clickable && "cursor-pointer transition-shadow hover:ring-2 hover:ring-primary/30",
+        )}
+        title={severity ? highlightTooltips?.[label] ?? `${severity} issue — click to open` : undefined}
+        onClick={clickable ? () => onIssueFieldClick!(label) : undefined}
+      >
         <dt className={cn("text-[11px] font-medium text-muted-foreground", severity && cn("flex items-center gap-1", blocking ? "text-red-700" : "text-amber-700"))}>
           {severity && <AlertTriangle className="h-3 w-3" />}
           {label}
@@ -2567,13 +2583,8 @@ export function ViewPropertyDrawer({
   const amenityChanged = JSON.stringify(amenityDraft.sort()) !== JSON.stringify([...row.amenities].sort())
   const serviceChanged = JSON.stringify(serviceDraft.sort()) !== JSON.stringify([...row.services].sort())
 
-  return (
+  const drawerBody = (
     <>
-      <Sheet open={!!row} onOpenChange={(o) => { if (!o && !carouselState && !uploadState) onClose() }}>
-        <SheetContent
-          side="right"
-          className="!w-[720px] !max-w-[93vw] flex flex-col p-0 gap-0 overflow-hidden"
-        >
           {/* Quick actions — near the close (X) button */}
           <div className="absolute right-12 top-4 z-20 flex items-center gap-1">
             <Tooltip>
@@ -2910,9 +2921,23 @@ export function ViewPropertyDrawer({
           </div>
 
 
-        </SheetContent>
-      </Sheet>
     </>
+  )
+
+  // Embedded mode — used as the property pane inside the issue tracking drawer
+  if (embedded) {
+    return <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-card">{drawerBody}</div>
+  }
+
+  return (
+    <Sheet open={!!row} onOpenChange={(o) => { if (!o && !carouselState && !uploadState) onClose() }}>
+      <SheetContent
+        side="right"
+        className="!w-[720px] !max-w-[93vw] flex flex-col p-0 gap-0 overflow-hidden"
+      >
+        {drawerBody}
+      </SheetContent>
+    </Sheet>
   )
 }
 
@@ -2936,18 +2961,29 @@ export function EmbeddedPropertyTable({
   hiddenColumns,
   variation,
   allowReportIssue = false,
+  issuesByProp = null,
+  onIssuesChanged,
 }: {
   rows: PropertyRow[]
   hiddenColumns: ColId[]
   variation?: Variation
   /** Primary Automatic groups: issues are reported per-unit here, not on the grouped card. */
   allowReportIssue?: boolean
+  /** Data quality: open issues per property id — non-null while Show Issues is on. */
+  issuesByProp?: Map<string, PropertyIssue[]> | null
+  onIssuesChanged?: () => void
 }) {
   // Floor plans editable per-unit only when sale type is Primary Automatic;
   // amenities/services/images are always view-only in this embedded table.
   const floorPlansEditable = variation === "primary-automatic"
   const [rows, setRows] = useState<PropertyRow[]>(initialRows)
   const [reportRow, setReportRow] = useState<PropertyRow | null>(null)
+  const [embedTrackIssue, setEmbedTrackIssue] = useState<PropertyIssue | null>(null)
+  const patchEmbedIssue = (iss: PropertyIssue, patch: Partial<PropertyIssue>) => {
+    for (const s of PROPERTY_ISSUES) if (s.id === iss.id) Object.assign(s, patch)
+    setEmbedTrackIssue((cur) => (cur && cur.id === iss.id ? { ...cur, ...patch } : cur))
+    onIssuesChanged?.()
+  }
   const [editingPrice, setEditingPrice] = useState<string | null>(null)
   const [priceDraft, setPriceDraft] = useState("")
   const [viewDrawer, setViewDrawer] = useState<{ propertyId: string; tab: string } | null>(null)
@@ -3247,20 +3283,26 @@ export function EmbeddedPropertyTable({
                 className="group/row flex border-b border-border last:border-b-0 bg-card hover:bg-muted/40 transition-colors"
                 onClick={() => setViewDrawer({ propertyId: row.propertyId, tab: "unit-details" })}
               >
-                {visibleCols.map((col) => (
-                  <div
-                    key={col.id}
-                    className={cn(
-                      "flex items-center border-r border-border px-3 py-2 text-sm shrink-0",
-                      col.align === "right" && "justify-end text-right",
-                      col.align === "center" && "justify-center text-center",
-                    )}
-                    style={{ width: col.width }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {renderCell(row, col)}
-                  </div>
-                ))}
+                {visibleCols.map((col) => {
+                  const ci = issuesByProp ? (issuesByProp.get(row.propertyId) ?? []).filter((i) => i.fieldId === col.id) : []
+                  const hl = ci.length ? (ci.some((i) => isCriticalSeverity(i.severity)) ? "bg-red-100/80" : "bg-amber-100/80") : null
+                  return (
+                    <div
+                      key={col.id}
+                      className={cn(
+                        "relative flex items-center border-r border-border px-3 py-2 text-sm shrink-0",
+                        col.align === "right" && "justify-end text-right",
+                        col.align === "center" && "justify-center text-center",
+                        hl,
+                      )}
+                      style={{ width: col.width }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {renderCell(row, col)}
+                      {ci.length > 0 && <CellIssueButton issues={ci} onOpen={setEmbedTrackIssue} />}
+                    </div>
+                  )
+                })}
                 {/* Sticky right action */}
                 <div className={cn("sticky right-0 z-10 flex shrink-0 items-center justify-center gap-1 border-l border-border bg-card group-hover/row:bg-muted/40 transition-colors", allowReportIssue ? "w-20" : "w-12")}>
                   <Tooltip>
@@ -3304,7 +3346,18 @@ export function EmbeddedPropertyTable({
       />
 
       {/* Report an Issue (Primary Automatic groups report per-unit here) */}
-      {allowReportIssue && <ReportIssueDrawer row={reportRow} onClose={() => setReportRow(null)} />}
+      {allowReportIssue && <ReportIssueDrawer row={reportRow} onClose={() => setReportRow(null)} onSubmitted={() => onIssuesChanged?.()} />}
+
+      {/* Unified issue tracking drawer */}
+      <IssueTrackingDrawer
+        issue={embedTrackIssue}
+        unit={embedTrackIssue ? rows.find((r) => r.propertyId === embedTrackIssue.propertyId) ?? null : null}
+        onStep={setEmbedTrackIssue}
+        onClose={() => setEmbedTrackIssue(null)}
+        onSetStatus={(iss, s) => patchEmbedIssue(iss, statusPatch(iss, s))}
+        onSetAssignee={(iss, pr) => patchEmbedIssue(iss, assigneePatch(iss, pr))}
+        onAddComment={(iss, text) => patchEmbedIssue(iss, { comments: [...iss.comments, { id: `CMT-${iss.id}-${iss.comments.length + 1}`, author: "Ezz H.", text, at: new Date().toISOString() }], updatedAt: new Date().toISOString() })}
+      />
 
       {/* Mini drawers */}
       <PropertyDrawer drawer={drawer} onClose={() => setDrawer(null)} />
@@ -3313,7 +3366,21 @@ export function EmbeddedPropertyTable({
 }
 
 // ── Main view ──────────────────────────────────────────────────────────────────
-export function DetailedPropertiesView({ filters, onCreateProperty, scopeProjectName, showIssues = false }: { filters: FilterProps; onCreateProperty?: (v: Variation) => void; /** Project-details embed: keep only this project's rows (falls back to all when mock names don't match). */ scopeProjectName?: string; /** Data quality: highlight units/fields with open issues + issue badges. */ showIssues?: boolean }) {
+/** Warning marker on a highlighted cell — hover shows the issue type(s), click opens the tracking drawer. */
+function CellIssueButton({ issues, onOpen }: { issues: PropertyIssue[]; onOpen: (i: PropertyIssue) => void }) {
+  const critical = issues.some((i) => isCriticalSeverity(i.severity))
+  return (
+    <button
+      className="absolute right-0.5 top-0.5 rounded p-0.5 hover:bg-white/70"
+      title={issues.map((i) => `${i.type}${i.subtype ? ` — ${i.subtype}` : ""} (${i.severity})`).join("\n")}
+      onClick={(e) => { e.stopPropagation(); onOpen(issues[0]) }}
+    >
+      <AlertTriangle className={cn("h-3 w-3", critical ? "text-red-600" : "text-amber-600")} />
+    </button>
+  )
+}
+
+export function DetailedPropertiesView({ filters, onCreateProperty, scopeProjectName, showIssues = false, onToggleShowIssues }: { filters: FilterProps; onCreateProperty?: (v: Variation) => void; /** Project-details embed: keep only this project's rows (falls back to all when mock names don't match). */ scopeProjectName?: string; /** Data quality: filter to units with open issues + highlight their fields. */ showIssues?: boolean; onToggleShowIssues?: () => void }) {
   const {
     searchQuery,
     developerFilter,
@@ -3396,6 +3463,15 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
   const [reportRow, setReportRow] = useState<PropertyRow | null>(null)
   const [issuesVersion, setIssuesVersion] = useState(0)
   const issuesByProp = useMemo(() => openIssuesByProperty(), [issuesVersion])
+  const [trackIssue, setTrackIssue] = useState<PropertyIssue | null>(null)
+  // Patch the shared store directly (mock) and refresh local reads
+  const patchTrackedIssue = (iss: PropertyIssue, patch: Partial<PropertyIssue>) => {
+    for (const s of PROPERTY_ISSUES) if (s.id === iss.id) Object.assign(s, patch)
+    setIssuesVersion((v) => v + 1)
+    setTrackIssue((cur) => (cur && cur.id === iss.id ? { ...cur, ...patch } : cur))
+  }
+  const cellIssuesOf = (rowIssues: PropertyIssue[] | undefined, colId: string): PropertyIssue[] =>
+    rowIssues?.filter((i) => i.fieldId === colId) ?? []
   const cellIssueCls = (rowIssues: PropertyIssue[] | undefined, colId: string): string | null => {
     if (!rowIssues) return null
     const cellIssues = rowIssues.filter((i) => i.fieldId === colId)
@@ -3415,7 +3491,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
 
   // Filtering + sorting
   const filteredRows = useMemo(() => {
-    let result = rows.filter((row) => {
+    let result = (showIssues ? rows.filter((r) => issuesByProp.has(r.propertyId)) : rows).filter((row) => {
       // Search across property ID, detailed property ID, and unit code (OR logic)
       if (searchQuery) {
         const q = searchQuery.toLowerCase()
@@ -3466,7 +3542,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
       })
     }
     return result
-  }, [rows, searchQuery, developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter, priceMin, priceMax, sortConfigs, filterGroups, groupConnector])
+  }, [rows, searchQuery, developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter, priceMin, priceMax, sortConfigs, filterGroups, groupConnector, showIssues, issuesByProp])
 
   const groupedRows = useMemo(() => {
     if (!groupByColumn) return null
@@ -3914,18 +3990,19 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
           {showIssues && (
             <div className={cn("sticky z-10 flex w-12 shrink-0 items-center justify-center border-r border-border px-1 py-2", stickyBg)} style={{ left: 40 }}>
               {(issuesByProp.get(row.propertyId)?.length ?? 0) > 0 && (
-                <RowIssuesBadge issues={issuesByProp.get(row.propertyId)!} compact />
+                <RowIssuesBadge issues={issuesByProp.get(row.propertyId)!} compact onOpenIssue={setTrackIssue} />
               )}
             </div>
           )}
           {/* Frozen cols — sticky */}
           {frozenCols.map((col) => {
-            const hl = showIssues ? cellIssueCls(issuesByProp.get(row.propertyId), col.id) : null
+            const ci = showIssues ? cellIssuesOf(issuesByProp.get(row.propertyId), col.id) : []
+            const hl = ci.length ? (ci.some((i) => isCriticalSeverity(i.severity)) ? "bg-red-100/80" : "bg-amber-100/80") : null
             return (
               <div
                 key={col.id}
                 className={cn(
-                  "sticky z-10 flex items-center border-r border-border px-3 py-2",
+                  "relative sticky z-10 flex items-center border-r border-border px-3 py-2",
                   col.align === "right" && "justify-end text-right",
                   col.align === "center" && "justify-center text-center",
                   hl ?? stickyBg,
@@ -3933,17 +4010,19 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
                 style={{ left: frozenPositions[col.id], width: col.width }}
               >
                 {renderCell(row, col)}
+                {ci.length > 0 && <CellIssueButton issues={ci} onOpen={setTrackIssue} />}
               </div>
             )
           })}
           {/* Scrollable cols */}
           {scrollCols.map((col) => {
-            const hl = showIssues ? cellIssueCls(issuesByProp.get(row.propertyId), col.id) : null
+            const ci = showIssues ? cellIssuesOf(issuesByProp.get(row.propertyId), col.id) : []
+            const hl = ci.length ? (ci.some((i) => isCriticalSeverity(i.severity)) ? "bg-red-100/80" : "bg-amber-100/80") : null
             return (
               <div
                 key={col.id}
                 className={cn(
-                  "flex items-center border-r border-border px-3 py-2",
+                  "relative flex items-center border-r border-border px-3 py-2",
                   col.align === "right" && "justify-end text-right",
                   col.align === "center" && "justify-center text-center",
                   hl,
@@ -3951,6 +4030,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
                 style={{ width: col.width }}
               >
                 {renderCell(row, col)}
+                {ci.length > 0 && <CellIssueButton issues={ci} onOpen={setTrackIssue} />}
               </div>
             )
           })}
@@ -4024,22 +4104,33 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
               </>
             )}
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" className="h-8">
-                <Plus className="h-3.5 w-3.5 mr-1.5" />
-                Add Property
-                <ChevronDown className="h-3.5 w-3.5 ml-1" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => onCreateProperty?.("launch")}>Launch</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onCreateProperty?.("primary-manual")}>Primary Manual</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onCreateProperty?.("resale")}>Resale</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onCreateProperty?.("nawy-now")}>Nawy Now</DropdownMenuItem>
-              <DropdownMenuItem disabled>Rental</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={showIssues ? "default" : "outline"}
+              size="sm"
+              className={cn("h-8", showIssues && "bg-amber-500 text-white hover:bg-amber-600")}
+              onClick={onToggleShowIssues}
+            >
+              <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
+              Show Issues
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" className="h-8">
+                  <Plus className="h-3.5 w-3.5 mr-1.5" />
+                  Add Property
+                  <ChevronDown className="h-3.5 w-3.5 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => onCreateProperty?.("launch")}>Launch</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onCreateProperty?.("primary-manual")}>Primary Manual</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onCreateProperty?.("resale")}>Resale</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onCreateProperty?.("nawy-now")}>Nawy Now</DropdownMenuItem>
+                <DropdownMenuItem disabled>Rental</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         {/* Select-all-results banner */}
@@ -4400,6 +4491,35 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
               )
             : undefined
         }
+        highlightTooltips={
+          showIssues && viewDrawerRow
+            ? Object.fromEntries(
+                (issuesByProp.get(viewDrawerRow.propertyId) ?? []).map((i) => [
+                  i.fieldLabel,
+                  `${i.type}${i.subtype ? ` — ${i.subtype}` : ""} (${i.id}) — click to open`,
+                ]),
+              )
+            : undefined
+        }
+        onIssueFieldClick={
+          showIssues && viewDrawerRow
+            ? (label) => {
+                const target = (issuesByProp.get(viewDrawerRow.propertyId) ?? []).find((i) => i.fieldLabel === label)
+                if (target) { setViewDrawer(null); setTrackIssue(target) }
+              }
+            : undefined
+        }
+      />
+
+      {/* Unified issue tracking drawer (details | logs & comments | unit) */}
+      <IssueTrackingDrawer
+        issue={trackIssue}
+        unit={trackIssue ? rows.find((r) => r.propertyId === trackIssue.propertyId) ?? null : null}
+        onStep={setTrackIssue}
+        onClose={() => setTrackIssue(null)}
+        onSetStatus={(iss, s) => patchTrackedIssue(iss, statusPatch(iss, s))}
+        onSetAssignee={(iss, pr) => patchTrackedIssue(iss, assigneePatch(iss, pr))}
+        onAddComment={(iss, text) => patchTrackedIssue(iss, { comments: [...iss.comments, { id: `CMT-${iss.id}-${iss.comments.length + 1}`, author: "Ezz H.", text, at: new Date().toISOString() }], updatedAt: new Date().toISOString() })}
       />
 
       {/* Report an Issue drawer */}
@@ -5578,16 +5698,6 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                       Columns
                     </Button>
                   )}
-                  {/* Data quality — highlight units/fields with open issues */}
-                  <Button
-                    variant={showIssues ? "default" : "outline"}
-                    size="sm"
-                    className={cn("h-8", showIssues && "bg-amber-500 text-white hover:bg-amber-600")}
-                    onClick={() => setShowIssues((v) => !v)}
-                  >
-                    <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
-                    Show Issues
-                  </Button>
                 </div>
               </div>
             </div>
@@ -5744,10 +5854,11 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
               onOpenGroupDetail={onOpenGroupDetail}
               onCreateProperty={onCreateProperty}
               showIssues={showIssues}
+              onToggleShowIssues={() => setShowIssues((v) => !v)}
             />
           </TabsContent>
           <TabsContent value="detailed" className="mt-0">
-            <DetailedPropertiesView filters={filterPropsWithClear} onCreateProperty={onCreateProperty} scopeProjectName={scopeTarget} showIssues={showIssues} />
+            <DetailedPropertiesView filters={filterPropsWithClear} onCreateProperty={onCreateProperty} scopeProjectName={scopeTarget} showIssues={showIssues} onToggleShowIssues={() => setShowIssues((v) => !v)} />
           </TabsContent>
         </Tabs>
       </div>
