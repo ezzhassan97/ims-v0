@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import {
-  AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, CirclePlus, Clock, MessageSquare, Send, UserRound,
+  AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, CirclePlus, Clock, MessageSquare, ScrollText, Send, UserRound, X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -62,9 +62,9 @@ const ACT_ICON: Record<IssueActivity["kind"], React.ReactNode> = {
 }
 
 /**
- * The single issue drawer: Issue Details | Logs & Comments | the unit details
- * panel (embedded, compact). No second drawer — the property is always the
- * third pane, with a switcher for every open issue on the same unit.
+ * The single issue drawer: Issue Details | Comments/Logs | the unit details
+ * panel (embedded, width-constrained). All open issues on the property live in
+ * an overlay panel toggled from the header.
  */
 export function IssueTrackingDrawer({
   issue, list, unit, onStep, onClose, onSetStatus, onSetAssignee, onAddComment,
@@ -80,8 +80,10 @@ export function IssueTrackingDrawer({
   onAddComment: (issue: PropertyIssue, text: string) => void
 }) {
   const [draft, setDraft] = useState("")
+  const [midTab, setMidTab] = useState<"comments" | "logs">("comments")
+  const [issuesPanelOpen, setIssuesPanelOpen] = useState(false)
 
-  // All open issues on this unit — switcher between them (self plus siblings).
+  // All open issues on this unit — the switcher overlay (self plus siblings).
   const unitIssues = useMemo(() => {
     if (!issue) return []
     const open = openIssuesFor(issue.propertyId)
@@ -91,23 +93,17 @@ export function IssueTrackingDrawer({
   if (!issue) return null
   const idx = list ? list.findIndex((r) => r.id === issue.id) : -1
 
-  const Field = ({ label, value, span }: { label: string; value: React.ReactNode; span?: 2 }) => (
-    <div className={cn("space-y-0.5", span === 2 && "col-span-2")}>
-      <dt className="text-[11px] font-medium text-muted-foreground">{label}</dt>
-      <dd className="text-sm text-foreground">{value ?? <span className="text-muted-foreground">—</span>}</dd>
+  /** Label/value row — no wrapping/merging: label column fixed, value fills. */
+  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div className="grid grid-cols-[105px_1fr] items-center gap-2">
+      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-sm text-foreground">{children}</span>
     </div>
   )
   const SectionTitle = ({ children }: { children: React.ReactNode }) => (
     <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</h4>
   )
 
-  // Merged feed: activity rows + comment bubbles, chronological
-  const feed = [
-    ...issue.activity.map((a) => ({ kind: "act" as const, at: a.at, act: a })),
-    ...issue.comments.map((c) => ({ kind: "cmt" as const, at: c.at, cmt: c })),
-  ].sort((a, b) => a.at.localeCompare(b.at))
-
-  // Embedded unit panel highlights: every open-issue field on this unit
   const highlightFields = Object.fromEntries(unitIssues.map((i) => [i.fieldLabel, i.severity]))
   const highlightTooltips = Object.fromEntries(
     unitIssues.map((i) => [i.fieldLabel, `${i.type}${i.subtype ? ` — ${i.subtype}` : ""} (${i.id}) — click to open`]),
@@ -115,7 +111,7 @@ export function IssueTrackingDrawer({
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose() }}>
-      <SheetContent side="right" className="flex !w-[1380px] !max-w-[97vw] flex-col gap-0 overflow-hidden p-0">
+      <SheetContent side="right" className="flex !w-[1400px] !max-w-[97vw] flex-col gap-0 overflow-hidden p-0">
         {/* Header */}
         <SheetHeader className="shrink-0 border-b border-border bg-card px-5 py-3.5">
           <div className="flex items-center justify-between gap-3 pr-10">
@@ -126,32 +122,17 @@ export function IssueTrackingDrawer({
               <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", SEVERITY_COLORS[issue.severity])}>{issue.severity}</span>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button><StatusTag status={issue.status} chevron /></button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40">
-                  {PROP_ISSUE_STATUSES.filter((s) => s !== issue.status).map((s) => (
-                    <DropdownMenuItem key={s} onClick={() => onSetStatus(issue, s)}>
-                      <span className={cn("mr-2 h-2 w-2 rounded-full", STATUS_COLORS[s].split(" ")[0])} />{s}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs">
-                    <UserRound className="h-3 w-3" />{issue.assignedTo ?? "Unassigned"}<ChevronDown className="h-3 w-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="max-h-72 w-44 overflow-y-auto">
-                  {ALL_PEOPLE.map((p) => (
-                    <DropdownMenuItem key={p} onClick={() => onSetAssignee(issue, p)}>{p}</DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => onSetAssignee(issue, null)}>Unassigned</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {unitIssues.length > 1 && (
+                <Button
+                  variant={issuesPanelOpen ? "default" : "outline"}
+                  size="sm"
+                  className="h-7 gap-1.5 px-2 text-xs"
+                  onClick={() => setIssuesPanelOpen((v) => !v)}
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  {unitIssues.length} issues on this property
+                </Button>
+              )}
               {idx >= 0 && list && list.length > 1 && (
                 <div className="ml-1 flex items-center gap-1">
                   <Button variant="outline" size="icon" className="h-7 w-7" disabled={idx <= 0} onClick={() => onStep(list[idx - 1])}><ChevronLeft className="h-3.5 w-3.5" /></Button>
@@ -163,18 +144,52 @@ export function IssueTrackingDrawer({
           </div>
         </SheetHeader>
 
-        {/* 3 panes: issue details | logs & comments | the unit itself */}
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(300px,340px)_minmax(290px,330px)_1fr] divide-x divide-border">
-          {/* Pane 1 — issue details */}
-          <div className="space-y-5 overflow-y-auto px-5 py-4">
-            <div className="space-y-3">
-              <SectionTitle>Classification</SectionTitle>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-                <Field label="Category (Field)" value={<ColorTag value={issue.fieldLabel} />} />
-                <Field label="Type" value={<ColorTag value={issue.type} />} />
-                <Field label="Subtype" value={issue.subtype ? <ColorTag value={issue.subtype} /> : null} />
-                <Field label="Reported By" value={<div><p>{issue.reportedBy}</p><p className="text-[10px] text-muted-foreground">{issue.source}</p></div>} />
-              </dl>
+        {/* 3 panes: issue details | comments & logs | the unit itself */}
+        <div className="relative grid min-h-0 flex-1 grid-cols-[320px_minmax(280px,330px)_minmax(0,1fr)] divide-x divide-border">
+          {/* Pane 1 — all the main fields of the issue, as in the table */}
+          <div className="min-w-0 space-y-5 overflow-y-auto px-5 py-4">
+            <div className="space-y-2.5">
+              <SectionTitle>Issue Details</SectionTitle>
+              <Row label="Status">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button><StatusTag status={issue.status} chevron /></button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-40">
+                    {PROP_ISSUE_STATUSES.filter((s) => s !== issue.status).map((s) => (
+                      <DropdownMenuItem key={s} onClick={() => onSetStatus(issue, s)}>
+                        <span className={cn("mr-2 h-2 w-2 rounded-full", STATUS_COLORS[s].split(" ")[0])} />{s}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </Row>
+              <Row label="Priority">
+                <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", SEVERITY_COLORS[issue.severity])}>{issue.severity}</span>
+              </Row>
+              <Row label="Assigned To">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs">
+                      <UserRound className="h-3 w-3" />{issue.assignedTo ?? "Unassigned"}<ChevronDown className="h-3 w-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="max-h-72 w-44 overflow-y-auto">
+                    {ALL_PEOPLE.map((p) => (
+                      <DropdownMenuItem key={p} onClick={() => onSetAssignee(issue, p)}>{p}</DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => onSetAssignee(issue, null)}>Unassigned</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </Row>
+              <Row label="Reported By">{issue.reportedBy}</Row>
+              <Row label="Reporter Type">
+                <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", SOURCE_COLORS[issue.source])}>{issue.source}</span>
+              </Row>
+              <Row label="Category"><ColorTag value={issue.fieldLabel} /></Row>
+              <Row label="Type"><ColorTag value={issue.type} /></Row>
+              <Row label="Subtype">{issue.subtype ? <ColorTag value={issue.subtype} /> : <span className="text-muted-foreground">—</span>}</Row>
             </div>
 
             <div className="space-y-3">
@@ -208,126 +223,144 @@ export function IssueTrackingDrawer({
               </div>
             )}
 
-            <div className="space-y-3">
-              <SectionTitle>Linked Records</SectionTitle>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-                <Field label="Developer" value={<div><p>{issue.developer.name}</p><IdTag value={issue.developer.id} /></div>} />
-                <Field label="Project" value={<div><p>{issue.project.name}</p><IdTag value={issue.project.id} /></div>} />
-                <Field label="Phase" value={issue.phase ? <div><p>{issue.phase.name}</p><IdTag value={issue.phase.id} /></div> : null} />
-                <Field label="Property ID" value={<IdTag value={issue.propertyId} />} />
-              </dl>
-            </div>
-
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               <SectionTitle>Timeline</SectionTitle>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-                <Field label="Created At" value={fmtDateTime(issue.createdAt)} />
-                <Field label="Updated At" value={fmtDateTime(issue.updatedAt)} />
-                <Field label="Resolved At" value={issue.resolvedAt ? fmtDateTime(issue.resolvedAt) : null} />
-                <Field label="Closed At" value={issue.closedAt ? fmtDateTime(issue.closedAt) : null} />
-              </dl>
+              <Row label="Created At">{fmtDateTime(issue.createdAt)}</Row>
+              <Row label="Updated At">{fmtDateTime(issue.updatedAt)}</Row>
+              <Row label="Resolved At">{issue.resolvedAt ? fmtDateTime(issue.resolvedAt) : <span className="text-muted-foreground">—</span>}</Row>
+              <Row label="Closed At">{issue.closedAt ? fmtDateTime(issue.closedAt) : <span className="text-muted-foreground">—</span>}</Row>
             </div>
           </div>
 
-          {/* Pane 2 — logs & comments (one chronological feed) */}
-          <div className="flex min-h-0 flex-col">
-            <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-              <p className="text-sm font-semibold text-foreground">Logs & Comments</p>
-              <p className="text-[11px] text-muted-foreground">
-                {issue.activity.length} event{issue.activity.length !== 1 ? "s" : ""} · {issue.comments.length} comment{issue.comments.length !== 1 ? "s" : ""}
-              </p>
+          {/* Pane 2 — comments | logs tabs */}
+          <div className="flex min-h-0 min-w-0 flex-col">
+            <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2">
+              <button
+                onClick={() => setMidTab("comments")}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  midTab === "comments" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <MessageSquare className="h-3 w-3" />Comments
+                <span className="rounded border border-blue-200 bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">{issue.comments.length}</span>
+              </button>
+              <button
+                onClick={() => setMidTab("logs")}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  midTab === "logs" ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <ScrollText className="h-3 w-3" />Logs
+                <span className="rounded border border-blue-200 bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">{issue.activity.length}</span>
+              </button>
             </div>
-            <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-4">
-              {feed.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No activity yet.</p>}
-              {feed.map((f) =>
-                f.kind === "act" ? (
-                  <div key={f.act.id} className="flex items-start gap-2 text-xs text-muted-foreground">
-                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted">{ACT_ICON[f.act.kind]}</span>
-                    <div className="min-w-0 flex-1 pt-0.5">
-                      <p className="text-foreground/80">{f.act.detail}</p>
-                      <p className="text-[10px]">{f.act.actor} · {fmtDateTime(f.act.at)}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div key={f.cmt.id} className="flex gap-2.5">
-                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[9px] font-bold text-primary">
-                      {f.cmt.author.split(" ").map((x) => x[0]).join("").slice(0, 2)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <p className="flex items-center gap-1 text-xs font-semibold text-foreground"><MessageSquare className="h-2.5 w-2.5 text-muted-foreground" />{f.cmt.author}</p>
-                        <p className="shrink-0 text-[10px] text-muted-foreground">{fmtDateTime(f.cmt.at)}</p>
+
+            {midTab === "comments" ? (
+              <>
+                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+                  {issue.comments.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No comments yet.</p>}
+                  {issue.comments.map((c) => (
+                    <div key={c.id} className="flex gap-2.5">
+                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[9px] font-bold text-primary">
+                        {c.author.split(" ").map((x) => x[0]).join("").slice(0, 2)}
                       </div>
-                      <p className="mt-0.5 rounded-lg rounded-tl-none border border-border bg-muted/40 px-2.5 py-1.5 text-sm leading-snug text-foreground">{f.cmt.text}</p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <p className="text-xs font-semibold text-foreground">{c.author}</p>
+                          <p className="shrink-0 text-[10px] text-muted-foreground">{fmtDateTime(c.at)}</p>
+                        </div>
+                        <p className="mt-0.5 rounded-lg rounded-tl-none border border-border bg-muted/40 px-2.5 py-1.5 text-sm leading-snug text-foreground">{c.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex shrink-0 items-center gap-2 border-t border-border p-3">
+                  <Input
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder="Write a comment…"
+                    className="h-8 text-sm"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && draft.trim()) { onAddComment(issue, draft.trim()); setDraft("") }
+                    }}
+                  />
+                  <Button size="sm" className="h-8 gap-1.5" disabled={!draft.trim()} onClick={() => { onAddComment(issue, draft.trim()); setDraft("") }}>
+                    <Send className="h-3.5 w-3.5" />Send
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-4">
+                {issue.activity.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No activity yet.</p>}
+                {[...issue.activity].sort((a, b) => a.at.localeCompare(b.at)).map((a) => (
+                  <div key={a.id} className="flex items-start gap-2 text-xs text-muted-foreground">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted">{ACT_ICON[a.kind]}</span>
+                    <div className="min-w-0 flex-1 pt-0.5">
+                      <p className="text-foreground/80">{a.detail}</p>
+                      <p className="text-[10px]">{a.actor} · {fmtDateTime(a.at)}</p>
                     </div>
                   </div>
-                ),
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-2 border-t border-border p-3">
-              <Input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Write a comment…"
-                className="h-8 text-sm"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && draft.trim()) { onAddComment(issue, draft.trim()); setDraft("") }
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Pane 3 — the property itself (embedded unit details, width-safe) */}
+          <div className="relative flex min-h-0 min-w-0 flex-col overflow-hidden">
+            {unit ? (
+              <ViewPropertyDrawer
+                row={unit}
+                defaultTab="unit-details"
+                onClose={() => {}}
+                onUpdateRow={() => {}}
+                embedded
+                highlightFields={highlightFields}
+                highlightTooltips={highlightTooltips}
+                onIssueFieldClick={(label) => {
+                  const target = unitIssues.find((i) => i.fieldLabel === label)
+                  if (target) onStep(target)
                 }}
               />
-              <Button size="sm" className="h-8 gap-1.5" disabled={!draft.trim()} onClick={() => { onAddComment(issue, draft.trim()); setDraft("") }}>
-                <Send className="h-3.5 w-3.5" />Send
-              </Button>
-            </div>
-          </div>
+            ) : (
+              <p className="px-4 py-10 text-center text-sm text-muted-foreground">Unit not found in the current mock rows.</p>
+            )}
 
-          {/* Pane 3 — the property itself (compact unit details panel) */}
-          <div className="flex min-h-0 flex-col">
-            {/* Open-issues-on-this-unit switcher */}
-            <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-2">
-              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {unitIssues.length} open issue{unitIssues.length !== 1 ? "s" : ""} on this property
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {unitIssues.map((i) => {
-                  const active = i.id === issue.id
-                  return (
-                    <button
-                      key={i.id}
-                      onClick={() => onStep(i)}
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium transition-colors",
-                        SEVERITY_COLORS[i.severity],
-                        active ? "ring-2 ring-primary/50" : "opacity-75 hover:opacity-100",
-                      )}
-                      title={`${i.fieldLabel} — ${i.type} (${i.status})`}
-                    >
-                      <AlertTriangle className="h-2.5 w-2.5" />
-                      {i.fieldLabel}
-                      <span className="font-mono opacity-70">{i.id.slice(-4)}</span>
-                    </button>
-                  )
-                })}
+            {/* Open-issues overlay panel */}
+            {issuesPanelOpen && (
+              <div className="absolute inset-y-0 right-0 z-30 flex w-80 flex-col border-l border-border bg-card shadow-2xl">
+                <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
+                  <p className="text-sm font-semibold text-foreground">Open issues on this property</p>
+                  <button onClick={() => setIssuesPanelOpen(false)} className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
+                  {unitIssues.map((i) => {
+                    const active = i.id === issue.id
+                    return (
+                      <button
+                        key={i.id}
+                        onClick={() => { onStep(i); setIssuesPanelOpen(false) }}
+                        className={cn("block w-full space-y-1 px-4 py-2.5 text-left transition-colors", active ? "bg-primary/5" : "hover:bg-muted/50")}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={cn("text-xs font-semibold", active ? "text-primary" : "text-foreground")}>{i.fieldLabel}</span>
+                          <span className={cn("rounded-md border px-1.5 py-px text-[10px] font-medium", SEVERITY_COLORS[i.severity])}>{i.severity}</span>
+                        </div>
+                        <p className="truncate text-[11px] text-muted-foreground">{i.type}{i.subtype ? ` — ${i.subtype}` : ""}</p>
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn("rounded-md border px-1.5 py-px text-[10px] font-medium", STATUS_COLORS[i.status])}>{i.status}</span>
+                          <span className="font-mono text-[10px] text-muted-foreground">{i.id}</span>
+                          {active && <span className="text-[10px] font-medium text-primary">· viewing</span>}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-            <div className="min-h-0 flex-1">
-              {unit ? (
-                <ViewPropertyDrawer
-                  row={unit}
-                  defaultTab="unit-details"
-                  onClose={() => {}}
-                  onUpdateRow={() => {}}
-                  embedded
-                  highlightFields={highlightFields}
-                  highlightTooltips={highlightTooltips}
-                  onIssueFieldClick={(label) => {
-                    const target = unitIssues.find((i) => i.fieldLabel === label)
-                    if (target) onStep(target)
-                  }}
-                />
-              ) : (
-                <p className="px-4 py-10 text-center text-sm text-muted-foreground">Unit not found in the current mock rows.</p>
-              )}
-            </div>
+            )}
           </div>
         </div>
       </SheetContent>

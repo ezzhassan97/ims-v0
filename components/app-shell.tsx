@@ -98,7 +98,7 @@ export function AppShell() {
         return <PropertiesConfigurationsPage />
       case "Validation Rules":
         return <ValidationRulesPage />
-      case "Data Issues":
+      case "Properties Data Issues":
         return <DataIssuesPage />
       case "Quality Configurations":
         return <QualityConfigurationsPage />

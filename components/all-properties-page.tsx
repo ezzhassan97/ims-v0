@@ -3380,7 +3380,7 @@ function CellIssueButton({ issues, onOpen }: { issues: PropertyIssue[]; onOpen: 
   )
 }
 
-export function DetailedPropertiesView({ filters, onCreateProperty, scopeProjectName, showIssues = false, onToggleShowIssues }: { filters: FilterProps; onCreateProperty?: (v: Variation) => void; /** Project-details embed: keep only this project's rows (falls back to all when mock names don't match). */ scopeProjectName?: string; /** Data quality: filter to units with open issues + highlight their fields. */ showIssues?: boolean; onToggleShowIssues?: () => void }) {
+export function DetailedPropertiesView({ filters, onCreateProperty, scopeProjectName, showIssues = false }: { filters: FilterProps; onCreateProperty?: (v: Variation) => void; /** Project-details embed: keep only this project's rows (falls back to all when mock names don't match). */ scopeProjectName?: string; /** Data quality: filter to units with open issues + highlight their fields. */ showIssues?: boolean }) {
   const {
     searchQuery,
     developerFilter,
@@ -4105,15 +4105,6 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant={showIssues ? "default" : "outline"}
-              size="sm"
-              className={cn("h-8", showIssues && "bg-amber-500 text-white hover:bg-amber-600")}
-              onClick={onToggleShowIssues}
-            >
-              <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
-              Show Issues
-            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" className="h-8">
@@ -5263,7 +5254,7 @@ function DateRangeDropdown({
   )
 }
 
-export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedded = false, scopeProject, fixedSaleType, pageTitle }: { onOpenGroupDetail?: (d: GroupDetailPayload) => void; onCreateProperty?: (v: Variation) => void; embedded?: boolean; scopeProject?: { name: string; isPhase: boolean; mainProject?: string }; /** Sale-type page (Primary/Resale/Nawy Now/Rental): locks the sale type, hides its dropdown + the analytics cards. */ fixedSaleType?: string; pageTitle?: string } = {}) {
+export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedded = false, scopeProject, fixedSaleType, pageTitle, showIssuesMode = false }: { onOpenGroupDetail?: (d: GroupDetailPayload) => void; onCreateProperty?: (v: Variation) => void; embedded?: boolean; scopeProject?: { name: string; isPhase: boolean; mainProject?: string }; /** Sale-type page (Primary/Resale/Nawy Now/Rental): locks the sale type, hides its dropdown + the analytics cards. */ fixedSaleType?: string; pageTitle?: string; /** Properties Data Issues tab: only properties with open issues, highlights always on. */ showIssuesMode?: boolean } = {}) {
   // Scoped (project details embed): properties of that project — for a phase, of its main
   // project. Mock rows only name-match a subset of projects, so fall back when nothing matches.
   const scopeTarget = scopeProject ? (scopeProject.isPhase ? scopeProject.mainProject ?? scopeProject.name : scopeProject.name) : undefined
@@ -5412,7 +5403,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
   const [draggedSortIndex, setDraggedSortIndex] = useState<number | null>(null)
   // Columns sheet — lifted from DetailedPropertiesView so toolbar button can open it
   const [showColumnSheet, setShowColumnSheet] = useState(false)
-  const [showIssues, setShowIssues] = useState(false) // data quality highlights (both tabs)
+  const showIssues = showIssuesMode // issue filtering/highlights only in the Properties Data Issues tab
 
   const handleSortDragStart = (index: number) => setDraggedSortIndex(index)
   const handleSortDragOver = (e: React.DragEvent, targetIndex: number) => {
@@ -5854,11 +5845,10 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
               onOpenGroupDetail={onOpenGroupDetail}
               onCreateProperty={onCreateProperty}
               showIssues={showIssues}
-              onToggleShowIssues={() => setShowIssues((v) => !v)}
             />
           </TabsContent>
           <TabsContent value="detailed" className="mt-0">
-            <DetailedPropertiesView filters={filterPropsWithClear} onCreateProperty={onCreateProperty} scopeProjectName={scopeTarget} showIssues={showIssues} onToggleShowIssues={() => setShowIssues((v) => !v)} />
+            <DetailedPropertiesView filters={filterPropsWithClear} onCreateProperty={onCreateProperty} scopeProjectName={scopeTarget} showIssues={showIssues} />
           </TabsContent>
         </Tabs>
       </div>

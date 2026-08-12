@@ -2733,7 +2733,6 @@ export function GroupedPropertiesView({
   onOpenGroupDetail,
   onCreateProperty,
   showIssues = false,
-  onToggleShowIssues,
 }: {
   filters: SharedFilterState
   sortConfigs?: SortConfig[]
@@ -2746,7 +2745,6 @@ export function GroupedPropertiesView({
   onCreateProperty?: (v: Variation) => void
   /** Data quality: filter to cards whose units have open issues + badge them. */
   showIssues?: boolean
-  onToggleShowIssues?: () => void
 }) {
   const [allGroups, setGroups] = useState<GroupedProperty[]>(() => makeGroups())
   const groups = useMemo(() => {
@@ -2877,15 +2875,6 @@ export function GroupedPropertiesView({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant={showIssues ? "default" : "outline"}
-            size="sm"
-            className={cn("h-8", showIssues && "bg-amber-500 text-white hover:bg-amber-600")}
-            onClick={onToggleShowIssues}
-          >
-            <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
-            Show Issues
-          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" className="h-8">

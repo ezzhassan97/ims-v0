@@ -21,12 +21,12 @@ import {
 } from "@/components/table-kit"
 import { Badge } from "@/components/ui/badge"
 import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
-import { ViewPropertyDrawer, createRows, BADGE_CLASS } from "@/components/all-properties-page"
+import { ViewPropertyDrawer, createRows, BADGE_CLASS, AllPropertiesPage } from "@/components/all-properties-page"
 import { IssueTrackingDrawer, statusPatch, assigneePatch } from "@/components/issue-tracking-drawer"
 import {
   PROPERTY_ISSUES, PROP_ISSUE_STATUSES, PROP_ISSUE_SEVERITIES, PROP_ISSUE_SOURCES, STATUS_COLORS, SEVERITY_COLORS,
   SOURCE_COLORS, ISSUE_FIELDS, ALL_ISSUE_TYPES, ALL_ISSUE_SUBTYPES, QUALITY_TEAM, SALES_AGENTS, ALL_PEOPLE,
-  ALL_REPORTERS, isCriticalSeverity, type PropertyIssue, type PropIssueStatus,
+  ALL_REPORTERS, isCriticalSeverity, openIssuesByProperty, type PropertyIssue, type PropIssueStatus,
 } from "@/lib/property-issues-mock"
 import { cn } from "@/lib/utils"
 
@@ -181,7 +181,7 @@ export function DataIssuesPage() {
   // Local copy for rendering; edits are written back into the module store so
   // properties views see the same state during this session. (mock)
   const [issues, setIssues] = useState<PropertyIssue[]>(() => [...PROPERTY_ISSUES])
-  const [tab, setTab] = useState<"Property" | "Project" | "Developer">("Property")
+  const [tab, setTab] = useState<"issues" | "properties">("issues")
 
   // toolbar state — search is issue id / description only
   const [q, setQ] = useState("")
@@ -223,6 +223,8 @@ export function DataIssuesPage() {
 
   const propertyRows = useMemo(() => createRows(), [])
   const propertyById = useMemo(() => new Map(propertyRows.map((r) => [r.propertyId, r])), [propertyRows])
+  // Properties tab: distinct properties that currently have open issues
+  const issuedPropertyCount = useMemo(() => openIssuesByProperty().size, [issues])
 
   const rangeCount = [createdR, updatedR, resolvedR, closedR].filter((r) => r.from || r.to).length
   const activeFilterCount =
@@ -512,35 +514,41 @@ export function DataIssuesPage() {
     <div className="min-h-screen bg-secondary/40">
       <div className="space-y-4 p-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Data Issues</h1>
+          <h1 className="text-2xl font-bold text-foreground">Properties Data Issues</h1>
           <p className="text-sm text-muted-foreground">Issue tracking for property data — reported by the quality team, sales agents, or raised automatically by validation rules</p>
         </div>
 
         <Tabs value={tab} onValueChange={(v) => { setTab(v as typeof tab); setSelected(new Set()); setPage(1) }} className="w-full">
           <TabsList className="bg-secondary">
-            <TabsTrigger value="Property" className="data-[state=active]:bg-card">
-              <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />Properties
+            <TabsTrigger value="issues" className="data-[state=active]:bg-card">
+              <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />Issues
               <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-blue-200 bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">
                 {issues.length.toLocaleString()}
               </span>
             </TabsTrigger>
-            <TabsTrigger value="Project" className="data-[state=active]:bg-card">
-              <Building2 className="mr-1.5 h-3.5 w-3.5" />Projects
-              <span className="ml-1.5 inline-flex h-4 items-center justify-center rounded border border-gray-200 bg-gray-100 px-1 text-[10px] font-semibold text-gray-500">Soon</span>
-            </TabsTrigger>
-            <TabsTrigger value="Developer" className="data-[state=active]:bg-card">
-              <Users className="mr-1.5 h-3.5 w-3.5" />Developers
-              <span className="ml-1.5 inline-flex h-4 items-center justify-center rounded border border-gray-200 bg-gray-100 px-1 text-[10px] font-semibold text-gray-500">Soon</span>
+            <TabsTrigger value="properties" className="data-[state=active]:bg-card">
+              <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />Properties
+              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-blue-200 bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">
+                {issuedPropertyCount.toLocaleString()}
+              </span>
             </TabsTrigger>
           </TabsList>
         </Tabs>
 
-        {tab !== "Property" ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-24 text-center">
-            <Clock className="mb-3 h-8 w-8 text-muted-foreground" />
-            <p className="text-sm font-semibold text-foreground">{tab === "Project" ? "Project" : "Developer"} issues are coming soon</p>
-            <p className="mt-1 text-xs text-muted-foreground">Property issues are live — project and developer issue tracking follows the same flow.</p>
-          </div>
+        {tab === "properties" ? (
+          <>
+            {/* Same analytics, from the properties perspective */}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+              <StatCard icon={<AlertTriangle className="h-4 w-4 text-primary" />} label="Total Issues" value={issues.length} />
+              <StatCard icon={<CircleDot className="h-4 w-4 text-gray-500" />} label="To Do" value={issues.filter((r) => r.status === "To Do").length} total={issues.length} />
+              <StatCard icon={<Loader2 className="h-4 w-4 text-amber-500" />} label="In Progress" value={issues.filter((r) => r.status === "In Progress").length} total={issues.length} />
+              <StatCard icon={<CheckCircle2 className="h-4 w-4 text-blue-600" />} label="Resolved" value={issues.filter((r) => r.status === "Resolved").length} total={issues.length} />
+              <StatCard icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} label="Closed" value={issues.filter((r) => r.status === "Closed").length} total={issues.length} />
+              <StatCard icon={<XCircle className="h-4 w-4 text-red-500" />} label="Invalid" value={issues.filter((r) => r.status === "Invalid").length} total={issues.length} />
+            </div>
+            {/* The All Properties experience, locked to properties with open issues */}
+            <AllPropertiesPage embedded showIssuesMode />
+          </>
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
