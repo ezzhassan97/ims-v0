@@ -443,33 +443,54 @@ export function PermissionsRolesPage() {
     a.href = url; a.download = name; a.click()
     URL.revokeObjectURL(url)
   }
+  /** One export record: name, access_level (view / edit / all), kind, path and a human description. */
+  const permRecord = (r: PageRow, suffix: string, specific: boolean) => {
+    const where = r.kind === "page" ? `the ${r.label} page` : r.kind === "detail" ? `the ${r.label} drill-down` : `the ${r.label} tab`
+    const ctx = r.chain.length > 1 ? ` (${r.chain.slice(1).reverse().join(" / ")})` : ""
+    const access_level = specific || suffix === "full-access" ? "all" : suffix
+    const description = specific
+      ? `Specific "${suffix}" action on ${where}${ctx}`
+      : access_level === "view" ? `View-only access to ${where}${ctx}`
+      : access_level === "edit" ? `Edit access to ${where}${ctx}`
+      : `Full access — all actions — on ${where}${ctx}`
+    return {
+      permission: `${r.slug}-${suffix}`,
+      access_level,
+      kind: specific ? "specific" : r.kind,
+      path: r.chain.slice().reverse().join(" / "),
+      description,
+    }
+  }
   /** Global catalog: every page/tab × every level, plus the specific access types. */
   const catalogPerms = () => {
     const perms = exportRows.flatMap((r) => [
-      ...EXPORT_LEVELS.map((l) => ({ permission: `${r.slug}-${l}`, kind: r.kind, path: r.chain.slice().reverse().join(" / ") })),
-      ...(EXTRA_PERMISSIONS[r.slug] ?? []).map((e) => ({ permission: `${r.slug}-${e}`, kind: "specific", path: r.chain.slice().reverse().join(" / ") })),
+      ...EXPORT_LEVELS.map((l) => permRecord(r, l, false)),
+      ...(EXTRA_PERMISSIONS[r.slug] ?? []).map((e) => permRecord(r, e, true)),
     ])
     return Array.from(new Map(perms.map((p) => [p.permission, p])).values())
   }
-  /** A team's granted permission names (No Access rows are omitted). */
+  /** A team's granted permissions (No Access rows are omitted) — full records. */
   const teamPermList = (t: Team) => exportRows.flatMap((r) => {
     const rule = resolve(t, r)
-    const out: string[] = []
-    if (rule.level === "view") out.push(`${r.slug}-view`)
-    if (rule.level === "full") out.push(`${r.slug}-full-access`)
-    for (const e of t.overrides[r.chain[0]]?.extras ?? []) out.push(`${r.slug}-${e}`)
+    const out: ReturnType<typeof permRecord>[] = []
+    if (rule.level === "view") out.push(permRecord(r, "view", false))
+    if (rule.level === "full") out.push(permRecord(r, "full-access", false))
+    for (const e of t.overrides[r.chain[0]]?.extras ?? []) out.push(permRecord(r, e, true))
     return out
   })
+  const csvCell = (c: string) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)
+  const CSV_HEAD = "permission,access_level,kind,path,description"
+  const csvRow = (p: ReturnType<typeof permRecord>) => [p.permission, p.access_level, p.kind, p.path, p.description].map(csvCell).join(",")
   const exportCatalog = (fmt: "json" | "csv") => {
     const perms = catalogPerms()
     if (fmt === "json") download("ims-permissions-catalog.json", JSON.stringify({ count: perms.length, permissions: perms }, null, 2), "application/json")
-    else download("ims-permissions-catalog.csv", ["permission,kind,path", ...perms.map((p) => `${p.permission},${p.kind},"${p.path}"`)].join("\n"), "text/csv")
+    else download("ims-permissions-catalog.csv", [CSV_HEAD, ...perms.map(csvRow)].join("\n"), "text/csv")
   }
   const exportTeams = (ts: Team[], name: string, fmt: "json" | "csv") => {
     if (fmt === "json") {
       download(`${name}.json`, JSON.stringify(ts.map((t) => ({ team: t.name, permissions: teamPermList(t) })), null, 2), "application/json")
     } else {
-      download(`${name}.csv`, ["team,permission", ...ts.flatMap((t) => teamPermList(t).map((p) => `"${t.name}",${p}`))].join("\n"), "text/csv")
+      download(`${name}.csv`, [`team,${CSV_HEAD}`, ...ts.flatMap((t) => teamPermList(t).map((p) => `${csvCell(t.name)},${csvRow(p)}`))].join("\n"), "text/csv")
     }
   }
 
