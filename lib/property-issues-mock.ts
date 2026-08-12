@@ -1,27 +1,30 @@
 // Data Quality — property data issues (issue-tracking model).
 //
 // Single source of truth for:
-//  - the property FIELD registry (the ~35 reportable fields; categories in the
+//  - the property FIELD registry (the reportable fields; categories in the
 //    quality taxonomy ARE these fields, incl. Payment Plans / Floor Plans / Render Images)
-//  - per-field-kind issue types & subtypes
-//  - the mock issue store (~1,500 deterministic issues, mutable so the Report
-//    an Issue drawer can add to it within the session)
+//  - the FIXED issue taxonomy: per-field types (optional subtypes), each with a
+//    priority (Critical…Lowest), a score weight, and an Active/Hidden flag.
+//    The catalog itself is not editable — only priority/score/active are
+//    (adjusted in Quality Configurations).
+//  - the mock issue store (~1,500 deterministic issues with activity logs,
+//    mutable so the Report an Issue drawer can add to it within the session)
 //
 // Field ids intentionally match the detailed-properties table column ids, and
 // field labels match the unit-details drawer Field labels — that is what makes
 // cell/drawer highlighting work without any mapping tables.
 
 export type PropIssueStatus = "To Do" | "In Progress" | "Resolved" | "Closed" | "Invalid"
-// Jira-style priority scale
-export type PropIssueSeverity = "Highest" | "High" | "Medium" | "Low" | "Lowest"
-// Who raised the issue: quality team, automated validation rules, or a sales agent
+// Jira-style priority scale (also used as issue severity — issues inherit the
+// priority of their issue type from the quality configuration)
+export type PropIssueSeverity = "Critical" | "High" | "Medium" | "Low" | "Lowest"
 export type PropIssueSource = "Data Quality" | "System" | "Sales Agent"
 export type FieldKind = "value" | "plans" | "floorPlans" | "images"
 
-export const PROP_ISSUE_SEVERITIES: PropIssueSeverity[] = ["Highest", "High", "Medium", "Low", "Lowest"]
-/** Highest/High issues render red (blocking-grade); the rest amber. */
+export const PROP_ISSUE_SEVERITIES: PropIssueSeverity[] = ["Critical", "High", "Medium", "Low", "Lowest"]
+/** Critical/High issues render red (blocking-grade); the rest amber. */
 export function isCriticalSeverity(s: PropIssueSeverity): boolean {
-  return s === "Highest" || s === "High"
+  return s === "Critical" || s === "High"
 }
 
 export interface IssueField {
@@ -88,75 +91,66 @@ export const ISSUE_FIELDS: IssueField[] = [
 export const FIELD_BY_ID = new Map(ISSUE_FIELDS.map((f) => [f.id, f]))
 export const ISSUE_FIELD_GROUPS = Array.from(new Set(ISSUE_FIELDS.map((f) => f.group)))
 
-/** Types (and their subtypes) per field kind — the taxonomy level below the field. */
-export const KIND_TAXONOMY: Record<FieldKind, { type: string; subtypes: string[] }[]> = {
-  value: [
-    { type: "Wrong Value", subtypes: ["Mismatch with developer sheet", "Mismatch with brochure", "Typo / impossible value"] },
-    { type: "Missing Value", subtypes: ["Never entered", "Lost in ingestion"] },
-    { type: "Outdated Value", subtypes: ["Developer update not reflected", "Stale after re-ingestion"] },
-    { type: "Formatting", subtypes: ["Wrong unit / format", "Naming convention"] },
-  ],
-  plans: [
-    { type: "Wrong Plan Terms", subtypes: ["Wrong down payment", "Wrong duration", "Wrong installment %"] },
-    { type: "Missing Plan", subtypes: ["Plan on price list not in IMS"] },
-    { type: "Duplicate Plan", subtypes: ["Same terms listed twice"] },
-    { type: "Outdated Plan", subtypes: ["Expired plan still listed"] },
-  ],
-  floorPlans: [
-    { type: "Wrong Floor Plan", subtypes: ["Belongs to another model", "Wrong orientation"] },
-    { type: "Low Quality", subtypes: ["Blurred / unreadable", "Watermarked"] },
-    { type: "Missing Floor Plan", subtypes: ["No floor plan uploaded"] },
-  ],
-  images: [
-    { type: "Wrong Render", subtypes: ["Different project / model"] },
-    { type: "Low Quality", subtypes: ["Low resolution", "Watermarked"] },
-    { type: "Missing Renders", subtypes: ["No render images uploaded"] },
-  ],
-}
-
-export const ALL_ISSUE_TYPES = Array.from(new Set(Object.values(KIND_TAXONOMY).flat().map((t) => t.type)))
-export const ALL_ISSUE_SUBTYPES = Array.from(new Set(Object.values(KIND_TAXONOMY).flat().flatMap((t) => t.subtypes)))
-
-export interface IssueComment {
-  id: string
-  author: string
-  text: string
-  at: string
-}
-
-export interface PropertyIssue {
-  id: string // ISS-000001
-  source: PropIssueSource
-  severity: PropIssueSeverity
-  status: PropIssueStatus
-  fieldId: string // category — the property field
-  fieldLabel: string
+// ── Fixed taxonomy ────────────────────────────────────────────────────────────
+export interface IssueTypeDef {
   type: string
-  subtype: string
-  description: string
-  /** What the value SHOULD be — drives manual fixing and auto-resolution checks. */
-  expected: string | null
-  /** Value at report time (context for data ops). */
-  current: string | null
-  /** For plans/floorPlans/images fields: the affected item names. */
-  linkedItems: string[] | null
-  reportedBy: string
-  assignedTo: string | null
-  developer: { id: string; name: string }
-  project: { id: string; name: string }
-  phase: { id: string; name: string } | null
-  propertyId: string
-  detailedPropertyId: string
-  createdAt: string
-  updatedAt: string
-  resolvedAt: string | null
-  closedAt: string | null
-  comments: IssueComment[]
+  /** Not every type has subtypes. */
+  subtypes?: string[]
+  /** Attachment fields: this type requires picking the specific item(s) (a
+   *  "missing"/"order" type never does — you describe it instead). */
+  requiresSelection?: boolean
+  /** Default priority — becomes the issue's severity. Editable in Quality Configurations. */
+  priority: PropIssueSeverity
+  active: boolean
 }
 
-export const PROP_ISSUE_STATUSES: PropIssueStatus[] = ["To Do", "In Progress", "Resolved", "Closed", "Invalid"]
-/** Statuses that count as "open" for property-view highlighting. */
-export const OPEN_STATUSES: PropIssueStatus[] = ["To Do", "In Progress", "Resolved"]
+const VALUE_TYPES = (wrongPriority: PropIssueSeverity = "High"): IssueTypeDef[] => [
+  { type: "Wrong Value", subtypes: ["Mismatch with developer sheet", "Mismatch with brochure", "Typo / impossible value"], priority: wrongPriority, active: true },
+  { type: "Missing Value", priority: "Medium", active: true },
+  { type: "Outdated Value", subtypes: ["Developer update not reflected", "Stale after re-ingestion"], priority: "Medium", active: true },
+  { type: "Formatting", priority: "Low", active: true },
+]
+
+const PLACEMENT_TYPES: IssueTypeDef[] = [
+  { type: "Wrong Assignment", priority: "Critical", active: true },
+  { type: "Missing Assignment", priority: "Medium", active: true },
+]
+
+/** Payment-plan aspects — chosen per selected plan in the report flow. */
+export const PLAN_ASPECTS = ["Wrong Down Payment", "Wrong Duration", "Wrong Installment %", "Wrong Delivery %", "Should Be Removed"]
+
+const PLANS_TYPES: IssueTypeDef[] = [
+  { type: "Plan Terms Issue", requiresSelection: true, priority: "High", active: true },
+  { type: "Missing Plan", priority: "High", active: true },
+  { type: "Duplicate Plan", requiresSelection: true, priority: "Medium", active: true },
+]
+
+const FLOOR_PLAN_TYPES: IssueTypeDef[] = [
+  { type: "Missing Floor Plan", priority: "High", active: true },
+  { type: "Wrong Floor Plan", subtypes: ["Belongs to another model", "Wrong orientation"], requiresSelection: true, priority: "High", active: true },
+  { type: "Low Quality", subtypes: ["Blurred / unreadable", "Watermarked"], requiresSelection: true, priority: "Medium", active: true },
+  { type: "Wrong Order", priority: "Low", active: true },
+]
+
+const IMAGE_TYPES: IssueTypeDef[] = [
+  { type: "Missing Renders", priority: "Medium", active: true },
+  { type: "Wrong Render", subtypes: ["Different project / model"], requiresSelection: true, priority: "High", active: true },
+  { type: "Low Quality", subtypes: ["Low resolution", "Watermarked"], requiresSelection: true, priority: "Low", active: true },
+  { type: "Wrong Order", priority: "Lowest", active: true },
+]
+
+/** The fixed taxonomy for a field — business logic per field/kind. */
+export function fieldTaxonomy(field: IssueField): IssueTypeDef[] {
+  if (field.group === "Placement") return PLACEMENT_TYPES
+  if (field.kind === "plans") return PLANS_TYPES
+  if (field.kind === "floorPlans") return FLOOR_PLAN_TYPES
+  if (field.kind === "images") return IMAGE_TYPES
+  if (field.id === "price" || field.id === "availability") return VALUE_TYPES("Critical")
+  return VALUE_TYPES()
+}
+
+export const ALL_ISSUE_TYPES = Array.from(new Set(ISSUE_FIELDS.flatMap((f) => fieldTaxonomy(f).map((t) => t.type))))
+export const ALL_ISSUE_SUBTYPES = Array.from(new Set(ISSUE_FIELDS.flatMap((f) => fieldTaxonomy(f).flatMap((t) => t.subtypes ?? []))))
 
 export const STATUS_COLORS: Record<PropIssueStatus, string> = {
   "To Do": "bg-gray-100 text-gray-700 border-gray-200",
@@ -166,7 +160,7 @@ export const STATUS_COLORS: Record<PropIssueStatus, string> = {
   Invalid: "bg-red-50 text-red-600 border-red-200",
 }
 export const SEVERITY_COLORS: Record<PropIssueSeverity, string> = {
-  Highest: "bg-red-100 text-red-800 border-red-300",
+  Critical: "bg-red-100 text-red-800 border-red-300",
   High: "bg-orange-100 text-orange-700 border-orange-200",
   Medium: "bg-amber-100 text-amber-700 border-amber-200",
   Low: "bg-sky-50 text-sky-700 border-sky-200",
@@ -199,6 +193,56 @@ export function unitContext(rowIndex: number) {
   }
 }
 
+export interface IssueComment {
+  id: string
+  author: string
+  text: string
+  at: string
+}
+
+export interface IssueActivity {
+  id: string
+  kind: "created" | "status" | "assigned"
+  actor: string
+  at: string
+  detail: string
+}
+
+export interface PropertyIssue {
+  id: string // ISS-000001
+  source: PropIssueSource
+  severity: PropIssueSeverity
+  status: PropIssueStatus
+  fieldId: string // category — the property field
+  fieldLabel: string
+  type: string
+  subtype: string | null
+  description: string
+  /** What the value SHOULD be — drives manual fixing and auto-resolution checks. */
+  expected: string | null
+  /** Value at report time (context for data ops). */
+  current: string | null
+  /** For plans/floorPlans/images fields: the affected item names (may carry aspect annotations). */
+  linkedItems: string[] | null
+  reportedBy: string
+  assignedTo: string | null
+  developer: { id: string; name: string }
+  project: { id: string; name: string }
+  phase: { id: string; name: string } | null
+  propertyId: string
+  detailedPropertyId: string
+  createdAt: string
+  updatedAt: string
+  resolvedAt: string | null
+  closedAt: string | null
+  comments: IssueComment[]
+  activity: IssueActivity[]
+}
+
+export const PROP_ISSUE_STATUSES: PropIssueStatus[] = ["To Do", "In Progress", "Resolved", "Closed", "Invalid"]
+/** Statuses that count as "open" for property-view highlighting. */
+export const OPEN_STATUSES: PropIssueStatus[] = ["To Do", "In Progress", "Resolved"]
+
 const BASE = Date.UTC(2026, 7, 8, 9, 0, 0) // fixed — SSR/client render identical
 const HOUR = 3600000
 const ts = (hoursAgo: number) => new Date(BASE - hoursAgo * HOUR).toISOString()
@@ -222,8 +266,34 @@ function commentsFor(i: number, status: PropIssueStatus, created: number): Issue
   }))
 }
 
+/** Activity log derived from the issue's lifecycle (mock). */
+function activityFor(
+  i: number,
+  status: PropIssueStatus,
+  reportedBy: string,
+  assignedTo: string | null,
+  created: number,
+  updated: number,
+  resolved: number | null,
+  closed: number | null,
+): IssueActivity[] {
+  const acts: IssueActivity[] = [
+    { id: `ACT-${i}-0`, kind: "created", actor: reportedBy, at: ts(created), detail: "Issue created — To Do" },
+  ]
+  if (assignedTo) acts.push({ id: `ACT-${i}-1`, kind: "assigned", actor: "System", at: ts(Math.max(1, created - 1)), detail: `Auto-assigned to ${assignedTo}` })
+  if (status !== "To Do") {
+    const actor = assignedTo ?? DATA_OPS_TEAM[i % DATA_OPS_TEAM.length]
+    if (status === "Invalid") acts.push({ id: `ACT-${i}-2`, kind: "status", actor, at: ts(updated), detail: "Status changed: To Do → Invalid" })
+    else {
+      acts.push({ id: `ACT-${i}-2`, kind: "status", actor, at: ts(Math.max(1, updated + 6)), detail: "Status changed: To Do → In Progress" })
+      if (resolved != null) acts.push({ id: `ACT-${i}-3`, kind: "status", actor, at: ts(resolved), detail: "Status changed: In Progress → Resolved" })
+      if (closed != null) acts.push({ id: `ACT-${i}-4`, kind: "status", actor: QUALITY_TEAM[i % QUALITY_TEAM.length], at: ts(closed), detail: "Status changed: Resolved → Closed" })
+    }
+  }
+  return acts
+}
+
 const EXPECTED_SAMPLES: Record<string, [string, string][]> = {
-  // fieldId → [current, expected] samples
   developer: [["Sodic", "Palm Hills"]],
   project: [["North Coast Bay", "New Cairo Residences"]],
   phase: [["Phase 2", "Phase 3"], ["—", "Phase 1"]],
@@ -239,27 +309,29 @@ const EXPECTED_SAMPLES: Record<string, [string, string][]> = {
 }
 
 function makeIssue(i: number): PropertyIssue {
-  // uneven density: cluster issues on ~60 of the 72 units
   const rowIndex = (i * 7) % ROW_COUNT
   const ctx = unitContext(rowIndex)
   const field = ISSUE_FIELDS[(i * 5) % ISSUE_FIELDS.length]
-  const tax = KIND_TAXONOMY[field.kind]
+  const tax = fieldTaxonomy(field)
   const t = tax[i % tax.length]
-  const subtype = t.subtypes[i % t.subtypes.length]
+  const subtype = t.subtypes ? t.subtypes[i % t.subtypes.length] : null
   const source: PropIssueSource = (["Data Quality", "System", "Sales Agent", "Data Quality", "System"] as const)[i % 5]
-  const severity: PropIssueSeverity = PROP_ISSUE_SEVERITIES[[2, 1, 3, 0, 2, 4, 1, 2, 3, 2][i % 10]] // mostly Medium/High/Low
-  const status = PROP_ISSUE_STATUSES[[0, 0, 1, 0, 2, 3, 1, 3, 4, 0][i % 10]] // ~40% todo, 20% in prog, 10% resolved, 20% closed, 10% invalid
-  const created = 12 + (i % 700) * 3 // spread over ~90 days
+  const severity = t.priority // issues inherit the type's configured priority
+  const status = PROP_ISSUE_STATUSES[[0, 0, 1, 0, 2, 3, 1, 3, 4, 0][i % 10]]
+  const created = 12 + (i % 700) * 3
   const updated = status === "To Do" ? created : Math.max(2, created - 24 - (i % 48))
   const resolvedAt = status === "Resolved" || status === "Closed" ? Math.max(1, updated - 2) : null
   const closedAt = status === "Closed" ? Math.max(1, (resolvedAt ?? updated) - 6) : null
   const samples = EXPECTED_SAMPLES[field.id]
   const [current, expected] = samples ? samples[i % samples.length] : [null, field.kind === "value" ? "Match developer sheet" : null]
-  const linkedItems =
-    field.kind === "plans" ? [["Standard Plan", "Flexible Plan", "Premium Plan", "Investor Plan"][i % 4]]
+  const needsItems = t.requiresSelection === true
+  const linkedItems = !needsItems ? null
+    : field.kind === "plans" ? [`${["Standard Plan", "Flexible Plan", "Premium Plan", "Investor Plan"][i % 4]} (${PLAN_ASPECTS[i % PLAN_ASPECTS.length]})`]
     : field.kind === "floorPlans" ? [`Floor Plan ${(i % 3) + 1}`]
     : field.kind === "images" ? [`Render ${(i % 4) + 1}`]
     : null
+  const reportedBy = source === "System" ? "System" : source === "Sales Agent" ? SALES_AGENTS[i % SALES_AGENTS.length] : QUALITY_TEAM[i % QUALITY_TEAM.length]
+  const assignedTo = status === "To Do" && i % 4 === 0 ? null : DATA_OPS_TEAM[i % DATA_OPS_TEAM.length]
 
   return {
     id: `ISS-${String(i + 1).padStart(6, "0")}`,
@@ -271,19 +343,20 @@ function makeIssue(i: number): PropertyIssue {
     type: t.type,
     subtype,
     description: source === "System"
-      ? `Validation rule flagged ${field.label}: ${t.type.toLowerCase()} (${subtype.toLowerCase()})`
-      : `${field.label} — ${t.type.toLowerCase()}: ${subtype.toLowerCase()}`,
+      ? `Validation rule flagged ${field.label}: ${t.type.toLowerCase()}${subtype ? ` (${subtype.toLowerCase()})` : ""}`
+      : `${field.label} — ${t.type.toLowerCase()}${subtype ? `: ${subtype.toLowerCase()}` : ""}`,
     expected,
     current,
     linkedItems,
-    reportedBy: source === "System" ? "System" : source === "Sales Agent" ? SALES_AGENTS[i % SALES_AGENTS.length] : QUALITY_TEAM[i % QUALITY_TEAM.length],
-    assignedTo: status === "To Do" && i % 4 === 0 ? null : DATA_OPS_TEAM[i % DATA_OPS_TEAM.length],
+    reportedBy,
+    assignedTo,
     ...ctx,
     createdAt: ts(created),
     updatedAt: ts(updated),
     resolvedAt: resolvedAt != null ? ts(resolvedAt) : null,
     closedAt: closedAt != null ? ts(closedAt) : null,
     comments: commentsFor(i, status, created),
+    activity: activityFor(i, status, reportedBy, assignedTo, created, updated, resolvedAt, closedAt),
   }
 }
 
@@ -308,6 +381,11 @@ export function openIssuesByProperty(): Map<string, PropertyIssue[]> {
     m.get(iss.propertyId)!.push(iss)
   }
   return m
+}
+
+/** All open issues on one property (freshly read from the store). */
+export function openIssuesFor(propertyId: string): PropertyIssue[] {
+  return PROPERTY_ISSUES.filter((i) => i.propertyId === propertyId && OPEN_STATUSES.includes(i.status))
 }
 
 /** Distribute `total` across n items in whole numbers (first items absorb the remainder). */
