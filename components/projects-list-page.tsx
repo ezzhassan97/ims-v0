@@ -3147,9 +3147,11 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
   const [projectSubtype, setProjectSubtype] = useState("")
   const [construction, setConstruction] = useState("")
   const [orgs, setOrgs] = useState<ProjOrg[]>([])
-  // Phase/sub statuses — phases default from the parent on selection
+  // Phase/sub statuses — phases default from the parent on selection.
+  // Primary status is never picked at creation: everything starts On-Sale and
+  // moves to Launch or any other status from the project's own actions later.
   const [entryF, setEntryF] = useState<ProjEntryType>("Automatic")
-  const [primaryF, setPrimaryF] = useState<ProjPrimaryStatus>("On-Sale")
+  const primaryF: ProjPrimaryStatus = "On-Sale"
   const [listingF, setListingF] = useState<ProjListingStatus>("Hidden")
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -3165,15 +3167,14 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
   const pickParent = (v: ProjectTreeSelection) => {
     setParentSel(v)
     const row = v ? mains.find((m) => m.id === v.id) : null
-    // Launch can't be picked at creation — clamp the phase default to On-Sale
-    if (row && level === "phase") { setEntryF(row.entryType); setPrimaryF(row.primaryStatus === "Launch" ? "On-Sale" : row.primaryStatus); setListingF(row.listingStatus) }
+    if (row && level === "phase") { setEntryF(row.entryType); setListingF(row.listingStatus) }
     // Sub-projects inherit the parent's developer and listing status as a starting point — still editable
     if (row && level === "sub") { setDevId(row.developer.id); setListingF(row.listingStatus) }
   }
   const pickLevel = (key: "main" | "phase" | "sub") => {
     setLevel(key)
     setParentSel(null); setDevId(""); setOrgs([])
-    setEntryF("Automatic"); setPrimaryF("On-Sale"); setListingF("Hidden")
+    setEntryF("Automatic"); setListingF("Hidden")
   }
   /** Parent Sold-Off/On-Hold + On-Sale phase = live phase under a closed parent — warn. */
   const phaseStatusAlert = level === "phase" && parentRow
@@ -3182,6 +3183,7 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
   // Going live on creation needs a cover to show on the website
   const coverRequired = level !== "phase" && listingF === "Active"
   const canSave = nameEn.trim() && nameAr.trim()
+    && !!category && !!projectType
     && (!coverRequired || !!cover)
     && (level === "main" ? orgs.length > 0 && devId && !!loc
       : level === "phase" ? !!parentRow
@@ -3372,9 +3374,9 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   <div className="text-xs font-medium text-foreground">Listing Status</div>
                   <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
                 </div>
-                <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Primary Status</div>
-                  <TagSelect value={primaryF} options={["On-Sale", "On-Hold", "Sold-Off"]} colors={PRIMARY_COLORS} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} />
+                <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
+                  {({ main: "Project", phase: "Phase", sub: "Sub-project" } as const)[level]} Primary Status will be set to{" "}
+                  <span className="font-semibold">On-Sale</span> by default — it can be edited later to Launch or any other status.
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">Entry Type <EntryTypeInfo /></div>
@@ -3438,9 +3440,9 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                     <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
                   )}
                 </div>
-                <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Primary Status</div>
-                  <TagSelect value={primaryF} options={["On-Sale", "On-Hold", "Sold-Off"]} colors={PRIMARY_COLORS} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} />
+                <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
+                  {({ main: "Project", phase: "Phase", sub: "Sub-project" } as const)[level]} Primary Status will be set to{" "}
+                  <span className="font-semibold">On-Sale</span> by default — it can be edited later to Launch or any other status.
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">Entry Type <EntryTypeInfo /></div>
@@ -3472,9 +3474,9 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   <div className="text-xs font-medium text-foreground">Listing Status</div>
                   <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
                 </div>
-                <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Primary Status</div>
-                  <TagSelect value={primaryF} options={["On-Sale", "On-Hold", "Sold-Off"]} colors={PRIMARY_COLORS} onChange={(v) => setPrimaryF(v as ProjPrimaryStatus)} />
+                <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
+                  {({ main: "Project", phase: "Phase", sub: "Sub-project" } as const)[level]} Primary Status will be set to{" "}
+                  <span className="font-semibold">On-Sale</span> by default — it can be edited later to Launch or any other status.
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">Entry Type <EntryTypeInfo /></div>
@@ -3485,11 +3487,11 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
             )}
 
             <div className="space-y-1.5">
-              <div className="text-xs font-medium text-foreground">Category</div>
+              {req("Category")}
               <FilterSelect label="Select category…" value={category} options={Object.keys(CLASSIFICATION)} onChange={pickCategory} className="w-full" width="w-full" />
             </div>
             <div className="space-y-1.5">
-              <div className="text-xs font-medium text-foreground">Type</div>
+              {req("Type")}
               <FilterSelect label="Select type…" value={projectType} options={Object.keys(CLASSIFICATION[category] ?? {})} onChange={pickType} className="w-full" width="w-full" />
             </div>
             <div className="space-y-1.5">
