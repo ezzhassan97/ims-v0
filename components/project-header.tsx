@@ -325,7 +325,7 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
             </div>
             {field("Address", "address")}
 
-            {field("Project Area", "projectArea", { suffix: "SQM" })}
+            {viewOnly("Project Area", saved.projectArea ? `${saved.projectArea} SQM` : "—")}
             {field("Greenery Area", "greeneryArea", { suffix: "SQM" })}
             {field("Total BUA Area", "buaArea", { suffix: "SQM" })}
             {field("Footprint Area", "footprintArea", { suffix: "SQM" })}

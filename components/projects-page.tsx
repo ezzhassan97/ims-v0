@@ -4,7 +4,7 @@ import { useState } from "react"
 import {
   Home, ChevronRight, ClipboardList, Sparkles, Globe, HelpCircle, Rocket, Layers, CreditCard,
   Image as ImageIcon, Images, LayoutTemplate, Building2, Map, Trees, Building as BuildingIcon, HardHat,
-  Database, Paperclip, ScrollText,
+  Database, Paperclip, ScrollText, Braces,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ProjectHeader } from "@/components/project-header"
@@ -17,6 +17,7 @@ import { AmenitiesList } from "@/components/amenities-list"
 import { AmenitiesMap } from "@/components/amenities-map"
 import { SeoTab, FaqsTab } from "@/components/developers-page"
 import { ProjectFeaturesTab } from "@/components/project-features-tab"
+import { MetadataTab } from "@/components/metadata-tab"
 import { MasterplansPage } from "@/components/masterplans-page"
 import { ConstructionUpdatesPage } from "@/components/construction-updates-page"
 import { RenderImagesPage } from "@/components/render-images-page"
@@ -296,6 +297,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
             <TabsList className="w-max">
               {[
                 { value: "features", label: "Features", icon: ClipboardList },
+                { value: "metadata", label: "Metadata", icon: Braces },
                 { value: "seo", label: "SEO", icon: Globe },
                 { value: "faqs", label: "FAQs", icon: HelpCircle },
                 { value: "launches", label: "Launches", icon: Rocket },
@@ -325,6 +327,10 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
           {/* Not built yet → coming soon */}
           <TabsContent value="features" className="mt-4">
             <ProjectFeaturesTab />
+          </TabsContent>
+
+          <TabsContent value="metadata" className="mt-4">
+            <MetadataTab kind="project" />
           </TabsContent>
 
           {["floor-plans", "attachments", "audit-logs"].map((value) => (

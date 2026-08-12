@@ -172,6 +172,7 @@ export const navItems: NavItem[] = [
     children: [
       { label: "Properties Configurations", icon: <SlidersHorizontal className="h-4 w-4" /> },
       { label: "Project Configurations", icon: <FolderKanban className="h-4 w-4" /> },
+      { label: "Developers Configurations", icon: <Building2 className="h-4 w-4" /> },
     ],
   },
   {

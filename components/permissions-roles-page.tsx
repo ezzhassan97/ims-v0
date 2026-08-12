@@ -78,7 +78,7 @@ const PROPERTIES_PAGE_EXT: PageExt = {
 const EXTENSIONS: Record<string, PageExt> = {
   Areas: { tabs: [{ label: "Hierarchy" }, { label: "SEO" }, { label: "FAQs" }] },
   "Nawy Space": { tabs: [{ label: "Images" }, { label: "Analysis" }] },
-  Developers: { details: [{ label: "Developer Details", tabs: ["Main Info", "Projects", "Contacts", "SEO", "FAQs"] }] },
+  Developers: { details: [{ label: "Developer Details", tabs: ["Main Info", "Metadata", "Projects", "Contacts", "SEO", "FAQs"] }] },
   "Whatsapp Groups": { details: [{ label: "WhatsApp Group Details", tabs: ["Group Summary", "Members", "Media"] }] },
   Launches: {
     details: [{
@@ -90,7 +90,7 @@ const EXTENSIONS: Record<string, PageExt> = {
     details: [{
       label: "Project Details",
       tabs: [
-        "Main Info", "Features", "SEO", "FAQs", "Launches", "Phases", "Project Gallery", "Payment Plans",
+        "Main Info", "Features", "Metadata", "SEO", "FAQs", "Launches", "Phases", "Project Gallery", "Payment Plans",
         "Render Images", "Floor Plans", "Properties", "Masterplans", "Masterplan Amenities", "Masterplan Buildings",
         "Construction Updates", "Ingestion Entries", "Attachments",
       ],
@@ -103,6 +103,8 @@ const EXTENSIONS: Record<string, PageExt> = {
   "Nawy Now Properties": PROPERTIES_PAGE_EXT,
   "Resale Marketplace": PROPERTIES_PAGE_EXT,
   "Rental Properties": PROPERTIES_PAGE_EXT,
+  "Project Configurations": { tabs: [{ label: "Projects Classification" }, { label: "Projects Metadata" }] },
+  "Developers Configurations": { tabs: [{ label: "Developers Classification" }, { label: "Developers Metadata" }] },
   "Automatic Sheets Entries": { details: [{ label: "Sheet Entry Details" }] },
   "Manual Grouped Entries": { details: [{ label: "Manual Entry Details" }] },
 }

@@ -27,6 +27,7 @@ import { MasterplansPage } from "@/components/masterplans-page"
 import { BrochuresPage } from "@/components/brochures-page"
 import { FloorPlansPage } from "@/components/floor-plans-page"
 import { PropertiesConfigurationsPage } from "@/components/properties-configurations-page"
+import { ProjectConfigurationsPage, DevelopersConfigurationsPage } from "@/components/meta-config-pages"
 import { IngestionEntriesPage } from "@/components/ingestion-entries-page"
 import { SheetEntryDetailsPage } from "@/components/sheet-entry-details-page"
 import { ManualEntryDetailsPage } from "@/components/manual-entry-details-page"
@@ -98,6 +99,10 @@ export function AppShell() {
         return <IngestionEntriesPage key="manual" mode="manual" onView={(e) => setSheetEntry({ entry: e, mode: "manual" })} />
       case "Properties Configurations":
         return <PropertiesConfigurationsPage />
+      case "Project Configurations":
+        return <ProjectConfigurationsPage />
+      case "Developers Configurations":
+        return <DevelopersConfigurationsPage />
       case "Validation Rules":
         return <ValidationRulesPage />
       case "Properties Data Issues":

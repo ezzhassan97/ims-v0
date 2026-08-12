@@ -5,7 +5,7 @@ import {
   Search, SlidersHorizontal, ArrowUpDown, ArrowUp, ArrowDown, Columns3, Plus, Copy, Check, ChevronDown, Download,
   ArrowRight, Home, ChevronRight, Pencil, ChevronUp, MoreHorizontal, MessageCircle,
   ChevronLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Eye, EyeOff, FileText, Globe, ToggleRight, Users, HelpCircle,
-  Image as ImageIcon, Group as GroupIcon, GripVertical, Trash2, Save, X, UploadCloud,
+  Image as ImageIcon, Group as GroupIcon, GripVertical, Trash2, Save, X, UploadCloud, Braces,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -27,6 +27,7 @@ import { PROJECTS } from "@/lib/projects-mock"
 import { WA_CONTACTS, type WaContact } from "@/lib/wa-contacts-mock"
 import { devContactsFor, type DevContact } from "@/lib/dev-contacts-mock"
 import { DeveloperCreatePage } from "@/components/developer-create-page"
+import { MetadataTab } from "@/components/metadata-tab"
 import { DEVELOPERS, WA_GROUP_OPTIONS, type Developer, type DevPriority, type DevListingStatus, type DevOrg } from "@/lib/developers-mock"
 
 const PRIORITIES: DevPriority[] = ["Lowest", "Low", "Medium", "High", "Highest"]
@@ -632,6 +633,7 @@ function PagerBtn({ children, onClick, disabled }: { children: React.ReactNode; 
 
 // ── Developer Details ────────────────────────────────────────────────────────
 const DETAIL_TABS = [
+  { value: "metadata", label: "Metadata", icon: Braces },
   { value: "seo", label: "SEO", icon: FileText },
   { value: "faqs", label: "FAQs", icon: HelpCircle },
   { value: "projects", label: "Projects", icon: Building2 },
@@ -805,6 +807,7 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
               <TabsTrigger key={t.value} value={t.value} className="gap-1.5"><t.icon className="h-3.5 w-3.5" />{t.label}</TabsTrigger>
             ))}
           </TabsList>
+          <TabsContent value="metadata"><MetadataTab kind="developer" /></TabsContent>
           <TabsContent value="seo"><SeoTab entity={developer} /></TabsContent>
           <TabsContent value="faqs"><FaqsTab entityName={developer.name} /></TabsContent>
           <TabsContent value="projects"><ProjectsTab developer={developer} /></TabsContent>
