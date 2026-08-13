@@ -78,7 +78,7 @@ const PROPERTIES_PAGE_EXT: PageExt = {
 const EXTENSIONS: Record<string, PageExt> = {
   Areas: { tabs: [{ label: "Hierarchy" }, { label: "SEO" }, { label: "FAQs" }] },
   "Nawy Space": { tabs: [{ label: "Images" }, { label: "Analysis" }] },
-  Developers: { details: [{ label: "Developer Details", tabs: ["Main Info", "Metadata", "Projects", "Contacts", "SEO", "FAQs"] }] },
+  Developers: { details: [{ label: "Developer Details", tabs: ["Main Info", "Metadata", "Projects", "Contacts", "SEO", "AI Summary", "FAQs"] }] },
   "Whatsapp Groups": { details: [{ label: "WhatsApp Group Details", tabs: ["Group Summary", "Members", "Media"] }] },
   Launches: {
     details: [{
@@ -90,9 +90,9 @@ const EXTENSIONS: Record<string, PageExt> = {
     details: [{
       label: "Project Details",
       tabs: [
-        "Main Info", "Features", "Metadata", "SEO", "FAQs", "Launches", "Phases", "Project Gallery", "Payment Plans",
+        "Main Info", "Features", "Metadata", "SEO", "AI Summary", "FAQs", "Launches", "Phases", "Project Gallery", "Payment Plans",
         "Render Images", "Floor Plans", "Properties", "Masterplans", "Masterplan Amenities", "Masterplan Buildings",
-        "Construction Updates", "Ingestion Entries", "Attachments",
+        "Construction Updates", "Ingestion Entries", "Attachments", "Configurations",
       ],
     }],
   },

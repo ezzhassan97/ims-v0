@@ -5,7 +5,7 @@ import {
   Search, SlidersHorizontal, ArrowUpDown, ArrowUp, ArrowDown, Columns3, Plus, Copy, Check, ChevronDown, Download,
   ArrowRight, Home, ChevronRight, Pencil, ChevronUp, MoreHorizontal, MessageCircle,
   ChevronLeft, ChevronsLeft, ChevronsRight, Building2, ExternalLink, Eye, EyeOff, FileText, Globe, ToggleRight, Users, HelpCircle,
-  Image as ImageIcon, Group as GroupIcon, GripVertical, Trash2, Save, X, UploadCloud, Braces,
+  Image as ImageIcon, Group as GroupIcon, GripVertical, Trash2, Save, X, UploadCloud, Braces, Sparkles,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -27,7 +27,7 @@ import { PROJECTS } from "@/lib/projects-mock"
 import { WA_CONTACTS, type WaContact } from "@/lib/wa-contacts-mock"
 import { devContactsFor, type DevContact } from "@/lib/dev-contacts-mock"
 import { DeveloperCreatePage } from "@/components/developer-create-page"
-import { MetadataTab } from "@/components/metadata-tab"
+import { MetadataTab, AiSummaryTab } from "@/components/metadata-tab"
 import { DEVELOPERS, WA_GROUP_OPTIONS, type Developer, type DevPriority, type DevListingStatus, type DevOrg } from "@/lib/developers-mock"
 
 const PRIORITIES: DevPriority[] = ["Lowest", "Low", "Medium", "High", "Highest"]
@@ -635,6 +635,7 @@ function PagerBtn({ children, onClick, disabled }: { children: React.ReactNode; 
 const DETAIL_TABS = [
   { value: "metadata", label: "Metadata", icon: Braces },
   { value: "seo", label: "SEO", icon: FileText },
+  { value: "ai-summary", label: "AI Summary", icon: Sparkles },
   { value: "faqs", label: "FAQs", icon: HelpCircle },
   { value: "projects", label: "Projects", icon: Building2 },
   { value: "whatsapp-media", label: "WhatsApp Media", icon: ImageIcon },
@@ -809,6 +810,7 @@ function DeveloperDetails({ developer, onBack, onUpdate }: { developer: Develope
           </TabsList>
           <TabsContent value="metadata"><MetadataTab kind="developer" /></TabsContent>
           <TabsContent value="seo"><SeoTab entity={developer} /></TabsContent>
+          <TabsContent value="ai-summary"><AiSummaryTab kind="developer" /></TabsContent>
           <TabsContent value="faqs"><FaqsTab entityName={developer.name} /></TabsContent>
           <TabsContent value="projects"><ProjectsTab developer={developer} /></TabsContent>
           <TabsContent value="whatsapp-media"><WhatsAppMediaTable hideDeveloperFilter /></TabsContent>

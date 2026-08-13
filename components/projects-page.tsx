@@ -4,8 +4,9 @@ import { useState } from "react"
 import {
   Home, ChevronRight, ClipboardList, Sparkles, Globe, HelpCircle, Rocket, Layers, CreditCard,
   Image as ImageIcon, Images, LayoutTemplate, Building2, Map, Trees, Building as BuildingIcon, HardHat,
-  Database, Paperclip, ScrollText, Braces,
+  Database, Paperclip, ScrollText, Braces, SlidersHorizontal,
 } from "lucide-react"
+import { toast } from "sonner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ProjectHeader } from "@/components/project-header"
 import { PROJECTS, type ProjectRow } from "@/lib/projects-mock"
@@ -17,7 +18,8 @@ import { AmenitiesList } from "@/components/amenities-list"
 import { AmenitiesMap } from "@/components/amenities-map"
 import { SeoTab, FaqsTab } from "@/components/developers-page"
 import { ProjectFeaturesTab } from "@/components/project-features-tab"
-import { MetadataTab } from "@/components/metadata-tab"
+import { MetadataTab, AiSummaryTab } from "@/components/metadata-tab"
+import { Switch } from "@/components/ui/switch"
 import { MasterplansPage } from "@/components/masterplans-page"
 import { ConstructionUpdatesPage } from "@/components/construction-updates-page"
 import { RenderImagesPage } from "@/components/render-images-page"
@@ -299,6 +301,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
                 { value: "features", label: "Features", icon: ClipboardList },
                 { value: "metadata", label: "Metadata", icon: Braces },
                 { value: "seo", label: "SEO", icon: Globe },
+                { value: "ai-summary", label: "AI Summary", icon: Sparkles },
                 { value: "faqs", label: "FAQs", icon: HelpCircle },
                 { value: "launches", label: "Launches", icon: Rocket },
                 // Phases only exist under a main project
@@ -314,6 +317,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
                 { value: "construction-updates", label: "Construction Updates", icon: HardHat },
                 { value: "ingestion-entries", label: "Ingestion Entries", icon: Database },
                 { value: "attachments", label: "Attachments", icon: Paperclip },
+                { value: "configurations", label: "Configurations", icon: SlidersHorizontal },
                 { value: "audit-logs", label: "Audit Logs", icon: ScrollText },
               ].map(({ value, label, icon: Icon }) => (
                 <TabsTrigger key={value} value={value} className="data-[state=active]:bg-card">
@@ -331,6 +335,14 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
 
           <TabsContent value="metadata" className="mt-4">
             <MetadataTab kind="project" />
+          </TabsContent>
+
+          <TabsContent value="ai-summary" className="mt-4">
+            <AiSummaryTab kind="project" />
+          </TabsContent>
+
+          <TabsContent value="configurations" className="mt-4">
+            <ProjectConfigFlagsTab />
           </TabsContent>
 
           {["floor-plans", "attachments", "audit-logs"].map((value) => (
@@ -391,7 +403,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
           </TabsContent>
 
           <TabsContent value="properties" className="mt-4">
-            <AllPropertiesPage embedded scopeProject={{ name: project?.name ?? "", isPhase: project?.isPhase ?? false, mainProject: project?.mainProject?.name }} />
+            <ProjectPropertiesTab scope={{ name: project?.name ?? "", isPhase: project?.isPhase ?? false, mainProject: project?.mainProject?.name }} />
           </TabsContent>
 
           <TabsContent value="render-images" className="mt-4">
@@ -510,6 +522,66 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
             />
           </TabsContent>
         </Tabs>
+      </div>
+    </div>
+  )
+}
+
+// ─── Properties tab — sale-type scoping pills over the embedded properties view ──
+
+const SALE_TABS = [
+  { key: "all", label: "All" },
+  { key: "launch", label: "Launch", saleType: "Launch" },
+  { key: "primary-auto", label: "Primary Automatic", saleType: "Primary", entryType: "Automatic" },
+  { key: "primary-manual", label: "Primary Manual", saleType: "Primary", entryType: "Manual" },
+  { key: "resale", label: "Resale", saleType: "Resale" },
+  { key: "nawy-now", label: "Nawy Now", saleType: "Nawy Now" },
+  { key: "rentals", label: "Rentals", saleType: "Rental" },
+] as const
+
+function ProjectPropertiesTab({ scope }: { scope: { name: string; isPhase: boolean; mainProject?: string } }) {
+  const [sale, setSale] = useState<string>("all")
+  const t = SALE_TABS.find((x) => x.key === sale) ?? SALE_TABS[0]
+  return (
+    <div className="space-y-4">
+      <Tabs value={sale} onValueChange={setSale}>
+        <TabsList className="w-max bg-muted">
+          {SALE_TABS.map((s) => (
+            <TabsTrigger key={s.key} value={s.key} className="data-[state=active]:bg-card">{s.label}</TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+      {/* Key remount per scope keeps every tab's filters/pagination clean */}
+      <AllPropertiesPage
+        key={sale}
+        embedded
+        scopeProject={scope}
+        fixedSaleType={"saleType" in t ? t.saleType : undefined}
+        fixedEntryType={"entryType" in t ? t.entryType : undefined}
+      />
+    </div>
+  )
+}
+
+// ─── Configurations tab — project-level flags ─────────────────────────────────
+
+function ProjectConfigFlagsTab() {
+  const [unlocked, setUnlocked] = useState(false)
+  return (
+    <div className="rounded-xl border border-border bg-card">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <h3 className="text-sm font-semibold text-foreground">Configurations</h3>
+        <span className="text-[11px] text-muted-foreground">Project-level flags</span>
+      </div>
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
+        <div>
+          <p className="text-sm font-medium text-foreground">Nawy Unlocked Supported</p>
+          <p className="text-[11px] text-muted-foreground">Whether this project participates in the Nawy Unlocked program</p>
+        </div>
+        <Switch
+          checked={unlocked}
+          onCheckedChange={(v) => { setUnlocked(v); toast.success(`Nawy Unlocked ${v ? "enabled" : "disabled"} for this project`) }}
+        />
       </div>
     </div>
   )

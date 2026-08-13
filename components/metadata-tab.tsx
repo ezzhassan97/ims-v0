@@ -266,34 +266,39 @@ export function MetadataTab({ kind }: { kind: MetaKind }) {
         </div>
       </div>
 
-      {/* ── AI Summary ───────────────────────────────────────────────────────── */}
-      <div className="rounded-xl border border-border bg-card">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-          <h3 className="text-sm font-semibold text-foreground">AI Summary</h3>
-          <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-            <Sparkles className="h-3 w-3" />Summarized by AI — read-only
-          </span>
-        </div>
-        <Accordion type="multiple" className="px-4">
-          {AI_SUMMARIES[kind].map((s) => (
-            <AccordionItem key={s.title} value={s.title}>
-              <AccordionTrigger className="text-sm font-medium">{s.title}</AccordionTrigger>
-              <AccordionContent>
-                <div className="space-y-2 text-sm leading-6 text-foreground">
-                  {s.paragraphs.map((p, i) => <p key={i}>{p}</p>)}
-                  {s.bullets && (
-                    <ul className="list-disc space-y-1 pl-5">
-                      {s.bullets.map((b) => (
-                        <li key={b.label}><span className="font-semibold">{b.label}:</span> {b.text}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
+    </div>
+  )
+}
+
+/** AI Summary — its own details tab: read-only accordions of the AI-generated content. */
+export function AiSummaryTab({ kind }: { kind: MetaKind }) {
+  return (
+    <div className="rounded-xl border border-border bg-card">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <h3 className="text-sm font-semibold text-foreground">AI Summary</h3>
+        <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+          <Sparkles className="h-3 w-3" />Summarized by AI — read-only
+        </span>
       </div>
+      <Accordion type="multiple" className="px-4">
+        {AI_SUMMARIES[kind].map((s) => (
+          <AccordionItem key={s.title} value={s.title}>
+            <AccordionTrigger className="text-sm font-medium">{s.title}</AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-2 text-sm leading-6 text-foreground">
+                {s.paragraphs.map((p, i) => <p key={i}>{p}</p>)}
+                {s.bullets && (
+                  <ul className="list-disc space-y-1 pl-5">
+                    {s.bullets.map((b) => (
+                      <li key={b.label}><span className="font-semibold">{b.label}:</span> {b.text}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        ))}
+      </Accordion>
     </div>
   )
 }

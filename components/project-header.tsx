@@ -50,13 +50,14 @@ interface HeaderForm {
   totalUnits: string
   manualRank: string
   autoRank: string
+  sahelKm: string
   listingStatus: string
   primaryStatus: string
   entryType: string
 }
 
 const DECIMAL_FIELDS = ["projectArea", "greeneryArea", "buaArea", "footprintArea"] as const
-const INT_FIELDS = ["buildings", "totalUnits", "manualRank"] as const
+const INT_FIELDS = ["buildings", "totalUnits", "manualRank", "sahelKm"] as const
 
 /**
  * Main project info card — view-only header bar (name, level, parent/developer links,
@@ -76,6 +77,7 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
     constructionStatus: p.constructionStatus ?? "Off-plan",
     coordinates: "29.960077, 31.077884",
     address: "",
+    sahelKm: "",
     projectArea: p.areaKm2 != null ? String(Math.round(p.areaKm2 * 1_000_000)) : "",
     greeneryArea: "",
     buaArea: "",
@@ -122,10 +124,13 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
     if (!form.nameAr.trim()) bad.add("nameAr")
     for (const k of DECIMAL_FIELDS) if (form[k] && !(/^\d+(\.\d+)?$/.test(form[k]) && Number(form[k]) > 0)) bad.add(k)
     for (const k of INT_FIELDS) if (form[k] && !(/^\d+$/.test(form[k]) && Number(form[k]) > 0)) bad.add(k)
+    if (form.sahelKm && Number(form.sahelKm) > 1000) bad.add("sahelKm")
     setErrs(bad)
     if (bad.size > 0) {
       toast.error(bad.has("nameEn") || bad.has("nameAr")
         ? "Name En and Name Ar are mandatory — and numeric fields must be positive numbers"
+        : bad.has("sahelKm")
+        ? "Sahel KM must be a positive integer up to 1000"
         : "Numeric fields must be positive numbers")
       return
     }
@@ -345,6 +350,8 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
                 {(p.organizations ?? ["Nawy"]).map((o) => <OrgTag key={o} org={o} />)}
               </div>
             </div>
+
+            {field("Sahel KM", "sahelKm", { suffix: "KM" })}
 
             {viewOnly("Created At", p.createdAt ? fmtDateTime(p.createdAt) : "—")}
             {viewOnly("Updated At", p.updatedAt ? fmtDateTime(p.updatedAt) : "—")}

@@ -5385,7 +5385,7 @@ function DateRangeDropdown({
   )
 }
 
-export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedded = false, scopeProject, fixedSaleType, pageTitle, showIssuesMode = false }: { onOpenGroupDetail?: (d: GroupDetailPayload) => void; onCreateProperty?: (v: Variation) => void; embedded?: boolean; scopeProject?: { name: string; isPhase: boolean; mainProject?: string }; /** Sale-type page (Primary/Resale/Nawy Now/Rental): locks the sale type, hides its dropdown + the analytics cards. */ fixedSaleType?: string; pageTitle?: string; /** Properties Data Issues tab: only properties with open issues, highlights always on. */ showIssuesMode?: boolean } = {}) {
+export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedded = false, scopeProject, fixedSaleType, fixedEntryType, pageTitle, showIssuesMode = false }: { onOpenGroupDetail?: (d: GroupDetailPayload) => void; onCreateProperty?: (v: Variation) => void; embedded?: boolean; scopeProject?: { name: string; isPhase: boolean; mainProject?: string }; /** Sale-type page (Primary/Resale/Nawy Now/Rental): locks the sale type, hides its dropdown + the analytics cards. */ fixedSaleType?: string; /** Locks the entry type too — the Primary Automatic / Primary Manual scopes. */ fixedEntryType?: string; pageTitle?: string; /** Properties Data Issues tab: only properties with open issues, highlights always on. */ showIssuesMode?: boolean } = {}) {
   // Scoped (project details embed): properties of that project — for a phase, of its main
   // project. Mock rows only name-match a subset of projects, so fall back when nothing matches.
   const scopeTarget = scopeProject ? (scopeProject.isPhase ? scopeProject.mainProject ?? scopeProject.name : scopeProject.name) : undefined
@@ -5461,7 +5461,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
   }, [projSelIds, pickerData])
   const [saleTypeFilter, setSaleTypeFilter] = useState<Set<string>>(() => (fixedSaleType ? new Set([fixedSaleType]) : new Set()))
   const [availabilityFilter, setAvailabilityFilter] = useState<Set<string>>(new Set())
-  const [entryTypeFilter, setEntryTypeFilter] = useState<Set<string>>(new Set())
+  const [entryTypeFilter, setEntryTypeFilter] = useState<Set<string>>(() => (fixedEntryType ? new Set([fixedEntryType]) : new Set()))
   const [listingFilter, setListingFilter] = useState<Set<string>>(new Set())
   const [propertyCategoryFilter, setPropertyCategoryFilter] = useState<Set<string>>(new Set())
   const [propertyTypeFilter, setPropertyTypeFilter] = useState<Set<string>>(new Set())
@@ -5511,7 +5511,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
     setProjSelIds([])
     setSaleTypeFilter(fixedSaleType ? new Set([fixedSaleType]) : new Set())
     setAvailabilityFilter(new Set())
-    setEntryTypeFilter(new Set())
+    setEntryTypeFilter(fixedEntryType ? new Set([fixedEntryType]) : new Set())
     setListingFilter(new Set())
     setPropertyCategoryFilter(new Set())
     setPropertyTypeFilter(new Set())
@@ -5714,7 +5714,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                   <ProjectTreeSelect multi projects={pickerData.projectTree} values={projSelIds} onValuesChange={setProjSelIds} label="Project" className="w-44 flex-1" />
                   {!fixedSaleType && <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter}      className="flex-1" />}
                   <FilterDropdown label="Status"         options={filterOptions.availability}    selected={availabilityFilter}  onChange={setAvailabilityFilter}  className="flex-1" />
-                  <FilterDropdown label="Entry Type"     options={filterOptions.entryTypes}      selected={entryTypeFilter}     onChange={setEntryTypeFilter}     className="flex-1" />
+                  {!fixedEntryType && <FilterDropdown label="Entry Type"     options={filterOptions.entryTypes}      selected={entryTypeFilter}     onChange={setEntryTypeFilter}     className="flex-1" />}
                   <FilterDropdown label="Listing Status" options={filterOptions.listingStatuses} selected={listingFilter}       onChange={setListingFilter}       className="flex-1" />
                 </div>
               </div>
