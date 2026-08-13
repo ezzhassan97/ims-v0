@@ -145,7 +145,8 @@ export function IssueTrackingDrawer({
         </SheetHeader>
 
         {/* 3 panes: issue details | comments & logs | the unit itself */}
-        <div className="relative grid min-h-0 flex-1 grid-cols-[320px_minmax(280px,330px)_minmax(0,1fr)] divide-x divide-border">
+        {/* 30% | 30% | 40% */}
+        <div className="relative grid min-h-0 flex-1 grid-cols-[minmax(0,3fr)_minmax(0,3fr)_minmax(0,4fr)] divide-x divide-border">
           {/* Pane 1 — all the main fields of the issue, as in the table */}
           <div className="min-w-0 space-y-5 overflow-y-auto px-5 py-4">
             <div className="space-y-2.5">
