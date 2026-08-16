@@ -67,8 +67,6 @@ type LinkState = {
   form: LaunchFormData
   set: (key: keyof LaunchFormData, value: unknown) => void
   setForm: React.Dispatch<React.SetStateAction<LaunchFormData>>
-  mode: "new" | "existing"
-  setMode: (m: "new" | "existing") => void
   exDevId: string
   setExDevId: (v: string) => void
   exSel: ProjectTreeSelection
@@ -79,7 +77,6 @@ type LinkState = {
 /** Shared form state for the dialog and the details-tab card — prefill mirrors the launch's linkage. */
 function useLinkState(active: boolean, initial?: Launch, scope?: LaunchScope, resetKey?: string): LinkState {
   const [form, setForm] = useState<LaunchFormData>({ ...EMPTY_FORM })
-  const [mode, setMode] = useState<"new" | "existing">("new")
   const [exDevId, setExDevId] = useState("")
   const [exSel, setExSel] = useState<ProjectTreeSelection>(null)
   const exRow = exSel ? PROJECTS.find((p) => p.id === exSel.id) : undefined
@@ -89,16 +86,15 @@ function useLinkState(active: boolean, initial?: Launch, scope?: LaunchScope, re
 
   useEffect(() => {
     if (!active) return
-    // Manual creation always links to an existing project/phase; "new" survives only
-    // as the not-linked-yet state of launches that arrived unlinked (e.g. WhatsApp).
-    setMode(initial ? "new" : "existing"); setExDevId(""); setExSel(null)
+    // Every launch links to an existing project/phase — unlinked ones (WhatsApp
+    // free-text detections) just have empty pickers plus the detected-names card.
+    setExDevId(""); setExSel(null)
     if (initial) {
       const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = initial
       setForm(rest as LaunchFormData)
       // Matched launches open in "existing" with the picker prefilled from the current linkage
       const matched = initial.projectLevel === "Phase" ? !!(initial.projectId && initial.parentProjectId) : !!initial.projectId
       if (matched && initial.projectId) {
-        setMode("existing")
         setExDevId(initial.developer.id)
         setExSel({
           kind: initial.projectLevel === "Phase" ? "phase" : "project",
@@ -124,7 +120,7 @@ function useLinkState(active: boolean, initial?: Launch, scope?: LaunchScope, re
     }
   }, [active, resetKey])
 
-  return { form, set, setForm, mode, setMode, exDevId, setExDevId, exSel, setExSel, exRow }
+  return { form, set, setForm, exDevId, setExDevId, exSel, setExSel, exRow }
 }
 
 /** Linkage fields the picked system project/phase overwrites on save. */
@@ -145,32 +141,10 @@ function remapOf(s: LinkState): Partial<Launch> | null {
   }
 }
 
-/** Edit-mode patch: existing → remap onto the pick; new → drop every system link. */
+/** Edit-mode patch: relink when a pick was made, otherwise keep the current linkage. */
 function editPatch(s: LinkState): Partial<Launch> {
   const remap = remapOf(s)
-  return s.mode === "existing" && remap
-    ? { ...s.form, ...remap }
-    : { ...s.form, projectId: undefined, parentProjectId: undefined, existingProject: undefined, listingProject: undefined }
-}
-
-function ModeToggle({ s, locked }: { s: LinkState; locked?: boolean }) {
-  return (
-    <div className="flex gap-2">
-      {([["new", "New Launch", "Not linked yet — the launch can't be ingested until it's linked to an existing project or phase."], ["existing", "Already Existing Project", "Link this launch to a project or phase that already exists."]] as const).map(([k, label, desc]) => (
-        <button
-          key={k} type="button" disabled={locked} onClick={() => s.setMode(k)}
-          className={cn(
-            "flex-1 rounded-lg border p-3 text-left transition-colors",
-            s.mode === k ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border bg-card",
-            locked ? "cursor-not-allowed opacity-70" : s.mode !== k && "hover:border-muted-foreground/40",
-          )}
-        >
-          <span className="block text-sm font-medium text-foreground">{label}</span>
-          <span className="mt-0.5 block text-xs text-muted-foreground">{desc}</span>
-        </button>
-      ))}
-    </div>
-  )
+  return remap ? { ...s.form, ...remap } : { ...s.form }
 }
 
 function DetectedRow({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -183,100 +157,67 @@ function DetectedRow({ label, value, sub }: { label: string; value: string; sub?
   )
 }
 
-/** Everything below the title/description — the mode toggle plus the linkage grids. */
-function LinkFormBody({ s, scope, locked, canToggle }: { s: LinkState; scope?: LaunchScope; locked?: boolean; canToggle?: boolean }) {
-  const { form, set, setForm, mode, exDevId, setExDevId, exSel, setExSel, exRow } = s
+/** Everything below the title/description — detected-names helper + the linkage pickers. */
+function LinkFormBody({ s, scope, locked, unlinked }: { s: LinkState; scope?: LaunchScope; locked?: boolean; unlinked?: boolean }) {
+  const { form, set, setForm, exDevId, setExDevId, exSel, setExSel, exRow } = s
   const dis = !!locked
   const entity = form.projectLevel === "Phase" ? "phase" : "project"
+
+  if (scope) return (
+    <div className="grid grid-cols-2 gap-4 py-2">
+      <div className="space-y-1.5">
+        <Label>Developer</Label>
+        <select value={form.developer.name} disabled className={SELECT}>
+          <option value={scope.developer ?? ""}>{scope.developer ?? "—"}</option>
+        </select>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>Project / Phase</Label>
+        {scope.isPhase ? (
+          // Phase scope: preselected to this phase, locked
+          <select value={scope.name} disabled className="w-full border border-border rounded-md px-3 py-2 text-sm bg-muted text-muted-foreground cursor-not-allowed">
+            <option value={scope.name}>{scope.name} — phase of {scope.mainProject ?? "project"}</option>
+          </select>
+        ) : (
+          // Main-project scope: main project + its phases
+          <select
+            value={form.projectLevel === "Main Project" ? "__main__" : form.phase}
+            onChange={(e) => {
+              const v = e.target.value
+              if (v === "__main__") setForm((prev) => ({ ...prev, projectLevel: "Main Project", projectNameEn: scope.name, phase: "" }))
+              else setForm((prev) => ({ ...prev, projectLevel: "Phase", projectNameEn: scope.name, phase: v }))
+            }}
+            className={SELECT}
+          >
+            <option value="__main__">{scope.name} (Main Project)</option>
+            {(scope.phases ?? []).map((ph) => <option key={ph} value={ph}>{ph}</option>)}
+          </select>
+        )}
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>Area <span className="text-[10px] font-normal text-muted-foreground">(from the selected project)</span></Label>
+        <select value={form.area} disabled className={SELECT}>
+          <option value={form.area}>{form.area || "—"}</option>
+        </select>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>Type</Label>
+        <select value={form.type} onChange={(e) => set("type", e.target.value as Launch["type"])} className={SELECT}>
+          <option value="Launch">Launch</option>
+          <option value="Release">Release</option>
+        </select>
+      </div>
+    </div>
+  )
+
   return (
     <>
-      {!scope && canToggle && <ModeToggle s={s} locked={locked} />}
-
-      {!scope && mode === "existing" ? (
-        <div className="grid grid-cols-2 gap-4 py-2">
-          <div className="space-y-1.5">
-            <Label>Developer</Label>
-            {dis ? (
-              <Input value={form.developer.name} disabled className="disabled:bg-muted" />
-            ) : (
-              <div className="rounded-md bg-card">
-                <DeveloperSelect developers={SYS_DEVELOPERS} value={exDevId} onChange={(v) => { setExDevId(v); setExSel(null) }} placeholder="Select developer…" />
-              </div>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label>Project / Phase</Label>
-            {dis ? (
-              <Input value={form.projectLevel === "Phase" ? `${form.phase} — ${form.projectNameEn}` : form.projectNameEn} disabled className="disabled:bg-muted" />
-            ) : (
-              <div className="rounded-md bg-card">
-                <ProjectTreeSelect projects={sysProjectTree(exDevId || undefined)} value={exSel} onChange={setExSel} />
-              </div>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label>Area <span className="text-[10px] font-normal text-muted-foreground">(from the selected project)</span></Label>
-            <Input value={(dis ? form.area : exRow?.area) ?? ""} disabled className="disabled:bg-muted" placeholder="—" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Type</Label>
-            <select value={form.type} disabled={dis} onChange={(e) => set("type", e.target.value as Launch["type"])} className={SELECT}>
-              <option value="Launch">Launch</option>
-              <option value="Release">Release</option>
-            </select>
-          </div>
-        </div>
-      ) : scope ? (
-      <div className="grid grid-cols-2 gap-4 py-2">
-        <div className="space-y-1.5">
-          <Label>Developer</Label>
-          <select value={form.developer.name} disabled className={SELECT}>
-            <option value={scope.developer ?? ""}>{scope.developer ?? "—"}</option>
-          </select>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label>Project / Phase</Label>
-          {scope.isPhase ? (
-            // Phase scope: preselected to this phase, locked
-            <select value={scope.name} disabled className="w-full border border-border rounded-md px-3 py-2 text-sm bg-muted text-muted-foreground cursor-not-allowed">
-              <option value={scope.name}>{scope.name} — phase of {scope.mainProject ?? "project"}</option>
-            </select>
-          ) : (
-            // Main-project scope: main project + its phases
-            <select
-              value={form.projectLevel === "Main Project" ? "__main__" : form.phase}
-              onChange={(e) => {
-                const v = e.target.value
-                if (v === "__main__") setForm((prev) => ({ ...prev, projectLevel: "Main Project", projectNameEn: scope.name, phase: "" }))
-                else setForm((prev) => ({ ...prev, projectLevel: "Phase", projectNameEn: scope.name, phase: v }))
-              }}
-              className={SELECT}
-            >
-              <option value="__main__">{scope.name} (Main Project)</option>
-              {(scope.phases ?? []).map((ph) => <option key={ph} value={ph}>{ph}</option>)}
-            </select>
-          )}
-        </div>
-
-        <div className="space-y-1.5">
-          <Label>Area <span className="text-[10px] font-normal text-muted-foreground">(from the selected project)</span></Label>
-          <select value={form.area} disabled className={SELECT}>
-            <option value={form.area}>{form.area || "—"}</option>
-          </select>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label>Type</Label>
-          <select value={form.type} onChange={(e) => set("type", e.target.value as Launch["type"])} className={SELECT}>
-            <option value="Launch">Launch</option>
-            <option value="Release">Release</option>
-          </select>
-        </div>
-      </div>
-      ) : (
-      /* Not linked yet — detected names are context for finding/creating the entity, never payload */
-      <div className="space-y-3 py-2">
+      {/* Free-text names from the source (WhatsApp detection or manual entry) — context that
+          helps the user find the right project/phase in the pickers below, never payload */}
+      {unlinked && (
         <div className="rounded-lg border border-border bg-muted/30 p-3">
           <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             {form.source === "WhatsApp" ? "Detected from WhatsApp" : "Names on record"}
@@ -289,23 +230,48 @@ function LinkFormBody({ s, scope, locked, canToggle }: { s: LinkState; scope?: L
             <DetectedRow label="Area" value={form.area} />
           </div>
         </div>
+      )}
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label>Type</Label>
-            <select value={form.type} disabled={dis} onChange={(e) => set("type", e.target.value as Launch["type"])} className={SELECT}>
-              <option value="Launch">Launch</option>
-              <option value="Release">Release</option>
-            </select>
-          </div>
+      <div className="grid grid-cols-2 gap-4 py-2">
+        <div className="space-y-1.5">
+          <Label>Developer</Label>
+          {dis ? (
+            <Input value={form.developer.name} disabled className="disabled:bg-muted" />
+          ) : (
+            <div className="rounded-md bg-card">
+              <DeveloperSelect developers={SYS_DEVELOPERS} value={exDevId} onChange={(v) => { setExDevId(v); setExSel(null) }} placeholder="Select developer…" />
+            </div>
+          )}
         </div>
-
-        <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
-          This launch isn't linked to a system {entity} — it can be approved but <span className="font-semibold">not ingested</span>.
-          Use the names above to search for the {entity} under <span className="font-medium">Already Existing Project</span>. If it
-          doesn't exist yet, create it from the Projects page first, then link it here.
-        </p>
+        <div className="space-y-1.5">
+          <Label>Project / Phase</Label>
+          {dis ? (
+            <Input value={form.projectLevel === "Phase" ? `${form.phase} — ${form.projectNameEn}` : form.projectNameEn} disabled className="disabled:bg-muted" />
+          ) : (
+            <div className="rounded-md bg-card">
+              <ProjectTreeSelect projects={sysProjectTree(exDevId || undefined)} value={exSel} onChange={setExSel} />
+            </div>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label>Area <span className="text-[10px] font-normal text-muted-foreground">(from the selected project)</span></Label>
+          <Input value={(exRow?.area ?? (dis || !exSel ? form.area : "")) || ""} disabled className="disabled:bg-muted" placeholder="—" />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Type</Label>
+          <select value={form.type} disabled={dis} onChange={(e) => set("type", e.target.value as Launch["type"])} className={SELECT}>
+            <option value="Launch">Launch</option>
+            <option value="Release">Release</option>
+          </select>
+        </div>
       </div>
+
+      {unlinked && !exSel && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
+          This launch isn't linked to a system {entity} yet — it can be approved but <span className="font-semibold">not ingested</span>.
+          Use the names above to find the {entity} in the pickers. If it doesn't exist yet, create it from the Projects page
+          first, then link it here.
+        </p>
       )}
     </>
   )
@@ -340,7 +306,8 @@ export function LaunchFormDialog({
   scope?: LaunchScope
 }) {
   const s = useLinkState(open, initial, scope)
-  const { form, set, mode, exDevId, exSel } = s
+  const { form, set, exDevId, exSel } = s
+  const unlinked = !!initial && !(initial.projectLevel === "Phase" ? initial.projectId && initial.parentProjectId : initial.projectId)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -362,14 +329,15 @@ export function LaunchFormDialog({
           </div>
         </div>
 
-        <LinkFormBody s={s} scope={scope} canToggle={!!initial} />
+        <LinkFormBody s={s} scope={scope} unlinked={unlinked} />
 
         <DialogFooter>
           <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             disabled={
               !(form.title ?? "").trim() ? true
-              : mode === "existing" && !scope
+              // Creation must link; editing an unlinked launch may save without a pick (stays unlinked)
+              : !scope && !initial
                 ? (!exDevId || !exSel)
                 : false
             }
@@ -377,7 +345,7 @@ export function LaunchFormDialog({
               const remap = remapOf(s)
               if (initial && onEdit) {
                 onEdit(initial.id, editPatch(s))
-              } else if (!scope && mode === "existing" && remap) {
+              } else if (!scope && remap) {
                 onSave({ ...form, ...remap })
               } else {
                 onSave({ ...form, ...scopeLink(scope, form) })
@@ -394,13 +362,13 @@ export function LaunchFormDialog({
 }
 
 /**
- * Project Details tab card — the same New / Already-Existing form as the popup,
- * minus title/description. Editable until the launch is ingested, then locked.
+ * Project Details tab card — the same linkage form as the popup, minus
+ * title/description. Editable until the launch is ingested, then locked.
  */
 export function LaunchProjectDetailsCard({ launch, onPatch }: { launch: Launch; onPatch: (patch: Partial<Launch>) => void }) {
   const locked = launch.ingestionStatus === "Ingested"
   const s = useLinkState(true, launch, undefined, `${launch.id}:${launch.updatedAt}`)
-  const canSave = !locked && (s.mode === "new" || (!!s.exDevId && !!s.exSel))
+  const unlinked = !(launch.projectLevel === "Phase" ? launch.projectId && launch.parentProjectId : launch.projectId)
 
   return (
     <Card className="p-6">
@@ -409,18 +377,18 @@ export function LaunchProjectDetailsCard({ launch, onPatch }: { launch: Launch; 
           <h3 className="text-sm font-semibold">Project Details</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {locked
-              ? "Ingested — the linked project and the New / Already Existing state are locked."
-              : "Switch between New and Already Existing, or change the linked project or phase, until the launch is ingested."}
+              ? "Ingested — the linked project is locked."
+              : "Every launch links to an existing project or phase — the link can change until the launch is ingested."}
           </p>
         </div>
         {!locked && (
-          <Button size="sm" className="h-8" disabled={!canSave} onClick={() => onPatch(editPatch(s))}>
+          <Button size="sm" className="h-8" onClick={() => onPatch(editPatch(s))}>
             <Save className="h-3.5 w-3.5 mr-1" />Save Changes
           </Button>
         )}
       </div>
       <div className="grid gap-4">
-        <LinkFormBody s={s} locked={locked} canToggle />
+        <LinkFormBody s={s} locked={locked} unlinked={unlinked} />
       </div>
     </Card>
   )
