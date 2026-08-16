@@ -59,6 +59,7 @@ import {
   ArrowUpDown,
   Group as GroupIcon,
   X,
+  Copy,
   ChevronDown,
   ArrowRight,
   Undo2,
@@ -72,7 +73,7 @@ import { PROJECTS, PROJECT_DEVELOPERS, type ProjPrimaryStatus, type ProjectRow }
 import { LinkProjectDialog, SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
 import { ActionDialog, ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
 import {
-  useLaunches, patchLaunches, addLaunch, activateLaunch, closeLaunch,
+  useLaunches, patchLaunches, addLaunch, activateLaunch, closeLaunch, uuidOf,
   activeConflictOf, isIngestedLaunch, launchPropsOf, launchAreaId, LAUNCH_AREAS, setProjectPrimary, eoiRangeText,
   type Launch,
 } from "@/lib/launches-mock"
@@ -93,6 +94,8 @@ function hasNewAiUpdate(l: Launch): boolean {
 
 // ── Column control (checkbox + ID + actions + order stay fixed) ───────────────
 const LAUNCH_COLS: (ManagedColumn & { width: number })[] = [
+  { id: "title", label: "Title", width: 220 },
+  { id: "description", label: "Description", width: 240 },
   { id: "developer", label: "Developer", width: 230 },
   { id: "projectName", label: "Project Name", width: 190 },
   { id: "phase", label: "Phase", width: 100 },
@@ -102,11 +105,9 @@ const LAUNCH_COLS: (ManagedColumn & { width: number })[] = [
   { id: "approval", label: "Approval", width: 140 },
   { id: "ingestion", label: "Ingestion Status", width: 140 },
   { id: "launchStatus", label: "Launch Status", width: 130 },
-  { id: "project", label: "Linked Project", width: 200 },
   { id: "type", label: "Type", width: 110 },
   { id: "source", label: "Source", width: 110 },
   { id: "completion", label: "Completion", width: 140 },
-  { id: "eoi", label: "EOI", width: 170 },
   { id: "startDate", label: "Start Date", width: 170 },
   { id: "endDate", label: "End Date", width: 170 },
   { id: "aiUpdates", label: "AI Updates", width: 210 },
@@ -164,7 +165,9 @@ const EMPTY_FORM: Omit<Launch, "id" | "createdAt" | "updatedAt"> = {
   offerings: [],
   developer: { name: "", logo: LOGO, id: "" },
   projectNameEn: "",
+  projectNameAr: "",
   phase: "",
+  phaseAr: "",
   projectLevel: "Main Project",
   area: "",
   areaId: "",
@@ -192,6 +195,22 @@ const CHIP_TONES = {
   purple: "border-purple-200 bg-purple-100 text-purple-700",
   redSoft: "border-red-200 bg-red-50 text-red-600",
 } as const
+
+/** Database uuid — truncated mono with hover copy; the numeric id sits underneath. */
+function UuidCell({ uuid }: { uuid: string }) {
+  return (
+    <span className="group/uuid inline-flex items-center gap-1 font-mono text-[10px] leading-none text-muted-foreground" title={uuid}>
+      <span className="max-w-[110px] truncate">{uuid}</span>
+      <span
+        role="button" title="Copy UUID"
+        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(uuid) }}
+        className="cursor-pointer opacity-0 transition-opacity group-hover/uuid:opacity-100"
+      >
+        <Copy className="h-2.5 w-2.5 hover:text-foreground" />
+      </span>
+    </span>
+  )
+}
 
 /** Rectangular tag — same UI as the detailed-properties / playground data-grid badges (rounded-md, never a pill). */
 function Chip({ tone = "white", children }: { tone?: keyof typeof CHIP_TONES; children: React.ReactNode }) {
@@ -368,7 +387,7 @@ function LaunchFormDialog({
           )}
 
           <div className="space-y-1.5">
-            <Label>{scope ? "Project / Phase" : "Project Name"}</Label>
+            <Label>{scope ? "Project / Phase" : <>Project Name En <span className="text-red-500">*</span></>}</Label>
             {scope ? (
               scope.isPhase ? (
                 // Phase scope: preselected to this phase, locked
@@ -406,13 +425,27 @@ function LaunchFormDialog({
             )}
           </div>
 
-          {!scope && form.projectLevel === "Phase" ? (
+          {/* New main-project launch: the Arabic name is mandatory alongside the English one */}
+          {!scope && form.projectLevel === "Main Project" && (
             <div className="space-y-1.5">
-              <Label>Phase</Label>
-              <Input value={form.phase} onChange={(e) => set("phase", e.target.value)} placeholder="e.g. Phase 1" />
+              <Label>Project Name Ar <span className="text-red-500">*</span></Label>
+              <Input dir="rtl" value={form.projectNameAr ?? ""} onChange={(e) => set("projectNameAr", e.target.value)} placeholder="اسم المشروع" />
             </div>
+          )}
+
+          {!scope && form.projectLevel === "Phase" ? (
+            <>
+              <div className="space-y-1.5">
+                <Label>Phase Name En <span className="text-red-500">*</span></Label>
+                <Input value={form.phase} onChange={(e) => set("phase", e.target.value)} placeholder="e.g. Phase 1" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Phase Name Ar <span className="text-red-500">*</span></Label>
+                <Input dir="rtl" value={form.phaseAr ?? ""} onChange={(e) => set("phaseAr", e.target.value)} placeholder="اسم المرحلة" />
+              </div>
+            </>
           ) : (
-            !scope && <div />
+            !scope && form.projectLevel !== "Main Project" && <div />
           )}
 
           <div className="space-y-1.5">
@@ -451,7 +484,15 @@ function LaunchFormDialog({
         <DialogFooter>
           <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
-            disabled={!scope && mode === "existing" && (!exDevId || !exSel)}
+            disabled={
+              !scope && mode === "existing"
+                ? (!exDevId || !exSel)
+                : !scope
+                ? (form.projectLevel === "Main Project"
+                    ? (!form.projectNameEn.trim() || !(form.projectNameAr ?? "").trim())
+                    : (!form.projectNameEn.trim() || !form.phase.trim() || !(form.phaseAr ?? "").trim()))
+                : false
+            }
             onClick={() => {
               if (!scope && mode === "existing" && exSel && exRow) {
                 const isPhase = exSel.kind === "phase"
@@ -781,11 +822,13 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
 
   const handleCreate = (data: Omit<Launch, "id" | "createdAt" | "updatedAt">) => {
     const now = new Date().toISOString()
+    const newId = `LCH-${String(launches.length + 1).padStart(3, "0")}`
     addLaunch({
       ...data,
       areaId: launchAreaId(data.area),
       sentAt: now,
-      id: `LCH-${String(launches.length + 1).padStart(3, "0")}`,
+      id: newId,
+      uuid: uuidOf(newId),
       createdAt: now,
       updatedAt: now,
     })
@@ -1085,27 +1128,18 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       case "approval": return <Chip tone={APPROVAL_TONE[l.approvalStatus]}>{l.approvalStatus}</Chip>
       case "ingestion": return <Chip tone={INGESTION_TONE[l.ingestionStatus]}>{l.ingestionStatus}</Chip>
       case "launchStatus": return <Chip tone={LAUNCH_STATUS_TONE[l.launchStatus]}>{l.launchStatus}</Chip>
-      // One Project cell — post-ingestion the existing and listing project are the same row
-      // One Linked Project cell — post-ingestion the existing and listing project are the same row
-      case "project": {
-        const p = projectOf(l)
-        if (!p) return <span className="text-xs text-muted-foreground">—</span>
-        return (
-          <div className="flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <a href={`/projects/${p.id}`} target="_blank" rel="noreferrer" className="w-fit text-sm font-medium hover:underline">{p.name}</a>
-            <IdTag value={p.id} />
-          </div>
-        )
-      }
+      case "title": return l.title
+        ? <span className="block max-w-[220px] truncate text-sm text-foreground" title={l.title}>{l.title}</span>
+        : <span className="text-xs text-muted-foreground">—</span>
+      case "description": return l.description
+        ? <span className="block max-w-[240px] truncate text-xs text-muted-foreground" title={l.description}>{l.description}</span>
+        : <span className="text-xs text-muted-foreground">—</span>
       // New = ingestion creates a brand-new project; Already Existed = linked to a system project
       case "isNew": return (l.existingProject || l.projectId)
         ? <Chip tone="blue">Already Existed</Chip>
         : <Chip tone="green">New</Chip>
       case "type": return <Chip tone={l.type === "Launch" ? "green" : "white"}>{l.type}</Chip>
       case "source": return <Chip tone={l.source === "WhatsApp" ? "green" : "white"}>{l.source}</Chip>
-      case "eoi": return l.eoiAmount
-        ? <span className="whitespace-nowrap text-xs tabular-nums text-foreground">{eoiRangeText(l)}</span>
-        : <span className="text-xs text-muted-foreground">—</span>
       case "startDate": return <span className="whitespace-nowrap text-xs text-muted-foreground">{l.startDate ? formatDate(l.startDate) : "—"}</span>
       case "endDate": return <span className="whitespace-nowrap text-xs text-muted-foreground">{l.endDate ? formatDate(l.endDate) : "—"}</span>
       case "completion": return (
@@ -1162,10 +1196,11 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           </TableCell>
         )}
 
-        {/* ID (+ New AI update caption) */}
+        {/* ID — the uuid, with the numeric id captioned underneath (ingested only) */}
         <TableCell>
           <div className="flex flex-col gap-0.5">
-            <IdTag value={l.id} />
+            <UuidCell uuid={l.uuid ?? l.id} />
+            {isIngested(l) && <IdTag value={l.id.replace(/\D/g, "")} />}
             {hasNewAiUpdate(l) && (
               <span className="inline-flex w-fit items-center gap-1 whitespace-nowrap rounded border border-purple-200 bg-purple-50 px-1.5 py-px text-[10px] font-medium text-purple-700">
                 <Bot className="h-2.5 w-2.5" />New AI update

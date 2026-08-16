@@ -1322,18 +1322,6 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                 {launch.projectLevel !== "Phase" && !launch.projectId && (
                   <span className="inline-flex items-center whitespace-nowrap rounded border border-gray-200 bg-gray-50 px-1.5 py-px text-[10px] font-medium text-gray-500">New Project</span>
                 )}
-                {/* Existing project — same as the table column */}
-                <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                  <span className="uppercase tracking-wide text-muted-foreground/60">Linked Project:</span>
-                  {linkedProject ? (
-                    <>
-                      <a href="#" target="_blank" rel="noreferrer" className="text-xs font-medium text-foreground hover:underline">{linkedProject.name}</a>
-                      <IdCopy value={linkedProject.id} />
-                    </>
-                  ) : (
-                    <span className="inline-flex items-center whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-100 px-1.5 py-px text-[10px] font-medium text-emerald-700">New</span>
-                  )}
-                </span>
                 {/* Area name + id */}
                 <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                   <span className="uppercase tracking-wide text-muted-foreground/60">Area:</span>
@@ -1438,7 +1426,10 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               ["Type", getTypeBadge(launchType)],
               ["Approval Status", getApprovalStatusBadge(approvalStatus)],
               ["Ingestion Status", getIngestionStatusBadge(ingestionStatus)],
-              ["Listing Status", getListingStatusBadge(listingStatus)],
+              // New = ingestion creates a brand-new project; Already Existed = linked to a system project
+              ["Is New", (launch.existingProject || launch.projectId)
+                ? <Badge key="isnew" className="border border-blue-200 bg-blue-100 text-blue-700 hover:bg-blue-100">Already Existed</Badge>
+                : <Badge key="isnew" className="border border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-100">New</Badge>],
               ["Launch Status", getLaunchStatusBadge(launchStatus)],
               // The status this launch drives on the linked project
               ...(linkedProjectRow
