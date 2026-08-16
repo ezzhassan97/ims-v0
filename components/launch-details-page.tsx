@@ -117,10 +117,8 @@ import {
   Globe,
   Bot,
   Database,
-  Unlink,
   Activity,
 } from "lucide-react"
-import { LinkProjectDialog } from "@/components/link-project-dialog"
 import { useLaunches, patchLaunches, activateLaunch, closeLaunch, activeConflictOf, isIngestedLaunch, launchPropsOf, setProjectPrimary, type Launch } from "@/lib/launches-mock"
 import { ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
 import { PROJECTS } from "@/lib/projects-mock"
@@ -1017,8 +1015,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   const [newEntityNameAr, setNewEntityNameAr] = useState("")
   const [newEntityArea, setNewEntityArea] = useState(launch.area ?? "")
   // Link/unlink to an existing system project — changeable until the launch is ingested
-  const [linkedProject, setLinkedProject] = useState(launch.existingProject)
-  const [linkDialog, setLinkDialog] = useState<"link" | "unlink" | null>(null)
+  const [linkedProject] = useState(launch.existingProject)
   // Website-facing launch title/description — editable at any time, even after ingestion
   const [launchTitle, setLaunchTitle] = useState(launch.title ?? "")
   const [launchDescription, setLaunchDescription] = useState(launch.description ?? "")
@@ -1348,30 +1345,6 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               >
                 <ExternalLink className="h-4 w-4 mr-2" />View Project
               </DropdownMenuItem>
-              {/* Link/unlink to an existing system project — only before ingestion */}
-              {linkedProject ? (
-                <>
-                  {/* Ingested launches can still change WHICH project they link to — just never back to New */}
-                  <DropdownMenuItem onClick={() => setLinkDialog("link")}>
-                    <Link2 className="h-4 w-4 mr-2" />Change Linked Project
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={ingestionStatus === "Ingested"}
-                    className={cn(ingestionStatus === "Ingested" && "opacity-40")}
-                    onClick={() => setLinkDialog("unlink")}
-                  >
-                    <Unlink className="h-4 w-4 mr-2" />Unlink Project
-                  </DropdownMenuItem>
-                </>
-              ) : (
-                <DropdownMenuItem
-                  disabled={ingestionStatus === "Ingested"}
-                  className={cn(ingestionStatus === "Ingested" && "opacity-40")}
-                  onClick={() => setLinkDialog("link")}
-                >
-                  <Link2 className="h-4 w-4 mr-2" />Link to Existing Project
-                </DropdownMenuItem>
-              )}
               <DropdownMenuSeparator />
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger disabled={ingestionStatus === "Ingested"} className={cn(ingestionStatus === "Ingested" && "opacity-40")}>
@@ -1841,44 +1814,6 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
         />
       )}
 
-      {/* Link / unlink to an existing system project */}
-      {linkDialog === "link" && (
-        <LinkProjectDialog
-          launch={{ id: launch.id, projectNameEn: launch.projectNameEn, phase: launch.phase }}
-          onClose={() => setLinkDialog(null)}
-          onConfirm={(row) => {
-            setLinkedProject({ id: row.id, name: row.name })
-            patchLaunches([launch.id], { projectId: row.id, existingProject: { id: row.id, name: row.name }, listingProject: { id: row.id, name: row.name } })
-            setLinkDialog(null)
-            toast.success(`${launch.id} linked to ${row.name} (${row.id})`)
-          }}
-        />
-      )}
-      {linkDialog === "unlink" && linkedProject && (
-        <Dialog open onOpenChange={(o) => { if (!o) setLinkDialog(null) }}>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Unlink Project</DialogTitle></DialogHeader>
-            <p className="text-sm text-muted-foreground">
-              This launch is linked to <span className="font-medium text-foreground">{linkedProject.name}</span> ({linkedProject.id}). Unlinking means ingestion will create a brand-new {launch.projectLevel === "Phase" ? "phase" : "project"} instead — you'll enter its EN/AR names{launch.projectLevel !== "Phase" ? " and area" : ""} during ingestion.
-            </p>
-            <DialogFooter>
-              <Button variant="outline" className="bg-transparent" onClick={() => setLinkDialog(null)}>Cancel</Button>
-              <Button
-                className="bg-red-600 text-white hover:bg-red-700"
-                onClick={() => {
-                  setLinkedProject(undefined)
-                  patchLaunches([launch.id], { projectId: undefined, existingProject: undefined, listingProject: undefined })
-                  setLinkDialog(null)
-                  toast.success(`${launch.id} unlinked — a new ${launch.projectLevel === "Phase" ? "phase" : "project"} will be created on ingestion`)
-                }}
-              >
-                Unlink Project
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
-
       {/* Tabbed Container — single-row scrollable icon tabs (shared design system) */}
       <Tabs defaultValue={launch.source === "WhatsApp" ? "whatsapp" : "project"} className="w-full">
         <TabStrip className="mb-4">
@@ -1937,25 +1872,10 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                   <span className="text-xs text-muted-foreground">a brand-new {launch.projectLevel === "Phase" ? "phase" : "project"} is created on ingestion</span>
                 </>
               )}
-              <span className="ml-auto flex items-center gap-2">
-                <Button variant="outline" size="sm" className="h-7 bg-transparent" onClick={() => setLinkDialog("link")}>
-                  <Link2 className="h-3.5 w-3.5 mr-1" />{linkedProject ? "Change" : "Link to Existing"}
-                </Button>
-                {linkedProject && (
-                  <Button
-                    variant="outline" size="sm" className="h-7 bg-transparent"
-                    disabled={ingestionStatus === "Ingested"}
-                    title={ingestionStatus === "Ingested" ? "Ingested launches can't be turned back to New" : undefined}
-                    onClick={() => setLinkDialog("unlink")}
-                  >
-                    <Unlink className="h-3.5 w-3.5 mr-1" />Unlink
-                  </Button>
-                )}
-              </span>
-              {ingestionStatus === "Ingested" && (
-                <p className="w-full text-[11px] leading-4 text-muted-foreground">
-                  Ingested — this launch can't be turned back to New; you can only change which project it's linked to.
-                </p>
+              {ingestionStatus !== "Ingested" && (
+                <span className="ml-auto text-[11px] text-muted-foreground">
+                  Changed from the Edit Linked Project action on the launch record
+                </span>
               )}
             </div>
 

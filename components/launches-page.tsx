@@ -64,14 +64,13 @@ import {
   ChevronDown,
   ArrowRight,
   Undo2,
-  Link2,
-  Unlink,
+  Database,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Tag, LISTING_COLORS, ENTRY_COLORS, PRIMARY_COLORS } from "@/components/projects-list-page"
 import { LaunchDetailsPage } from "@/components/launch-details-page"
 import { PROJECTS, PROJECT_DEVELOPERS, type ProjPrimaryStatus, type ProjectRow } from "@/lib/projects-mock"
-import { LinkProjectDialog, SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
+import { SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
 import { ActionDialog, ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
 import {
   useLaunches, patchLaunches, addLaunch, activateLaunch, closeLaunch, uuidOf, launchLabel,
@@ -284,16 +283,25 @@ function LaunchFormDialog({
   const set = (key: keyof typeof form, value: unknown) =>
     setForm((prev) => ({ ...prev, [key]: value }))
 
-  // Prefill + lock from the scope every time the dialog opens
-  // After ingestion only the website copy stays editable; the new/existing choice is locked
-  const lockOthers = !!initial && initial.ingestionStatus === "Ingested"
-
+  // Prefill from the scope every time the dialog opens (editing is pre-ingestion only)
   useEffect(() => {
     if (!open) return
     setMode("new"); setExDevId(""); setExSel(null)
     if (initial) {
       const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = initial
       setForm(rest as typeof form)
+      // Prefill the link picker from the current linkage — matched launches open in "existing"
+      const matched = initial.projectLevel === "Phase" ? !!(initial.projectId && initial.parentProjectId) : !!initial.projectId
+      if (matched && initial.projectId) {
+        setMode("existing")
+        setExDevId(initial.developer.id)
+        setExSel({
+          kind: initial.projectLevel === "Phase" ? "phase" : "project",
+          id: initial.projectId,
+          label: initial.projectLevel === "Phase" ? initial.phase : initial.projectNameEn,
+          projectIds: [initial.projectId],
+        })
+      }
       return
     }
     if (scope) {
@@ -319,8 +327,8 @@ function LaunchFormDialog({
           <DialogTitle>{initial ? "Edit Launch" : "Create Launch"}</DialogTitle>
         </DialogHeader>
 
-        {/* New launch vs already-existing project — existing fills the Existing Project column */}
-        {!scope && !initial && (
+        {/* New launch vs already-existing project — editing is only offered before ingestion */}
+        {!scope && (
           <div className="flex gap-2">
             {([["new", "New Launch", "A brand-new project or phase is created on ingestion."], ["existing", "Already Existing Project", "Link this launch to a project or phase that already exists."]] as const).map(([k, label, desc]) => (
               <button
@@ -349,12 +357,7 @@ function LaunchFormDialog({
           </div>
         </div>
 
-        {lockOthers ? (
-          <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
-            This launch is already ingested — only the title and description can be edited. The linked
-            project or phase still changes through the Change Linked Project action.
-          </p>
-        ) : !scope && mode === "existing" && !initial ? (
+        {!scope && mode === "existing" ? (
           <div className="grid grid-cols-2 gap-4 py-2">
             <div className="space-y-1.5">
               <Label>Developer</Label>
@@ -519,24 +522,21 @@ function LaunchFormDialog({
           <Button
             disabled={
               !(form.title ?? "").trim() ? true
-              : initial ? false
-              : !scope && mode === "existing"
+              : mode === "existing" && !scope
                 ? (!exDevId || !exSel)
-                : !scope
+                : !scope && !initial
                 ? (form.projectLevel === "Main Project"
                     ? (!form.projectNameEn.trim() || !(form.projectNameAr ?? "").trim())
                     : (!form.projectNameEn.trim() || !form.phase.trim() || !(form.phaseAr ?? "").trim()))
                 : false
             }
             onClick={() => {
-              if (initial && onEdit) {
-                onEdit(initial.id, lockOthers ? { title: form.title, description: form.description } : { ...form })
-              } else if (!scope && mode === "existing" && exSel && exRow) {
+              /** Remap of the launch's linkage fields onto the picked system project/phase. */
+              const remap = exSel && exRow ? (() => {
                 const isPhase = exSel.kind === "phase"
-                onSave({
-                  ...form,
+                return {
                   developer: { name: exRow.developer.name, logo: LOGO, id: exRow.developer.id },
-                  projectLevel: isPhase ? "Phase" : "Main Project",
+                  projectLevel: (isPhase ? "Phase" : "Main Project") as Launch["projectLevel"],
                   projectNameEn: isPhase ? exRow.mainProject?.name ?? exRow.name : exRow.name,
                   phase: isPhase ? exRow.name : "",
                   projectId: exRow.id,
@@ -544,7 +544,17 @@ function LaunchFormDialog({
                   area: exRow.area,
                   areaId: AREA_ID[exRow.area] ?? "",
                   existingProject: { id: exRow.id, name: exRow.name },
-                })
+                }
+              })() : null
+              if (initial && onEdit) {
+                if (mode === "existing" && remap) {
+                  onEdit(initial.id, { ...form, ...remap })
+                } else {
+                  // Switched (or kept) as New — drop every system link so ingestion creates it
+                  onEdit(initial.id, { ...form, projectId: undefined, parentProjectId: undefined, existingProject: undefined, listingProject: undefined })
+                }
+              } else if (!scope && mode === "existing" && remap) {
+                onSave({ ...form, ...remap })
               } else {
                 onSave(form)
               }
@@ -658,7 +668,7 @@ function BulkDialog({ kind, count, onClose, onConfirm }: { kind: BulkKind; count
 }
 
 type DialogState =
-  | { kind: "archive" | "approve" | "reject" | "activate" | "close" | "link" | "unlink"; launch: Launch }
+  | { kind: "archive" | "approve" | "reject" | "activate" | "close" | "ingest"; launch: Launch }
   | { kind: BulkKind }
   | null
 
@@ -921,25 +931,17 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     toast.success(`${launch.projectNameEn} closed — sales portal notified`)
   }
 
-  const doLink = (launch: Launch, row: (typeof PROJECTS)[number], isPhase: boolean) => {
+  const doIngest = (launch: Launch) => {
     patch([launch.id], {
-      existingProject: { id: row.id, name: row.name },
-      projectId: row.id,
-      developer: { name: row.developer.name, logo: LOGO, id: row.developer.id },
-      projectLevel: isPhase ? "Phase" : "Main Project",
-      projectNameEn: isPhase ? row.mainProject?.name ?? row.name : row.name,
-      phase: isPhase ? row.name : "",
-      area: row.area,
-      areaId: AREA_ID[row.area] ?? "",
+      ingestionStatus: "Ingested",
+      ...(launch.existingProject ? { listingProject: launch.existingProject } : {}),
     })
     setDialog(null)
-    toast.success(`${launch.id} linked to ${row.name} (${row.id})`)
-  }
-
-  const doUnlink = (launch: Launch) => {
-    patch([launch.id], { existingProject: undefined, projectId: undefined })
-    setDialog(null)
-    toast.success(`${launch.id} unlinked — a new ${launch.projectLevel === "Phase" ? "phase" : "project"} will be created on ingestion`)
+    toast.success(
+      launch.existingProject
+        ? `${launch.projectNameEn} ingested — linked to ${launch.existingProject.name} (${launch.existingProject.id})`
+        : `${launch.projectNameEn} ingested — a new ${launch.projectLevel === "Phase" ? "phase" : "project"} was created`,
+    )
   }
 
   const doBulk = (kind: BulkKind) => {
@@ -989,12 +991,36 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     </DropdownMenuItem>
   )
 
-  /** Opens the Listing Project details page — only meaningful once the launch is ingested. */
-  const editItem = (l: Launch) => (
-    <DropdownMenuItem onClick={() => setEditLaunch(l)}>
-      <Pencil className="h-4 w-4 mr-2" />Edit
-    </DropdownMenuItem>
-  )
+  /** New↔Existing + linked project/phase all change here — gone entirely once ingested. */
+  const editItem = (l: Launch) =>
+    l.ingestionStatus === "Ingested" ? null : (
+      <DropdownMenuItem onClick={() => setEditLaunch(l)}>
+        <Pencil className="h-4 w-4 mr-2" />Edit Linked Project
+      </DropdownMenuItem>
+    )
+
+  /** Available on every launch, ingested or not. */
+  const archiveItem = (l: Launch) =>
+    l.archived ? (
+      <DropdownMenuItem onClick={() => doRestore(l)}>
+        <Undo2 className="h-4 w-4 mr-2" />Restore
+      </DropdownMenuItem>
+    ) : (
+      <DropdownMenuItem
+        className="text-destructive focus:text-destructive"
+        onClick={() => setDialog({ kind: "archive", launch: l })}
+      >
+        <Archive className="h-4 w-4 mr-2" />Archive
+      </DropdownMenuItem>
+    )
+
+  /** Only approved, not-yet-ingested launches can be ingested. */
+  const ingestItem = (l: Launch) =>
+    l.approvalStatus === "Approved" && l.ingestionStatus !== "Ingested" ? (
+      <DropdownMenuItem onClick={() => setDialog({ kind: "ingest", launch: l })}>
+        <Database className="h-4 w-4 mr-2" />Ingest
+      </DropdownMenuItem>
+    ) : null
 
   const viewProjectItem = (l: Launch) => {
     const enabled = l.ingestionStatus === "Ingested" && !!l.listingProject
@@ -1005,32 +1031,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
         onClick={() => enabled && window.open(`/projects/${l.listingProject!.id}`, "_blank", "noopener,noreferrer")}
       >
         <ExternalLink className="h-4 w-4 mr-2" />View Project
-      </DropdownMenuItem>
-    )
-  }
-
-  /** Link/unlink to an existing system project — only before ingestion. */
-  const linkProjectItem = (l: Launch) => {
-    const enabled = l.ingestionStatus !== "Ingested"
-    return l.existingProject ? (
-      <>
-        {/* Ingested launches can still change WHICH project they link to — just never back to New */}
-        <DropdownMenuItem onClick={() => setDialog({ kind: "link", launch: l })}>
-          <Link2 className="h-4 w-4 mr-2" />Change Linked Project
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={!enabled} className={cn(!enabled && "opacity-40")}
-          onClick={() => enabled && setDialog({ kind: "unlink", launch: l })}
-        >
-          <Unlink className="h-4 w-4 mr-2" />Unlink Project
-        </DropdownMenuItem>
-      </>
-    ) : (
-      <DropdownMenuItem
-        disabled={!enabled} className={cn(!enabled && "opacity-40")}
-        onClick={() => enabled && setDialog({ kind: "link", launch: l })}
-      >
-        <Link2 className="h-4 w-4 mr-2" />Link to Existing Project
       </DropdownMenuItem>
     )
   }
@@ -1057,7 +1057,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
 
   const rowMenu = (l: Launch) => {
     if (tab === "all" || tab === "pending") {
-      const dimApproval = l.ingestionStatus === "Ingested"
+      const notIngested = l.ingestionStatus !== "Ingested"
       return (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -1067,58 +1067,31 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
             {viewItem(l)}
             {viewProjectItem(l)}
             {editItem(l)}
-            {linkProjectItem(l)}
             <DropdownMenuSeparator />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger disabled={dimApproval} className={cn(dimApproval && "opacity-40")}>
-                <ShieldCheck className="h-4 w-4 mr-2" />Approval
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                <DropdownMenuItem className="text-emerald-600 focus:text-emerald-700" onClick={() => setDialog({ kind: "approve", launch: l })}>
-                  <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" />Approve
-                </DropdownMenuItem>
-                <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDialog({ kind: "reject", launch: l })}>
-                  <XCircle className="h-4 w-4 mr-2 text-red-600" />Reject
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            {changeLaunchStatusItem(l)}
-            <DropdownMenuSeparator />
-            {l.archived ? (
-              <DropdownMenuItem onClick={() => doRestore(l)}>
-                <Undo2 className="h-4 w-4 mr-2" />Restore
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem
-                disabled={l.ingestionStatus === "Ingested"}
-                className={cn("text-destructive focus:text-destructive", l.ingestionStatus === "Ingested" && "opacity-40")}
-                onClick={() => setDialog({ kind: "archive", launch: l })}
-              >
-                <Archive className="h-4 w-4 mr-2" />Archive
-              </DropdownMenuItem>
+            {notIngested && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <ShieldCheck className="h-4 w-4 mr-2" />Approval
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuItem className="text-emerald-600 focus:text-emerald-700" onClick={() => setDialog({ kind: "approve", launch: l })}>
+                    <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" />Approve
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDialog({ kind: "reject", launch: l })}>
+                    <XCircle className="h-4 w-4 mr-2 text-red-600" />Reject
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )
-    }
-    if (tab === "listed") {
-      return (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {viewItem(l)}
-            {viewProjectItem(l)}
-            {editItem(l)}
-            {linkProjectItem(l)}
-            <DropdownMenuSeparator />
+            {ingestItem(l)}
             {changeLaunchStatusItem(l)}
+            <DropdownMenuSeparator />
+            {archiveItem(l)}
           </DropdownMenuContent>
         </DropdownMenu>
       )
     }
-    // Currently Active: Close Launch only
+    // Listed / Currently Active tabs hold ingested launches — no edit, approval or ingest.
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -1127,9 +1100,10 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
         <DropdownMenuContent align="end">
           {viewItem(l)}
           {viewProjectItem(l)}
-          {linkProjectItem(l)}
           <DropdownMenuSeparator />
           {changeLaunchStatusItem(l)}
+          <DropdownMenuSeparator />
+          {archiveItem(l)}
         </DropdownMenuContent>
       </DropdownMenu>
     )
@@ -1755,16 +1729,19 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       {dialog?.kind === "reject" && <RejectDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={(reason) => doReject(dialog.launch, reason)} />}
       {dialog?.kind === "activate" && <ActivateDialog launch={dialog.launch} conflict={activeConflictOf(dialog.launch, launches)} project={projectOf(dialog.launch)} onClose={() => setDialog(null)} onConfirm={(startDate, sync) => doActivate(dialog.launch, startDate, sync)} />}
       {dialog?.kind === "close" && <CloseLaunchDialog launch={dialog.launch} project={projectOf(dialog.launch)} onClose={() => setDialog(null)} onConfirm={(endDate, nextPrimary) => doCloseLaunch(dialog.launch, endDate, nextPrimary)} />}
-      {dialog?.kind === "link" && <LinkProjectDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={(row, isPhase) => doLink(dialog.launch, row, isPhase)} />}
-      {dialog?.kind === "unlink" && (
+      {dialog?.kind === "ingest" && (
         <ActionDialog
-          title="Unlink Project"
+          title="Ingest Launch"
           launch={dialog.launch}
-          message={`This launch is linked to ${dialog.launch.existingProject?.name} (${dialog.launch.existingProject?.id}). Unlinking means ingestion will create a brand-new ${dialog.launch.projectLevel === "Phase" ? "phase" : "project"} instead — you'll need to enter its EN/AR names and area during ingestion.`}
-          confirmLabel="Unlink Project"
-          confirmClass="bg-red-600 text-white hover:bg-red-700"
+          message={
+            dialog.launch.existingProject
+              ? `Launch info will be ingested and linked to ${dialog.launch.existingProject.name} (${dialog.launch.existingProject.id}).`
+              : `A brand-new ${dialog.launch.projectLevel === "Phase" ? "phase" : "project"} "${dialog.launch.projectLevel === "Phase" ? dialog.launch.phase : dialog.launch.projectNameEn}" will be created and the launch ingested under it.`
+          }
+          confirmLabel="Ingest Launch"
+          confirmClass="bg-emerald-600 text-white hover:bg-emerald-700"
           onClose={() => setDialog(null)}
-          onConfirm={() => doUnlink(dialog.launch)}
+          onConfirm={() => doIngest(dialog.launch)}
         />
       )}
       {(dialog?.kind === "bulk-approve" || dialog?.kind === "bulk-reject") && (
