@@ -1423,13 +1423,13 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-border px-6 py-3">
           <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
             {([
-              ["Type", getTypeBadge(launchType)],
-              ["Approval Status", getApprovalStatusBadge(approvalStatus)],
-              ["Ingestion Status", getIngestionStatusBadge(ingestionStatus)],
               // New = ingestion creates a brand-new project; Already Existed = linked to a system project
               ["Is New", (launch.existingProject || launch.projectId)
                 ? <Badge key="isnew" className="border border-blue-200 bg-blue-100 text-blue-700 hover:bg-blue-100">Already Existed</Badge>
                 : <Badge key="isnew" className="border border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-100">New</Badge>],
+              ["Type", getTypeBadge(launchType)],
+              ["Approval Status", getApprovalStatusBadge(approvalStatus)],
+              ["Ingestion Status", getIngestionStatusBadge(ingestionStatus)],
               ["Launch Status", getLaunchStatusBadge(launchStatus)],
               // The status this launch drives on the linked project
               ...(linkedProjectRow
@@ -2037,96 +2037,6 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                 </>
               )}
 
-              {/* Project Area — numeric value + unit dropdown */}
-              <div>
-                <Label>Project Area</Label>
-                <div className="mt-1 flex items-center gap-2">
-                  <Input
-                    value={projectAreaValue}
-                    onChange={(e) => setProjectAreaValue(e.target.value.replace(/[^\d.]/g, ""))}
-                    placeholder="e.g. 500"
-                    inputMode="decimal"
-                    className="flex-1"
-                  />
-                  <Select value={projectAreaUnit} onValueChange={setProjectAreaUnit}>
-                    <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {AREA_UNIT_OPTIONS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Spacer */}
-              <div />
-
-              {/* Total Units Released */}
-              <div>
-                <Label>Total Units Released</Label>
-                <Input value={totalUnitsReleased} onChange={(e) => setTotalUnitsReleased(e.target.value)} placeholder="e.g. 248" className="mt-1" type="number" />
-              </div>
-
-              {/* Total Buildings Released */}
-              <div>
-                <Label>Total Buildings Released</Label>
-                <Input value={totalBuildingsReleased} onChange={(e) => setTotalBuildingsReleased(e.target.value)} placeholder="e.g. 12" className="mt-1" type="number" />
-              </div>
-
-              {/* Property Released — one row per property type, no duplicate types */}
-              <div className="col-span-2 border-t border-border pt-5">
-                <Label className="mb-2 block">Property Released</Label>
-                <div className="space-y-2">
-                  {propertyReleased.map((row) => (
-                    <div key={row.id} className="flex items-end gap-3">
-                      <div className="flex-1">
-                        <p className="mb-1 text-xs text-muted-foreground">Property Type</p>
-                        <Select value={row.type || undefined} onValueChange={(v) => setPropertyReleased((prev) => prev.map((r) => (r.id === row.id ? { ...r, type: v } : r)))}>
-                          <SelectTrigger className="h-9"><SelectValue placeholder="Select type…" /></SelectTrigger>
-                          <SelectContent>
-                            {PROPERTY_TYPE_OPTIONS.map((pt) => (
-                              <SelectItem
-                                key={pt}
-                                value={pt}
-                                disabled={propertyReleased.some((r) => r.id !== row.id && r.type === pt)}
-                              >
-                                {pt}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="w-36">
-                        <p className="mb-1 text-xs text-muted-foreground">Count</p>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={row.count}
-                          onChange={(e) => setPropertyReleased((prev) => prev.map((r) => (r.id === row.id ? { ...r, count: e.target.value } : r)))}
-                          placeholder="e.g. 40"
-                          className="h-9"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setPropertyReleased((prev) => prev.filter((r) => r.id !== row.id))}
-                        className="mb-2 text-muted-foreground transition-colors hover:text-destructive"
-                        title="Remove"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setPropertyReleased((prev) => [...prev, { id: `pr${prev.length + 1}-${prev.map((r) => r.id).join("").length}`, type: "", count: "" }])}
-                    disabled={propertyReleased.length >= PROPERTY_TYPE_OPTIONS.length}
-                    className="mt-1 flex items-center gap-1 text-sm text-primary hover:opacity-80 disabled:opacity-40"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Add Property Type
-                  </button>
-                </div>
-              </div>
             </div>
             </fieldset>
           </Card>
@@ -2669,6 +2579,75 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                     )}
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Released offerings — units, buildings and per-type counts (moved from Project Details) */}
+            <div className="pt-6 border-t border-border">
+              <h3 className="mb-4 text-sm font-semibold text-foreground">Released Offerings</h3>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div>
+                  <Label>Total Units Released</Label>
+                  <Input value={totalUnitsReleased} onChange={(e) => { setLaunchDirty(true); setTotalUnitsReleased(e.target.value) }} placeholder="e.g. 248" className="mt-1" type="number" />
+                </div>
+                <div>
+                  <Label>Total Buildings Released</Label>
+                  <Input value={totalBuildingsReleased} onChange={(e) => { setLaunchDirty(true); setTotalBuildingsReleased(e.target.value) }} placeholder="e.g. 12" className="mt-1" type="number" />
+                </div>
+                <div className="sm:col-span-2">
+                  <Label className="mb-2 block">Property Released</Label>
+                  <div className="space-y-2">
+                    {propertyReleased.map((row) => (
+                      <div key={row.id} className="flex items-end gap-3">
+                        <div className="flex-1">
+                          <p className="mb-1 text-xs text-muted-foreground">Property Type</p>
+                          <Select value={row.type || undefined} onValueChange={(v) => setPropertyReleased((prev) => prev.map((r) => (r.id === row.id ? { ...r, type: v } : r)))}>
+                            <SelectTrigger className="h-9"><SelectValue placeholder="Select type…" /></SelectTrigger>
+                            <SelectContent>
+                              {PROPERTY_TYPE_OPTIONS.map((pt) => (
+                                <SelectItem
+                                  key={pt}
+                                  value={pt}
+                                  disabled={propertyReleased.some((r) => r.id !== row.id && r.type === pt)}
+                                >
+                                  {pt}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="w-36">
+                          <p className="mb-1 text-xs text-muted-foreground">Count</p>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={row.count}
+                            onChange={(e) => setPropertyReleased((prev) => prev.map((r) => (r.id === row.id ? { ...r, count: e.target.value } : r)))}
+                            placeholder="e.g. 40"
+                            className="h-9"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPropertyReleased((prev) => prev.filter((r) => r.id !== row.id))}
+                          className="mb-2 text-muted-foreground transition-colors hover:text-destructive"
+                          title="Remove"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setPropertyReleased((prev) => [...prev, { id: `pr${prev.length + 1}-${prev.map((r) => r.id).join("").length}`, type: "", count: "" }])}
+                      disabled={propertyReleased.length >= PROPERTY_TYPE_OPTIONS.length}
+                      className="mt-1 flex items-center gap-1 text-sm text-primary hover:opacity-80 disabled:opacity-40"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add Property Type
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 

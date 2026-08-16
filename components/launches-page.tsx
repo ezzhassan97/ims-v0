@@ -60,6 +60,7 @@ import {
   Group as GroupIcon,
   X,
   Copy,
+  Pencil,
   ChevronDown,
   ArrowRight,
   Undo2,
@@ -73,7 +74,7 @@ import { PROJECTS, PROJECT_DEVELOPERS, type ProjPrimaryStatus, type ProjectRow }
 import { LinkProjectDialog, SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
 import { ActionDialog, ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
 import {
-  useLaunches, patchLaunches, addLaunch, activateLaunch, closeLaunch, uuidOf,
+  useLaunches, patchLaunches, addLaunch, activateLaunch, closeLaunch, uuidOf, launchLabel,
   activeConflictOf, isIngestedLaunch, launchPropsOf, launchAreaId, LAUNCH_AREAS, setProjectPrimary, eoiRangeText,
   type Launch,
 } from "@/lib/launches-mock"
@@ -168,6 +169,8 @@ const EMPTY_FORM: Omit<Launch, "id" | "createdAt" | "updatedAt"> = {
   projectNameAr: "",
   phase: "",
   phaseAr: "",
+  title: "",
+  description: "",
   projectLevel: "Main Project",
   area: "",
   areaId: "",
@@ -258,11 +261,16 @@ function LaunchFormDialog({
   open,
   onOpenChange,
   onSave,
+  onEdit,
+  initial,
   scope,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   onSave: (data: Omit<Launch, "id" | "createdAt" | "updatedAt">) => void
+  /** Edit mode — patches the launch instead of creating one. */
+  onEdit?: (id: string, patch: Partial<Launch>) => void
+  initial?: Launch
   /** Project-details embed: developer + area are locked; project options come from the scope. */
   scope?: { name: string; isPhase: boolean; mainProject?: string; developer?: string; area?: string; phases?: string[] }
 }) {
@@ -277,9 +285,17 @@ function LaunchFormDialog({
     setForm((prev) => ({ ...prev, [key]: value }))
 
   // Prefill + lock from the scope every time the dialog opens
+  // After ingestion only the website copy stays editable; the new/existing choice is locked
+  const lockOthers = !!initial && initial.ingestionStatus === "Ingested"
+
   useEffect(() => {
     if (!open) return
     setMode("new"); setExDevId(""); setExSel(null)
+    if (initial) {
+      const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = initial
+      setForm(rest as typeof form)
+      return
+    }
     if (scope) {
       setForm({
         ...EMPTY_FORM,
@@ -300,11 +316,11 @@ function LaunchFormDialog({
       {/* No scroll container — the tree/developer dropdowns overlay past the dialog instead of stretching it. */}
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Create Launch</DialogTitle>
+          <DialogTitle>{initial ? "Edit Launch" : "Create Launch"}</DialogTitle>
         </DialogHeader>
 
         {/* New launch vs already-existing project — existing fills the Existing Project column */}
-        {!scope && (
+        {!scope && !initial && (
           <div className="flex gap-2">
             {([["new", "New Launch", "A brand-new project or phase is created on ingestion."], ["existing", "Already Existing Project", "Link this launch to a project or phase that already exists."]] as const).map(([k, label, desc]) => (
               <button
@@ -321,7 +337,24 @@ function LaunchFormDialog({
           </div>
         )}
 
-        {!scope && mode === "existing" ? (
+        {/* Website copy — the title is mandatory, and the only editable pair after ingestion */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label>Title <span className="text-red-500">*</span></Label>
+            <Input value={form.title ?? ""} onChange={(e) => set("title", e.target.value)} placeholder="Launch title" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Description</Label>
+            <Input value={form.description ?? ""} onChange={(e) => set("description", e.target.value)} placeholder="Short description" />
+          </div>
+        </div>
+
+        {lockOthers ? (
+          <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
+            This launch is already ingested — only the title and description can be edited. The linked
+            project or phase still changes through the Change Linked Project action.
+          </p>
+        ) : !scope && mode === "existing" && !initial ? (
           <div className="grid grid-cols-2 gap-4 py-2">
             <div className="space-y-1.5">
               <Label>Developer</Label>
@@ -485,7 +518,9 @@ function LaunchFormDialog({
           <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             disabled={
-              !scope && mode === "existing"
+              !(form.title ?? "").trim() ? true
+              : initial ? false
+              : !scope && mode === "existing"
                 ? (!exDevId || !exSel)
                 : !scope
                 ? (form.projectLevel === "Main Project"
@@ -494,7 +529,9 @@ function LaunchFormDialog({
                 : false
             }
             onClick={() => {
-              if (!scope && mode === "existing" && exSel && exRow) {
+              if (initial && onEdit) {
+                onEdit(initial.id, lockOthers ? { title: form.title, description: form.description } : { ...form })
+              } else if (!scope && mode === "existing" && exSel && exRow) {
                 const isPhase = exSel.kind === "phase"
                 onSave({
                   ...form,
@@ -503,6 +540,7 @@ function LaunchFormDialog({
                   projectNameEn: isPhase ? exRow.mainProject?.name ?? exRow.name : exRow.name,
                   phase: isPhase ? exRow.name : "",
                   projectId: exRow.id,
+                  parentProjectId: isPhase ? exRow.mainProject?.id : undefined,
                   area: exRow.area,
                   areaId: AREA_ID[exRow.area] ?? "",
                   existingProject: { id: exRow.id, name: exRow.name },
@@ -513,7 +551,7 @@ function LaunchFormDialog({
               onOpenChange(false)
             }}
           >
-            Create Launch
+            {initial ? "Save Changes" : "Create Launch"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -647,7 +685,8 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   const [approvalF, setApprovalF] = useState("all")
   const [ingestionF, setIngestionF] = useState("all")
   const [listingF, setListingF] = useState("all")
-  const [archivedF, setArchivedF] = useState("Live")
+  const [archivedOpen, setArchivedOpen] = useState(false)
+  const [editLaunch, setEditLaunch] = useState<Launch | null>(null)
   const [createdFrom, setCreatedFrom] = useState("")
   const [createdTo, setCreatedTo] = useState("")
   const [sentFrom, setSentFrom] = useState("")
@@ -697,7 +736,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     setSearch(""); setDeveloperF([]); setAreaF([]); setProjectSels([]); setSourceF("all"); setAlreadyCreatedF("all")
     setAiUpdatesF("all"); setLaunchStatusF("all"); setApprovalF("all"); setIngestionF("all")
     setListingF("all"); setCreatedFrom(""); setCreatedTo(""); setSentFrom(""); setSentTo("")
-    setIngestedFrom(""); setIngestedTo(""); setArchivedF("Live"); setPage(1)
+    setIngestedFrom(""); setIngestedTo(""); setPage(1)
   }
 
   // Manual ordering for Listed / Currently Active tabs (rank = position in this array)
@@ -726,7 +765,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
 
   // Archived launches stay out of every tab — reach them through the Archived filter.
   const baseRows = (t: TabKey): Launch[] => {
-    const live = archivedF === "Archived" ? scopedLaunches.filter((l) => l.archived) : scopedLaunches.filter((l) => !l.archived)
+    const live = scopedLaunches.filter((l) => !l.archived)
     switch (t) {
       case "pending": return live.filter((l) => l.approvalStatus === "Pending Review")
       case "listed": return live.filter(isIngested)
@@ -742,7 +781,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
 
   const tabRows = (t: TabKey): Launch[] => {
     let rows = baseRows(t).filter((l) => {
-      if (search && !`${l.id} ${l.projectNameEn}`.toLowerCase().includes(search.toLowerCase())) return false
+      if (search && !`${l.id} ${l.uuid ?? ""} ${l.title ?? ""} ${l.projectNameEn}`.toLowerCase().includes(search.toLowerCase())) return false
       if (developerF.length && !developerF.includes(l.developer.name)) return false
       if (areaF.length && !areaF.includes(l.area)) return false
       if (projectSels.length && !(l.projectId && projectSels.includes(l.projectId))) return false
@@ -784,7 +823,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   const activeFilterCount =
     (developerF.length ? 1 : 0) + (areaF.length ? 1 : 0) + (projectSels.length ? 1 : 0) +
     [sourceF, alreadyCreatedF, aiUpdatesF, listingF].filter((f) => f !== "all").length +
-    (archivedF !== "Live" ? 1 : 0) +
     (tab !== "active" && launchStatusF !== "all" ? 1 : 0) +
     (!scoped && tab !== "pending" && approvalF !== "all" ? 1 : 0) +
     (!scoped && tab !== "listed" && ingestionF !== "all" ? 1 : 0) +
@@ -840,7 +878,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     patch([launch.id], { archived: true, archivedReason: reason })
     setSelectedIds((prev) => prev.filter((id) => id !== launch.id))
     setDialog(null)
-    toast.success(`${launch.projectNameEn} archived — restore it from the Archived filter`)
+    toast.success(`${launch.projectNameEn} archived — restore it from the Archived drawer`)
   }
 
   const doRestore = (launch: Launch) => {
@@ -952,6 +990,12 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   )
 
   /** Opens the Listing Project details page — only meaningful once the launch is ingested. */
+  const editItem = (l: Launch) => (
+    <DropdownMenuItem onClick={() => setEditLaunch(l)}>
+      <Pencil className="h-4 w-4 mr-2" />Edit
+    </DropdownMenuItem>
+  )
+
   const viewProjectItem = (l: Launch) => {
     const enabled = l.ingestionStatus === "Ingested" && !!l.listingProject
     return (
@@ -1022,6 +1066,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           <DropdownMenuContent align="end">
             {viewItem(l)}
             {viewProjectItem(l)}
+            {editItem(l)}
             {linkProjectItem(l)}
             <DropdownMenuSeparator />
             <DropdownMenuSub>
@@ -1065,6 +1110,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           <DropdownMenuContent align="end">
             {viewItem(l)}
             {viewProjectItem(l)}
+            {editItem(l)}
             {linkProjectItem(l)}
             <DropdownMenuSeparator />
             {changeLaunchStatusItem(l)}
@@ -1101,23 +1147,41 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           </div>
         </div>
       )
-      case "projectName": return l.projectId ? (
-        <div className="flex flex-col">
-          <a href="#" target="_blank" rel="noreferrer" className="w-fit text-sm font-medium hover:underline">{l.projectNameEn}</a>
-          <IdTag value={l.projectId} />
-        </div>
-      ) : l.projectLevel === "Phase" ? (
-        <div className="flex flex-col gap-0.5">
-          <span className="text-sm">{l.projectNameEn}</span>
-          <MiniTag tone="red">Unmatched Project</MiniTag>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-0.5">
-          <span className="text-sm">{l.projectNameEn}</span>
-          <MiniTag tone="grey">New Project</MiniTag>
-        </div>
-      )
-      case "phase": return l.phase ? <span className="text-sm">{l.phase}</span> : <span className="text-xs text-muted-foreground">—</span>
+      case "projectName": {
+        // For phase launches the project column is the PARENT project
+        const mainId = l.projectLevel === "Phase" ? l.parentProjectId : l.projectId
+        return mainId ? (
+          <div className="flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <a href={`/projects/${mainId}`} target="_blank" rel="noreferrer" className="w-fit text-sm font-medium hover:underline">{l.projectNameEn}</a>
+            <IdTag value={mainId} />
+          </div>
+        ) : l.projectLevel === "Phase" ? (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm">{l.projectNameEn}</span>
+            <MiniTag tone="red">Unmatched Project</MiniTag>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm">{l.projectNameEn}</span>
+            <MiniTag tone="grey">New Project</MiniTag>
+          </div>
+        )
+      }
+      case "phase": {
+        if (!l.phase) return <span className="text-xs text-muted-foreground">—</span>
+        const phaseId = l.projectLevel === "Phase" ? l.projectId : undefined
+        return phaseId ? (
+          <div className="flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <a href={`/projects/${phaseId}`} target="_blank" rel="noreferrer" className="w-fit text-sm font-medium hover:underline">{l.phase}</a>
+            <IdTag value={phaseId} />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm">{l.phase}</span>
+            <MiniTag tone="grey">New Phase</MiniTag>
+          </div>
+        )
+      }
       case "level": return <Chip tone={l.projectLevel === "Main Project" ? "blue" : "white"}>{l.projectLevel}</Chip>
       case "area": return (
         <div className="flex flex-col">
@@ -1134,8 +1198,9 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       case "description": return l.description
         ? <span className="block max-w-[240px] truncate text-xs text-muted-foreground" title={l.description}>{l.description}</span>
         : <span className="text-xs text-muted-foreground">—</span>
-      // New = ingestion creates a brand-new project; Already Existed = linked to a system project
-      case "isNew": return (l.existingProject || l.projectId)
+      // Already Existed = every level is matched to a system id (phase launches need
+      // BOTH the phase and its parent); anything unmatched ingests as New
+      case "isNew": return (l.projectLevel === "Phase" ? l.projectId && l.parentProjectId : l.projectId)
         ? <Chip tone="blue">Already Existed</Chip>
         : <Chip tone="green">New</Chip>
       case "type": return <Chip tone={l.type === "Launch" ? "green" : "white"}>{l.type}</Chip>
@@ -1340,7 +1405,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     <TableToolbar
       search={search}
       onSearch={(v) => { setSearch(v); setPage(1) }}
-      searchPlaceholder="Launch ID or project name"
+      searchPlaceholder="Search by Launch IDs and launch title"
       activeFilters={activeFilterCount}
       onAllFilters={() => setShowAllFilters(true)}
       onColumns={() => setShowColumnSheet(true)}
@@ -1380,8 +1445,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           {!scoped && tab !== "listed" && (
             <FilterSelect label="Ingestion" value={ingestionF === "all" ? "" : ingestionF} options={["Ingested", "Not Ingested"]} onChange={(v) => { setIngestionF(v || "all"); setPage(1) }} className="w-36" />
           )}
-          <FilterSelect label="Listing" value={listingF === "all" ? "" : listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v || "all"); setPage(1) }} className="w-32" />
-          <FilterSelect label="Archive" value={archivedF} options={["Live", "Archived"]} onChange={(v) => { setArchivedF(v || "Live"); setPage(1) }} className="w-32" />
           <DateRangeFilter label="Created Date Range" dateFrom={createdFrom} dateTo={createdTo} onChangeFrom={(v) => { setCreatedFrom(v); setPage(1) }} onChangeTo={(v) => { setCreatedTo(v); setPage(1) }} />
           <DateRangeFilter label="Sent At Range" dateFrom={sentFrom} dateTo={sentTo} onChangeFrom={(v) => { setSentFrom(v); setPage(1) }} onChangeTo={(v) => { setSentTo(v); setPage(1) }} />
           <DateRangeFilter label="Ingested At Range" dateFrom={ingestedFrom} dateTo={ingestedTo} onChangeFrom={(v) => { setIngestedFrom(v); setPage(1) }} onChangeTo={(v) => { setIngestedTo(v); setPage(1) }} />
@@ -1476,7 +1539,13 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           </div>
           {toolbar}
           {renderTable("Launches", (
-            <Button size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}><Plus className="h-4 w-4" />Create Launch</Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setArchivedOpen(true)}>
+                <Archive className="h-3.5 w-3.5" />Archived
+                <span className="rounded-md border border-blue-200 bg-blue-100 px-1.5 text-[11px] font-medium text-blue-700">{scopedLaunches.filter((l) => l.archived).length}</span>
+              </Button>
+              <Button size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}><Plus className="h-4 w-4" />Create Launch</Button>
+            </div>
           ))}
         </TabsContent>
         )}
@@ -1507,6 +1576,49 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           ) : undefined)}
         </TabsContent>
       </Tabs>
+
+      {/* ── Archived launches — restore one or all ─────────────────────────────── */}
+      <Sheet open={archivedOpen} onOpenChange={(v) => !v && setArchivedOpen(false)}>
+        <SheetContent className="flex w-[440px] flex-col gap-0 p-0 sm:max-w-[440px]">
+          <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
+            <SheetTitle className="flex items-center gap-2 text-base">
+              Archived Launches
+              <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{scopedLaunches.filter((l) => l.archived).length}</span>
+            </SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 divide-y divide-border/60 overflow-y-auto">
+            {scopedLaunches.filter((l) => l.archived).map((l) => (
+              <div key={l.id} className="flex items-center gap-3 px-5 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{launchLabel(l)}</p>
+                  <IdTag value={l.id} />
+                  {l.archivedReason && <p className="mt-0.5 text-[11px] text-muted-foreground">{l.archivedReason}</p>}
+                </div>
+                <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => doRestore(l)}>
+                  <Undo2 className="h-3.5 w-3.5" />Restore
+                </Button>
+              </div>
+            ))}
+            {scopedLaunches.filter((l) => l.archived).length === 0 && (
+              <p className="px-5 py-10 text-center text-sm text-muted-foreground">No archived launches.</p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-5 py-3">
+            <Button variant="ghost" size="sm" className="h-8" onClick={() => setArchivedOpen(false)}>Close</Button>
+            <Button
+              size="sm" className="h-8 gap-1.5"
+              disabled={scopedLaunches.filter((l) => l.archived).length === 0}
+              onClick={() => {
+                const ids = scopedLaunches.filter((l) => l.archived).map((l) => l.id)
+                patch(ids, { archived: false, archivedReason: undefined })
+                toast.success(`${ids.length} launch${ids.length !== 1 ? "es" : ""} restored`)
+              }}
+            >
+              <Undo2 className="h-3.5 w-3.5" />Restore All
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* ── Bulk actions ──────────────────────────────────────────────────────── */}
       <FloatingBulkBar
@@ -1592,14 +1704,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
               </div>
             )}
             <div className="space-y-1.5">
-              <p className="text-xs font-medium text-foreground">Listing</p>
-              <FilterSelect label="Listing" value={listingF === "all" ? "" : listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v || "all"); setPage(1) }} className="w-full" />
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-foreground">Archive</p>
-              <FilterSelect label="Archive" value={archivedF} options={["Live", "Archived"]} onChange={(v) => { setArchivedF(v || "Live"); setPage(1) }} className="w-full" />
-            </div>
-            <div className="space-y-1.5">
               <p className="text-xs font-medium text-foreground">Created Date Range</p>
               <DateRangeFilter label="Created Date Range" dateFrom={createdFrom} dateTo={createdTo} onChangeFrom={(v) => { setCreatedFrom(v); setPage(1) }} onChangeTo={(v) => { setCreatedTo(v); setPage(1) }} className="w-full" />
             </div>
@@ -1637,6 +1741,14 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
 
       {/* ── Dialogs ──────────────────────────────────────────────────────────── */}
       <LaunchFormDialog open={formOpen} onOpenChange={setFormOpen} onSave={handleCreate} scope={scopeProject} />
+      {editLaunch && (
+        <LaunchFormDialog
+          open onOpenChange={(v) => { if (!v) setEditLaunch(null) }}
+          initial={editLaunch}
+          onSave={handleCreate}
+          onEdit={(id, patchData) => { patch([id], patchData); toast.success("Launch updated") }}
+        />
+      )}
 
       {dialog?.kind === "archive" && <ArchiveDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={(reason) => doArchive(dialog.launch, reason)} />}
       {dialog?.kind === "approve" && <ApproveDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={() => doApprove(dialog.launch)} />}
