@@ -72,6 +72,7 @@ import { LaunchDetailsPage } from "@/components/launch-details-page"
 import { PROJECTS, PROJECT_DEVELOPERS, type ProjPrimaryStatus, type ProjectRow } from "@/lib/projects-mock"
 import { SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
 import { ActionDialog, ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
+import { LaunchFormDialog } from "@/components/launch-form-dialog"
 import {
   useLaunches, patchLaunches, addLaunch, activateLaunch, closeLaunch, uuidOf, launchLabel,
   activeConflictOf, isIngestedLaunch, launchPropsOf, launchAreaId, LAUNCH_AREAS, setProjectPrimary, eoiRangeText,
@@ -111,6 +112,8 @@ const LAUNCH_COLS: (ManagedColumn & { width: number })[] = [
   { id: "startDate", label: "Start Date", width: 170 },
   { id: "endDate", label: "End Date", width: 170 },
   { id: "aiUpdates", label: "AI Updates", width: 210 },
+  { id: "activatedAt", label: "Activated At", width: 170 },
+  { id: "closedAt", label: "Closed At", width: 170 },
   { id: "sentAt", label: "Sent At", width: 170 },
   { id: "createdAt", label: "Created At", width: 170 },
   { id: "updatedAt", label: "Updated At", width: 170 },
@@ -159,31 +162,6 @@ const AREA_ID: Record<string, string> = Object.fromEntries(LAUNCH_AREAS.map((a) 
 
 
 const DEVELOPERS = [...new Set(PROJECT_DEVELOPERS.map((d) => d.name))]
-
-const EMPTY_FORM: Omit<Launch, "id" | "createdAt" | "updatedAt"> = {
-  plans: [],
-  offerings: [],
-  developer: { name: "", logo: LOGO, id: "" },
-  projectNameEn: "",
-  projectNameAr: "",
-  phase: "",
-  phaseAr: "",
-  title: "",
-  description: "",
-  projectLevel: "Main Project",
-  area: "",
-  areaId: "",
-  approvalStatus: "Pending Review",
-  ingestionStatus: "Not Ingested",
-  listingStatus: "Hidden",
-  launchStatus: "Inactive",
-  type: "Launch",
-  source: "Manual",
-  listingCompletion: 0,
-  eoiAmount: 0,
-  coverImage: "/placeholder.svg?height=200&width=300",
-  sentAt: "",
-}
 
 // ─── Tags (same chip UI as the detailed properties table) ─────────────────────
 
@@ -252,321 +230,6 @@ function formatDate(dateString: string | null | undefined) {
   const date = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })
   const time = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "UTC" })
   return `${date}, ${time}`
-}
-
-// ─── Create dialog ─────────────────────────────────────────────────────────────
-
-function LaunchFormDialog({
-  open,
-  onOpenChange,
-  onSave,
-  onEdit,
-  initial,
-  scope,
-}: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  onSave: (data: Omit<Launch, "id" | "createdAt" | "updatedAt">) => void
-  /** Edit mode — patches the launch instead of creating one. */
-  onEdit?: (id: string, patch: Partial<Launch>) => void
-  initial?: Launch
-  /** Project-details embed: developer + area are locked; project options come from the scope. */
-  scope?: { name: string; isPhase: boolean; mainProject?: string; developer?: string; area?: string; phases?: string[] }
-}) {
-  const [form, setForm] = useState<Omit<Launch, "id" | "createdAt" | "updatedAt">>({ ...EMPTY_FORM })
-  // New launch vs linking to an already-existing system project/phase
-  const [mode, setMode] = useState<"new" | "existing">("new")
-  const [exDevId, setExDevId] = useState("")
-  const [exSel, setExSel] = useState<ProjectTreeSelection>(null)
-  const exRow = exSel ? PROJECTS.find((p) => p.id === exSel.id) : undefined
-
-  const set = (key: keyof typeof form, value: unknown) =>
-    setForm((prev) => ({ ...prev, [key]: value }))
-
-  // Prefill from the scope every time the dialog opens (editing is pre-ingestion only)
-  useEffect(() => {
-    if (!open) return
-    setMode("new"); setExDevId(""); setExSel(null)
-    if (initial) {
-      const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = initial
-      setForm(rest as typeof form)
-      // Prefill the link picker from the current linkage — matched launches open in "existing"
-      const matched = initial.projectLevel === "Phase" ? !!(initial.projectId && initial.parentProjectId) : !!initial.projectId
-      if (matched && initial.projectId) {
-        setMode("existing")
-        setExDevId(initial.developer.id)
-        setExSel({
-          kind: initial.projectLevel === "Phase" ? "phase" : "project",
-          id: initial.projectId,
-          label: initial.projectLevel === "Phase" ? initial.phase : initial.projectNameEn,
-          projectIds: [initial.projectId],
-        })
-      }
-      return
-    }
-    if (scope) {
-      setForm({
-        ...EMPTY_FORM,
-        developer: { name: scope.developer ?? "", logo: LOGO, id: `DEV-${(scope.developer ?? "XXX").slice(0, 3).toUpperCase()}` },
-        area: scope.area ?? "",
-        areaId: AREA_ID[scope.area ?? ""] ?? "",
-        ...(scope.isPhase
-          ? { projectLevel: "Phase" as const, projectNameEn: scope.mainProject ?? scope.name, phase: scope.name }
-          : { projectLevel: "Main Project" as const, projectNameEn: scope.name, phase: "" }),
-      })
-    } else {
-      setForm({ ...EMPTY_FORM })
-    }
-  }, [open])
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* No scroll container — the tree/developer dropdowns overlay past the dialog instead of stretching it. */}
-      <DialogContent className="sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>{initial ? "Edit Launch" : "Create Launch"}</DialogTitle>
-        </DialogHeader>
-
-        {/* New launch vs already-existing project — editing is only offered before ingestion */}
-        {!scope && (
-          <div className="flex gap-2">
-            {([["new", "New Launch", "A brand-new project or phase is created on ingestion."], ["existing", "Already Existing Project", "Link this launch to a project or phase that already exists."]] as const).map(([k, label, desc]) => (
-              <button
-                key={k} type="button" onClick={() => setMode(k)}
-                className={cn(
-                  "flex-1 rounded-lg border p-3 text-left transition-colors",
-                  mode === k ? "border-primary bg-primary/5 ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
-                )}
-              >
-                <span className="block text-sm font-medium text-foreground">{label}</span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">{desc}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Website copy — the title is mandatory, and the only editable pair after ingestion */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label>Title <span className="text-red-500">*</span></Label>
-            <Input value={form.title ?? ""} onChange={(e) => set("title", e.target.value)} placeholder="Launch title" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Description</Label>
-            <Input value={form.description ?? ""} onChange={(e) => set("description", e.target.value)} placeholder="Short description" />
-          </div>
-        </div>
-
-        {!scope && mode === "existing" ? (
-          <div className="grid grid-cols-2 gap-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Developer</Label>
-              <DeveloperSelect developers={SYS_DEVELOPERS} value={exDevId} onChange={(v) => { setExDevId(v); setExSel(null) }} placeholder="Select developer…" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Project / Phase</Label>
-              <ProjectTreeSelect projects={sysProjectTree(exDevId || undefined)} value={exSel} onChange={setExSel} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Area <span className="text-[10px] font-normal text-muted-foreground">(from the selected project)</span></Label>
-              <Input value={exRow?.area ?? ""} disabled placeholder="—" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Type</Label>
-              <select
-                value={form.type}
-                onChange={(e) => set("type", e.target.value as Launch["type"])}
-                className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
-              >
-                <option value="Launch">Launch</option>
-                <option value="Release">Release</option>
-              </select>
-            </div>
-          </div>
-        ) : (
-        <div className="grid grid-cols-2 gap-4 py-2">
-          <div className="space-y-1.5">
-            <Label>Developer</Label>
-            <select
-              value={form.developer.name}
-              disabled={!!scope}
-              onChange={(e) => set("developer", { name: e.target.value, logo: LOGO, id: `DEV-${e.target.value.slice(0, 3).toUpperCase()}` })}
-              className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-            >
-              {scope ? (
-                <option value={scope.developer ?? ""}>{scope.developer ?? "—"}</option>
-              ) : (
-                <>
-                  <option value="">Select developer…</option>
-                  {DEVELOPERS.map((d) => <option key={d} value={d}>{d}</option>)}
-                </>
-              )}
-            </select>
-          </div>
-
-          {!scope && (
-          <div className="space-y-1.5">
-            <Label>Project Level</Label>
-            <select
-              value={form.projectLevel}
-              onChange={(e) => {
-                const level = e.target.value as Launch["projectLevel"]
-                // Main Project launches have no phase by definition
-                setForm((prev) => ({ ...prev, projectLevel: level, phase: level === "Main Project" ? "" : prev.phase }))
-              }}
-              className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
-            >
-              <option value="Main Project">Main Project</option>
-              <option value="Phase">Phase</option>
-            </select>
-          </div>
-          )}
-
-          <div className="space-y-1.5">
-            <Label>{scope ? "Project / Phase" : <>Project Name En <span className="text-red-500">*</span></>}</Label>
-            {scope ? (
-              scope.isPhase ? (
-                // Phase scope: preselected to this phase, locked
-                <select value={scope.name} disabled className="w-full border border-border rounded-md px-3 py-2 text-sm bg-muted text-muted-foreground cursor-not-allowed">
-                  <option value={scope.name}>{scope.name} — phase of {scope.mainProject ?? "project"}</option>
-                </select>
-              ) : (
-                // Main-project scope: main project + its phases
-                <select
-                  value={form.projectLevel === "Main Project" ? "__main__" : form.phase}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    if (v === "__main__") setForm((prev) => ({ ...prev, projectLevel: "Main Project", projectNameEn: scope.name, phase: "" }))
-                    else setForm((prev) => ({ ...prev, projectLevel: "Phase", projectNameEn: scope.name, phase: v }))
-                  }}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
-                >
-                  <option value="__main__">{scope.name} (Main Project)</option>
-                  {(scope.phases ?? []).map((ph) => <option key={ph} value={ph}>{ph}</option>)}
-                </select>
-              )
-            ) : form.projectLevel === "Phase" ? (
-              <select
-                value={form.projectNameEn}
-                onChange={(e) => set("projectNameEn", e.target.value)}
-                className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
-              >
-                <option value="">Select project…</option>
-                {PROJECTS.filter((p) => !p.isPhase && !p.isSubProject).map((p) => (
-                  <option key={p.id} value={p.name}>{p.name}</option>
-                ))}
-              </select>
-            ) : (
-              <Input value={form.projectNameEn} onChange={(e) => set("projectNameEn", e.target.value)} placeholder="Project name" />
-            )}
-          </div>
-
-          {/* New main-project launch: the Arabic name is mandatory alongside the English one */}
-          {!scope && form.projectLevel === "Main Project" && (
-            <div className="space-y-1.5">
-              <Label>Project Name Ar <span className="text-red-500">*</span></Label>
-              <Input dir="rtl" value={form.projectNameAr ?? ""} onChange={(e) => set("projectNameAr", e.target.value)} placeholder="اسم المشروع" />
-            </div>
-          )}
-
-          {!scope && form.projectLevel === "Phase" ? (
-            <>
-              <div className="space-y-1.5">
-                <Label>Phase Name En <span className="text-red-500">*</span></Label>
-                <Input value={form.phase} onChange={(e) => set("phase", e.target.value)} placeholder="e.g. Phase 1" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Phase Name Ar <span className="text-red-500">*</span></Label>
-                <Input dir="rtl" value={form.phaseAr ?? ""} onChange={(e) => set("phaseAr", e.target.value)} placeholder="اسم المرحلة" />
-              </div>
-            </>
-          ) : (
-            !scope && form.projectLevel !== "Main Project" && <div />
-          )}
-
-          <div className="space-y-1.5">
-            <Label>Area {scope && <span className="text-[10px] font-normal text-muted-foreground">(from the selected project)</span>}</Label>
-            <select
-              value={form.area}
-              disabled={!!scope}
-              onChange={(e) => set("area", e.target.value)}
-              className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-            >
-              {scope ? (
-                <option value={form.area}>{form.area || "—"}</option>
-              ) : (
-                <>
-                  <option value="">Select area…</option>
-                  {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
-                </>
-              )}
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Type</Label>
-            <select
-              value={form.type}
-              onChange={(e) => set("type", e.target.value as Launch["type"])}
-              className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
-            >
-              <option value="Launch">Launch</option>
-              <option value="Release">Release</option>
-            </select>
-          </div>
-        </div>
-        )}
-
-        <DialogFooter>
-          <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button
-            disabled={
-              !(form.title ?? "").trim() ? true
-              : mode === "existing" && !scope
-                ? (!exDevId || !exSel)
-                : !scope && !initial
-                ? (form.projectLevel === "Main Project"
-                    ? (!form.projectNameEn.trim() || !(form.projectNameAr ?? "").trim())
-                    : (!form.projectNameEn.trim() || !form.phase.trim() || !(form.phaseAr ?? "").trim()))
-                : false
-            }
-            onClick={() => {
-              /** Remap of the launch's linkage fields onto the picked system project/phase. */
-              const remap = exSel && exRow ? (() => {
-                const isPhase = exSel.kind === "phase"
-                return {
-                  developer: { name: exRow.developer.name, logo: LOGO, id: exRow.developer.id },
-                  projectLevel: (isPhase ? "Phase" : "Main Project") as Launch["projectLevel"],
-                  projectNameEn: isPhase ? exRow.mainProject?.name ?? exRow.name : exRow.name,
-                  phase: isPhase ? exRow.name : "",
-                  projectId: exRow.id,
-                  parentProjectId: isPhase ? exRow.mainProject?.id : undefined,
-                  area: exRow.area,
-                  areaId: AREA_ID[exRow.area] ?? "",
-                  existingProject: { id: exRow.id, name: exRow.name },
-                }
-              })() : null
-              if (initial && onEdit) {
-                if (mode === "existing" && remap) {
-                  onEdit(initial.id, { ...form, ...remap })
-                } else {
-                  // Switched (or kept) as New — drop every system link so ingestion creates it
-                  onEdit(initial.id, { ...form, projectId: undefined, parentProjectId: undefined, existingProject: undefined, listingProject: undefined })
-                }
-              } else if (!scope && mode === "existing" && remap) {
-                onSave({ ...form, ...remap })
-              } else {
-                onSave(form)
-              }
-              onOpenChange(false)
-            }}
-          >
-            {initial ? "Save Changes" : "Create Launch"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
 }
 
 // ─── Action dialogs ────────────────────────────────────────────────────────────
@@ -1196,6 +859,8 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           ) : "—"}
         </span>
       )
+      case "activatedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.activatedAt)}</span>
+      case "closedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.closedAt)}</span>
       case "sentAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.sentAt)}</span>
       case "createdAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.createdAt)}</span>
       case "updatedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.updatedAt)}</span>

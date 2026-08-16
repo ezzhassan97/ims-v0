@@ -52,6 +52,9 @@ export interface Launch {
   startDate?: string
   /** Written only when the launch is closed. */
   endDate?: string
+  /** Action timestamps — when Set Active / Set Closed actually happened (not the EOI window). */
+  activatedAt?: string
+  closedAt?: string
   plans: { name: string; planType: string; dp: string; duration: string }[]
   offerings: { name: string; propertyType: string; grossAreaRange: string; priceRange: string }[]
   /** Mirrors the Launch Incentives tab — broker/agent commission + notes. */
@@ -177,6 +180,8 @@ function seedForProject(r: ProjectRow): Launch[] {
       // Only an activated launch has a start date; only a closed one has an end date.
       startDate: launchStatus === "Inactive" ? undefined : `2026-0${3 + (i % 3)}-${day}`,
       endDate: launchStatus === "Closed" ? `2026-0${5 + (i % 3)}-${day}` : undefined,
+      activatedAt: launchStatus === "Inactive" ? undefined : `2026-0${3 + (i % 3)}-${day}T09:00:00`,
+      closedAt: launchStatus === "Closed" ? `2026-0${5 + (i % 3)}-${day}T18:00:00` : undefined,
       plans: [
         { name: "Standard Plan", planType: "Equal Installments", dp: "10%", duration: `${6 + (seed % 3)} years` },
         { name: "Extended Plan", planType: "Backloaded", dp: "5%", duration: `${8 + (seed % 3)} years` },
@@ -419,8 +424,8 @@ export function activateLaunch(id: string, startDate: string): { closedId?: stri
   const conflict = activeConflictOf(launch)
   const now = new Date().toISOString()
   LAUNCHES = LAUNCHES.map((l) => {
-    if (l.id === id) return { ...l, launchStatus: "Active" as const, startDate, updatedAt: now }
-    if (conflict && l.id === conflict.id) return { ...l, launchStatus: "Closed" as const, endDate: l.endDate ?? startDate, updatedAt: now }
+    if (l.id === id) return { ...l, launchStatus: "Active" as const, startDate, activatedAt: now, updatedAt: now }
+    if (conflict && l.id === conflict.id) return { ...l, launchStatus: "Closed" as const, endDate: l.endDate ?? startDate, closedAt: now, updatedAt: now }
     return l
   })
   emit()
@@ -432,7 +437,11 @@ export function activateLaunch(id: string, startDate: string): { closedId?: stri
  * dialogs); "Inactive" needs no end date — the launch simply stops running.
  */
 export function closeLaunch(id: string, endDate?: string, to: "Closed" | "Inactive" = "Closed") {
-  patchLaunches([id], endDate ? { launchStatus: to, endDate } : { launchStatus: to })
+  patchLaunches([id], {
+    launchStatus: to,
+    ...(endDate ? { endDate } : {}),
+    ...(to === "Closed" ? { closedAt: new Date().toISOString() } : {}),
+  })
 }
 
 /** Every launch linked to a project or phase id. */

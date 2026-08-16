@@ -120,6 +120,7 @@ import {
   Activity,
 } from "lucide-react"
 import { useLaunches, patchLaunches, activateLaunch, closeLaunch, activeConflictOf, isIngestedLaunch, launchPropsOf, setProjectPrimary, type Launch } from "@/lib/launches-mock"
+import { LaunchProjectDetailsCard } from "@/components/launch-form-dialog"
 import { ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
 import { PROJECTS } from "@/lib/projects-mock"
 import { Tag as StatusTag, PRIMARY_COLORS } from "@/components/projects-list-page"
@@ -964,16 +965,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   const [planDrawerOpen, setPlanDrawerOpen] = useState(false)
   const [editingPlan, setEditingPlan] = useState<PlanCardData | null>(null)
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
-  const [projectLevel, setProjectLevel] = useState<"Phase" | "Main Project">("Phase")
-  const [selectedDeveloper, setSelectedDeveloper] = useState("DEV-001")
-  const [selectedArea, setSelectedArea] = useState("AREA-001")
-  const [selectedProject, setSelectedProject] = useState("PROJ-001")
-  const [projectNameEn, setProjectNameEn] = useState(launch.projectNameEn)
-  const [projectNameAr, setProjectNameAr] = useState("بالم هيلز أكتوبر")
-  const [phaseNameEn, setPhaseNameEn] = useState("")
-  const [phaseNameAr, setPhaseNameAr] = useState("")
   // Project Details fields
-  const [projectEditing, setProjectEditing] = useState(false)
   const [projectAreaValue, setProjectAreaValue] = useState("")
   const [projectAreaUnit, setProjectAreaUnit] = useState("Feddans")
   const [totalUnitsReleased, setTotalUnitsReleased] = useState("")
@@ -1095,13 +1087,13 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
     { label: "Developer", ok: !!launch.developer.name },
     ...(launch.projectLevel === "Phase"
       ? [
-          { label: "Phase Name (EN)", ok: !!(phaseNameEn || launch.phase) },
-          { label: "Phase Name (AR)", ok: !!phaseNameAr },
-          { label: "Parent Project", ok: !!(launch.parentProjectId || selectedProject) },
+          { label: "Phase Name (EN)", ok: !!launch.phase },
+          { label: "Phase Name (AR)", ok: !!launch.phaseAr },
+          { label: "Parent Project", ok: !!(launch.parentProjectId || launch.projectNameEn) },
         ]
       : [
-          { label: "Project Name (EN)", ok: !!projectNameEn },
-          { label: "Project Name (AR)", ok: !!projectNameAr },
+          { label: "Project Name (EN)", ok: !!launch.projectNameEn },
+          { label: "Project Name (AR)", ok: !!launch.projectNameAr },
         ]),
     { label: "Area", ok: !!launch.area },
     { label: "Launch Type", ok: !!launchFormType },
@@ -1472,6 +1464,14 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Ingested At</p>
             <p className="text-xs text-foreground">{formatDate(launch.ingestedAt ?? null)}</p>
           </div>
+          <div>
+            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Activated At</p>
+            <p className="text-xs text-foreground">{formatDate(live.activatedAt ?? null)}</p>
+          </div>
+          <div>
+            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Closed At</p>
+            <p className="text-xs text-foreground">{formatDate(live.closedAt ?? null)}</p>
+          </div>
         </div>
       </Card>
 
@@ -1833,133 +1833,10 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
 
         {/* Project Details Tab */}
         <TabsContent value="project">
-          <Card className="p-6">
-            {/* Header: title + view/edit controls (locked once approved + ingested) */}
-            <div className="mb-5 flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Project Details</h3>
-              {approvalStatus === "Approved" && ingestionStatus === "Ingested" ? (
-                <Button variant="outline" size="icon" className="h-8 w-8 bg-transparent" title="Edit Project details" asChild>
-                  <a href="#" target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" /></a>
-                </Button>
-              ) : projectEditing ? (
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => setProjectEditing(false)}>
-                    <X className="h-3.5 w-3.5 mr-1" />Cancel
-                  </Button>
-                  <Button size="sm" className="h-8" onClick={() => { setProjectEditing(false); toast.success("Project details saved") }}>
-                    <Save className="h-3.5 w-3.5 mr-1" />Save
-                  </Button>
-                </div>
-              ) : (
-                <Button variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => setProjectEditing(true)}>
-                  <Edit className="h-3.5 w-3.5 mr-1" />Edit
-                </Button>
-              )}
-            </div>
-
-            {/* New vs linked — editable even after ingestion, but ingested can't go back to New */}
-            <div className="mb-5 flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2.5">
-              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Project Link</span>
-              {linkedProject ? (
-                <>
-                  <span className="inline-flex items-center whitespace-nowrap rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Already Existed</span>
-                  <a href="#" target="_blank" rel="noreferrer" className="text-sm font-medium hover:underline">{linkedProject.name}</a>
-                  <IdCopy value={linkedProject.id} />
-                </>
-              ) : (
-                <>
-                  <span className="inline-flex items-center whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">New</span>
-                  <span className="text-xs text-muted-foreground">a brand-new {launch.projectLevel === "Phase" ? "phase" : "project"} is created on ingestion</span>
-                </>
-              )}
-              {ingestionStatus !== "Ingested" && (
-                <span className="ml-auto text-[11px] text-muted-foreground">
-                  Changed from the Edit Linked Project action on the launch record
-                </span>
-              )}
-            </div>
-
-            <fieldset
-              disabled={!projectEditing || (approvalStatus === "Approved" && ingestionStatus === "Ingested")}
-              className={cn(approvalStatus === "Approved" && ingestionStatus === "Ingested" && "opacity-60")}
-            >
-            <div className="grid grid-cols-2 gap-x-8 gap-y-5">
-
-              {/* Developer — searchable dropdown */}
-              <div>
-                <Label>Developer</Label>
-                <SearchableDropdown
-                  options={mockDevelopers}
-                  value={selectedDeveloper}
-                  onChange={setSelectedDeveloper}
-                  placeholder="Select developer..."
-                />
-              </div>
-
-              {/* Area — searchable dropdown */}
-              <div>
-                <Label>Area</Label>
-                <SearchableDropdown
-                  options={mockAreas}
-                  value={selectedArea}
-                  onChange={setSelectedArea}
-                  placeholder="Select area..."
-                />
-              </div>
-
-              {/* Project Level */}
-              <div>
-                <Label>Project Level</Label>
-                <Select value={projectLevel} onValueChange={(v) => setProjectLevel(v as "Phase" | "Main Project")}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Phase">Phase</SelectItem>
-                    <SelectItem value="Main Project">Main Project</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Spacer to keep grid aligned */}
-              <div />
-
-              {projectLevel === "Phase" ? (
-                <>
-                  <div className="col-span-2">
-                    <Label>Project Name</Label>
-                    <SearchableDropdown
-                      options={mockProjects}
-                      value={selectedProject}
-                      onChange={setSelectedProject}
-                      placeholder="Select project..."
-                    />
-                  </div>
-                  <div>
-                    <Label>Phase Name (EN)</Label>
-                    <Input value={phaseNameEn} onChange={(e) => setPhaseNameEn(e.target.value)} placeholder="e.g. Phase 1" className="mt-1" />
-                  </div>
-                  <div>
-                    <Label>Phase Name (AR)</Label>
-                    <Input value={phaseNameAr} onChange={(e) => setPhaseNameAr(e.target.value)} placeholder="مثال: المرحلة الأولى" className="mt-1" dir="rtl" />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <Label>Project Name (EN)</Label>
-                    <Input value={projectNameEn} onChange={(e) => setProjectNameEn(e.target.value)} className="mt-1" />
-                  </div>
-                  <div>
-                    <Label>Project Name (AR)</Label>
-                    <Input value={projectNameAr} onChange={(e) => setProjectNameAr(e.target.value)} className="mt-1" dir="rtl" />
-                  </div>
-                </>
-              )}
-
-            </div>
-            </fieldset>
-          </Card>
+          <LaunchProjectDetailsCard
+            launch={live}
+            onPatch={(patch) => { patchLaunches([launch.id], patch); toast.success("Project details saved") }}
+          />
         </TabsContent>
 
         {/* Property Offerings Tab */}
