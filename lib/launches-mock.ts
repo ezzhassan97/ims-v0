@@ -229,6 +229,8 @@ function pendingSeed(): Launch[] {
     {
       id: "LCH-002",
       uuid: uuidOf("LCH-002"),
+      title: "LCH-002 · Launch Announcement",
+      description: "Awaiting review — details captured from the source announcement.",
       developer: { name: matchedPhase?.developer.name ?? "Emaar Misr", logo: LOGO, id: matchedPhase?.developer.id ?? "DEV-002" },
       projectNameEn: matchedPhase?.mainProject?.name ?? "Marassi North Coast",
       phase: matchedPhase?.name ?? "Phase 2",
@@ -255,6 +257,8 @@ function pendingSeed(): Launch[] {
     {
       id: "LCH-004",
       uuid: uuidOf("LCH-004"),
+      title: "LCH-004 — Phase 1 · Launch Announcement",
+      description: "Awaiting review — details captured from the source announcement.",
       developer: { name: mains[3]?.developer.name ?? "Mountain View", logo: LOGO, id: mains[3]?.developer.id ?? "DEV-004" },
       projectNameEn: mains[3]?.name ?? "Mountain View iCity",
       phase: "Phase 1",
@@ -281,6 +285,8 @@ function pendingSeed(): Launch[] {
       // Brand-new project — no system project yet, so ingestion must create one.
       id: "LCH-006",
       uuid: uuidOf("LCH-006"),
+      title: "Hyde Park New Cairo · Launch Announcement",
+      description: "Awaiting review — details captured from the source announcement.",
       developer: { name: "Hyde Park", logo: LOGO, id: "DEV-006" },
       projectNameEn: "Hyde Park New Cairo",
       phase: "",
@@ -305,6 +311,8 @@ function pendingSeed(): Launch[] {
     {
       id: "LCH-009",
       uuid: uuidOf("LCH-009"),
+      title: "Mivida New Cairo · Launch Announcement",
+      description: "Awaiting review — details captured from the source announcement.",
       developer: { name: "Emaar Misr", logo: LOGO, id: "DEV-002" },
       projectNameEn: "Mivida New Cairo",
       phase: "",
@@ -329,6 +337,8 @@ function pendingSeed(): Launch[] {
     {
       id: "LCH-010",
       uuid: uuidOf("LCH-010"),
+      title: "VYE Sheikh Zayed — Phase 2 · Launch Announcement",
+      description: "Awaiting review — details captured from the source announcement.",
       developer: { name: "Sodic", logo: LOGO, id: "DEV-003" },
       projectNameEn: "VYE Sheikh Zayed",
       phase: "Phase 2",

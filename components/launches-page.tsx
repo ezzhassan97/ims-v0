@@ -340,7 +340,7 @@ type DialogState =
 export function LaunchesPage({ embedded = false, scopeProject }: {
   embedded?: boolean
   /** `id` + `phaseIds` scope the table to a project's own launches. */
-  scopeProject?: { id?: string; phaseIds?: string[]; name: string; isPhase: boolean; mainProject?: string; developer?: string; area?: string; phases?: string[] }
+  scopeProject?: { id?: string; mainProjectId?: string; phaseIds?: string[]; name: string; isPhase: boolean; mainProject?: string; developer?: string; area?: string; phases?: string[]; phaseOptions?: { id: string; name: string }[] }
 } = {}) {
   const scoped = !!scopeProject
   const launches = useLaunches()
@@ -594,17 +594,12 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     toast.success(`${launch.projectNameEn} closed — sales portal notified`)
   }
 
+  // Ingestion is only possible for launches linked to an existing system project/phase.
   const doIngest = (launch: Launch) => {
-    patch([launch.id], {
-      ingestionStatus: "Ingested",
-      ...(launch.existingProject ? { listingProject: launch.existingProject } : {}),
-    })
+    if (!launch.projectId || !launch.existingProject) return
+    patch([launch.id], { ingestionStatus: "Ingested", listingProject: launch.existingProject })
     setDialog(null)
-    toast.success(
-      launch.existingProject
-        ? `${launch.projectNameEn} ingested — linked to ${launch.existingProject.name} (${launch.existingProject.id})`
-        : `${launch.projectNameEn} ingested — a new ${launch.projectLevel === "Phase" ? "phase" : "project"} was created`,
-    )
+    toast.success(`${launch.projectNameEn} ingested — linked to ${launch.existingProject.name} (${launch.existingProject.id})`)
   }
 
   const doBulk = (kind: BulkKind) => {
@@ -1401,10 +1396,11 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           message={
             dialog.launch.existingProject
               ? `Launch info will be ingested and linked to ${dialog.launch.existingProject.name} (${dialog.launch.existingProject.id}).`
-              : `A brand-new ${dialog.launch.projectLevel === "Phase" ? "phase" : "project"} "${dialog.launch.projectLevel === "Phase" ? dialog.launch.phase : dialog.launch.projectNameEn}" will be created and the launch ingested under it.`
+              : `This launch isn't linked to a system ${dialog.launch.projectLevel === "Phase" ? "phase" : "project"}, so it can't be ingested. If the ${dialog.launch.projectLevel === "Phase" ? "phase" : "project"} doesn't exist yet, create it from the Projects page first, then link it from the Edit Linked Project action.`
           }
           confirmLabel="Ingest Launch"
           confirmClass="bg-emerald-600 text-white hover:bg-emerald-700"
+          confirmDisabled={!dialog.launch.existingProject}
           onClose={() => setDialog(null)}
           onConfirm={() => doIngest(dialog.launch)}
         />

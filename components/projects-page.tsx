@@ -387,6 +387,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
               embedded
               scopeProject={{
                 id: project?.id,
+                mainProjectId: project?.mainProject?.id,
                 phaseIds: childRows.map((c) => c.id),
                 name: project?.name ?? "",
                 isPhase: project?.isPhase ?? false,
@@ -394,6 +395,7 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
                 developer: project?.developer?.name,
                 area: project?.area,
                 phases: project && !project.isPhase ? PROJECTS.filter((p) => p.isPhase && p.mainProject?.id === project.id).map((p) => p.name) : [],
+                phaseOptions: project && !project.isPhase ? PROJECTS.filter((p) => p.isPhase && p.mainProject?.id === project.id).map((p) => ({ id: p.id, name: p.name })) : [],
               }}
             />
           </TabsContent>

@@ -20,7 +20,18 @@ const DEVELOPERS = [...new Set(PROJECT_DEVELOPERS.map((d) => d.name))]
 
 export type LaunchFormData = Omit<Launch, "id" | "createdAt" | "updatedAt">
 
-export type LaunchScope = { name: string; isPhase: boolean; mainProject?: string; developer?: string; area?: string; phases?: string[] }
+export type LaunchScope = {
+  name: string
+  isPhase: boolean
+  mainProject?: string
+  developer?: string
+  area?: string
+  phases?: string[]
+  /** Real system ids so scoped creates come out linked (ingestable) from the start. */
+  id?: string
+  mainProjectId?: string
+  phaseOptions?: { id: string; name: string }[]
+}
 
 const EMPTY_FORM: LaunchFormData = {
   plans: [],
@@ -78,7 +89,9 @@ function useLinkState(active: boolean, initial?: Launch, scope?: LaunchScope, re
 
   useEffect(() => {
     if (!active) return
-    setMode("new"); setExDevId(""); setExSel(null)
+    // Manual creation always links to an existing project/phase; "new" survives only
+    // as the not-linked-yet state of launches that arrived unlinked (e.g. WhatsApp).
+    setMode(initial ? "new" : "existing"); setExDevId(""); setExSel(null)
     if (initial) {
       const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = initial
       setForm(rest as LaunchFormData)
@@ -143,7 +156,7 @@ function editPatch(s: LinkState): Partial<Launch> {
 function ModeToggle({ s, locked }: { s: LinkState; locked?: boolean }) {
   return (
     <div className="flex gap-2">
-      {([["new", "New Launch", "A brand-new project or phase is created on ingestion."], ["existing", "Already Existing Project", "Link this launch to a project or phase that already exists."]] as const).map(([k, label, desc]) => (
+      {([["new", "New Launch", "Not linked yet — the launch can't be ingested until it's linked to an existing project or phase."], ["existing", "Already Existing Project", "Link this launch to a project or phase that already exists."]] as const).map(([k, label, desc]) => (
         <button
           key={k} type="button" disabled={locked} onClick={() => s.setMode(k)}
           className={cn(
@@ -160,13 +173,24 @@ function ModeToggle({ s, locked }: { s: LinkState; locked?: boolean }) {
   )
 }
 
+function DetectedRow({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="text-sm font-medium text-foreground">{value || "—"}</p>
+      {sub && <p dir="rtl" className="text-xs text-muted-foreground">{sub}</p>}
+    </div>
+  )
+}
+
 /** Everything below the title/description — the mode toggle plus the linkage grids. */
-function LinkFormBody({ s, scope, locked }: { s: LinkState; scope?: LaunchScope; locked?: boolean }) {
+function LinkFormBody({ s, scope, locked, canToggle }: { s: LinkState; scope?: LaunchScope; locked?: boolean; canToggle?: boolean }) {
   const { form, set, setForm, mode, exDevId, setExDevId, exSel, setExSel, exRow } = s
   const dis = !!locked
+  const entity = form.projectLevel === "Phase" ? "phase" : "project"
   return (
     <>
-      {!scope && <ModeToggle s={s} locked={locked} />}
+      {!scope && canToggle && <ModeToggle s={s} locked={locked} />}
 
       {!scope && mode === "existing" ? (
         <div className="grid grid-cols-2 gap-4 py-2">
@@ -202,143 +226,100 @@ function LinkFormBody({ s, scope, locked }: { s: LinkState; scope?: LaunchScope;
             </select>
           </div>
         </div>
-      ) : (
+      ) : scope ? (
       <div className="grid grid-cols-2 gap-4 py-2">
         <div className="space-y-1.5">
           <Label>Developer</Label>
-          <select
-            value={form.developer.name}
-            disabled={!!scope || dis}
-            onChange={(e) => set("developer", { name: e.target.value, logo: LOGO, id: `DEV-${e.target.value.slice(0, 3).toUpperCase()}` })}
-            className={SELECT}
-          >
-            {scope ? (
-              <option value={scope.developer ?? ""}>{scope.developer ?? "—"}</option>
-            ) : (
-              <>
-                <option value="">Select developer…</option>
-                {DEVELOPERS.map((d) => <option key={d} value={d}>{d}</option>)}
-              </>
-            )}
+          <select value={form.developer.name} disabled className={SELECT}>
+            <option value={scope.developer ?? ""}>{scope.developer ?? "—"}</option>
           </select>
         </div>
 
-        {!scope && (
         <div className="space-y-1.5">
-          <Label>Project Level</Label>
-          <select
-            value={form.projectLevel}
-            disabled={dis}
-            onChange={(e) => {
-              const level = e.target.value as Launch["projectLevel"]
-              // Main Project launches have no phase by definition
-              setForm((prev) => ({ ...prev, projectLevel: level, phase: level === "Main Project" ? "" : prev.phase }))
-            }}
-            className={SELECT}
-          >
-            <option value="Main Project">Main Project</option>
-            <option value="Phase">Phase</option>
-          </select>
-        </div>
-        )}
-
-        {/* Phase launches: the parent project takes the full row so the phase EN/AR names pair up below */}
-        <div className={cn("space-y-1.5", !scope && form.projectLevel === "Phase" && "col-span-2")}>
-          <Label>{scope ? "Project / Phase" : form.projectLevel === "Phase" ? <>Parent Project <span className="text-red-500">*</span></> : <>Project Name En <span className="text-red-500">*</span></>}</Label>
-          {scope ? (
-            scope.isPhase ? (
-              // Phase scope: preselected to this phase, locked
-              <select value={scope.name} disabled className="w-full border border-border rounded-md px-3 py-2 text-sm bg-muted text-muted-foreground cursor-not-allowed">
-                <option value={scope.name}>{scope.name} — phase of {scope.mainProject ?? "project"}</option>
-              </select>
-            ) : (
-              // Main-project scope: main project + its phases
-              <select
-                value={form.projectLevel === "Main Project" ? "__main__" : form.phase}
-                onChange={(e) => {
-                  const v = e.target.value
-                  if (v === "__main__") setForm((prev) => ({ ...prev, projectLevel: "Main Project", projectNameEn: scope.name, phase: "" }))
-                  else setForm((prev) => ({ ...prev, projectLevel: "Phase", projectNameEn: scope.name, phase: v }))
-                }}
-                className={SELECT}
-              >
-                <option value="__main__">{scope.name} (Main Project)</option>
-                {(scope.phases ?? []).map((ph) => <option key={ph} value={ph}>{ph}</option>)}
-              </select>
-            )
-          ) : form.projectLevel === "Phase" ? (
-            <select value={form.projectNameEn} disabled={dis} onChange={(e) => set("projectNameEn", e.target.value)} className={SELECT}>
-              <option value="">Select project…</option>
-              {PROJECTS.filter((p) => !p.isPhase && !p.isSubProject).map((p) => (
-                <option key={p.id} value={p.name}>{p.name}</option>
-              ))}
+          <Label>Project / Phase</Label>
+          {scope.isPhase ? (
+            // Phase scope: preselected to this phase, locked
+            <select value={scope.name} disabled className="w-full border border-border rounded-md px-3 py-2 text-sm bg-muted text-muted-foreground cursor-not-allowed">
+              <option value={scope.name}>{scope.name} — phase of {scope.mainProject ?? "project"}</option>
             </select>
           ) : (
-            <Input value={form.projectNameEn} disabled={dis} onChange={(e) => set("projectNameEn", e.target.value)} placeholder="Project name" className={dis ? "disabled:bg-muted" : FIELD} />
+            // Main-project scope: main project + its phases
+            <select
+              value={form.projectLevel === "Main Project" ? "__main__" : form.phase}
+              onChange={(e) => {
+                const v = e.target.value
+                if (v === "__main__") setForm((prev) => ({ ...prev, projectLevel: "Main Project", projectNameEn: scope.name, phase: "" }))
+                else setForm((prev) => ({ ...prev, projectLevel: "Phase", projectNameEn: scope.name, phase: v }))
+              }}
+              className={SELECT}
+            >
+              <option value="__main__">{scope.name} (Main Project)</option>
+              {(scope.phases ?? []).map((ph) => <option key={ph} value={ph}>{ph}</option>)}
+            </select>
           )}
         </div>
 
-        {/* New main-project launch: the Arabic name is mandatory alongside the English one */}
-        {!scope && form.projectLevel === "Main Project" && (
-          <div className="space-y-1.5">
-            <Label>Project Name Ar <span className="text-red-500">*</span></Label>
-            <Input dir="rtl" value={form.projectNameAr ?? ""} disabled={dis} onChange={(e) => set("projectNameAr", e.target.value)} placeholder="اسم المشروع" className={dis ? "disabled:bg-muted" : FIELD} />
-          </div>
-        )}
-
-        {!scope && form.projectLevel === "Phase" && (
-          <>
-            <div className="space-y-1.5">
-              <Label>Phase Name En <span className="text-red-500">*</span></Label>
-              <Input value={form.phase} disabled={dis} onChange={(e) => set("phase", e.target.value)} placeholder="e.g. Phase 1" className={dis ? "disabled:bg-muted" : FIELD} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Phase Name Ar <span className="text-red-500">*</span></Label>
-              <Input dir="rtl" value={form.phaseAr ?? ""} disabled={dis} onChange={(e) => set("phaseAr", e.target.value)} placeholder="اسم المرحلة" className={dis ? "disabled:bg-muted" : FIELD} />
-            </div>
-          </>
-        )}
-
         <div className="space-y-1.5">
-          <Label>Area {scope && <span className="text-[10px] font-normal text-muted-foreground">(from the selected project)</span>}</Label>
-          <select value={form.area} disabled={!!scope || dis} onChange={(e) => set("area", e.target.value)} className={SELECT}>
-            {scope ? (
-              <option value={form.area}>{form.area || "—"}</option>
-            ) : (
-              <>
-                <option value="">Select area…</option>
-                {LAUNCH_AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
-              </>
-            )}
+          <Label>Area <span className="text-[10px] font-normal text-muted-foreground">(from the selected project)</span></Label>
+          <select value={form.area} disabled className={SELECT}>
+            <option value={form.area}>{form.area || "—"}</option>
           </select>
         </div>
 
         <div className="space-y-1.5">
           <Label>Type</Label>
-          <select value={form.type} disabled={dis} onChange={(e) => set("type", e.target.value as Launch["type"])} className={SELECT}>
+          <select value={form.type} onChange={(e) => set("type", e.target.value as Launch["type"])} className={SELECT}>
             <option value="Launch">Launch</option>
             <option value="Release">Release</option>
           </select>
         </div>
-
-        {/* New-entity outcome — visibility inheritance + the default primary status */}
-        {!scope && (
-          <div className="col-span-2 space-y-2">
-            <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
-              {form.projectLevel === "Phase"
-                ? "The new phase will be created Hidden — it stays hidden while its parent project is hidden."
-                : "The new project will be created Hidden — it stays hidden while its developer is hidden."}
-            </p>
-            <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
-              The {form.projectLevel === "Phase" ? "phase" : "project"}'s Primary Status will be On-Sale by default on
-              creation — you can change the status and activate the launch after ingestion.
-            </p>
+      </div>
+      ) : (
+      /* Not linked yet — detected names are context for finding/creating the entity, never payload */
+      <div className="space-y-3 py-2">
+        <div className="rounded-lg border border-border bg-muted/30 p-3">
+          <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {form.source === "WhatsApp" ? "Detected from WhatsApp" : "Names on record"}
+          </p>
+          <div className="grid grid-cols-3 gap-x-6 gap-y-2">
+            <DetectedRow label="Level" value={form.projectLevel} />
+            <DetectedRow label={form.projectLevel === "Phase" ? "Parent Project" : "Project"} value={form.projectNameEn} sub={form.projectNameAr} />
+            {form.projectLevel === "Phase" && <DetectedRow label="Phase" value={form.phase} sub={form.phaseAr} />}
+            <DetectedRow label="Developer" value={form.developer.name} />
+            <DetectedRow label="Area" value={form.area} />
           </div>
-        )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <select value={form.type} disabled={dis} onChange={(e) => set("type", e.target.value as Launch["type"])} className={SELECT}>
+              <option value="Launch">Launch</option>
+              <option value="Release">Release</option>
+            </select>
+          </div>
+        </div>
+
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
+          This launch isn't linked to a system {entity} — it can be approved but <span className="font-semibold">not ingested</span>.
+          Use the names above to search for the {entity} under <span className="font-medium">Already Existing Project</span>. If it
+          doesn't exist yet, create it from the Projects page first, then link it here.
+        </p>
       </div>
       )}
     </>
   )
+}
+
+/** Scoped creates link to the scope's real ids, so they're ingestable immediately. */
+function scopeLink(scope: LaunchScope | undefined, form: LaunchFormData): Partial<Launch> {
+  if (!scope?.id) return {}
+  if (scope.isPhase) return { projectId: scope.id, parentProjectId: scope.mainProjectId, existingProject: { id: scope.id, name: scope.name } }
+  if (form.projectLevel === "Main Project") return { projectId: scope.id, existingProject: { id: scope.id, name: scope.name } }
+  const ph = scope.phaseOptions?.find((p) => p.name === form.phase)
+  return ph
+    ? { projectId: ph.id, parentProjectId: scope.id, existingProject: { id: ph.id, name: ph.name } }
+    : { parentProjectId: scope.id }
 }
 
 export function LaunchFormDialog({
@@ -381,7 +362,7 @@ export function LaunchFormDialog({
           </div>
         </div>
 
-        <LinkFormBody s={s} scope={scope} />
+        <LinkFormBody s={s} scope={scope} canToggle={!!initial} />
 
         <DialogFooter>
           <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -390,10 +371,6 @@ export function LaunchFormDialog({
               !(form.title ?? "").trim() ? true
               : mode === "existing" && !scope
                 ? (!exDevId || !exSel)
-                : !scope && !initial
-                ? (form.projectLevel === "Main Project"
-                    ? (!form.projectNameEn.trim() || !(form.projectNameAr ?? "").trim())
-                    : (!form.projectNameEn.trim() || !form.phase.trim() || !(form.phaseAr ?? "").trim()))
                 : false
             }
             onClick={() => {
@@ -403,7 +380,7 @@ export function LaunchFormDialog({
               } else if (!scope && mode === "existing" && remap) {
                 onSave({ ...form, ...remap })
               } else {
-                onSave(form)
+                onSave({ ...form, ...scopeLink(scope, form) })
               }
               onOpenChange(false)
             }}
@@ -443,7 +420,7 @@ export function LaunchProjectDetailsCard({ launch, onPatch }: { launch: Launch; 
         )}
       </div>
       <div className="grid gap-4">
-        <LinkFormBody s={s} locked={locked} />
+        <LinkFormBody s={s} locked={locked} canToggle />
       </div>
     </Card>
   )
