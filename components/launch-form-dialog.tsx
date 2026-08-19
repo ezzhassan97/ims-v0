@@ -102,6 +102,11 @@ function useLinkState(active: boolean, initial?: Launch, scope?: LaunchScope, re
           label: initial.projectLevel === "Phase" ? initial.phase : initial.projectNameEn,
           projectIds: [initial.projectId],
         })
+      } else if (initial.source === "WhatsApp") {
+        // The developer is CONFIRMED by the WhatsApp group the launch came from —
+        // preselect it so the project tree opens already scoped to that developer
+        const dev = PROJECT_DEVELOPERS.find((d) => d.name.toLowerCase() === initial.developer.name.toLowerCase())
+        if (dev) setExDevId(dev.id)
       }
       return
     }
@@ -226,7 +231,6 @@ function LinkFormBody({ s, scope, locked, unlinked }: { s: LinkState; scope?: La
             <DetectedRow label="Level" value={form.projectLevel} />
             <DetectedRow label={form.projectLevel === "Phase" ? "Parent Project" : "Project"} value={form.projectNameEn} sub={form.projectNameAr} />
             {form.projectLevel === "Phase" && <DetectedRow label="Phase" value={form.phase} sub={form.phaseAr} />}
-            <DetectedRow label="Developer" value={form.developer.name} />
             <DetectedRow label="Area" value={form.area} />
           </div>
         </div>
@@ -234,8 +238,13 @@ function LinkFormBody({ s, scope, locked, unlinked }: { s: LinkState; scope?: La
 
       <div className="grid grid-cols-2 gap-4 py-2">
         <div className="space-y-1.5">
-          <Label>Developer</Label>
-          {dis ? (
+          <Label>
+            Developer
+            {!dis && form.source === "WhatsApp" && (
+              <span className="ml-1 text-[10px] font-normal text-muted-foreground">(confirmed by the WhatsApp group)</span>
+            )}
+          </Label>
+          {dis || form.source === "WhatsApp" ? (
             <Input value={form.developer.name} disabled className="disabled:bg-muted" />
           ) : (
             <div className="rounded-md bg-card">
@@ -268,9 +277,8 @@ function LinkFormBody({ s, scope, locked, unlinked }: { s: LinkState; scope?: La
 
       {unlinked && !exSel && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
-          This launch isn't linked to a system {entity} yet — it can be approved but <span className="font-semibold">not ingested</span>.
-          Use the names above to find the {entity} in the pickers. If it doesn't exist yet, create it from the Projects page
-          first, then link it here.
+          Launch must be linked to a project or phase in the system before ingestion. If you can't find the
+          phase or project, create it in the Projects page to be able to link this launch to it.
         </p>
       )}
     </>

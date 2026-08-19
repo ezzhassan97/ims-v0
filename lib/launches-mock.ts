@@ -399,6 +399,22 @@ export function addLaunch(l: Launch) {
   emit()
 }
 
+
+/** New AI update = WhatsApp messages were detected AFTER the launch was ingested. */
+export function hasNewAiUpdate(l: Launch): boolean {
+  const last = l.aiUpdates?.lastAt ?? l.sentAt
+  return !!last && !!l.ingestedAt && new Date(last) > new Date(l.ingestedAt)
+}
+
+/** WhatsApp message-extraction datetimes, ascending — first message to last detected update. */
+export function aiUpdateDates(l: Launch): string[] {
+  const count = Math.max(1, l.aiUpdates?.count ?? 1)
+  const first = new Date(l.sentAt).getTime()
+  const last = new Date(l.aiUpdates?.lastAt ?? l.sentAt).getTime()
+  if (count === 1 || !isFinite(first) || !isFinite(last) || last <= first) return [l.sentAt]
+  return Array.from({ length: count }, (_, i) => new Date(first + ((last - first) * i) / (count - 1)).toISOString())
+}
+
 export const isIngestedLaunch = (l: Launch) => l.approvalStatus === "Approved" && l.ingestionStatus === "Ingested"
 
 /** Card/cell display: one fee, or a min–max range when per-type fees differ. */

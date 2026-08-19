@@ -71,6 +71,7 @@ import {
   ChevronRight,
   CreditCard,
   Gift,
+  HandCoins,
   Paperclip,
   Rocket,
   ScrollText,
@@ -119,7 +120,7 @@ import {
   Database,
   Activity,
 } from "lucide-react"
-import { useLaunches, patchLaunches, activateLaunch, closeLaunch, activeConflictOf, isIngestedLaunch, launchPropsOf, setProjectPrimary, type Launch } from "@/lib/launches-mock"
+import { useLaunches, patchLaunches, activateLaunch, closeLaunch, activeConflictOf, isIngestedLaunch, launchPropsOf, setProjectPrimary, hasNewAiUpdate, aiUpdateDates, uuidOf, type Launch } from "@/lib/launches-mock"
 import { LaunchProjectDetailsCard } from "@/components/launch-form-dialog"
 import { ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
 import { PROJECTS } from "@/lib/projects-mock"
@@ -580,9 +581,75 @@ function eoiErr(v: string): string | null {
   return null
 }
 
-/** New AI update = the last AI update landed after the launch was last updated. */
-function hasNewAiUpdateDetails(l: Launch): boolean {
-  return !!l.aiUpdates && new Date(l.aiUpdates.lastAt) > new Date(l.updatedAt)
+
+// ── Collected EOIs — per-organization totals with per-type contracted/collected bars ──
+const EOI_ORGS = ["Nawy", "Partners Brokers", "Partners Plus", "Partners Freelancers"]
+
+function CollectedEoisTab({ launch }: { launch: Launch }) {
+  const seed = [...launch.id].reduce((s, c) => s + c.charCodeAt(0), 0)
+  const types = launch.offerings.length
+    ? [...new Set(launch.offerings.map((o) => o.propertyType || o.name))]
+    : ["Apartment", "Villa", "Chalet"]
+  const orgs = EOI_ORGS.map((org, oi) => {
+    const rows = types.map((type, ti) => {
+      const collected = 6 + ((seed * (oi + 3) + ti * 29) % 140)
+      const contracted = Math.round(collected * (0.2 + (((seed + oi * 11 + ti * 7) % 55) / 100)))
+      return { type, collected, contracted }
+    })
+    return {
+      org,
+      rows,
+      collected: rows.reduce((s, r) => s + r.collected, 0),
+      contracted: rows.reduce((s, r) => s + r.contracted, 0),
+    }
+  })
+  const maxCollected = Math.max(...orgs.flatMap((o) => o.rows.map((r) => r.collected)))
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {orgs.reduce((s, o) => s + o.collected, 0)} EOIs collected · {orgs.reduce((s, o) => s + o.contracted, 0)} contracted
+        </p>
+        <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />Contracted</span>
+          <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-blue-300" />Collected, not contracted yet</span>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {orgs.map((o) => (
+          <Card key={o.org} className="gap-0 p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold">{o.org}</h3>
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex items-center whitespace-nowrap rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{o.collected} collected</span>
+                <span className="inline-flex items-center whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">{o.contracted} contracted</span>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {o.rows.map((r) => {
+                const pct = r.collected ? Math.round((r.contracted / r.collected) * 100) : 0
+                return (
+                  <div key={r.type}>
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="font-medium text-foreground">{r.type}</span>
+                      <span className="text-muted-foreground">{r.contracted} / {r.collected} contracted · {pct}%</span>
+                    </div>
+                    {/* Bar length compares types across organizations; segments split contracted vs still-open */}
+                    <div className="flex h-2.5 overflow-hidden rounded-full bg-muted" title={`${r.contracted} contracted of ${r.collected} collected`}>
+                      <span className="h-full bg-emerald-500" style={{ width: `${(r.contracted / maxCollected) * 100}%` }} />
+                      <span className="h-full bg-blue-300" style={{ width: `${((r.collected - r.contracted) / maxCollected) * 100}%` }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 // Map a launch offering → GroupedProperty so the embedded AdditionalInfoTab shows the real
@@ -771,7 +838,10 @@ function LaunchOfferingCard({
           ) : (
             <>
               <Button variant="outline" size="icon" className="h-6 w-6 bg-transparent" title="Edit" onClick={startEdit}><Pencil className="h-3 w-3" /></Button>
-              <Button variant="outline" size="sm" className="h-6 bg-transparent px-2 text-xs" onClick={onListClick}><Check className="h-3 w-3 mr-1" />List</Button>
+              {/* Single-property listing only exists AFTER the launch itself is ingested — until then offerings stay Draft */}
+              {launchIngested && (
+                <Button variant="outline" size="sm" className="h-6 bg-transparent px-2 text-xs" title="List (ingest) this property" onClick={onListClick}><Check className="h-3 w-3 mr-1" />List</Button>
+              )}
               <Button variant="outline" size="icon" className="h-6 w-6 bg-transparent text-muted-foreground hover:text-destructive" title="Delete" onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>
             </>
           )}
@@ -1148,6 +1218,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   // Listing flow: validate mandatory → confirm dialog → loading toast → reveal id/title/dates.
   const [listingOfferingId, setListingOfferingId] = useState<number | null>(null)
   const handleListClick = (id: number) => {
+    if (ingestionStatus !== "Ingested") { toast.error("Ingest the launch first — offerings stay Draft until launch ingestion."); return }
     const o = offerings.find((x) => x.id === id)
     if (!o) return
     if (offeringMissingMandatory(o).length > 0) { toast.error("Fill all mandatory fields before listing this offering."); return }
@@ -1254,52 +1325,74 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
             />
             <div className="min-w-0 space-y-1">
               <div className="flex items-center gap-2">
-                {/* Phase launches are titled by the PHASE name, not the parent project */}
+                {/* The website-facing launch title fronts the page */}
                 <h1 className="truncate text-xl font-bold">
-                  {launch.projectLevel === "Phase" && launch.phase ? launch.phase : launch.projectNameEn}
+                  {launch.title || (launch.projectLevel === "Phase" && launch.phase ? launch.phase : launch.projectNameEn)}
                 </h1>
                 <Badge variant={launch.projectLevel === "Phase" ? "secondary" : "outline"} className="text-xs">
                   {launch.projectLevel === "Phase" ? "Phase" : "Main Project"}
                 </Badge>
-                {hasNewAiUpdateDetails(launch) && (
+                {hasNewAiUpdate(launch) && (
                   <span className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-purple-200 bg-purple-50 px-1.5 py-px text-[10px] font-medium text-purple-700">
                     <Bot className="h-2.5 w-2.5" />New AI update
                   </span>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-                {/* Launch ID — leftmost */}
-                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                  <span className="uppercase tracking-wide text-muted-foreground/60">Launch ID:</span> <IdCopy value={launch.id} />
+              {/* IDs — uuid always; the numeric id joins it once the launch is ingested */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span className="group/uuid flex items-center gap-1 font-mono text-[10px] text-muted-foreground" title={launch.uuid ?? uuidOf(launch.id)}>
+                  <span className="max-w-[220px] truncate">{launch.uuid ?? uuidOf(launch.id)}</span>
+                  <button onClick={() => navigator.clipboard?.writeText(launch.uuid ?? uuidOf(launch.id)).catch(() => {})} className="opacity-0 transition-opacity group-hover/uuid:opacity-100">
+                    <Copy className="h-3 w-3 text-muted-foreground" />
+                  </button>
                 </span>
-                {/* Developer — clickable */}
+                {ingestionStatus === "Ingested" && (
+                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <span className="uppercase tracking-wide text-muted-foreground/60">ID:</span> <IdCopy value={launch.id.replace(/\D/g, "")} />
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[10px] text-muted-foreground">
+                {/* Developer — confirmed by the source group */}
                 <span className="flex items-center gap-1.5">
-                  <a href="#" target="_blank" rel="noreferrer" className="text-sm font-medium text-muted-foreground hover:underline">{launch.developer.name}</a>
-                  <span className="text-[10px] text-muted-foreground"><IdCopy value={launch.developer.id} /></span>
+                  <span className="uppercase tracking-wide text-muted-foreground/60">Developer:</span>
+                  <a href="#" target="_blank" rel="noreferrer" className="text-xs font-medium text-foreground hover:underline">{launch.developer.name}</a>
+                  <IdCopy value={launch.developer.id} />
                 </span>
-                {/* Parent project — matched (link + id) vs unmatched (red tag), phase launches only */}
+                {/* Project — the linked main project (or the detected name while unlinked) */}
+                <span className="flex items-center gap-1.5">
+                  <span className="uppercase tracking-wide text-muted-foreground/60">Project:</span>
+                  {(launch.projectLevel === "Phase" ? launch.parentProjectId : launch.projectId) ? (
+                    <>
+                      <a href="#" target="_blank" rel="noreferrer" className="text-xs font-medium text-foreground hover:underline">{launch.projectNameEn}</a>
+                      <IdCopy value={(launch.projectLevel === "Phase" ? launch.parentProjectId : launch.projectId)!} />
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-xs font-medium text-foreground">{launch.projectNameEn || "—"}</span>
+                      <span className="inline-flex items-center whitespace-nowrap rounded border border-red-200 bg-red-50 px-1.5 py-px text-[10px] font-medium text-red-500">Unmatched Project</span>
+                    </>
+                  )}
+                </span>
+                {/* Phase — only when the launch sits on a phase */}
                 {launch.projectLevel === "Phase" && (
-                  <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                    <span className="uppercase tracking-wide text-muted-foreground/60">Parent:</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="uppercase tracking-wide text-muted-foreground/60">Phase:</span>
                     {launch.projectId ? (
                       <>
-                        <a href="#" target="_blank" rel="noreferrer" className="text-xs font-medium text-foreground hover:underline">{launch.parentProjectId || launch.projectNameEn}</a>
+                        <a href="#" target="_blank" rel="noreferrer" className="text-xs font-medium text-foreground hover:underline">{launch.phase}</a>
                         <IdCopy value={launch.projectId} />
                       </>
                     ) : (
                       <>
-                        <span className="text-xs font-medium text-foreground">{launch.parentProjectId || launch.projectNameEn}</span>
-                        <span className="inline-flex items-center whitespace-nowrap rounded border border-red-200 bg-red-50 px-1.5 py-px text-[10px] font-medium text-red-500">Unmatched Project</span>
+                        <span className="text-xs font-medium text-foreground">{launch.phase || "—"}</span>
+                        <span className="inline-flex items-center whitespace-nowrap rounded border border-gray-200 bg-gray-50 px-1.5 py-px text-[10px] font-medium text-gray-500">New Phase</span>
                       </>
                     )}
                   </span>
                 )}
-                {/* New project — a main-project launch with no matched system project */}
-                {launch.projectLevel !== "Phase" && !launch.projectId && (
-                  <span className="inline-flex items-center whitespace-nowrap rounded border border-gray-200 bg-gray-50 px-1.5 py-px text-[10px] font-medium text-gray-500">New Project</span>
-                )}
                 {/* Area name + id */}
-                <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <span className="flex items-center gap-1.5">
                   <span className="uppercase tracking-wide text-muted-foreground/60">Area:</span>
                   <span className="text-xs font-medium text-foreground">{launch.area}</span>
                   <IdCopy value={launch.areaId ?? "AR-000"} />
@@ -1375,10 +1468,6 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-border px-6 py-3">
           <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
             {([
-              // New = ingestion creates a brand-new project; Already Existed = linked to a system project
-              ["Is New", (launch.existingProject || launch.projectId)
-                ? <Badge key="isnew" className="border border-blue-200 bg-blue-100 text-blue-700 hover:bg-blue-100">Already Existed</Badge>
-                : <Badge key="isnew" className="border border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-100">New</Badge>],
               ["Type", getTypeBadge(launchType)],
               ["Approval Status", getApprovalStatusBadge(approvalStatus)],
               ["Ingestion Status", getIngestionStatusBadge(ingestionStatus)],
@@ -1429,16 +1518,26 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
           </div>
           <div>
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Sent At</p>
-            <p className="text-xs text-foreground">{formatDate(launch.sentAt ?? null)}</p>
+            {launch.source === "WhatsApp" && launch.sentAt ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap text-xs", hasNewAiUpdate(launch) ? "font-medium text-purple-700" : "text-foreground")}>
+                    {formatDate(launch.aiUpdates?.lastAt ?? launch.sentAt)}
+                    <span className={cn(
+                      "rounded-md border px-1.5 py-px text-[10px] font-medium",
+                      hasNewAiUpdate(launch) ? "border-purple-200 bg-purple-100 text-purple-700" : "border-border bg-muted/40 text-muted-foreground",
+                    )}>
+                      {Math.max(1, launch.aiUpdates?.count ?? 1)} update{(launch.aiUpdates?.count ?? 1) === 1 ? "" : "s"}
+                    </span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="text-xs">
+                  <p className="mb-1 font-medium">Message extractions</p>
+                  {aiUpdateDates(launch).map((d, i) => <p key={i}>{formatDate(d)}</p>)}
+                </TooltipContent>
+              </Tooltip>
+            ) : <p className="text-xs text-foreground">—</p>}
           </div>
-          {launch.source === "WhatsApp" && (
-            <div>
-              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">AI Updates</p>
-              <p className="text-xs text-foreground">
-                {launch.aiUpdates ? `${launch.aiUpdates.count} update${launch.aiUpdates.count === 1 ? "" : "s"}, ${formatDate(launch.aiUpdates.lastAt)}` : "—"}
-              </p>
-            </div>
-          )}
           <div>
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Created At</p>
             <p className="text-xs text-foreground">{formatDate(launch.createdAt)}</p>
@@ -1665,6 +1764,8 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               disabled={!linkedProject}
               onClick={() => {
                 setIngestionStatus("Ingested")
+                // Launch ingestion carries the draft offerings with it
+                offerings.forEach((o) => { if (!o.listed) setOfferingListed(o.id, true) })
                 setIngestDialog(null)
                 if (linkedProject && conflictLaunch) {
                   onResolveConflict?.(conflictLaunch.id)
@@ -1722,6 +1823,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
             <TabsTrigger value="payment" className="data-[state=active]:bg-card"><CreditCard className="mr-1.5 h-3.5 w-3.5" />Payment Plans</TabsTrigger>
             <TabsTrigger value="offerings" className="data-[state=active]:bg-card"><Home className="mr-1.5 h-3.5 w-3.5" />Property Offerings</TabsTrigger>
             <TabsTrigger value="attachments" className="data-[state=active]:bg-card"><Paperclip className="mr-1.5 h-3.5 w-3.5" />Attachments</TabsTrigger>
+            <TabsTrigger value="eois" className="data-[state=active]:bg-card"><HandCoins className="mr-1.5 h-3.5 w-3.5" />Collected EOIs</TabsTrigger>
             <TabsTrigger value="audit" className="data-[state=active]:bg-card"><ScrollText className="mr-1.5 h-3.5 w-3.5" />Audit Logs</TabsTrigger>
           </TabsList>
         </TabStrip>
@@ -2629,6 +2731,10 @@ Contact us for more details!`}
         )}
 
         {/* Audit Logs Tab */}
+        <TabsContent value="eois">
+          <CollectedEoisTab launch={launch} />
+        </TabsContent>
+
         <TabsContent value="audit">
           <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-card py-16 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary">

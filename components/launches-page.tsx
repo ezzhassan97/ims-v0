@@ -35,6 +35,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Label } from "@/components/ui/label"
 import {
   Plus,
@@ -76,6 +77,7 @@ import { LaunchFormDialog } from "@/components/launch-form-dialog"
 import {
   useLaunches, patchLaunches, addLaunch, activateLaunch, closeLaunch, uuidOf, launchLabel,
   activeConflictOf, isIngestedLaunch, launchPropsOf, launchAreaId, LAUNCH_AREAS, setProjectPrimary, eoiRangeText,
+  hasNewAiUpdate, aiUpdateDates,
   type Launch,
 } from "@/lib/launches-mock"
 import {
@@ -87,12 +89,6 @@ import { cn } from "@/lib/utils"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-
-/** New AI update = WhatsApp messages were detected AFTER the launch was ingested. */
-function hasNewAiUpdate(l: Launch): boolean {
-  const last = l.aiUpdates?.lastAt ?? l.sentAt
-  return !!last && !!l.ingestedAt && new Date(last) > new Date(l.ingestedAt)
-}
 
 // ── Column control (checkbox + ID + actions + order stay fixed) ───────────────
 const LAUNCH_COLS: (ManagedColumn & { width: number })[] = [
@@ -149,15 +145,6 @@ function tsValue(l: Launch, key: TsSortKey): string {
   // Sent At shows WhatsApp message activity — sorted by the LAST detected message
   if (key === "sentAt") return l.source === "WhatsApp" ? (l.aiUpdates?.lastAt ?? l.sentAt ?? "") : ""
   return l[key] ?? ""
-}
-
-/** WhatsApp message-extraction datetimes, ascending — first message to last detected update. */
-function aiUpdateDates(l: Launch): string[] {
-  const count = Math.max(1, l.aiUpdates?.count ?? 1)
-  const first = new Date(l.sentAt).getTime()
-  const last = new Date(l.aiUpdates?.lastAt ?? l.sentAt).getTime()
-  if (count === 1 || !isFinite(first) || !isFinite(last) || last <= first) return [l.sentAt]
-  return Array.from({ length: count }, (_, i) => new Date(first + ((last - first) * i) / (count - 1)).toISOString())
 }
 
 type TabKey = "all" | "pending" | "listed" | "active"
@@ -838,11 +825,32 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       case "approval": return <Chip tone={APPROVAL_TONE[l.approvalStatus]}>{l.approvalStatus}</Chip>
       case "ingestion": return <Chip tone={INGESTION_TONE[l.ingestionStatus]}>{l.ingestionStatus}</Chip>
       case "launchStatus": return <Chip tone={LAUNCH_STATUS_TONE[l.launchStatus]}>{l.launchStatus}</Chip>
-      case "title": return l.title
-        ? <span className="block max-w-[220px] truncate text-sm text-foreground" title={l.title}>{l.title}</span>
-        : <span className="text-xs text-muted-foreground">—</span>
+      case "title": return (
+        <div className="flex flex-col items-start gap-0.5">
+          {hasNewAiUpdate(l) && (
+            <span className="inline-flex w-fit items-center gap-1 whitespace-nowrap rounded border border-purple-200 bg-purple-50 px-1.5 py-px text-[10px] font-medium text-purple-700">
+              <Bot className="h-2.5 w-2.5" />New AI update
+            </span>
+          )}
+          {l.title ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="block max-w-[220px] truncate text-sm text-foreground">{l.title}</span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">{l.title}</TooltipContent>
+            </Tooltip>
+          ) : <span className="text-xs text-muted-foreground">—</span>}
+        </div>
+      )
       case "description": return l.description
-        ? <span className="block max-w-[240px] truncate text-xs text-muted-foreground" title={l.description}>{l.description}</span>
+        ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="block max-w-[240px] truncate text-xs text-muted-foreground">{l.description}</span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-sm text-xs">{l.description}</TooltipContent>
+          </Tooltip>
+        )
         : <span className="text-xs text-muted-foreground">—</span>
       case "type": return <Chip tone={l.type === "Launch" ? "green" : "white"}>{l.type}</Chip>
       case "source": return <Chip tone={l.source === "WhatsApp" ? "green" : "white"}>{l.source}</Chip>
@@ -863,18 +871,23 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
         const count = Math.max(1, l.aiUpdates?.count ?? 1)
         const fresh = hasNewAiUpdate(l)
         return (
-          <span
-            className={cn("inline-flex items-center gap-1.5 whitespace-nowrap text-xs", fresh ? "font-medium text-purple-700" : "text-muted-foreground")}
-            title={aiUpdateDates(l).map((d) => formatDate(d)).join("\n")}
-          >
-            {formatDate(l.aiUpdates?.lastAt ?? l.sentAt)}
-            <span className={cn(
-              "rounded-md border px-1.5 py-px text-[10px] font-medium",
-              fresh ? "border-purple-200 bg-purple-100 text-purple-700" : "border-border bg-muted/40 text-muted-foreground",
-            )}>
-              {count} update{count === 1 ? "" : "s"}
-            </span>
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap text-xs", fresh ? "font-medium text-purple-700" : "text-muted-foreground")}>
+                {formatDate(l.aiUpdates?.lastAt ?? l.sentAt)}
+                <span className={cn(
+                  "rounded-md border px-1.5 py-px text-[10px] font-medium",
+                  fresh ? "border-purple-200 bg-purple-100 text-purple-700" : "border-border bg-muted/40 text-muted-foreground",
+                )}>
+                  {count} update{count === 1 ? "" : "s"}
+                </span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="text-xs">
+              <p className="mb-1 font-medium">Message extractions</p>
+              {aiUpdateDates(l).map((d, i) => <p key={i}>{formatDate(d)}</p>)}
+            </TooltipContent>
+          </Tooltip>
         )
       }
       case "createdAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.createdAt)}</span>
@@ -920,11 +933,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           <div className="flex flex-col gap-0.5">
             <UuidCell uuid={l.uuid ?? l.id} />
             {isIngested(l) && <IdTag value={l.id.replace(/\D/g, "")} />}
-            {hasNewAiUpdate(l) && (
-              <span className="inline-flex w-fit items-center gap-1 whitespace-nowrap rounded border border-purple-200 bg-purple-50 px-1.5 py-px text-[10px] font-medium text-purple-700">
-                <Bot className="h-2.5 w-2.5" />New AI update
-              </span>
-            )}
           </div>
         </TableCell>
 
