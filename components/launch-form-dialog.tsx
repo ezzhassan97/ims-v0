@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Save } from "lucide-react"
+import { Save, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type Launch, LAUNCH_AREAS, launchAreaId } from "@/lib/launches-mock"
 import { PROJECTS, PROJECT_DEVELOPERS } from "@/lib/projects-mock"
@@ -215,12 +215,12 @@ function LinkFormBody({ s, scope, locked, unlinked }: { s: LinkState; scope?: La
 
   return (
     <>
-      {/* Free-text names from the source (WhatsApp detection or manual entry) — context that
-          helps the user find the right project/phase in the pickers below, never payload */}
-      {unlinked && (
-        <div className="rounded-lg border border-border bg-muted/30 p-3">
-          <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {form.source === "WhatsApp" ? "Detected from WhatsApp" : "Names on record"}
+      {/* AI-detected names from the WhatsApp messages — context that helps the user find
+          the right project/phase in the pickers below, never payload */}
+      {unlinked && form.source === "WhatsApp" && (
+        <div className="rounded-lg border border-purple-200 bg-purple-50/60 p-3">
+          <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-purple-700">
+            <Sparkles className="h-3 w-3" />Suggested by AI — detected from WhatsApp
           </p>
           <div className="grid grid-cols-3 gap-x-6 gap-y-2">
             <DetectedRow label="Level" value={form.projectLevel} />

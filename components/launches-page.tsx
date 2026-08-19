@@ -69,7 +69,7 @@ import {
 import { toast } from "sonner"
 import { Tag, LISTING_COLORS, ENTRY_COLORS, PRIMARY_COLORS } from "@/components/projects-list-page"
 import { LaunchDetailsPage } from "@/components/launch-details-page"
-import { PROJECTS, PROJECT_DEVELOPERS, type ProjPrimaryStatus, type ProjectRow } from "@/lib/projects-mock"
+import { PROJECTS, PROJECT_DEVELOPERS, AREA_TREE, type ProjPrimaryStatus, type ProjectRow } from "@/lib/projects-mock"
 import { SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
 import { ActionDialog, ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
 import { LaunchFormDialog } from "@/components/launch-form-dialog"
@@ -80,7 +80,7 @@ import {
 } from "@/lib/launches-mock"
 import {
   TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, DateRangeFilter,
-  FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, ColumnsSheet, ProjectTreeSelect, DeveloperSelect, GroupPager,
+  FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, ColumnsSheet, ProjectTreeSelect, DeveloperSelect, AreaTreeSelect, GroupPager,
   type ManagedColumn, type ProjectTreeNode, type ProjectTreeSelection,
 } from "@/components/table-kit"
 import { cn } from "@/lib/utils"
@@ -88,9 +88,10 @@ import { cn } from "@/lib/utils"
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 
-/** New AI update = the last AI update landed after the launch was last updated. */
+/** New AI update = WhatsApp messages were detected AFTER the launch was ingested. */
 function hasNewAiUpdate(l: Launch): boolean {
-  return !!l.aiUpdates && new Date(l.aiUpdates.lastAt) > new Date(l.updatedAt)
+  const last = l.aiUpdates?.lastAt ?? l.sentAt
+  return !!last && !!l.ingestedAt && new Date(last) > new Date(l.ingestedAt)
 }
 
 // ── Column control (checkbox + ID + actions + order stay fixed) ───────────────
@@ -101,7 +102,6 @@ const LAUNCH_COLS: (ManagedColumn & { width: number })[] = [
   { id: "projectName", label: "Project Name", width: 190 },
   { id: "phase", label: "Phase", width: 100 },
   { id: "area", label: "Area", width: 130 },
-  { id: "isNew", label: "Is New", width: 130 },
   { id: "level", label: "Level", width: 130 },
   { id: "approval", label: "Approval", width: 140 },
   { id: "ingestion", label: "Ingestion Status", width: 140 },
@@ -111,13 +111,12 @@ const LAUNCH_COLS: (ManagedColumn & { width: number })[] = [
   { id: "completion", label: "Completion", width: 140 },
   { id: "startDate", label: "Start Date", width: 170 },
   { id: "endDate", label: "End Date", width: 170 },
-  { id: "aiUpdates", label: "AI Updates", width: 210 },
   { id: "activatedAt", label: "Activated At", width: 170 },
   { id: "closedAt", label: "Closed At", width: 170 },
-  { id: "sentAt", label: "Sent At", width: 170 },
+  { id: "sentAt", label: "Sent At", width: 230 },
+  { id: "ingestedAt", label: "Ingested At", width: 170 },
   { id: "createdAt", label: "Created At", width: 170 },
   { id: "updatedAt", label: "Updated At", width: 170 },
-  { id: "ingestedAt", label: "Ingested At", width: 170 },
 ]
 
 // ── Group by ──────────────────────────────────────────────────────────────────
@@ -138,18 +137,27 @@ function groupValue(l: Launch, key: GroupByKey): string {
 }
 
 // ── Sortable timestamp columns (header tri-state + multi-level Sort button) ───
-type TsSortKey = "aiUpdates" | "sentAt" | "createdAt" | "updatedAt" | "ingestedAt"
+type TsSortKey = "sentAt" | "createdAt" | "updatedAt" | "ingestedAt"
 type LaunchSort = { key: TsSortKey; dir: "asc" | "desc" }
 const SORT_FIELDS: { key: TsSortKey; label: string }[] = [
-  { key: "aiUpdates", label: "AI Updates" },
   { key: "sentAt", label: "Sent At" },
   { key: "createdAt", label: "Created At" },
   { key: "updatedAt", label: "Updated At" },
   { key: "ingestedAt", label: "Ingested At" },
 ]
 function tsValue(l: Launch, key: TsSortKey): string {
-  if (key === "aiUpdates") return l.aiUpdates?.lastAt ?? ""
+  // Sent At shows WhatsApp message activity — sorted by the LAST detected message
+  if (key === "sentAt") return l.source === "WhatsApp" ? (l.aiUpdates?.lastAt ?? l.sentAt ?? "") : ""
   return l[key] ?? ""
+}
+
+/** WhatsApp message-extraction datetimes, ascending — first message to last detected update. */
+function aiUpdateDates(l: Launch): string[] {
+  const count = Math.max(1, l.aiUpdates?.count ?? 1)
+  const first = new Date(l.sentAt).getTime()
+  const last = new Date(l.aiUpdates?.lastAt ?? l.sentAt).getTime()
+  if (count === 1 || !isFinite(first) || !isFinite(last) || last <= first) return [l.sentAt]
+  return Array.from({ length: count }, (_, i) => new Date(first + ((last - first) * i) / (count - 1)).toISOString())
 }
 
 type TabKey = "all" | "pending" | "listed" | "active"
@@ -158,6 +166,13 @@ type TabKey = "all" | "pending" | "listed" | "active"
 
 const LOGO = "/placeholder.svg?height=32&width=32"
 const AREAS = LAUNCH_AREAS
+
+// Canonical filter sources (same pickers as the rest of the project) — resolved to
+// names for matching, since launches carry their own area/developer id universes.
+const DEV_NAME_BY_ID = new Map(PROJECT_DEVELOPERS.map((d) => [d.id, d.name.toLowerCase()]))
+const AREA_NAME_BY_ID = new Map<string, string>(
+  AREA_TREE.flatMap((a) => [[a.id, a.name] as [string, string], ...a.subareas.map((s) => [s.id, a.name] as [string, string])]),
+)
 const AREA_ID: Record<string, string> = Object.fromEntries(LAUNCH_AREAS.map((a) => [a, launchAreaId(a)]))
 
 
@@ -352,7 +367,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   const [areaF, setAreaF] = useState<string[]>([])
   const [projectSels, setProjectSels] = useState<string[]>([])
   const [sourceF, setSourceF] = useState("all")
-  const [alreadyCreatedF, setAlreadyCreatedF] = useState("all")
   const [aiUpdatesF, setAiUpdatesF] = useState("all")
   const [launchStatusF, setLaunchStatusF] = useState("all")
   const [approvalF, setApprovalF] = useState("all")
@@ -406,7 +420,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   }
 
   const clearAllFilters = () => {
-    setSearch(""); setDeveloperF([]); setAreaF([]); setProjectSels([]); setSourceF("all"); setAlreadyCreatedF("all")
+    setSearch(""); setDeveloperF([]); setAreaF([]); setProjectSels([]); setSourceF("all")
     setAiUpdatesF("all"); setLaunchStatusF("all"); setApprovalF("all"); setIngestionF("all")
     setListingF("all"); setCreatedFrom(""); setCreatedTo(""); setSentFrom(""); setSentTo("")
     setIngestedFrom(""); setIngestedTo(""); setPage(1)
@@ -455,12 +469,12 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   const tabRows = (t: TabKey): Launch[] => {
     let rows = baseRows(t).filter((l) => {
       if (search && !`${l.id} ${l.uuid ?? ""} ${l.title ?? ""} ${l.projectNameEn}`.toLowerCase().includes(search.toLowerCase())) return false
-      if (developerF.length && !developerF.includes(l.developer.name)) return false
-      if (areaF.length && !areaF.includes(l.area)) return false
+      // Canonical pickers hold ids; launches match by resolved developer/area NAME so
+      // both launch universes (generated + pending seeds) filter consistently
+      if (developerF.length && !developerF.some((id) => DEV_NAME_BY_ID.get(id) === l.developer.name.toLowerCase())) return false
+      if (areaF.length && !areaF.some((id) => AREA_NAME_BY_ID.get(id) === l.area)) return false
       if (projectSels.length && !(l.projectId && projectSels.includes(l.projectId))) return false
       if (sourceF !== "all" && l.source !== sourceF) return false
-      if (alreadyCreatedF === "Existing" && !l.existingProject) return false
-      if (alreadyCreatedF === "New" && l.existingProject) return false
       if (aiUpdatesF === "New update" && !hasNewAiUpdate(l)) return false
       if (t !== "active" && launchStatusF !== "all" && l.launchStatus !== launchStatusF) return false
       if (t !== "pending" && approvalF !== "all" && l.approvalStatus !== approvalF) return false
@@ -495,7 +509,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
 
   const activeFilterCount =
     (developerF.length ? 1 : 0) + (areaF.length ? 1 : 0) + (projectSels.length ? 1 : 0) +
-    [sourceF, alreadyCreatedF, aiUpdatesF, listingF].filter((f) => f !== "all").length +
+    [sourceF, aiUpdatesF, listingF].filter((f) => f !== "all").length +
     (tab !== "active" && launchStatusF !== "all" ? 1 : 0) +
     (!scoped && tab !== "pending" && approvalF !== "all" ? 1 : 0) +
     (!scoped && tab !== "listed" && ingestionF !== "all" ? 1 : 0) +
@@ -830,11 +844,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       case "description": return l.description
         ? <span className="block max-w-[240px] truncate text-xs text-muted-foreground" title={l.description}>{l.description}</span>
         : <span className="text-xs text-muted-foreground">—</span>
-      // Already Existed = every level is matched to a system id (phase launches need
-      // BOTH the phase and its parent); anything unmatched ingests as New
-      case "isNew": return (l.projectLevel === "Phase" ? l.projectId && l.parentProjectId : l.projectId)
-        ? <Chip tone="blue">Already Existed</Chip>
-        : <Chip tone="green">New</Chip>
       case "type": return <Chip tone={l.type === "Launch" ? "green" : "white"}>{l.type}</Chip>
       case "source": return <Chip tone={l.source === "WhatsApp" ? "green" : "white"}>{l.source}</Chip>
       case "startDate": return <span className="whitespace-nowrap text-xs text-muted-foreground">{l.startDate ? formatDate(l.startDate) : "—"}</span>
@@ -845,18 +854,29 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           <span className="text-xs text-muted-foreground">{l.listingCompletion}%</span>
         </div>
       )
-      case "aiUpdates": return (
-        <span className="whitespace-nowrap text-xs text-muted-foreground">
-          {l.aiUpdates ? (
-            <span className={cn(hasNewAiUpdate(l) && "font-medium text-purple-700")}>
-              {l.aiUpdates.count} update{l.aiUpdates.count === 1 ? "" : "s"}, {formatDate(l.aiUpdates.lastAt)}
-            </span>
-          ) : "—"}
-        </span>
-      )
       case "activatedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.activatedAt)}</span>
       case "closedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.closedAt)}</span>
-      case "sentAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.sentAt)}</span>
+      // Sent At = WhatsApp message-extraction activity: last message datetime + update
+      // count, purple when messages landed AFTER ingestion; tooltip lists every datetime
+      case "sentAt": {
+        if (l.source !== "WhatsApp" || !l.sentAt) return <span className="text-xs text-muted-foreground">—</span>
+        const count = Math.max(1, l.aiUpdates?.count ?? 1)
+        const fresh = hasNewAiUpdate(l)
+        return (
+          <span
+            className={cn("inline-flex items-center gap-1.5 whitespace-nowrap text-xs", fresh ? "font-medium text-purple-700" : "text-muted-foreground")}
+            title={aiUpdateDates(l).map((d) => formatDate(d)).join("\n")}
+          >
+            {formatDate(l.aiUpdates?.lastAt ?? l.sentAt)}
+            <span className={cn(
+              "rounded-md border px-1.5 py-px text-[10px] font-medium",
+              fresh ? "border-purple-200 bg-purple-100 text-purple-700" : "border-border bg-muted/40 text-muted-foreground",
+            )}>
+              {count} update{count === 1 ? "" : "s"}
+            </span>
+          </span>
+        )
+      }
       case "createdAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.createdAt)}</span>
       case "updatedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.updatedAt)}</span>
       case "ingestedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.ingestedAt)}</span>
@@ -1064,11 +1084,10 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       }
       filters={
         <>
-          {!scoped && <FilterMultiSelect label="Developer" options={DEVELOPERS} value={developerF} onChange={(v) => { setDeveloperF(v); setPage(1) }} tone="danger" className="w-40" />}
-          {!scoped && <FilterMultiSelect label="Area" options={AREAS} value={areaF} onChange={(v) => { setAreaF(v); setPage(1) }} tone="danger" className="w-36" />}
+          {!scoped && <DeveloperSelect multi developers={PROJECT_DEVELOPERS} values={developerF} onValuesChange={(v) => { setDeveloperF(v); setPage(1) }} placeholder="Developer" className="w-40" />}
+          {!scoped && <AreaTreeSelect multi tree={AREA_TREE} values={areaF} onValuesChange={(v) => { setAreaF(v); setPage(1) }} placeholder="Area" className="w-36" />}
           {!scoped && <ProjectTreeSelect multi projects={launchProjectTree} values={projectSels} onValuesChange={(v) => { setProjectSels(v); setPage(1) }} className="w-44" />}
           <FilterSelect label="Source" value={sourceF === "all" ? "" : sourceF} options={["WhatsApp", "Manual"]} onChange={(v) => { setSourceF(v || "all"); setPage(1) }} className="w-32" />
-          <FilterSelect label="Already Created" value={alreadyCreatedF === "all" ? "" : alreadyCreatedF} options={["Existing", "New"]} onChange={(v) => { setAlreadyCreatedF(v || "all"); setPage(1) }} className="w-40" />
           <FilterSelect label="AI Updates" value={aiUpdatesF === "all" ? "" : aiUpdatesF} options={["New update"]} onChange={(v) => { setAiUpdatesF(v || "all"); setPage(1) }} className="w-36" />
           {tab !== "active" && (
             <FilterSelect label="Launch Status" value={launchStatusF === "all" ? "" : launchStatusF} options={["Inactive", "Active", "Closed"]} onChange={(v) => { setLaunchStatusF(v || "all"); setPage(1) }} className="w-38" />
@@ -1292,13 +1311,13 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
             {!scoped && (
               <div className="space-y-1.5">
                 <p className="text-xs font-medium text-foreground">Developer</p>
-                <FilterMultiSelect label="Developer" options={DEVELOPERS} value={developerF} onChange={(v) => { setDeveloperF(v); setPage(1) }} tone="danger" className="w-full" />
+                <DeveloperSelect multi developers={PROJECT_DEVELOPERS} values={developerF} onValuesChange={(v) => { setDeveloperF(v); setPage(1) }} placeholder="Developer" className="w-full" />
               </div>
             )}
             {!scoped && (
               <div className="space-y-1.5">
                 <p className="text-xs font-medium text-foreground">Area</p>
-                <FilterMultiSelect label="Area" options={AREAS} value={areaF} onChange={(v) => { setAreaF(v); setPage(1) }} tone="danger" className="w-full" />
+                <AreaTreeSelect multi tree={AREA_TREE} values={areaF} onValuesChange={(v) => { setAreaF(v); setPage(1) }} placeholder="Area" className="w-full" />
               </div>
             )}
             {!scoped && (
@@ -1310,10 +1329,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-foreground">Source</p>
               <FilterSelect label="Source" value={sourceF === "all" ? "" : sourceF} options={["WhatsApp", "Manual"]} onChange={(v) => { setSourceF(v || "all"); setPage(1) }} className="w-full" />
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-foreground">Already Created</p>
-              <FilterSelect label="Already Created" value={alreadyCreatedF === "all" ? "" : alreadyCreatedF} options={["Existing", "New"]} onChange={(v) => { setAlreadyCreatedF(v || "all"); setPage(1) }} className="w-full" />
             </div>
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-foreground">AI Updates</p>
