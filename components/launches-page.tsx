@@ -49,6 +49,7 @@ import {
   LayoutGrid,
   ListChecks,
   Activity,
+  PauseCircle,
   XCircle,
   GripVertical,
   ShieldCheck,
@@ -510,6 +511,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     ingested: allTabRows.filter(isIngestedLaunch).length,
     active: allTabRows.filter((l) => l.launchStatus === "Active").length,
     inactive: allTabRows.filter((l) => l.launchStatus === "Inactive").length,
+    closed: allTabRows.filter((l) => l.launchStatus === "Closed").length,
   }
   const pendingCount = launches.filter((l) => l.approvalStatus === "Pending Review").length
 
@@ -1165,13 +1167,14 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
         {/* ── ALL ────────────────────────────────────────────────────────────── */}
         {!scoped && (
         <TabsContent value="all" className="mt-4 space-y-4">
-          <div className="grid grid-cols-5 gap-4">
+          <div className="grid grid-cols-6 gap-4">
             {[
               { label: "Total", value: stats.total, icon: Rocket, color: "blue" },
               { label: "Approved", value: stats.approved, icon: CheckCircle, color: "green" },
               { label: "Ingested", value: stats.ingested, icon: ListChecks, color: "purple" },
+              { label: "Inactive", value: stats.inactive, icon: PauseCircle, color: "gray" },
               { label: "Active Launch", value: stats.active, icon: Activity, color: "emerald" },
-              { label: "Inactive", value: stats.inactive, icon: XCircle, color: "gray" },
+              { label: "Closed Launches", value: stats.closed, icon: XCircle, color: "red" },
             ].map(({ label, value, icon: Icon, color }) => (
               <Card key={label} className="p-4">
                 <div className="flex items-center gap-3">
