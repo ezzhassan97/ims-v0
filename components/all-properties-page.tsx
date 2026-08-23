@@ -80,7 +80,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { initialUnits, projectPhases, type Unit } from "@/lib/mock-data"
 import { GroupedPropertiesView, type SharedFilterState, type GroupDetailPayload } from "@/components/grouped-properties-page"
-import { GroupPager, AreaTreeSelect, DeveloperSelect, ProjectTreeSelect, FilterSelect, IdTag } from "@/components/table-kit"
+import { GroupPager, AreaTreeSelect, DeveloperSelect, ProjectTreeSelect, FilterSelect, IdTag, LinkedId } from "@/components/table-kit"
+import { launchesSnapshot, isIngestedLaunch as isIngestedLaunchRec } from "@/lib/launches-mock"
+
+// Lazy — this file sits in an import cycle with grouped-properties-page
+let _rowLaunchIds: string[] | null = null
+const rowLaunchIds = () => (_rowLaunchIds ??= launchesSnapshot().filter(isIngestedLaunchRec).map((l) => l.id))
 import type { Variation } from "@/components/additional-info-tab"
 import { AddMediaDialog } from "@/components/add-media-dialog"
 import { ChooseAssetsDrawer } from "@/components/choose-assets-drawer"
@@ -101,6 +106,8 @@ export interface PropertyRow {
   propertyId: string
   propertyMetadataId: string
   detailedPropertyId: string | null
+  /** Ingested launch this Launch unit belongs to. */
+  launchId?: string
   entryType: EntryType
   developer: { id: string; name: string; logo: string; url: string }
   project: { id: string; name: string; url: string }
@@ -397,6 +404,7 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
     propertyId,
     propertyMetadataId: `PMD-${String(10000 + index).padStart(6, "0")}`,
     detailedPropertyId: isManual ? null : `DPR-${String(84000 + index).padStart(6, "0")}`,
+    launchId: saleType === "Launch" && rowLaunchIds().length ? rowLaunchIds()[index % rowLaunchIds().length] : undefined,
     entryType: isManual ? "Manual" : "Automatic",
     developer: {
       id: `DEV-${(index % 4) + 1}`,
@@ -2812,6 +2820,12 @@ export function ViewPropertyDrawer({
                 <span className="text-muted-foreground font-medium">Unit Code</span>
                 <CopyableText value={row.unitCode} muted />
               </div>
+              {row.saleType === "Launch" && row.launchId && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground font-medium">Launch ID</span>
+                  <LinkedId value={row.launchId} href={`/launches/${row.launchId}`} />
+                </div>
+              )}
             </div>
 
             {/* Row 4: Property type + Price */}

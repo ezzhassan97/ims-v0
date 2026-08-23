@@ -56,7 +56,7 @@ export interface Launch {
   activatedAt?: string
   closedAt?: string
   plans: { name: string; planType: string; dp: string; duration: string }[]
-  offerings: { name: string; propertyType: string; grossAreaRange: string; priceRange: string }[]
+  offerings: { name: string; propertyType: string; grossAreaRange: string; priceRange: string; images?: number }[]
   /** Mirrors the Launch Incentives tab — broker/agent commission + notes. */
   incentives?: { commissionType: "percentage" | "amount"; commissionValue: string; brokerNotes?: string }
   /** Taskeen (allocation) days — same shape as the launch details page editor. */
@@ -141,8 +141,8 @@ function seedForProject(r: ProjectRow): Launch[] {
       isLaunch && i === 0 ? "Active" : (seed + i) % 2 === 0 ? "Inactive" : "Closed"
     const day = String(10 + (seed % 18)).padStart(2, "0")
     const offerings = [
-      { name: "Apartments", propertyType: "Apartment", grossAreaRange: "110–180 SQM", priceRange: `${5 + (seed % 4)}M – ${9 + (seed % 5)}M` },
-      { name: "Villas", propertyType: "Villa", grossAreaRange: "220–340 SQM", priceRange: `${14 + (seed % 5)}M – ${22 + (seed % 6)}M` },
+      { name: "Apartments", propertyType: "Apartment", grossAreaRange: "110–180 SQM", priceRange: `${5 + (seed % 4)}M – ${9 + (seed % 5)}M`, images: 1 + (seed % 3) },
+      { name: "Villas", propertyType: "Villa", grossAreaRange: "220–340 SQM", priceRange: `${14 + (seed % 5)}M – ${22 + (seed % 6)}M`, images: 1 + ((seed + i) % 2) },
     ].slice(0, 1 + ((seed + i + 1) % 2))
     const relByType = offerings.map((o, j) => ({ type: o.propertyType, units: 20 + ((seed + i * 7 + j * 13) % 120) }))
     const id = `LCH-${String(1000 + ((seed * 13 + i * 47) % 8000))}`
@@ -400,6 +400,29 @@ export function addLaunch(l: Launch) {
 }
 
 
+
+/**
+ * Data completeness for ingestion: a linked project/phase and a launch title are
+ * mandatory; property offerings are optional, but each one present needs a
+ * property type and at least one image.
+ */
+export function launchCompleteness(l: Launch): { pct: number; missing: string[] } {
+  const linked = l.projectLevel === "Phase" ? !!(l.projectId && l.parentProjectId) : !!l.projectId
+  const checks: { label: string; ok: boolean }[] = [
+    { label: "Linked project / phase", ok: linked },
+    { label: "Launch title", ok: !!(l.title ?? "").trim() },
+    ...l.offerings.flatMap((o, i) => {
+      const name = o.name || `Offering ${i + 1}`
+      return [
+        { label: `${name}: property type`, ok: !!o.propertyType },
+        { label: `${name}: at least one image`, ok: (o.images ?? 0) > 0 },
+      ]
+    }),
+  ]
+  const ok = checks.filter((c) => c.ok).length
+  return { pct: Math.round((ok / checks.length) * 100), missing: checks.filter((c) => !c.ok).map((c) => c.label) }
+}
+
 /** New AI update = WhatsApp messages were detected AFTER the launch was ingested. */
 export function hasNewAiUpdate(l: Launch): boolean {
   const last = l.aiUpdates?.lastAt ?? l.sentAt
@@ -468,6 +491,11 @@ export function closeLaunch(id: string, endDate?: string, to: "Closed" | "Inacti
     ...(endDate ? { endDate } : {}),
     ...(to === "Closed" ? { closedAt: new Date().toISOString() } : {}),
   })
+}
+
+/** Non-reactive snapshot — for seeding other mocks at module load. */
+export function launchesSnapshot(): Launch[] {
+  return LAUNCHES
 }
 
 /** Every launch linked to a project or phase id. */

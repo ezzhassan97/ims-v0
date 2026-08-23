@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Save, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { type Launch, LAUNCH_AREAS, launchAreaId } from "@/lib/launches-mock"
+import { type Launch, LAUNCH_AREAS, launchAreaId, launchPropsOf, launchesForProject, isIngestedLaunch } from "@/lib/launches-mock"
 import { PROJECTS, PROJECT_DEVELOPERS } from "@/lib/projects-mock"
 import { SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
 import { DeveloperSelect, ProjectTreeSelect, type ProjectTreeSelection } from "@/components/table-kit"
@@ -152,12 +152,29 @@ function editPatch(s: LinkState): Partial<Launch> {
   return remap ? { ...s.form, ...remap } : { ...s.form }
 }
 
-function DetectedRow({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function DetectedRow({ label, value, sub, matchedId, unmatchedTag, unmatchedTone = "red" }: {
+  label: string
+  value: string
+  sub?: string
+  /** System id shown as a caption when this level is matched. */
+  matchedId?: string
+  /** Tag shown when this level has no system id (same treatment as the table). */
+  unmatchedTag?: string
+  unmatchedTone?: "red" | "grey"
+}) {
   return (
     <div>
       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="text-sm font-medium text-foreground">{value || "—"}</p>
       {sub && <p dir="rtl" className="text-xs text-muted-foreground">{sub}</p>}
+      {matchedId ? (
+        <p className="font-mono text-[10px] text-muted-foreground">ID: {matchedId}</p>
+      ) : unmatchedTag ? (
+        <span className={cn(
+          "mt-0.5 inline-flex w-fit items-center whitespace-nowrap rounded border px-1.5 py-px text-[10px] font-medium",
+          unmatchedTone === "red" ? "border-red-200 bg-red-50 text-red-500" : "border-gray-200 bg-gray-50 text-gray-500",
+        )}>{unmatchedTag}</span>
+      ) : null}
     </div>
   )
 }
@@ -229,8 +246,16 @@ function LinkFormBody({ s, scope, locked, unlinked }: { s: LinkState; scope?: La
           </p>
           <div className="grid grid-cols-3 gap-x-6 gap-y-2">
             <DetectedRow label="Level" value={form.projectLevel} />
-            <DetectedRow label={form.projectLevel === "Phase" ? "Parent Project" : "Project"} value={form.projectNameEn} sub={form.projectNameAr} />
-            {form.projectLevel === "Phase" && <DetectedRow label="Phase" value={form.phase} sub={form.phaseAr} />}
+            <DetectedRow
+              label={form.projectLevel === "Phase" ? "Parent Project" : "Project"}
+              value={form.projectNameEn}
+              sub={form.projectNameAr}
+              matchedId={form.projectLevel === "Phase" ? form.parentProjectId : form.projectId}
+              unmatchedTag="Unmatched Project"
+            />
+            {form.projectLevel === "Phase" && (
+              <DetectedRow label="Phase" value={form.phase} sub={form.phaseAr} matchedId={form.projectId} unmatchedTag="New Phase" unmatchedTone="grey" />
+            )}
             <DetectedRow label="Area" value={form.area} />
           </div>
         </div>
@@ -399,5 +424,123 @@ export function LaunchProjectDetailsCard({ launch, onPatch }: { launch: Launch; 
         <LinkFormBody s={s} locked={locked} unlinked={unlinked} />
       </div>
     </Card>
+  )
+}
+
+/**
+ * Ingested (non-active) launches can move to another project/phase — the launch
+ * AND every launch property under it move together, with property titles updated.
+ */
+export function ChangeLinkedProjectDialog({ launch, onClose, onConfirm }: {
+  launch: Launch
+  onClose: () => void
+  onConfirm: (patch: Partial<Launch>) => void
+}) {
+  const s = useLinkState(true, launch, undefined, launch.id)
+  const propsCount = launchPropsOf(launch)
+  const canSave = !!s.exDevId && !!s.exSel && s.exSel.id !== launch.projectId
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Change Linked Project</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          {launch.title ?? launch.projectNameEn} is currently linked to{" "}
+          <span className="font-medium text-foreground">
+            {launch.projectLevel === "Phase" ? `${launch.phase} — ${launch.projectNameEn}` : launch.projectNameEn}
+          </span>{launch.projectId ? ` (${launch.projectId})` : ""}.
+        </p>
+        <LinkFormBody s={s} />
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
+          This launch along with the <span className="font-semibold">{propsCount} launch propert{propsCount === 1 ? "y" : "ies"}</span> under
+          it will be moved to the selected project or phase — the properties' titles will be updated with this move.
+        </div>
+        <DialogFooter>
+          <Button variant="outline" className="bg-transparent" onClick={onClose}>Cancel</Button>
+          <Button disabled={!canSave} onClick={() => onConfirm(editPatch(s))}>Move Launch & Properties</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * Property-side relink: pick a developer + project/phase, then one of ITS ingested
+ * launches. The group's launch properties move to it and their titles are updated.
+ */
+export function ChangeLinkedLaunchDialog({ currentLaunchId, propertiesCount, onClose, onConfirm }: {
+  currentLaunchId?: string
+  propertiesCount: number
+  onClose: () => void
+  onConfirm: (launch: Launch) => void
+}) {
+  const [devId, setDevId] = useState("")
+  const [sel, setSel] = useState<ProjectTreeSelection>(null)
+  const [pickedId, setPickedId] = useState("")
+  const candidates = sel ? launchesForProject(sel.id).filter(isIngestedLaunch) : []
+  const picked = candidates.find((l) => l.id === pickedId)
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Change Linked Launch</DialogTitle>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label>Developer</Label>
+            <div className="rounded-md bg-card">
+              <DeveloperSelect developers={SYS_DEVELOPERS} value={devId} onChange={(v) => { setDevId(v); setSel(null); setPickedId("") }} placeholder="Select developer…" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Project / Phase</Label>
+            <div className="rounded-md bg-card">
+              <ProjectTreeSelect projects={sysProjectTree(devId || undefined)} value={sel} onChange={(v) => { setSel(v); setPickedId("") }} />
+            </div>
+          </div>
+        </div>
+
+        {sel && (candidates.length ? (
+          <div className="space-y-2">
+            <Label>Ingested launches on {sel.label}</Label>
+            {candidates.map((l) => (
+              <button
+                key={l.id} type="button" onClick={() => setPickedId(l.id)}
+                className={cn(
+                  "flex w-full items-center justify-between gap-3 rounded-lg border bg-card p-3 text-left transition-colors",
+                  pickedId === l.id ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+                )}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-foreground">{l.title ?? l.projectNameEn}</span>
+                  <span className="font-mono text-[10px] text-muted-foreground">{l.id}{l.id === currentLaunchId ? " · current" : ""}</span>
+                </span>
+                <span className={cn(
+                  "inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium",
+                  l.launchStatus === "Active" ? "border-emerald-200 bg-emerald-100 text-emerald-700" : l.launchStatus === "Closed" ? "border-red-200 bg-red-50 text-red-600" : "border-gray-200 bg-gray-100 text-gray-600",
+                )}>{l.launchStatus}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
+            No launch is linked to this project or phase — create a launch first, then move this property to it.
+          </p>
+        ))}
+
+        <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
+          The <span className="font-semibold">{propertiesCount} launch propert{propertiesCount === 1 ? "y" : "ies"}</span> in this group will
+          move to the selected launch — their titles will be updated.
+        </p>
+
+        <DialogFooter>
+          <Button variant="outline" className="bg-transparent" onClick={onClose}>Cancel</Button>
+          <Button disabled={!picked || picked.id === currentLaunchId} onClick={() => picked && onConfirm(picked)}>
+            Move Propert{propertiesCount === 1 ? "y" : "ies"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

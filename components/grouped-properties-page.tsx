@@ -58,7 +58,9 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { TabStrip } from "@/components/table-kit"
+import { TabStrip, LinkedId } from "@/components/table-kit"
+import { launchesSnapshot, isIngestedLaunch, type Launch } from "@/lib/launches-mock"
+import { ChangeLinkedLaunchDialog } from "@/components/launch-form-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ReportIssueDrawer, RowIssuesBadge } from "@/components/report-issue-drawer"
@@ -146,6 +148,8 @@ export interface GroupedProperty {
   propertyMetadataId: string
   nawyNowId?: string
   resalePropertyId?: string
+  /** Ingested launch this Launch-property group belongs to. */
+  launchId?: string
   financingAvailable?: boolean
   title: string
   description: string
@@ -207,6 +211,10 @@ const badgeClass: Record<string, string> = {
   "OFF PLAN": "border-amber-200 bg-amber-50 text-amber-700",
   "READY TO MOVE": "border-emerald-200 bg-emerald-50 text-emerald-700",
 }
+
+// Lazy — grouped/all-properties import each other, so this must not run at module eval
+let _ingestedLaunchIds: string[] | null = null
+const ingestedLaunchIds = () => (_ingestedLaunchIds ??= launchesSnapshot().filter(isIngestedLaunch).map((l) => l.id))
 
 function makeGroups(): GroupedProperty[] {
   const developerData: EntityRef[] = [
@@ -284,6 +292,7 @@ function makeGroups(): GroupedProperty[] {
       // Resale ⇄ Nawy Now cross-link (Nawy Now units are listed from a resale property)
       nawyNowId: saleType === "Resale" && !spec.financing ? `NN-${String(50100 + i * 17)}` : undefined,
       resalePropertyId: saleType === "Nawy Now" ? `RSL-${String(70200 + i * 23)}` : undefined,
+      launchId: saleType === "Launch" && ingestedLaunchIds().length ? ingestedLaunchIds()[i % ingestedLaunchIds().length] : undefined,
       financingAvailable: saleType === "Resale" && !!spec.financing,
       title: `tamera for sale in ${compounds[i % compounds.length]} with ${bedrooms} bedrooms in ${["Ain Sokhna", "New Cairo", "North Coast", "Sheikh Zayed"][i % 4]} building ${String.fromCharCode(65 + i)}`,
       description: [
@@ -375,33 +384,6 @@ function CopyableId({ value }: { value: string }) {
   )
 }
 
-function LinkedId({ value, href }: { value: string; href: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <span className="group/copy inline-flex items-center gap-1 font-mono">
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer"
-        onClick={(e) => e.stopPropagation()}
-        className="text-primary underline underline-offset-2 hover:text-primary/80"
-      >
-        {value}
-      </a>
-      <button
-        className="rounded p-0.5 opacity-0 transition-opacity hover:bg-secondary group-hover/copy:opacity-100"
-        onClick={(e) => {
-          e.stopPropagation()
-          navigator.clipboard.writeText(value)
-          setCopied(true)
-          setTimeout(() => setCopied(false), 900)
-        }}
-      >
-        {copied ? <span className="text-xs text-emerald-600">Copied</span> : <Copy className="h-3 w-3 text-muted-foreground" />}
-      </button>
-    </span>
-  )
-}
 
 function StatusBadge({ value }: { value: string }) {
   return (
@@ -649,6 +631,7 @@ function GroupCard({
   const [listingStatus, setListingStatus] = useState<"Published" | "Hidden">(group.listingStatus)
   const [saleStatus, setSaleStatus] = useState<GroupedProperty["saleStatus"]>(group.saleStatus)
   const [financing, setFinancing] = useState(!!group.financingAvailable)
+  const [launchId, setLaunchId] = useState(group.launchId)
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [ppDrawerOpen, setPpDrawerOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false) // Report an Issue drawer
@@ -894,7 +877,15 @@ function GroupCard({
               </Badge>
             </>
           )}
-          {group.saleType === "Nawy Now" && group.resalePropertyId && (
+          {group.saleType === "Launch" && launchId && (
+                  <>
+                    <span>·</span>
+                    <span className="flex items-center gap-1">
+                      Launch ID: <LinkedId value={launchId} href={`/launches/${launchId}`} />
+                    </span>
+                  </>
+                )}
+                {group.saleType === "Nawy Now" && group.resalePropertyId && (
             <>
               <span>·</span>
               <span className="flex items-center gap-1">
@@ -1004,9 +995,15 @@ function GroupCard({
                       <Banknote className="h-3.5 w-3.5 mr-2" /> {financing ? "Disable Financing" : "Allow Financing"}
                     </DropdownMenuItem>
                   )}
-                  <DropdownMenuItem onClick={() => setMoveOpen(true)}>
-                    <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
-                  </DropdownMenuItem>
+                  {group.saleType === "Launch" ? (
+                    <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+                      <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Linked Launch
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+                      <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
+                    </DropdownMenuItem>
+                  )}
                   {!isPA && (
                     <>
                       <DropdownMenuSeparator />
@@ -1349,14 +1346,29 @@ function GroupCard({
         </DialogContent>
       </Dialog>
 
-      {/* ── Change Project modal ── */}
-      <ChangeProjectModal
-        open={moveOpen}
-        onClose={() => setMoveOpen(false)}
-        selectedGroups={[group]}
-        eligibleTypes={ALL_SALE_TYPES}
-        onConfirm={() => { setMoveOpen(false); toast.success("Compound move scheduled") }}
-      />
+      {/* ── Change Project / Change Linked Launch modal ── */}
+      {group.saleType === "Launch" ? (
+        moveOpen && (
+          <ChangeLinkedLaunchDialog
+            currentLaunchId={launchId}
+            propertiesCount={group.details.length || 1}
+            onClose={() => setMoveOpen(false)}
+            onConfirm={(l) => {
+              setLaunchId(l.id)
+              setMoveOpen(false)
+              toast.success(`Moved to ${l.title ?? l.projectNameEn} (${l.id}) — property titles will be updated`)
+            }}
+          />
+        )
+      ) : (
+        <ChangeProjectModal
+          open={moveOpen}
+          onClose={() => setMoveOpen(false)}
+          selectedGroups={[group]}
+          eligibleTypes={ALL_SALE_TYPES}
+          onConfirm={() => { setMoveOpen(false); toast.success("Compound move scheduled") }}
+        />
+      )}
     </div>
   )
 }

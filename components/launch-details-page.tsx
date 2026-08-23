@@ -1140,30 +1140,20 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   })
 
   // ── Data completeness (drives the header progress bar + the Ingest gate) ──
+  // Ingestion needs a linked project/phase and a launch title. Property offerings
+  // are optional — but each one present needs a property type and at least one image.
   const completenessChecks: { label: string; ok: boolean }[] = [
-    { label: "Developer", ok: !!launch.developer.name },
-    ...(launch.projectLevel === "Phase"
-      ? [
-          { label: "Phase Name (EN)", ok: !!launch.phase },
-          { label: "Phase Name (AR)", ok: !!launch.phaseAr },
-          { label: "Parent Project", ok: !!(launch.parentProjectId || launch.projectNameEn) },
-        ]
-      : [
-          { label: "Project Name (EN)", ok: !!launch.projectNameEn },
-          { label: "Project Name (AR)", ok: !!launch.projectNameAr },
-        ]),
-    { label: "Area", ok: !!launch.area },
-    { label: "Launch Type", ok: !!launchFormType },
-    { label: "Launch Start Date", ok: !!launchStartDate },
-    ...(listingStatus === "Active" ? [{ label: "Project Cover Image", ok: !!launch.coverImage }] : []),
+    {
+      label: "Linked project / phase",
+      ok: !!linkedProject || (launch.projectLevel === "Phase" ? !!(launch.projectId && launch.parentProjectId) : !!launch.projectId),
+    },
+    { label: "Launch title", ok: !!launchTitle.trim() },
     ...offerings.flatMap((o, i) => {
       const name = o.offeringName || `Offering ${i + 1}`
-      const rows = [
-        { label: `${name}: images`, ok: (offeringImages[o.id]?.length ?? 0) > 0 },
+      return [
         { label: `${name}: property type`, ok: !!o.propertyType },
+        { label: `${name}: at least one image`, ok: (offeringImages[o.id]?.length ?? 0) > 0 },
       ]
-      if (o.priceRange) rows.push({ label: `${name}: payment plans`, ok: o.paymentPlansCount > 0 || (offeringPlanIds[o.id]?.length ?? 0) > 0 })
-      return rows
     }),
   ]
   const missingFields = completenessChecks.filter((c) => !c.ok).map((c) => c.label)

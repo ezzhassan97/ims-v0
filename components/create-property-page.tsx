@@ -4,13 +4,18 @@ import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
   ArrowLeft, Bath, BedDouble, Building2, CalendarDays, ChevronDown, ChevronRight, Eye, FileText, FolderOpen,
-  Home, ImageIcon, Layers, Loader2, MapPin, Plus, Ruler, Save, Sparkles, Tag, Wrench, X,
+  Home, ImageIcon, Layers, Loader2, MapPin, Plus, Rocket, Ruler, Save, Sparkles, Tag, Wrench, X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { launchesSnapshot, isIngestedLaunch } from "@/lib/launches-mock"
+
+// Ingested launches offered in the Linked Launch dropdown (launch properties only) — lazy vs import cycles
+let _createLaunchPool: ReturnType<typeof launchesSnapshot> | null = null
+const createLaunchPool = () => (_createLaunchPool ??= launchesSnapshot().filter(isIngestedLaunch))
 import { DeveloperSelect, ProjectTreeSelect } from "@/components/table-kit"
 import {
   type Variation, isRangeVariation,
@@ -345,6 +350,27 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
                 <SelectInput value={PHASES.find((p) => p.id === form.phase)?.name ?? ""} onChange={(name) => setField("phase", phasesForProject.find((x) => x.name === name)?.id ?? "")}
                   options={phasesForProject.map((p) => p.name)} placeholder={form.project ? "Select phase…" : "Pick a project first"} />
               </FieldShell>
+              {isLaunch && (
+                <FieldShell label="Linked Launch" icon={<Rocket className="h-3 w-3" />} required error={errors.linkedLaunch}>
+                  {(() => {
+                    const phaseName = PHASES.find((p) => p.id === form.phase)?.name
+                    const candidates = createLaunchPool().filter((l) => {
+                      if (!selectedProject) return false
+                      if (phaseName) return l.phase === phaseName && l.projectNameEn === selectedProject.name
+                      return l.projectNameEn === selectedProject.name && !l.phase
+                    })
+                    const pool = candidates.length ? candidates : selectedProject ? createLaunchPool().slice(0, 4) : []
+                    return (
+                      <SelectInput
+                        value={String(form.linkedLaunch ?? "")}
+                        onChange={(v) => setField("linkedLaunch", v)}
+                        options={pool.map((l) => `${l.id} — ${l.title ?? l.projectNameEn}`)}
+                        placeholder={selectedProject ? (pool.length ? "Select ingested launch…" : "No ingested launches for this project") : "Pick a project first"}
+                      />
+                    )
+                  })()}
+                </FieldShell>
+              )}
               <FieldShell label="Location" icon={<MapPin className="h-3 w-3" />}>
                 <div className="text-xs font-medium text-foreground">{selectedProject ? [selectedProject.city, selectedProject.area, selectedProject.district].join(" · ") : <span className="text-muted-foreground">Auto-filled from project</span>}</div>
               </FieldShell>

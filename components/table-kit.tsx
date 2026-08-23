@@ -721,6 +721,29 @@ export type ProjectTreeLeaf = {
 }
 export type ProjectTreeNode = ProjectTreeLeaf & { phases: ProjectTreeLeaf[] }
 /** Single-mode selection: the main project itself or one phase. */
+
+/** Linked-record id: underlined link opening in a new tab, with hover copy. */
+export function LinkedId({ value, href }: { value: string; href: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <span className="group/copy inline-flex items-center gap-1 font-mono">
+      <a
+        href={href} target="_blank" rel="noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="text-primary underline underline-offset-2 hover:text-primary/80"
+      >
+        {value}
+      </a>
+      <button
+        className="rounded p-0.5 opacity-0 transition-opacity hover:bg-secondary group-hover/copy:opacity-100"
+        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 900) }}
+      >
+        {copied ? <span className="text-xs text-emerald-600">Copied</span> : <Copy className="h-3 w-3 text-muted-foreground" />}
+      </button>
+    </span>
+  )
+}
+
 export type ProjectTreeSelection = { kind: "project" | "phase"; id: string; label: string; projectIds: string[] } | null
 
 function ProjStatusTag({ status }: { status?: "Active" | "Hidden" }) {

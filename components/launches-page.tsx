@@ -66,6 +66,7 @@ import {
   ArrowRight,
   Undo2,
   Database,
+  Link2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Tag, LISTING_COLORS, ENTRY_COLORS, PRIMARY_COLORS } from "@/components/projects-list-page"
@@ -73,11 +74,11 @@ import { LaunchDetailsPage } from "@/components/launch-details-page"
 import { PROJECTS, PROJECT_DEVELOPERS, AREA_TREE, type ProjPrimaryStatus, type ProjectRow } from "@/lib/projects-mock"
 import { SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
 import { ActionDialog, ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
-import { LaunchFormDialog } from "@/components/launch-form-dialog"
+import { LaunchFormDialog, ChangeLinkedProjectDialog } from "@/components/launch-form-dialog"
 import {
   useLaunches, patchLaunches, addLaunch, activateLaunch, closeLaunch, uuidOf, launchLabel,
   activeConflictOf, isIngestedLaunch, launchPropsOf, launchAreaId, LAUNCH_AREAS, setProjectPrimary, eoiRangeText,
-  hasNewAiUpdate, aiUpdateDates,
+  hasNewAiUpdate, aiUpdateDates, launchCompleteness,
   type Launch,
 } from "@/lib/launches-mock"
 import {
@@ -333,7 +334,7 @@ function BulkDialog({ kind, count, onClose, onConfirm }: { kind: BulkKind; count
 }
 
 type DialogState =
-  | { kind: "archive" | "approve" | "reject" | "activate" | "close" | "ingest"; launch: Launch }
+  | { kind: "archive" | "approve" | "reject" | "activate" | "close" | "ingest" | "relink"; launch: Launch }
   | { kind: BulkKind }
   | null
 
@@ -646,7 +647,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
 
   const viewItem = (l: Launch) => (
     <DropdownMenuItem onClick={() => setViewingLaunch(l)}>
-      <Eye className="h-4 w-4 mr-2" />View
+      <Eye className="h-4 w-4 mr-2" />View Details
     </DropdownMenuItem>
   )
 
@@ -654,7 +655,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   const editItem = (l: Launch) =>
     l.ingestionStatus === "Ingested" ? null : (
       <DropdownMenuItem onClick={() => setEditLaunch(l)}>
-        <Pencil className="h-4 w-4 mr-2" />Edit Linked Project
+        <Pencil className="h-4 w-4 mr-2" />Edit
       </DropdownMenuItem>
     )
 
@@ -673,46 +674,29 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       </DropdownMenuItem>
     )
 
-  /** Only approved, not-yet-ingested launches can be ingested. */
-  const ingestItem = (l: Launch) =>
-    l.approvalStatus === "Approved" && l.ingestionStatus !== "Ingested" ? (
-      <DropdownMenuItem onClick={() => setDialog({ kind: "ingest", launch: l })}>
-        <Database className="h-4 w-4 mr-2" />Ingest
-      </DropdownMenuItem>
-    ) : null
-
-  const viewProjectItem = (l: Launch) => {
-    const enabled = l.ingestionStatus === "Ingested" && !!l.listingProject
+  /** Approved + not ingested; enabled only at 100% data completeness. */
+  const ingestItem = (l: Launch) => {
+    if (l.approvalStatus !== "Approved" || l.ingestionStatus === "Ingested") return null
+    const { pct } = launchCompleteness(l)
+    const ready = pct === 100
     return (
       <DropdownMenuItem
-        disabled={!enabled}
-        className={cn(!enabled && "opacity-40")}
-        onClick={() => enabled && window.open(`/projects/${l.listingProject!.id}`, "_blank", "noopener,noreferrer")}
+        disabled={!ready}
+        className={cn(!ready && "opacity-40")}
+        onClick={() => ready && setDialog({ kind: "ingest", launch: l })}
       >
-        <ExternalLink className="h-4 w-4 mr-2" />View Project
+        <Database className="h-4 w-4 mr-2" />Ingest{!ready && <span className="ml-auto text-[10px] text-muted-foreground">{pct}% complete</span>}
       </DropdownMenuItem>
     )
   }
 
-  /** Same submenu everywhere — gated on the launch being ingested. */
-  const changeLaunchStatusItem = (l: Launch) => {
-    const dim = !isIngestedLaunch(l)
-    return (
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger disabled={dim} className={cn(dim && "opacity-40")}>
-          <Activity className="h-4 w-4 mr-2" />Change Launch Status
-        </DropdownMenuSubTrigger>
-        <DropdownMenuSubContent>
-          <DropdownMenuItem disabled={l.launchStatus === "Active"} onClick={() => setDialog({ kind: "activate", launch: l })}>
-            <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" />Set Active
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled={l.launchStatus === "Closed"} onClick={() => setDialog({ kind: "close", launch: l })}>
-            <XCircle className="h-4 w-4 mr-2 text-red-600" />Set Closed
-          </DropdownMenuItem>
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
-    )
-  }
+  /** Ingested, non-active launches can move (with their properties) to another project/phase. */
+  const changeLinkedItem = (l: Launch) =>
+    isIngestedLaunch(l) && l.launchStatus !== "Active" ? (
+      <DropdownMenuItem onClick={() => setDialog({ kind: "relink", launch: l })}>
+        <Link2 className="h-4 w-4 mr-2" />Change Linked Project
+      </DropdownMenuItem>
+    ) : null
 
   const rowMenu = (l: Launch) => {
     if (tab === "all" || tab === "pending") {
@@ -724,7 +708,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {viewItem(l)}
-            {viewProjectItem(l)}
             {editItem(l)}
             <DropdownMenuSeparator />
             {notIngested && (
@@ -743,7 +726,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
               </DropdownMenuSub>
             )}
             {ingestItem(l)}
-            {changeLaunchStatusItem(l)}
+            {changeLinkedItem(l)}
             <DropdownMenuSeparator />
             {archiveItem(l)}
           </DropdownMenuContent>
@@ -758,9 +741,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {viewItem(l)}
-          {viewProjectItem(l)}
-          <DropdownMenuSeparator />
-          {changeLaunchStatusItem(l)}
+          {changeLinkedItem(l)}
           <DropdownMenuSeparator />
           {archiveItem(l)}
         </DropdownMenuContent>
@@ -1412,6 +1393,17 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       {dialog?.kind === "reject" && <RejectDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={(reason) => doReject(dialog.launch, reason)} />}
       {dialog?.kind === "activate" && <ActivateDialog launch={dialog.launch} conflict={activeConflictOf(dialog.launch, launches)} project={projectOf(dialog.launch)} onClose={() => setDialog(null)} onConfirm={(startDate, sync) => doActivate(dialog.launch, startDate, sync)} />}
       {dialog?.kind === "close" && <CloseLaunchDialog launch={dialog.launch} project={projectOf(dialog.launch)} onClose={() => setDialog(null)} onConfirm={(endDate, nextPrimary) => doCloseLaunch(dialog.launch, endDate, nextPrimary)} />}
+      {dialog?.kind === "relink" && (
+        <ChangeLinkedProjectDialog
+          launch={dialog.launch}
+          onClose={() => setDialog(null)}
+          onConfirm={(patchData) => {
+            patch([dialog.launch.id], patchData)
+            setDialog(null)
+            toast.success(`${dialog.launch.title ?? dialog.launch.projectNameEn} moved — its launch properties follow with updated titles`)
+          }}
+        />
+      )}
       {dialog?.kind === "ingest" && (
         <ActionDialog
           title="Ingest Launch"
