@@ -19,7 +19,8 @@ export type PropIssueStatus = "To Do" | "In Progress" | "Resolved" | "Closed" | 
 // priority of their issue type from the quality configuration)
 export type PropIssueSeverity = "Critical" | "High" | "Medium" | "Low" | "Lowest"
 export type PropIssueSource = "Data Quality" | "System" | "Sales Agent"
-export type FieldKind = "value" | "plans" | "floorPlans" | "images"
+export type FieldKind = "value" | "plans" | "floorPlans" | "images" | "amenities"
+export type FieldValueType = "text" | "number" | "area" | "currency" | "boolean" | "enum" | "phase"
 
 export const PROP_ISSUE_SEVERITIES: PropIssueSeverity[] = ["Critical", "High", "Medium", "Low", "Lowest"]
 /** Critical/High issues render red (blocking-grade); the rest amber. */
@@ -32,56 +33,72 @@ export interface IssueField {
   label: string // unit-details drawer Field label (used for highlighting)
   group: string
   kind: FieldKind
+  /** How the field's value renders + which expected-result input to use. */
+  valueType?: FieldValueType
+  /** Enum fields: the valid values (expected-result dropdown). */
+  options?: string[]
 }
 
+export const DEVELOPER_NAMES = ["Palm Hills", "Sodic", "Mountain View", "Emaar"]
+export const PROJECT_NAMES = ["New Cairo Residences", "North Coast Bay", "West Gate", "Lagoon District", "Capital Gardens"]
+export const PHASE_NAMES = ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5", "Phase 6"]
+export const AMENITY_LIBRARY = [
+  "Swimming Pool", "Gym", "Security", "Parking", "Club House", "Kids Area", "BBQ Area", "Smart Home",
+  "Concierge", "Valet", "Rooftop Terrace", "Pets Allowed", "Spa", "Golf Course", "Private Beach", "Marina",
+]
+
 export const ISSUE_FIELDS: IssueField[] = [
-  // Placement — the unit itself may be right but sit under the wrong developer/project/phase
-  { id: "developer", label: "Developer", group: "Placement", kind: "value" },
-  { id: "project", label: "Project", group: "Placement", kind: "value" },
-  { id: "phase", label: "Phase", group: "Placement", kind: "value" },
+  // Placement — the unit itself may be right but sit under the wrong developer/project/phase,
+  // or carry the wrong sale/listing state
+  { id: "developer", label: "Developer", group: "Placement", kind: "value", valueType: "enum", options: DEVELOPER_NAMES },
+  { id: "project", label: "Project", group: "Placement", kind: "value", valueType: "enum", options: PROJECT_NAMES },
+  { id: "phase", label: "Phase", group: "Placement", kind: "value", valueType: "phase" },
+  { id: "availability", label: "Sale Status", group: "Placement", kind: "value", valueType: "enum", options: ["Available", "Hold", "Sold-Off", "Archived"] },
+  { id: "listingStatus", label: "Listing Status", group: "Placement", kind: "value", valueType: "enum", options: ["Active", "Hidden"] },
   // Identity
   { id: "unitCode", label: "Unit Code", group: "Identity", kind: "value" },
   { id: "unitNumber", label: "Unit Number", group: "Identity", kind: "value" },
   { id: "unitModel", label: "Unit Model", group: "Identity", kind: "value" },
   { id: "zone", label: "Zone", group: "Identity", kind: "value" },
   // Classification
-  { id: "propertyCategory", label: "Category", group: "Classification", kind: "value" },
-  { id: "propertyType", label: "Type", group: "Classification", kind: "value" },
+  { id: "propertyCategory", label: "Category", group: "Classification", kind: "value", valueType: "enum", options: ["Residential", "Commercial", "Administrative", "Medical"] },
+  { id: "propertyType", label: "Type", group: "Classification", kind: "value", valueType: "enum", options: ["Apartment", "Villa", "Townhouse", "Duplex", "Chalet", "Penthouse", "Studio", "Office", "Retail"] },
   { id: "propertySubType", label: "Sub-type", group: "Classification", kind: "value" },
   { id: "developerType", label: "Developer Type", group: "Classification", kind: "value" },
-  { id: "buildingType", label: "Building Type", group: "Classification", kind: "value" },
+  { id: "buildingType", label: "Building Type", group: "Classification", kind: "value", valueType: "enum", options: ["Cluster", "Standalone", "Tower"] },
   { id: "buildingNumber", label: "Building Number", group: "Classification", kind: "value" },
-  { id: "floorNumber", label: "Floor Number", group: "Classification", kind: "value" },
+  { id: "floorNumber", label: "Floor Number", group: "Classification", kind: "value", valueType: "number" },
   // Dimensions
-  { id: "grossBua", label: "Gross BUA", group: "Dimensions", kind: "value" },
-  { id: "netBua", label: "Net BUA", group: "Dimensions", kind: "value" },
-  { id: "bedrooms", label: "Bedrooms", group: "Dimensions", kind: "value" },
-  { id: "bathrooms", label: "Bathrooms", group: "Dimensions", kind: "value" },
-  // Pricing & availability
-  { id: "price", label: "Price", group: "Pricing", kind: "value" },
-  { id: "storagePrice", label: "Storage Price", group: "Pricing", kind: "value" },
-  { id: "outdoorPrice", label: "Outdoor Price", group: "Pricing", kind: "value" },
-  { id: "availability", label: "Availability", group: "Pricing", kind: "value" },
+  { id: "grossBua", label: "Gross BUA", group: "Dimensions", kind: "value", valueType: "area" },
+  { id: "netBua", label: "Net BUA", group: "Dimensions", kind: "value", valueType: "area" },
+  { id: "bedrooms", label: "Bedrooms", group: "Dimensions", kind: "value", valueType: "number" },
+  { id: "bathrooms", label: "Bathrooms", group: "Dimensions", kind: "value", valueType: "number" },
+  // Pricing
+  { id: "price", label: "Price", group: "Pricing", kind: "value", valueType: "currency" },
+  { id: "storagePrice", label: "Storage Price", group: "Pricing", kind: "value", valueType: "currency" },
+  { id: "outdoorPrice", label: "Outdoor Price", group: "Pricing", kind: "value", valueType: "currency" },
   // Delivery & finishing
-  { id: "deliveryType", label: "Delivery Type", group: "Delivery & Finishing", kind: "value" },
+  { id: "deliveryType", label: "Delivery Type", group: "Delivery & Finishing", kind: "value", valueType: "enum", options: ["Ready to move", "Off Plan", "Under Construction"] },
   { id: "deliveryDate", label: "Delivery Date", group: "Delivery & Finishing", kind: "value" },
-  { id: "finishingType", label: "Finishing Type", group: "Delivery & Finishing", kind: "value" },
-  { id: "serviced", label: "Serviced", group: "Delivery & Finishing", kind: "value" },
-  { id: "branded", label: "Branded", group: "Delivery & Finishing", kind: "value" },
+  { id: "finishingType", label: "Finishing Type", group: "Delivery & Finishing", kind: "value", valueType: "enum", options: ["Core & Shell", "Semi Finished", "Fully Finished", "Furnished"] },
+  { id: "serviced", label: "Serviced", group: "Delivery & Finishing", kind: "value", valueType: "boolean" },
+  { id: "branded", label: "Branded", group: "Delivery & Finishing", kind: "value", valueType: "boolean" },
   // Areas
-  { id: "openRoofArea", label: "Open Roof Area", group: "Areas", kind: "value" },
-  { id: "roofAnnexArea", label: "Roof Annex Area", group: "Areas", kind: "value" },
-  { id: "gardenArea", label: "Garden Area", group: "Areas", kind: "value" },
-  { id: "terraceArea", label: "Terrace Area", group: "Areas", kind: "value" },
-  { id: "landArea", label: "Land Area", group: "Areas", kind: "value" },
-  { id: "storageArea", label: "Storage Area", group: "Areas", kind: "value" },
-  { id: "outdoorArea", label: "Outdoor Area", group: "Areas", kind: "value" },
-  { id: "basementArea", label: "Basement Area", group: "Areas", kind: "value" },
+  { id: "openRoofArea", label: "Open Roof Area", group: "Areas", kind: "value", valueType: "area" },
+  { id: "roofAnnexArea", label: "Roof Annex Area", group: "Areas", kind: "value", valueType: "area" },
+  { id: "gardenArea", label: "Garden Area", group: "Areas", kind: "value", valueType: "area" },
+  { id: "terraceArea", label: "Terrace Area", group: "Areas", kind: "value", valueType: "area" },
+  { id: "landArea", label: "Land Area", group: "Areas", kind: "value", valueType: "area" },
+  { id: "storageArea", label: "Storage Area", group: "Areas", kind: "value", valueType: "area" },
+  { id: "outdoorArea", label: "Outdoor Area", group: "Areas", kind: "value", valueType: "area" },
+  { id: "basementArea", label: "Basement Area", group: "Areas", kind: "value", valueType: "area" },
   // Parking & views
-  { id: "parking", label: "Parking", group: "Parking & Views", kind: "value" },
-  { id: "parkingSlots", label: "Parking Slots", group: "Parking & Views", kind: "value" },
-  { id: "unitView", label: "Unit View", group: "Parking & Views", kind: "value" },
-  { id: "unitOrientation", label: "Unit Orientation", group: "Parking & Views", kind: "value" },
+  { id: "parking", label: "Parking", group: "Parking & Views", kind: "value", valueType: "boolean" },
+  { id: "parkingSlots", label: "Parking Slots", group: "Parking & Views", kind: "value", valueType: "number" },
+  { id: "unitView", label: "Unit View", group: "Parking & Views", kind: "value", valueType: "enum", options: ["Garden View", "Pool View", "Sea View", "Street View", "Landscape View", "Club View"] },
+  { id: "unitOrientation", label: "Unit Orientation", group: "Parking & Views", kind: "value", valueType: "enum", options: ["North", "North East", "East", "South East", "South", "South West", "West", "North West"] },
+  // Amenities & services
+  { id: "amenities", label: "Amenities & Services", group: "Amenities & Services", kind: "amenities" },
   // Attachments
   { id: "paymentPlans", label: "Payment Plans", group: "Attachments", kind: "plans" },
   { id: "floorPlans", label: "Floor Plans", group: "Attachments", kind: "floorPlans" },
@@ -104,25 +121,23 @@ export interface IssueTypeDef {
   active: boolean
 }
 
-const VALUE_TYPES = (wrongPriority: PropIssueSeverity = "High"): IssueTypeDef[] => [
+const VALUE_TYPES = (wrongPriority: PropIssueSeverity = "High", canBeMissing = true): IssueTypeDef[] => [
   { type: "Wrong Value", subtypes: ["Mismatch with developer sheet", "Mismatch with brochure", "Typo / impossible value"], priority: wrongPriority, active: true },
-  { type: "Missing Value", priority: "Medium", active: true },
+  ...(canBeMissing ? [{ type: "Missing Value", priority: "Medium" as PropIssueSeverity, active: true }] : []),
   { type: "Outdated Value", subtypes: ["Developer update not reflected", "Stale after re-ingestion"], priority: "Medium", active: true },
   { type: "Formatting", priority: "Low", active: true },
 ]
 
-const PLACEMENT_TYPES: IssueTypeDef[] = [
-  { type: "Wrong Assignment", priority: "Critical", active: true },
-  { type: "Missing Assignment", priority: "Medium", active: true },
-]
-
-/** Payment-plan aspects — chosen per selected plan in the report flow. */
-export const PLAN_ASPECTS = ["Wrong Down Payment", "Wrong Duration", "Wrong Installment %", "Wrong Delivery %", "Should Be Removed"]
+/** Fields the "Wrong Values" plan issue can point at (per selected plan). */
+export const PLAN_VALUE_FIELDS = ["Down Payment %", "Duration", "Installment %", "Frequency", "Delivery Payment", "Maintenance %", "Clubhouse %", "Currency", "Offer / Discount"]
+/** Back-compat alias. */
+export const PLAN_ASPECTS = PLAN_VALUE_FIELDS
 
 const PLANS_TYPES: IssueTypeDef[] = [
-  { type: "Plan Terms Issue", requiresSelection: true, priority: "High", active: true },
-  { type: "Missing Plan", priority: "High", active: true },
-  { type: "Duplicate Plan", requiresSelection: true, priority: "Medium", active: true },
+  { type: "Wrong Payment Plan", requiresSelection: true, priority: "High", active: true },
+  { type: "Missing Payment Plan", priority: "High", active: true },
+  { type: "Outdated Payment Plan", requiresSelection: true, priority: "Medium", active: true },
+  { type: "Wrong Values", subtypes: PLAN_VALUE_FIELDS, requiresSelection: true, priority: "High", active: true },
 ]
 
 const FLOOR_PLAN_TYPES: IssueTypeDef[] = [
@@ -139,13 +154,37 @@ const IMAGE_TYPES: IssueTypeDef[] = [
   { type: "Wrong Order", priority: "Lowest", active: true },
 ]
 
-/** The fixed taxonomy for a field — business logic per field/kind. */
+const AMENITY_TYPES: IssueTypeDef[] = [
+  { type: "Missing Amenity", priority: "Medium", active: true },
+  { type: "Wrong Amenity", priority: "Medium", active: true },
+  { type: "Amenities Update", priority: "Low", active: true },
+]
+
+const STATUS_TYPES: IssueTypeDef[] = [
+  { type: "Wrong Status", priority: "Critical", active: true },
+  { type: "Outdated Status", priority: "Medium", active: true },
+]
+
+/** The fixed taxonomy for a field — business logic per field/kind. Mandatory
+ *  fields (developer/project) can never be "missing"; statuses get status
+ *  types; every value field's expected input follows its valueType. */
 export function fieldTaxonomy(field: IssueField): IssueTypeDef[] {
-  if (field.group === "Placement") return PLACEMENT_TYPES
+  // Developer/project are mandatory at property creation — no "missing" type
+  if (field.id === "developer" || field.id === "project")
+    return [{ type: "Wrong Assignment", priority: "Critical", active: true }]
+  if (field.id === "phase")
+    return [
+      { type: "Wrong Assignment", priority: "Critical", active: true },
+      { type: "Missing Assignment", priority: "Medium", active: true },
+    ]
+  if (field.id === "availability" || field.id === "listingStatus") return STATUS_TYPES
+  if (field.kind === "amenities") return AMENITY_TYPES
   if (field.kind === "plans") return PLANS_TYPES
   if (field.kind === "floorPlans") return FLOOR_PLAN_TYPES
   if (field.kind === "images") return IMAGE_TYPES
-  if (field.id === "price" || field.id === "availability") return VALUE_TYPES("Critical")
+  if (field.id === "price") return VALUE_TYPES("Critical")
+  // Enum/boolean classification fields are set at creation — no "missing"
+  if (field.valueType === "enum" || field.valueType === "boolean") return VALUE_TYPES("High", false)
   return VALUE_TYPES()
 }
 
@@ -325,8 +364,10 @@ function makeIssue(i: number): PropertyIssue {
   const samples = EXPECTED_SAMPLES[field.id]
   const [current, expected] = samples ? samples[i % samples.length] : [null, field.kind === "value" ? "Match developer sheet" : null]
   const needsItems = t.requiresSelection === true
-  const linkedItems = !needsItems ? null
-    : field.kind === "plans" ? [`${["Standard Plan", "Flexible Plan", "Premium Plan", "Investor Plan"][i % 4]} (${PLAN_ASPECTS[i % PLAN_ASPECTS.length]})`]
+  const linkedItems = field.kind === "amenities"
+    ? (t.type === "Missing Amenity" ? [`Add: ${AMENITY_LIBRARY[i % AMENITY_LIBRARY.length]}`] : [`Remove: ${AMENITY_LIBRARY[(i + 5) % AMENITY_LIBRARY.length]}`])
+    : !needsItems ? null
+    : field.kind === "plans" ? [`${["Standard Plan", "Flexible Plan", "Premium Plan", "Investor Plan"][i % 4]} (${PLAN_VALUE_FIELDS[i % PLAN_VALUE_FIELDS.length]})`]
     : field.kind === "floorPlans" ? [`Floor Plan ${(i % 3) + 1}`]
     : field.kind === "images" ? [`Render ${(i % 4) + 1}`]
     : null
