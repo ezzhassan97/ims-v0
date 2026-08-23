@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Save, Sparkles } from "lucide-react"
+import { Pencil, Save, Sparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type Launch, LAUNCH_AREAS, launchAreaId, launchPropsOf, launchesForProject, isIngestedLaunch, launchesSnapshot } from "@/lib/launches-mock"
 import { PROJECTS, PROJECT_DEVELOPERS } from "@/lib/projects-mock"
@@ -419,9 +419,10 @@ export function LaunchFormDialog({
 export function LaunchProjectDetailsCard({ launch, onPatch }: { launch: Launch; onPatch: (patch: Partial<Launch>) => void }) {
   const ingested = launch.ingestionStatus === "Ingested"
   const active = launch.launchStatus === "Active"
-  // Linkage freezes only while the launch is ACTIVE — ingested-but-inactive launches can still move
-  const locked = ingested && active
-  const s = useLinkState(true, launch, undefined, `${launch.id}:${launch.updatedAt}`)
+  // Same rules as the Change Linked Project popup: frozen only while ACTIVE
+  const frozen = ingested && active
+  const [editing, setEditing] = useState(false)
+  const s = useLinkState(true, launch, undefined, `${launch.id}:${launch.updatedAt}:${editing}`)
   const unlinked = !(launch.projectLevel === "Phase" ? launch.projectId && launch.parentProjectId : launch.projectId)
 
   return (
@@ -430,29 +431,38 @@ export function LaunchProjectDetailsCard({ launch, onPatch }: { launch: Launch; 
         <div>
           <h3 className="text-sm font-semibold">Project Details</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {locked
+            {frozen
               ? "Active — the linked project is frozen while the launch is running."
               : ingested
               ? "Ingested — the link can still change while the launch isn't Active; its properties move with it."
               : "Every launch links to an existing project or phase — the link can change until the launch is ingested."}
           </p>
         </div>
-        {!locked && (
-          <Button size="sm" className="h-8" onClick={() => onPatch(editPatch(s))}>
-            <Save className="h-3.5 w-3.5 mr-1" />Save Changes
+        {!frozen && (editing ? (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => setEditing(false)}>
+              <X className="h-3.5 w-3.5 mr-1" />Cancel
+            </Button>
+            <Button size="sm" className="h-8" onClick={() => { onPatch(editPatch(s)); setEditing(false) }}>
+              <Save className="h-3.5 w-3.5 mr-1" />Save
+            </Button>
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => setEditing(true)}>
+            <Pencil className="h-3.5 w-3.5 mr-1" />Edit
           </Button>
-        )}
+        ))}
       </div>
       <div className="grid gap-4">
-        <LinkFormBody s={s} locked={locked} unlinked={unlinked} />
-        {ingested && !active && (
+        <LinkFormBody s={s} locked={frozen || !editing} unlinked={unlinked} />
+        {editing && ingested && !active && (
           <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
             Changing the linked project or phase moves this launch along with its{" "}
             <span className="font-semibold">{launchPropsOf(launch)} launch propert{launchPropsOf(launch) === 1 ? "y" : "ies"}</span> — the
             properties' titles will be updated with the move.
           </p>
         )}
-        {locked && (
+        {frozen && (
           <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
             This launch <span className="font-semibold">can't move under a different project or phase while it is Active</span> —
             change this project or phase's Primary Status to close the launch, then move it.

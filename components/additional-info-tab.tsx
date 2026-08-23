@@ -494,7 +494,7 @@ function readDisplay(spec: FieldSpec, value: FieldValue): React.ReactNode {
 // ─────────────────────────────────────────────────────────────────────────────
 // Tab
 // ─────────────────────────────────────────────────────────────────────────────
-export function AdditionalInfoTab({ group, embedded = false, editing: editingProp }: { group: GroupedProperty; embedded?: boolean; editing?: boolean }) {
+export function AdditionalInfoTab({ group, embedded = false, editing: editingProp, hideTitle = false }: { group: GroupedProperty; embedded?: boolean; editing?: boolean; hideTitle?: boolean }) {
   const variation = useMemo(() => variationOf(group), [group])
   const ctx: Ctx = { variation, grossMin: group.areaMin, grossMax: group.areaMax }
   const fields = useMemo(() => FIELD_SPECS.filter((f) => f.visibleIn.includes(variation)), [variation])
@@ -628,7 +628,7 @@ export function AdditionalInfoTab({ group, embedded = false, editing: editingPro
         })}
 
         {/* Title & Description — website copy for this unit group */}
-        {(() => {
+        {!hideTitle && (() => {
           const copySource = (isEditing || embedded) ? copyDraft : copySaved
           const copyEditing = isEditing && copyEditable
           const view = (v: string, rtl?: boolean) => v

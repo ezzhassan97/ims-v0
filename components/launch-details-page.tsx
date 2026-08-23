@@ -572,6 +572,35 @@ function fmtInt(raw: string): string {
   const d = raw.replace(/[^\d]/g, "")
   return d ? Number(d).toLocaleString("en-US") : ""
 }
+type EoiMoney = { id: string; currency: string; amount: string }
+type EoiRule = {
+  id: string
+  scope: "general" | "type" | "offering" | "sqm" | "percent"
+  propertyType?: string
+  offeringId?: number
+  finishing?: string
+  sqm?: string
+  percent?: string
+  amounts: EoiMoney[]
+}
+const EOI_SCOPE_LABEL: Record<EoiRule["scope"], string> = {
+  general: "General", type: "Property Type", offering: "Specific Offering", sqm: "Per SQM", percent: "% of Price",
+}
+const EOI_CURRENCIES = ["EGP", "USD", "EUR", "SAR", "AED"]
+const EOI_FINISHINGS = ["Any", "Core & Shell", "Semi-Finished", "Fully Finished", "Furnished"]
+
+/** Compact one-line summary of an EOI rule (used in the ingestion summary). */
+function eoiRuleText(r: EoiRule, offeringName: (id?: number) => string): string {
+  const money = r.amounts.filter((a) => a.amount).map((a) => `${a.amount} ${a.currency}`).join(" / ")
+  switch (r.scope) {
+    case "general": return money || "—"
+    case "type": return `${r.propertyType || "Type"}: ${money || "—"}`
+    case "offering": return `${offeringName(r.offeringId)}: ${money || "—"}`
+    case "sqm": return `${r.propertyType || "Type"}${r.finishing && r.finishing !== "Any" ? ` (${r.finishing})` : ""}: ${money || "—"} per ${r.sqm || "?"} SQM`
+    case "percent": return `${r.propertyType || "Overall"}: ${r.percent || "?"}% of price`
+  }
+}
+
 function eoiErr(v: string): string | null {
   const d = v.replace(/,/g, "")
   if (!d) return null
@@ -977,7 +1006,7 @@ function LaunchOfferingCard({
       {/* ── Expanded: the full Additional Info fields (same edit state, no nested card header) ── */}
       {expanded && (
         <div className="border-b border-border px-4 py-1">
-          <AdditionalInfoTab group={offeringToGroup(o, launch)} embedded editing={editing} />
+          <AdditionalInfoTab group={offeringToGroup(o, launch)} embedded editing={editing} hideTitle />
         </div>
       )}
 
@@ -1034,6 +1063,10 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   // Payment Plans tab — real plan cards + create/edit drawer
   const [plans, setPlans] = useState<PlanCardData[]>(mockPaymentPlans)
   const [expandedPlanId, setExpandedPlanId] = useState<string | null>(null)
+  // Plans mirror offerings: existing plans on an ingested launch start ingested; new ones are drafts
+  const [ingestedPlanIds, setIngestedPlanIds] = useState<Set<string>>(
+    () => new Set(launch.ingestionStatus === "Ingested" ? mockPaymentPlans.map((p) => p.id) : []),
+  )
   const [planDrawerOpen, setPlanDrawerOpen] = useState(false)
   const [editingPlan, setEditingPlan] = useState<PlanCardData | null>(null)
   const [deletingPlanId, setDeletingPlanId] = useState<string | null>(null)
@@ -1050,11 +1083,15 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   const [launchFormType, setLaunchFormType] = useState<"Launch" | "Release">(launch.type)
   const [launchDirty, setLaunchDirty] = useState(false)
   const [launchSaveConfirm, setLaunchSaveConfirm] = useState(false)
-  const [eoiCurrency, setEoiCurrency] = useState("EGP")
-  const [eoiOverallAmount, setEoiOverallAmount] = useState("")
-  const [eoiByType, setEoiByType] = useState<{ id: string; name: string; amount: string }[]>([
-    { id: "PT-001", name: "Apartments", amount: "" },
-  ])
+  // Flexible EOI rules: general / per property type / specific offering / per-SQM / % of price,
+  // each money rule carrying one or more currency+amount pairs.
+  const [eoiRules, setEoiRules] = useState<EoiRule[]>(() => {
+    const rules: EoiRule[] = []
+    if (launch.eoiAmount) rules.push({ id: "EOI-GEN", scope: "general", amounts: [{ id: "M-GEN", currency: "EGP", amount: String(launch.eoiAmount) }] })
+    launch.eoiByType?.forEach((e, i) => rules.push({ id: `EOI-T${i}`, scope: "type", propertyType: e.type, amounts: [{ id: `M-T${i}`, currency: "EGP", amount: String(e.amount) }] }))
+    return rules.length ? rules : [{ id: "EOI-GEN", scope: "general", amounts: [{ id: "M-GEN", currency: "EGP", amount: "" }] }]
+  })
+  const [eoiNotes, setEoiNotes] = useState("")
   const [launchStartDate, setLaunchStartDate] = useState(launch.startDate ?? "")
   const [launchEndDate, setLaunchEndDate] = useState(launch.endDate ?? "")
   const [paymentMethodCheque, setPaymentMethodCheque] = useState(false)
@@ -1109,12 +1146,19 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   const updateContact = (id: string, field: "name" | "phone", value: string) =>
     setContacts((prev) => prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)))
 
-  const addEoiByType = () =>
-    setEoiByType((prev) => [...prev, { id: `PT-${Date.now()}`, name: "", amount: "" }])
-  const removeEoiByType = (id: string) =>
-    setEoiByType((prev) => prev.filter((e) => e.id !== id))
-  const updateEoiByType = (id: string, field: "name" | "amount", value: string) =>
-    setEoiByType((prev) => prev.map((e) => (e.id === id ? { ...e, [field]: value } : e)))
+  const addEoiRule = (scope: EoiRule["scope"]) =>
+    setEoiRules((prev) => [...prev, {
+      id: `EOI-${Date.now()}`,
+      scope,
+      amounts: scope === "percent" ? [] : [{ id: `M-${Date.now()}`, currency: "EGP", amount: "" }],
+    }])
+  const patchEoiRule = (id: string, patch: Partial<EoiRule>) =>
+    setEoiRules((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+  const removeEoiRule = (id: string) => setEoiRules((prev) => prev.filter((r) => r.id !== id))
+  const offeringNameOf = (id?: number) => {
+    const i = offerings.findIndex((o) => o.id === id)
+    return i === -1 ? "Offering" : offerings[i].offeringName || `Offering ${i + 1}`
+  }
 
   // Offerings state
   const [offerings, setOfferings] = useState<Offering[]>(initialOfferings)
@@ -1656,16 +1700,17 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
             <div className="rounded-lg border border-border">
               <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Launch Details</p>
               <div className="grid grid-cols-3 gap-x-6 gap-y-2 px-4 py-3 text-sm">
-                <div><p className="text-[10px] uppercase text-muted-foreground">General EOI</p><p className="font-medium">{eoiOverallAmount ? `${eoiOverallAmount} ${eoiCurrency}` : "—"}</p></div>
+                <div><p className="text-[10px] uppercase text-muted-foreground">General EOI</p><p className="font-medium">{(() => { const g = eoiRules.find((r) => r.scope === "general"); return g ? eoiRuleText(g, offeringNameOf) : "—" })()}</p></div>
                 <div><p className="text-[10px] uppercase text-muted-foreground">Start Date</p><p className="font-medium">{launchStartDate || "—"}</p></div>
                 <div><p className="text-[10px] uppercase text-muted-foreground">End Date</p><p className="font-medium">{launchEndDate || "—"}</p></div>
                 <div className="col-span-3">
-                  <p className="text-[10px] uppercase text-muted-foreground">EOI by Property Type</p>
+                  <p className="text-[10px] uppercase text-muted-foreground">EOI Rules</p>
                   <p className="font-medium">
-                    {eoiByType.filter((e) => e.name && e.amount).length > 0
-                      ? eoiByType.filter((e) => e.name && e.amount).map((e) => `${e.name}: ${e.amount} ${eoiCurrency}`).join(" · ")
+                    {eoiRules.filter((r) => r.scope !== "general").length > 0
+                      ? eoiRules.filter((r) => r.scope !== "general").map((r) => eoiRuleText(r, offeringNameOf)).join(" · ")
                       : "—"}
                   </p>
+                  {eoiNotes && <p className="mt-0.5 text-xs text-muted-foreground">Notes: {eoiNotes}</p>}
                 </div>
               </div>
             </div>
@@ -1707,8 +1752,9 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               disabled={!linkedProject}
               onClick={() => {
                 setIngestionStatus("Ingested")
-                // Launch ingestion carries the draft offerings with it
+                // Launch ingestion carries the draft offerings AND draft plans with it
                 offerings.forEach((o) => { if (!o.listed) setOfferingListed(o.id, true) })
+                setIngestedPlanIds(new Set(plans.map((p) => p.id)))
                 setIngestDialog(null)
                 if (linkedProject && conflictLaunch) {
                   onResolveConflict?.(conflictLaunch.id)
@@ -2038,26 +2084,35 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {plans.map((plan) => {
-                // Launch-only status: Ingested (green) when the launch itself is ingested,
-                // Draft (yellow) otherwise — a not-ingested launch has ALL plans as drafts.
-                const planIngested = ingestionStatus === "Ingested" && plan.status === "Active"
+                // Same lifecycle as property offerings: drafts until the LAUNCH is ingested;
+                // after that, each new plan stays Draft until ingested individually.
+                const planIngested = ingestionStatus === "Ingested" && ingestedPlanIds.has(plan.id)
                 return (
-                  <LinkedPlanCard
-                    key={plan.id}
-                    plan={plan}
-                    isExpanded={expandedPlanId === plan.id}
-                    onToggleExpand={() => setExpandedPlanId((id) => (id === plan.id ? null : plan.id))}
-                    totalInGroup={plans.length}
-                    fullWidth
-                    hideFooter
-                    hideIds={!planIngested}
-                    hideTimestamps={!planIngested}
-                    statusTag={planIngested
-                      ? <span className="text-[9px] font-semibold text-emerald-600 bg-[#EDFAF4] border border-[#A7F3D0] px-1.5 py-px rounded-full">● Ingested</span>
-                      : <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-px rounded-full">● Draft</span>}
-                    onView={() => setDetailsPlan(plan)}
-                    onRemove={() => setDeletingPlanId(plan.id)}
-                  />
+                  <div key={plan.id} className="flex flex-col gap-2">
+                    <LinkedPlanCard
+                      plan={plan}
+                      isExpanded={expandedPlanId === plan.id}
+                      onToggleExpand={() => setExpandedPlanId((id) => (id === plan.id ? null : plan.id))}
+                      totalInGroup={plans.length}
+                      fullWidth
+                      hideFooter
+                      hideIds={!planIngested}
+                      hideTimestamps={!planIngested}
+                      statusTag={planIngested
+                        ? <span className="text-[9px] font-semibold text-emerald-600 bg-[#EDFAF4] border border-[#A7F3D0] px-1.5 py-px rounded-full">● Ingested</span>
+                        : <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-px rounded-full">● Draft</span>}
+                      onView={() => setDetailsPlan(plan)}
+                      onRemove={() => setDeletingPlanId(plan.id)}
+                    />
+                    {ingestionStatus === "Ingested" && !planIngested && (
+                      <Button
+                        variant="outline" size="sm" className="h-7 bg-transparent text-xs"
+                        onClick={() => { setIngestedPlanIds((prev) => new Set([...prev, plan.id])); toast.success("Payment plan ingested") }}
+                      >
+                        <Database className="h-3 w-3 mr-1.5" />Ingest Plan
+                      </Button>
+                    )}
+                  </div>
                 )
               })}
               {plans.length === 0 && (
@@ -2196,65 +2251,123 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
             <div className="pt-6 border-t border-border">
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-foreground">Expression of Interest (EOI)</h3>
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs text-muted-foreground">Currency</Label>
-                  <Select value={eoiCurrency} onValueChange={(v) => { setLaunchDirty(true); setEoiCurrency(v) }}>
-                    <SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {["EGP", "USD", "EUR"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 bg-transparent">
+                      <Plus className="h-3.5 w-3.5 mr-1" />Add EOI
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {(Object.keys(EOI_SCOPE_LABEL) as EoiRule["scope"][]).map((s) => (
+                      <DropdownMenuItem key={s} onClick={() => { setLaunchDirty(true); addEoiRule(s) }}>{EOI_SCOPE_LABEL[s]}</DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
-              <div className="space-y-5">
-                {/* General EOI */}
-                <div className="max-w-xs">
-                  <Label>General EOI ({eoiCurrency})</Label>
-                  <Input
-                    value={eoiOverallAmount}
-                    onChange={(e) => { setLaunchDirty(true); setEoiOverallAmount(fmtInt(e.target.value)) }}
-                    placeholder="e.g. 50,000"
-                    inputMode="numeric"
-                    className={cn("mt-1", eoiErr(eoiOverallAmount) && "border-red-400 focus-visible:ring-red-300 focus-visible:border-red-400")}
-                  />
-                  {eoiErr(eoiOverallAmount) && <p className="mt-1 text-[11px] text-red-500">{eoiErr(eoiOverallAmount)}</p>}
-                </div>
+              <div className="space-y-3">
+                {eoiRules.map((r) => {
+                  const typeOptions = [...new Set([...offerings.map((o) => o.propertyType).filter(Boolean), "Apartments", "Villas", "Chalets", "Townhouses", "Retail", "Offices", "Clinics"])]
+                  return (
+                    <div key={r.id} className="rounded-lg border border-border bg-card p-3">
+                      <div className="mb-2.5 flex items-center justify-between">
+                        <span className="inline-flex items-center whitespace-nowrap rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{EOI_SCOPE_LABEL[r.scope]}</span>
+                        <button type="button" onClick={() => { setLaunchDirty(true); removeEoiRule(r.id) }} className="text-muted-foreground transition-colors hover:text-destructive">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
 
-                {/* EOI by Property Type */}
-                <div>
-                  <Label className="mb-2 block">EOI by Property Type ({eoiCurrency})</Label>
-                  <div className="space-y-2">
-                    {eoiByType.map((entry) => {
-                      const err = eoiErr(entry.amount)
-                      return (
-                        <div key={entry.id} className="flex items-start gap-3">
-                          <div className="flex-1">
-                            <Input value={entry.name} onChange={(e) => { setLaunchDirty(true); updateEoiByType(entry.id, "name", e.target.value) }} placeholder="e.g. Apartments" className="h-9" />
+                      {/* Scope-specific pickers */}
+                      <div className="mb-2.5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                        {(r.scope === "type" || r.scope === "sqm" || r.scope === "percent") && (
+                          <div>
+                            <Label className="text-xs">{r.scope === "percent" ? "Property Type (optional)" : "Property Type"}</Label>
+                            <Select value={r.propertyType ?? ""} onValueChange={(v) => { setLaunchDirty(true); patchEoiRule(r.id, { propertyType: v === "__all__" ? undefined : v }) }}>
+                              <SelectTrigger className="mt-1 h-8"><SelectValue placeholder={r.scope === "percent" ? "Overall" : "Select type…"} /></SelectTrigger>
+                              <SelectContent>
+                                {r.scope === "percent" && <SelectItem value="__all__">Overall (all types)</SelectItem>}
+                                {typeOptions.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
                           </div>
-                          <div className="w-44">
-                            <Input
-                              value={entry.amount}
-                              onChange={(e) => { setLaunchDirty(true); updateEoiByType(entry.id, "amount", fmtInt(e.target.value)) }}
-                              placeholder="50,000"
-                              inputMode="numeric"
-                              className={cn("h-9", err && "border-red-400 focus-visible:ring-red-300 focus-visible:border-red-400")}
-                            />
-                            {err && <p className="mt-1 text-[11px] text-red-500">{err}</p>}
+                        )}
+                        {r.scope === "offering" && (
+                          <div className="col-span-2">
+                            <Label className="text-xs">Property Offering</Label>
+                            <Select value={r.offeringId != null ? String(r.offeringId) : ""} onValueChange={(v) => { setLaunchDirty(true); patchEoiRule(r.id, { offeringId: Number(v) }) }}>
+                              <SelectTrigger className="mt-1 h-8"><SelectValue placeholder="Select offering…" /></SelectTrigger>
+                              <SelectContent>
+                                {offerings.map((o, i) => <SelectItem key={o.id} value={String(o.id)}>{o.offeringName || `Offering ${i + 1}`}{o.propertyType ? ` — ${o.propertyType}` : ""}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
                           </div>
-                          <button type="button" onClick={() => { setLaunchDirty(true); removeEoiByType(entry.id) }} className="mt-2.5 text-muted-foreground hover:text-destructive transition-colors">
-                            <X className="h-4 w-4" />
+                        )}
+                        {r.scope === "sqm" && (
+                          <>
+                            <div>
+                              <Label className="text-xs">Finishing</Label>
+                              <Select value={r.finishing ?? "Any"} onValueChange={(v) => { setLaunchDirty(true); patchEoiRule(r.id, { finishing: v }) }}>
+                                <SelectTrigger className="mt-1 h-8"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {EOI_FINISHINGS.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-xs">Per (SQM)</Label>
+                              <Input value={r.sqm ?? ""} onChange={(e) => { setLaunchDirty(true); patchEoiRule(r.id, { sqm: e.target.value.replace(/\D/g, "") }) }} placeholder="e.g. 50" inputMode="numeric" className="mt-1 h-8" />
+                            </div>
+                          </>
+                        )}
+                        {r.scope === "percent" && (
+                          <div>
+                            <Label className="text-xs">Percent of Price (%)</Label>
+                            <Input value={r.percent ?? ""} onChange={(e) => { setLaunchDirty(true); patchEoiRule(r.id, { percent: e.target.value.replace(/[^\d.]/g, "") }) }} placeholder="e.g. 2" inputMode="decimal" className="mt-1 h-8" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Amounts — one or more currency + amount pairs (percent rules have none) */}
+                      {r.scope !== "percent" && (
+                        <div className="space-y-2">
+                          {r.amounts.map((a) => (
+                            <div key={a.id} className="flex items-center gap-2">
+                              <Select value={a.currency} onValueChange={(v) => { setLaunchDirty(true); patchEoiRule(r.id, { amounts: r.amounts.map((x) => (x.id === a.id ? { ...x, currency: v } : x)) }) }}>
+                                <SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {EOI_CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                              <Input
+                                value={a.amount}
+                                onChange={(e) => { setLaunchDirty(true); patchEoiRule(r.id, { amounts: r.amounts.map((x) => (x.id === a.id ? { ...x, amount: fmtInt(e.target.value) } : x)) }) }}
+                                placeholder="e.g. 50,000" inputMode="numeric" className="h-8 w-44"
+                              />
+                              {r.amounts.length > 1 && (
+                                <button type="button" onClick={() => { setLaunchDirty(true); patchEoiRule(r.id, { amounts: r.amounts.filter((x) => x.id !== a.id) }) }} className="text-muted-foreground transition-colors hover:text-destructive">
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => { setLaunchDirty(true); patchEoiRule(r.id, { amounts: [...r.amounts, { id: `M-${Date.now()}`, currency: EOI_CURRENCIES.find((c) => !r.amounts.some((a) => a.currency === c)) ?? "EGP", amount: "" }] }) }}
+                            className="flex items-center gap-1 text-xs text-primary hover:opacity-80"
+                          >
+                            <Plus className="h-3 w-3" />Add currency
                           </button>
                         </div>
-                      )
-                    })}
-                    <button type="button" onClick={() => { setLaunchDirty(true); addEoiByType() }} className="flex items-center gap-1 text-sm text-primary hover:opacity-80 mt-1">
-                      <Plus className="h-3.5 w-3.5" />
-                      Add Property Type
-                    </button>
-                  </div>
-                </div>
+                      )}
+                    </div>
+                  )
+                })}
+                {eoiRules.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No EOI rules — add one with "Add EOI".</p>}
 
-                <p className="text-[11px] text-muted-foreground">All EOI amounts must be positive integers of at least 5 digits — commas are added automatically (e.g. 250,000 · 10,000).</p>
+                {/* Free-text notes — always available regardless of the rule mix */}
+                <div>
+                  <Label className="mb-1 block">EOI Notes</Label>
+                  <Textarea value={eoiNotes} onChange={(e) => { setLaunchDirty(true); setEoiNotes(e.target.value) }} placeholder="Anything sales should know about the EOI rules — exceptions, refund terms, collection windows…" rows={3} />
+                </div>
               </div>
             </div>
 
