@@ -507,7 +507,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   const stats = {
     total: allTabRows.length,
     approved: allTabRows.filter((l) => l.approvalStatus === "Approved").length,
-    listed: allTabRows.filter((l) => l.listingStatus === "Active").length,
+    ingested: allTabRows.filter(isIngestedLaunch).length,
     active: allTabRows.filter((l) => l.launchStatus === "Active").length,
     inactive: allTabRows.filter((l) => l.launchStatus === "Inactive").length,
   }
@@ -1148,7 +1148,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           )}
           <TabsTrigger value="listed" className="data-[state=active]:bg-card">
             <ListChecks className="mr-1.5 h-3.5 w-3.5" />
-            Listed
+            Ingested
             <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-blue-200 bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">
               {scopedLaunches.filter(isIngested).length}
             </span>
@@ -1169,7 +1169,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
             {[
               { label: "Total", value: stats.total, icon: Rocket, color: "blue" },
               { label: "Approved", value: stats.approved, icon: CheckCircle, color: "green" },
-              { label: "Listed (Active)", value: stats.listed, icon: ListChecks, color: "purple" },
+              { label: "Ingested", value: stats.ingested, icon: ListChecks, color: "purple" },
               { label: "Active Launch", value: stats.active, icon: Activity, color: "emerald" },
               { label: "Inactive", value: stats.inactive, icon: XCircle, color: "gray" },
             ].map(({ label, value, icon: Icon, color }) => (
@@ -1211,7 +1211,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
         <TabsContent value="listed" className="mt-4 space-y-4">
           {toolbar}
           {dragTab && <p className="text-xs text-muted-foreground">Drag rows to reorder. Order reflects on Nawy Listing website and Mobile App.</p>}
-          {renderTable("Listed Launches", scoped ? (
+          {renderTable("Ingested Launches", scoped ? (
             <Button size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}><Plus className="h-4 w-4" />Create Launch</Button>
           ) : undefined)}
         </TabsContent>
