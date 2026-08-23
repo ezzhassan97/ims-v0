@@ -1351,7 +1351,6 @@ function GroupCard({
         moveOpen && (
           <ChangeLinkedLaunchDialog
             currentLaunchId={launchId}
-            propertiesCount={group.details.length || 1}
             current={{ listingStatus, saleStatus }}
             onClose={() => setMoveOpen(false)}
             onConfirm={(l) => {

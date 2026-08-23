@@ -341,13 +341,15 @@ export function LaunchFormDialog({
   const s = useLinkState(open, initial, scope)
   const { form, set, exDevId, exSel } = s
   const unlinked = !!initial && !(initial.projectLevel === "Phase" ? initial.projectId && initial.parentProjectId : initial.projectId)
+  const editIngested = initial?.ingestionStatus === "Ingested"
+  const editActive = initial?.launchStatus === "Active"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* No scroll container — the tree/developer dropdowns overlay past the dialog instead of stretching it. */}
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{initial ? "Edit Launch" : "Create Launch"}</DialogTitle>
+          <DialogTitle>{initial ? "Change Linked Project" : "Create Launch"}</DialogTitle>
         </DialogHeader>
 
         {/* Website copy — title mandatory; the description gets a full-width textarea for longer text */}
@@ -362,7 +364,23 @@ export function LaunchFormDialog({
           </div>
         </div>
 
-        <LinkFormBody s={s} scope={scope} unlinked={unlinked} />
+        <LinkFormBody s={s} scope={scope} unlinked={unlinked} locked={editIngested && editActive} />
+
+        {/* Ingested + inactive: the launch can move, but its properties move with it */}
+        {initial && editIngested && !editActive && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
+            Changing the linked project or phase moves this launch along with its{" "}
+            <span className="font-semibold">{launchPropsOf(initial)} launch propert{launchPropsOf(initial) === 1 ? "y" : "ies"}</span> — the
+            properties' titles will be updated with the move.
+          </p>
+        )}
+        {/* Ingested + ACTIVE: linkage is frozen until the launch is closed */}
+        {initial && editIngested && editActive && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
+            This launch <span className="font-semibold">can't move under a different project or phase while it is Active</span> —
+            change this project or phase's Primary Status to close the launch, then move it.
+          </p>
+        )}
 
         <DialogFooter>
           <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -399,7 +417,10 @@ export function LaunchFormDialog({
  * title/description. Editable until the launch is ingested, then locked.
  */
 export function LaunchProjectDetailsCard({ launch, onPatch }: { launch: Launch; onPatch: (patch: Partial<Launch>) => void }) {
-  const locked = launch.ingestionStatus === "Ingested"
+  const ingested = launch.ingestionStatus === "Ingested"
+  const active = launch.launchStatus === "Active"
+  // Linkage freezes only while the launch is ACTIVE — ingested-but-inactive launches can still move
+  const locked = ingested && active
   const s = useLinkState(true, launch, undefined, `${launch.id}:${launch.updatedAt}`)
   const unlinked = !(launch.projectLevel === "Phase" ? launch.projectId && launch.parentProjectId : launch.projectId)
 
@@ -410,7 +431,9 @@ export function LaunchProjectDetailsCard({ launch, onPatch }: { launch: Launch; 
           <h3 className="text-sm font-semibold">Project Details</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {locked
-              ? "Ingested — the linked project is locked."
+              ? "Active — the linked project is frozen while the launch is running."
+              : ingested
+              ? "Ingested — the link can still change while the launch isn't Active; its properties move with it."
               : "Every launch links to an existing project or phase — the link can change until the launch is ingested."}
           </p>
         </div>
@@ -422,48 +445,24 @@ export function LaunchProjectDetailsCard({ launch, onPatch }: { launch: Launch; 
       </div>
       <div className="grid gap-4">
         <LinkFormBody s={s} locked={locked} unlinked={unlinked} />
+        {ingested && !active && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
+            Changing the linked project or phase moves this launch along with its{" "}
+            <span className="font-semibold">{launchPropsOf(launch)} launch propert{launchPropsOf(launch) === 1 ? "y" : "ies"}</span> — the
+            properties' titles will be updated with the move.
+          </p>
+        )}
+        {locked && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
+            This launch <span className="font-semibold">can't move under a different project or phase while it is Active</span> —
+            change this project or phase's Primary Status to close the launch, then move it.
+          </p>
+        )}
       </div>
     </Card>
   )
 }
 
-/**
- * Ingested (non-active) launches can move to another project/phase — the launch
- * AND every launch property under it move together, with property titles updated.
- */
-export function ChangeLinkedProjectDialog({ launch, onClose, onConfirm }: {
-  launch: Launch
-  onClose: () => void
-  onConfirm: (patch: Partial<Launch>) => void
-}) {
-  const s = useLinkState(true, launch, undefined, launch.id)
-  const propsCount = launchPropsOf(launch)
-  const canSave = !!s.exDevId && !!s.exSel && s.exSel.id !== launch.projectId
-  return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Change Linked Project</DialogTitle>
-        </DialogHeader>
-        <p className="text-xs text-muted-foreground">
-          {launch.title ?? launch.projectNameEn} is currently linked to{" "}
-          <span className="font-medium text-foreground">
-            {launch.projectLevel === "Phase" ? `${launch.phase} — ${launch.projectNameEn}` : launch.projectNameEn}
-          </span>{launch.projectId ? ` (${launch.projectId})` : ""}.
-        </p>
-        <LinkFormBody s={s} />
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
-          This launch along with the <span className="font-semibold">{propsCount} launch propert{propsCount === 1 ? "y" : "ies"}</span> under
-          it will be moved to the selected project or phase — the properties' titles will be updated with this move.
-        </div>
-        <DialogFooter>
-          <Button variant="outline" className="bg-transparent" onClick={onClose}>Cancel</Button>
-          <Button disabled={!canSave} onClick={() => onConfirm(editPatch(s))}>Move Launch & Properties</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 /**
  * Property-side relink: pick a developer + project/phase, then one of ITS ingested
@@ -488,9 +487,8 @@ const LISTING_CHIP: Record<string, string> = {
 /** The property's listing status follows the launch it sits on. */
 export const listingForLaunchStatus = (s: Launch["launchStatus"]) => (s === "Active" ? "Published" : "Hidden")
 
-export function ChangeLinkedLaunchDialog({ currentLaunchId, propertiesCount, current, onClose, onConfirm }: {
+export function ChangeLinkedLaunchDialog({ currentLaunchId, current, onClose, onConfirm }: {
   currentLaunchId?: string
-  propertiesCount: number
   /** The property's own statuses, shown in the current-linkage card. */
   current?: { listingStatus: string; saleStatus: string }
   onClose: () => void
@@ -582,13 +580,10 @@ export function ChangeLinkedLaunchDialog({ currentLaunchId, propertiesCount, cur
         ))}
 
         <div className="space-y-1.5 rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
-          <p>
-            The <span className="font-semibold">{propertiesCount} launch propert{propertiesCount === 1 ? "y" : "ies"}</span> in this group will
-            move to the selected launch — their titles will be updated.
-          </p>
+          <p>The property's <span className="font-semibold">title will be updated</span> with this move, and its listing status follows the destination launch.</p>
           {picked && current && (
             <p className="flex flex-wrap items-center gap-1.5">
-              Listing status follows the destination launch:
+              Listing status:
               <StatusChip label={current.listingStatus} cls={LISTING_CHIP[current.listingStatus] ?? "border-gray-200 bg-gray-100 text-gray-600"} />
               <span aria-hidden>→</span>
               <StatusChip label={destListing!} cls={LISTING_CHIP[destListing!]} />
@@ -600,7 +595,7 @@ export function ChangeLinkedLaunchDialog({ currentLaunchId, propertiesCount, cur
         <DialogFooter>
           <Button variant="outline" className="bg-transparent" onClick={onClose}>Cancel</Button>
           <Button disabled={!picked || picked.id === currentLaunchId} onClick={() => picked && onConfirm(picked)}>
-            Move Propert{propertiesCount === 1 ? "y" : "ies"}
+            Move Property
           </Button>
         </DialogFooter>
       </DialogContent>

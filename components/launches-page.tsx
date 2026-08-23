@@ -74,7 +74,7 @@ import { LaunchDetailsPage } from "@/components/launch-details-page"
 import { PROJECTS, PROJECT_DEVELOPERS, AREA_TREE, type ProjPrimaryStatus, type ProjectRow } from "@/lib/projects-mock"
 import { SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
 import { ActionDialog, ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
-import { LaunchFormDialog, ChangeLinkedProjectDialog } from "@/components/launch-form-dialog"
+import { LaunchFormDialog } from "@/components/launch-form-dialog"
 import {
   useLaunches, patchLaunches, addLaunch, activateLaunch, closeLaunch, uuidOf, launchLabel,
   activeConflictOf, isIngestedLaunch, launchPropsOf, launchAreaId, LAUNCH_AREAS, setProjectPrimary, eoiRangeText,
@@ -334,7 +334,7 @@ function BulkDialog({ kind, count, onClose, onConfirm }: { kind: BulkKind; count
 }
 
 type DialogState =
-  | { kind: "archive" | "approve" | "reject" | "activate" | "close" | "ingest" | "relink"; launch: Launch }
+  | { kind: "archive" | "approve" | "reject" | "activate" | "close" | "ingest"; launch: Launch }
   | { kind: BulkKind }
   | null
 
@@ -652,12 +652,13 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   )
 
   /** New↔Existing + linked project/phase all change here — gone entirely once ingested. */
-  const editItem = (l: Launch) =>
-    l.ingestionStatus === "Ingested" ? null : (
-      <DropdownMenuItem onClick={() => setEditLaunch(l)}>
-        <Pencil className="h-4 w-4 mr-2" />Edit
-      </DropdownMenuItem>
-    )
+  /** One popup for every state: free edit pre-ingestion, move-with-properties when
+      ingested + inactive, title/description only (linkage frozen) while Active. */
+  const editItem = (l: Launch) => (
+    <DropdownMenuItem onClick={() => setEditLaunch(l)}>
+      <Pencil className="h-4 w-4 mr-2" />Change Linked Project
+    </DropdownMenuItem>
+  )
 
   /** Available on every launch, ingested or not. */
   const archiveItem = (l: Launch) =>
@@ -690,13 +691,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     )
   }
 
-  /** Ingested, non-active launches can move (with their properties) to another project/phase. */
-  const changeLinkedItem = (l: Launch) =>
-    isIngestedLaunch(l) && l.launchStatus !== "Active" ? (
-      <DropdownMenuItem onClick={() => setDialog({ kind: "relink", launch: l })}>
-        <Link2 className="h-4 w-4 mr-2" />Change Linked Project
-      </DropdownMenuItem>
-    ) : null
 
   const rowMenu = (l: Launch) => {
     if (tab === "all" || tab === "pending") {
@@ -726,7 +720,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
               </DropdownMenuSub>
             )}
             {ingestItem(l)}
-            {changeLinkedItem(l)}
             <DropdownMenuSeparator />
             {archiveItem(l)}
           </DropdownMenuContent>
@@ -741,7 +734,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {viewItem(l)}
-          {changeLinkedItem(l)}
+          {editItem(l)}
           <DropdownMenuSeparator />
           {archiveItem(l)}
         </DropdownMenuContent>
@@ -1393,17 +1386,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       {dialog?.kind === "reject" && <RejectDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={(reason) => doReject(dialog.launch, reason)} />}
       {dialog?.kind === "activate" && <ActivateDialog launch={dialog.launch} conflict={activeConflictOf(dialog.launch, launches)} project={projectOf(dialog.launch)} onClose={() => setDialog(null)} onConfirm={(startDate, sync) => doActivate(dialog.launch, startDate, sync)} />}
       {dialog?.kind === "close" && <CloseLaunchDialog launch={dialog.launch} project={projectOf(dialog.launch)} onClose={() => setDialog(null)} onConfirm={(endDate, nextPrimary) => doCloseLaunch(dialog.launch, endDate, nextPrimary)} />}
-      {dialog?.kind === "relink" && (
-        <ChangeLinkedProjectDialog
-          launch={dialog.launch}
-          onClose={() => setDialog(null)}
-          onConfirm={(patchData) => {
-            patch([dialog.launch.id], patchData)
-            setDialog(null)
-            toast.success(`${dialog.launch.title ?? dialog.launch.projectNameEn} moved — its launch properties follow with updated titles`)
-          }}
-        />
-      )}
       {dialog?.kind === "ingest" && (
         <ActionDialog
           title="Ingest Launch"
@@ -1411,7 +1393,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           message={
             dialog.launch.existingProject
               ? `Launch info will be ingested and linked to ${dialog.launch.existingProject.name} (${dialog.launch.existingProject.id}).`
-              : `This launch isn't linked to a system ${dialog.launch.projectLevel === "Phase" ? "phase" : "project"}, so it can't be ingested. If the ${dialog.launch.projectLevel === "Phase" ? "phase" : "project"} doesn't exist yet, create it from the Projects page first, then link it from the Edit Linked Project action.`
+              : `This launch isn't linked to a system ${dialog.launch.projectLevel === "Phase" ? "phase" : "project"}, so it can't be ingested. If the ${dialog.launch.projectLevel === "Phase" ? "phase" : "project"} doesn't exist yet, create it from the Projects page first, then link it from the Change Linked Project action.`
           }
           confirmLabel="Ingest Launch"
           confirmClass="bg-emerald-600 text-white hover:bg-emerald-700"

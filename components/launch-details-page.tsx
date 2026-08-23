@@ -1681,7 +1681,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                   This launch isn't linked to a system {launch.projectLevel === "Phase" ? "phase" : "project"}, so it{" "}
                   <span className="font-semibold">can't be ingested</span>. If the {launch.projectLevel === "Phase" ? "phase" : "project"} doesn't
                   exist yet, create it from the Projects page first, then link it from the Project Details tab or the{" "}
-                  <span className="font-medium">Edit Linked Project</span> action.
+                  <span className="font-medium">Change Linked Project</span> action.
                 </p>
               </div>
             )}
