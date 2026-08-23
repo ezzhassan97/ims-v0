@@ -35,16 +35,19 @@ export function PaymentPlanDrawer({
   onSave,
   title = "Add Payment Plans",
   submitLabel = "Save Plan",
+  lockedBasics,
 }: {
   open: boolean
   onClose: () => void
   onSave: (plan: PlanCardData) => void
   title?: string
   submitLabel?: string
+  /** Context-driven creation (e.g. a launch's Payment Plans tab): these fields come preselected and read-only. */
+  lockedBasics?: { developer?: string; project?: string; category?: string }
 }) {
   const empty = () => ({
-    developer: "", project: "", name: "",
-    category: "Primary", planType: "Equal", currency: "EGP",
+    developer: lockedBasics?.developer ?? "", project: lockedBasics?.project ?? "", name: "",
+    category: lockedBasics?.category ?? "Primary", planType: "Equal", currency: "EGP",
     dp: "", durYrs: "", durMth: "", frequency: "",
     discount: "", markOffer: false, active: true,
     m1: "", m3: "", m6: "", contractual: "", delivery: "",
@@ -100,10 +103,22 @@ export function PaymentPlanDrawer({
           {/* BASIC */}
           <Section label="Basic">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <FieldShell label="Developer" required><SelectInput value={f.developer} onChange={(v) => set({ developer: v })} options={DEV_OPTIONS} /></FieldShell>
-              <FieldShell label="Project" required><SelectInput value={f.project} onChange={(v) => set({ project: v })} options={PROJ_OPTIONS} /></FieldShell>
+              <FieldShell label="Developer" required>
+                {lockedBasics?.developer
+                  ? <div className="flex h-8 items-center rounded-md border border-border bg-muted px-2.5 text-sm text-muted-foreground">{lockedBasics.developer}</div>
+                  : <SelectInput value={f.developer} onChange={(v) => set({ developer: v })} options={DEV_OPTIONS} />}
+              </FieldShell>
+              <FieldShell label="Project" required>
+                {lockedBasics?.project
+                  ? <div className="flex h-8 items-center rounded-md border border-border bg-muted px-2.5 text-sm text-muted-foreground">{lockedBasics.project}</div>
+                  : <SelectInput value={f.project} onChange={(v) => set({ project: v })} options={PROJ_OPTIONS} />}
+              </FieldShell>
               <FieldShell label="Plan name" required><TextInput value={f.name} onChange={(v) => set({ name: v })} /></FieldShell>
-              <FieldShell label="Plan category" required><SelectInput value={f.category} onChange={(v) => set({ category: v })} options={PLAN_CATEGORY_OPTIONS} /></FieldShell>
+              <FieldShell label="Plan category" required>
+                {lockedBasics?.category
+                  ? <div className="flex h-8 items-center rounded-md border border-border bg-muted px-2.5 text-sm text-muted-foreground">{lockedBasics.category}</div>
+                  : <SelectInput value={f.category} onChange={(v) => set({ category: v })} options={PLAN_CATEGORY_OPTIONS} />}
+              </FieldShell>
               <FieldShell label="Plan type" required><SelectInput value={f.planType} onChange={(v) => set({ planType: v })} options={PLAN_TYPE_OPTIONS} /></FieldShell>
               <FieldShell label="Currency" required><SelectInput value={f.currency} onChange={(v) => set({ currency: v })} options={CURRENCY_OPTIONS} /></FieldShell>
               <FieldShell label="Down payment" required><NumberInput value={f.dp} onChange={(v) => set({ dp: v })} placeholder="0" /></FieldShell>

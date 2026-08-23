@@ -22,7 +22,7 @@ import {
   FINISHING_OPTIONS, DELIVERY_TYPE_OPTIONS, CURRENCY_OPTIONS,
 } from "@/components/additional-info-tab"
 import { TYPE_TREE, buildTypeGroups, type GroupedProperty } from "@/components/grouped-properties-page"
-import { FilterMultiSelect, TabStrip } from "@/components/table-kit"
+import { FilterMultiSelect, TabStrip, LinkedId } from "@/components/table-kit"
 import {
   Table,
   TableBody,
@@ -805,6 +805,8 @@ function LaunchOfferingCard({
               <span className="flex items-center gap-1">Property ID: <IdCopy value={`LOFF-${o.id}`} /></span>
               <span>·</span>
               <span className="flex items-center gap-1">Metadata ID: <IdCopy value={`PMD-${o.id}`} /></span>
+              <span>·</span>
+              <span className="flex items-center gap-1">Launch ID: <LinkedId value={launch.id} href={`/launches/${launch.id}`} /></span>
             </>
           ) : (
             <span className="italic">Draft offering</span>
@@ -1637,52 +1639,6 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               className="h-36 w-full rounded-lg border border-border bg-secondary object-cover"
             />
 
-            {linkedProject && (() => {
-              const entity = launch.projectLevel === "Phase" ? "phase" : "project"
-              return (
-                <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/60 p-4">
-                  <div className="flex items-start gap-2 text-sm text-amber-800">
-                    <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                    <p>
-                      This launch is linked to the existing {entity}{" "}
-                      <span className="font-semibold">{linkedProject.name}</span> ({linkedProject.id}).
-                      Ingestion writes the launch onto it — launches are never ingested without a linked {entity}.
-                    </p>
-                  </div>
-
-                  {conflictLaunch && (
-                    <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
-                      <XCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                      <p>
-                        <span className="font-semibold">{conflictLaunch.id} · {conflictLaunch.projectNameEn}</span>{" "}
-                        ({conflictLaunch.type}) is currently <span className="font-semibold">Active</span> on this {entity}.
-                      </p>
-                    </div>
-                  )}
-
-                  <ul className="list-disc space-y-1 pl-9 text-xs text-muted-foreground">
-                    <li>The {entity}'s launch info — EOIs, start &amp; end dates, Taskeen days and incentives — will be <span className="font-medium text-foreground">overwritten</span> with this launch's data.</li>
-                    {conflictLaunch && (
-                      <li className="text-red-600">The active {conflictLaunch.type.toLowerCase()} <span className="font-semibold">{conflictLaunch.id}</span> will be <span className="font-semibold">closed</span> and replaced by this launch.</li>
-                    )}
-                  </ul>
-                </div>
-              )
-            })()}
-
-            {/* Unlinked launches can't be ingested — the project or phase must exist and be linked first */}
-            {!linkedProject && (
-              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                <XCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                <p>
-                  This launch isn't linked to a system {launch.projectLevel === "Phase" ? "phase" : "project"}, so it{" "}
-                  <span className="font-semibold">can't be ingested</span>. If the {launch.projectLevel === "Phase" ? "phase" : "project"} doesn't
-                  exist yet, create it from the Projects page first, then link it from the Project Details tab or the{" "}
-                  <span className="font-medium">Change Linked Project</span> action.
-                </p>
-              </div>
-            )}
-
             {/* Project details */}
             <div className="rounded-lg border border-border">
               <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project Details</p>
@@ -2120,6 +2076,11 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
           <PaymentPlanDrawer
             open={planDrawerOpen}
             onClose={() => { setPlanDrawerOpen(false); setEditingPlan(null) }}
+            lockedBasics={{
+              developer: launch.developer.name,
+              project: launch.projectLevel === "Phase" && launch.phase ? `${launch.projectNameEn} — ${launch.phase}` : launch.projectNameEn,
+              category: "Primary",
+            }}
             title={editingPlan ? "Edit Payment Plan" : "Add Payment Plan"}
             submitLabel={editingPlan ? "Save Changes" : "Save Plan"}
             onSave={(saved) => {
