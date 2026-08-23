@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Save, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { type Launch, LAUNCH_AREAS, launchAreaId, launchPropsOf, launchesForProject, isIngestedLaunch } from "@/lib/launches-mock"
+import { type Launch, LAUNCH_AREAS, launchAreaId, launchPropsOf, launchesForProject, isIngestedLaunch, launchesSnapshot } from "@/lib/launches-mock"
 import { PROJECTS, PROJECT_DEVELOPERS } from "@/lib/projects-mock"
 import { SYS_DEVELOPERS, sysProjectTree } from "@/components/link-project-dialog"
 import { DeveloperSelect, ProjectTreeSelect, type ProjectTreeSelection } from "@/components/table-kit"
@@ -469,9 +469,30 @@ export function ChangeLinkedProjectDialog({ launch, onClose, onConfirm }: {
  * Property-side relink: pick a developer + project/phase, then one of ITS ingested
  * launches. The group's launch properties move to it and their titles are updated.
  */
-export function ChangeLinkedLaunchDialog({ currentLaunchId, propertiesCount, onClose, onConfirm }: {
+const LAUNCH_STATUS_CHIP: Record<Launch["launchStatus"], string> = {
+  Active: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Inactive: "border-gray-200 bg-gray-100 text-gray-600",
+  Closed: "border-red-200 bg-red-50 text-red-600",
+}
+
+function StatusChip({ label, cls }: { label: string; cls: string }) {
+  return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", cls)}>{label}</span>
+}
+
+const LISTING_CHIP: Record<string, string> = {
+  Published: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Active: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Hidden: "border-red-200 bg-red-100 text-red-600",
+}
+
+/** The property's listing status follows the launch it sits on. */
+export const listingForLaunchStatus = (s: Launch["launchStatus"]) => (s === "Active" ? "Published" : "Hidden")
+
+export function ChangeLinkedLaunchDialog({ currentLaunchId, propertiesCount, current, onClose, onConfirm }: {
   currentLaunchId?: string
   propertiesCount: number
+  /** The property's own statuses, shown in the current-linkage card. */
+  current?: { listingStatus: string; saleStatus: string }
   onClose: () => void
   onConfirm: (launch: Launch) => void
 }) {
@@ -480,12 +501,43 @@ export function ChangeLinkedLaunchDialog({ currentLaunchId, propertiesCount, onC
   const [pickedId, setPickedId] = useState("")
   const candidates = sel ? launchesForProject(sel.id).filter(isIngestedLaunch) : []
   const picked = candidates.find((l) => l.id === pickedId)
+  const cur = currentLaunchId ? launchesSnapshot().find((l) => l.id === currentLaunchId) : undefined
+  const destListing = picked ? listingForLaunchStatus(picked.launchStatus) : null
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Change Linked Launch</DialogTitle>
         </DialogHeader>
+
+        {/* Current linkage — where this property sits today, and its own statuses */}
+        {cur && (
+          <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Currently linked launch</p>
+            <div className="flex items-center justify-between gap-3">
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium text-foreground">{cur.title ?? cur.projectNameEn}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">{cur.id}</span>
+              </span>
+              <StatusChip label={cur.launchStatus} cls={LAUNCH_STATUS_CHIP[cur.launchStatus]} />
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-x-6 gap-y-1 border-t border-border pt-2">
+              <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Developer</p><p className="text-xs font-medium text-foreground">{cur.developer.name}</p></div>
+              <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Project</p><p className="text-xs font-medium text-foreground">{cur.projectNameEn}</p></div>
+              <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Phase</p><p className="text-xs font-medium text-foreground">{cur.phase || "—"}</p></div>
+            </div>
+            {current && (
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-2 text-[11px] text-muted-foreground">
+                <span className="flex items-center gap-1.5">This property — Listing:
+                  <StatusChip label={current.listingStatus} cls={LISTING_CHIP[current.listingStatus] ?? "border-gray-200 bg-gray-100 text-gray-600"} />
+                </span>
+                <span className="flex items-center gap-1.5">Sale Status:
+                  <StatusChip label={current.saleStatus} cls="border-blue-200 bg-blue-100 text-blue-700" />
+                </span>
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label>Developer</Label>
@@ -529,10 +581,21 @@ export function ChangeLinkedLaunchDialog({ currentLaunchId, propertiesCount, onC
           </p>
         ))}
 
-        <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
-          The <span className="font-semibold">{propertiesCount} launch propert{propertiesCount === 1 ? "y" : "ies"}</span> in this group will
-          move to the selected launch — their titles will be updated.
-        </p>
+        <div className="space-y-1.5 rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[11px] leading-4 text-blue-800">
+          <p>
+            The <span className="font-semibold">{propertiesCount} launch propert{propertiesCount === 1 ? "y" : "ies"}</span> in this group will
+            move to the selected launch — their titles will be updated.
+          </p>
+          {picked && current && (
+            <p className="flex flex-wrap items-center gap-1.5">
+              Listing status follows the destination launch:
+              <StatusChip label={current.listingStatus} cls={LISTING_CHIP[current.listingStatus] ?? "border-gray-200 bg-gray-100 text-gray-600"} />
+              <span aria-hidden>→</span>
+              <StatusChip label={destListing!} cls={LISTING_CHIP[destListing!]} />
+              {destListing === current.listingStatus && <span className="text-blue-700/70">(unchanged)</span>}
+            </p>
+          )}
+        </div>
 
         <DialogFooter>
           <Button variant="outline" className="bg-transparent" onClick={onClose}>Cancel</Button>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import {
   ArrowLeft, Bath, BedDouble, Building2, CalendarDays, ChevronDown, ChevronRight, Eye, FileText, FolderOpen,
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { launchesSnapshot, isIngestedLaunch } from "@/lib/launches-mock"
+import { PROJECTS as SYS_PROJECTS, PROJECT_DEVELOPERS } from "@/lib/projects-mock"
 
 // Ingested launches offered in the Linked Launch dropdown (launch properties only) — lazy vs import cycles
 let _createLaunchPool: ReturnType<typeof launchesSnapshot> | null = null
@@ -35,21 +36,14 @@ const SALE_TYPE_LABEL: Record<Variation, string> = {
   resale: "Resale", "nawy-now": "Nawy Now", rental: "Rental",
 }
 
-const DEVELOPERS = [
-  { id: "DEV-001", name: "Lasirena Group" }, { id: "DEV-002", name: "Palm Hills" },
-  { id: "DEV-003", name: "Sodic" }, { id: "DEV-004", name: "Mountain View" },
-]
-const PROJECTS = [
-  { id: "PRJ-1001", name: "Palm Beach Resort", devId: "DEV-001", city: "Ain Sokhna", area: "El Sokhna", district: "District A" },
-  { id: "PRJ-1002", name: "New Cairo Gate", devId: "DEV-002", city: "New Cairo", area: "El Shorouk", district: "District B" },
-  { id: "PRJ-1003", name: "North Bay", devId: "DEV-003", city: "North Coast", area: "Ras El Hekma", district: "Sector 1" },
-  { id: "PRJ-1004", name: "Lagoon Heights", devId: "DEV-004", city: "Sheikh Zayed", area: "Beverly Hills", district: "Zone 5" },
-]
-const PHASES = [
-  { id: "PH-201", name: "Phase 1", projId: "PRJ-1001" }, { id: "PH-202", name: "Phase 2", projId: "PRJ-1001" },
-  { id: "PH-203", name: "Phase 1", projId: "PRJ-1002" }, { id: "PH-204", name: "Phase A", projId: "PRJ-1003" },
-  { id: "PH-205", name: "Phase A", projId: "PRJ-1004" },
-]
+// Canonical system data — the same universe the Launches flow links against
+const DEVELOPERS = PROJECT_DEVELOPERS.map((d) => ({ id: d.id, name: d.name, status: d.status }))
+const PROJECTS = SYS_PROJECTS
+  .filter((p) => !p.isPhase && !p.isSubProject)
+  .map((p) => ({ id: p.id, name: p.name, devId: p.developer.id, city: p.area, area: p.district, district: p.subarea }))
+const PHASES = SYS_PROJECTS
+  .filter((p) => p.isPhase)
+  .map((p) => ({ id: p.id, name: p.name, projId: p.mainProject?.id ?? "" }))
 
 const imagePool = [
   "/aerial-view-masterplan-residential-development-blu.jpg", "/luxury-clubhouse-exterior.jpg",
@@ -306,6 +300,13 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
             <SubSection label="Listing">
               <FieldShell label="Sale Type" icon={<Tag className="h-3 w-3" />}><div className="text-xs font-medium text-foreground">{SALE_TYPE_LABEL[variation]}</div></FieldShell>
               <FieldShell label="Listing Status" icon={<Eye className="h-3 w-3" />}>
+                {isLaunch ? (
+                  <div className="flex h-8 items-center gap-1.5 rounded-md border border-border bg-muted px-2.5 text-sm font-medium text-muted-foreground" title="Inherited from the linked launch status">
+                    <span className={cn("h-1.5 w-1.5 rounded-full", listingStatus === "Active" ? "bg-emerald-500" : "bg-red-500")} />
+                    {listingStatus}
+                    <span className="text-[10px] font-normal">· inherits from the linked launch</span>
+                  </div>
+                ) : (
                 <Select value={listingStatus} onValueChange={(v) => setField("listingStatus", v)}>
                   <SelectTrigger className="h-8 text-sm">
                     <span className={cn("inline-flex items-center gap-1.5 font-medium", listingStatus === "Active" ? "text-emerald-700" : "text-red-600")}>
@@ -317,15 +318,18 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
                     <SelectItem value="Hidden"><span className="inline-flex items-center gap-1.5 text-red-600"><span className="h-1.5 w-1.5 rounded-full bg-red-500" /> Hidden</span></SelectItem>
                   </SelectContent>
                 </Select>
+                )}
               </FieldShell>
             </SubSection>
 
-            <SubSection label="Developer & Project">
+            <SubSection label="Developer & Project" noGrid>
+              {/* Developer · Project · Phase · Location on one line */}
+              <div className="grid grid-cols-2 gap-x-6 gap-y-4 lg:grid-cols-4">
               <FieldShell label="Developer" icon={<Building2 className="h-3 w-3" />} required error={errors.developer}>
                 <DeveloperSelect
                   developers={DEVELOPERS}
                   value={DEVELOPERS.find((d) => d.name === form.developer)?.id ?? ""}
-                  onChange={(id) => { setField("developer", DEVELOPERS.find((d) => d.id === id)?.name ?? ""); setField("project", ""); setField("phase", "") }}
+                  onChange={(id) => { setField("developer", DEVELOPERS.find((d) => d.id === id)?.name ?? ""); setField("project", ""); setField("phase", ""); setField("linkedLaunch", ""); if (isLaunch) setField("listingStatus", "Hidden") }}
                   className={cn(errors.developer && "[&>button]:border-red-400")}
                 />
               </FieldShell>
@@ -334,46 +338,56 @@ export function CreatePropertyPage({ variation, onBack }: { variation: Variation
                   label={form.developer ? "Select project…" : "Pick a developer first"}
                   projects={PROJECTS
                     .filter((p) => !form.developer || DEVELOPERS.find((d) => d.name === form.developer)?.id === p.devId)
-                    .map((p) => ({ id: p.id, name: p.name, phases: PHASES.filter((ph) => ph.projId === p.id).map((ph) => ({ id: ph.id, name: ph.name })) }))}
+                    .map((p) => ({ id: p.id, name: p.name, phases: [] }))}
                   value={selectedProject ? { kind: "project", id: selectedProject.id, label: selectedProject.name, projectIds: [selectedProject.id] } : null}
                   onChange={(sel) => {
-                    if (!sel) { setField("project", ""); setField("phase", ""); return }
-                    // Picking a phase from the tree fills both fields; a main fills project only
-                    const phase = PHASES.find((ph) => ph.id === sel.id)
-                    setField("project", phase ? phase.projId : sel.id)
-                    setField("phase", phase ? phase.id : "")
+                    // Projects only here — the Phase dropdown owns phase selection
+                    setField("project", sel ? sel.id : "")
+                    setField("phase", "")
+                    setField("linkedLaunch", "")
+                    if (isLaunch) setField("listingStatus", "Hidden")
                   }}
                   className={cn(errors.project && "[&>button]:border-red-400")}
                 />
               </FieldShell>
               <FieldShell label="Phase" icon={<Layers className="h-3 w-3" />}>
-                <SelectInput value={PHASES.find((p) => p.id === form.phase)?.name ?? ""} onChange={(name) => setField("phase", phasesForProject.find((x) => x.name === name)?.id ?? "")}
+                <SelectInput value={PHASES.find((p) => p.id === form.phase)?.name ?? ""} onChange={(name) => { setField("phase", phasesForProject.find((x) => x.name === name)?.id ?? ""); setField("linkedLaunch", ""); if (isLaunch) setField("listingStatus", "Hidden") }}
                   options={phasesForProject.map((p) => p.name)} placeholder={form.project ? "Select phase…" : "Pick a project first"} />
               </FieldShell>
-              {isLaunch && (
-                <FieldShell label="Linked Launch" icon={<Rocket className="h-3 w-3" />} required error={errors.linkedLaunch}>
-                  {(() => {
-                    const phaseName = PHASES.find((p) => p.id === form.phase)?.name
-                    const candidates = createLaunchPool().filter((l) => {
-                      if (!selectedProject) return false
-                      if (phaseName) return l.phase === phaseName && l.projectNameEn === selectedProject.name
-                      return l.projectNameEn === selectedProject.name && !l.phase
-                    })
-                    const pool = candidates.length ? candidates : selectedProject ? createLaunchPool().slice(0, 4) : []
-                    return (
-                      <SelectInput
-                        value={String(form.linkedLaunch ?? "")}
-                        onChange={(v) => setField("linkedLaunch", v)}
-                        options={pool.map((l) => `${l.id} — ${l.title ?? l.projectNameEn}`)}
-                        placeholder={selectedProject ? (pool.length ? "Select ingested launch…" : "No ingested launches for this project") : "Pick a project first"}
-                      />
-                    )
-                  })()}
-                </FieldShell>
-              )}
               <FieldShell label="Location" icon={<MapPin className="h-3 w-3" />}>
-                <div className="text-xs font-medium text-foreground">{selectedProject ? [selectedProject.city, selectedProject.area, selectedProject.district].join(" · ") : <span className="text-muted-foreground">Auto-filled from project</span>}</div>
+                <div className="text-xs font-medium text-foreground">{selectedProject ? [selectedProject.city, selectedProject.area, selectedProject.district].filter(Boolean).join(" · ") : <span className="text-muted-foreground">Auto-filled from project</span>}</div>
               </FieldShell>
+              </div>
+
+              {/* Linked launch — full-width row of its own; the property inherits its listing status */}
+              {isLaunch && (() => {
+                const phaseName = PHASES.find((p) => p.id === form.phase)?.name
+                const target = String(form.phase || form.project || "")
+                const candidates = target ? createLaunchPool().filter((l) => l.projectId === target) : []
+                return (
+                  <div className="mt-4">
+                    <FieldShell label="Linked Launch" icon={<Rocket className="h-3 w-3" />} required error={errors.linkedLaunch}>
+                      <LaunchSelect
+                        launches={candidates}
+                        value={String(form.linkedLaunch ?? "")}
+                        disabled={!selectedProject || candidates.length === 0}
+                        placeholder={selectedProject ? (candidates.length ? "Select ingested launch…" : "No ingested launches") : "Pick a project first"}
+                        onChange={(l) => {
+                          setField("linkedLaunch", l.id)
+                          // Listing status follows the launch: Active launch ⇒ Active listing
+                          setField("listingStatus", l.launchStatus === "Active" ? "Active" : "Hidden")
+                        }}
+                      />
+                    </FieldShell>
+                    {selectedProject && candidates.length === 0 && (
+                      <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-amber-800">
+                        No launch is linked to this {phaseName ? "phase" : "project"} — create a launch under it first to be able
+                        to link a launch property to it.
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
             </SubSection>
 
             <SubSection label="Identity">
@@ -599,6 +613,71 @@ function CollapsibleSection({ open, onToggle, icon, title, tags, actions, childr
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </div>
       {open && <div className="border-t border-border">{children}</div>}
+    </div>
+  )
+}
+
+
+const LAUNCH_STATUS_CHIP: Record<string, string> = {
+  Active: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Inactive: "border-gray-200 bg-gray-100 text-gray-600",
+  Closed: "border-red-200 bg-red-50 text-red-600",
+}
+
+/** Linked-launch dropdown: title + id + launch-status tag per option, full-width. */
+function LaunchSelect({ launches, value, onChange, placeholder, disabled }: {
+  launches: ReturnType<typeof createLaunchPool>
+  value: string
+  onChange: (l: ReturnType<typeof createLaunchPool>[number]) => void
+  placeholder: string
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+  const picked = launches.find((l) => l.id === value)
+  return (
+    <div ref={ref} className="relative w-full">
+      <button
+        type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-white px-2.5 text-sm transition-colors",
+          disabled ? "cursor-not-allowed bg-muted text-muted-foreground" : "hover:bg-muted/50",
+          picked ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        {picked ? (
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="truncate">{picked.title ?? picked.projectNameEn}</span>
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{picked.id}</span>
+            <span className={cn("ml-auto inline-flex shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-px text-[10px] font-medium", LAUNCH_STATUS_CHIP[picked.launchStatus])}>{picked.launchStatus}</span>
+          </span>
+        ) : <span className="truncate">{placeholder}</span>}
+        <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-9 z-50 w-full rounded-md border border-border bg-popover p-1 shadow-md">
+          <div className="max-h-56 overflow-y-auto">
+            {launches.map((l) => (
+              <button
+                key={l.id} type="button"
+                onClick={() => { onChange(l); setOpen(false) }}
+                className={cn("flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted", value === l.id && "bg-primary/5")}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-foreground">{l.title ?? l.projectNameEn}</span>
+                  <span className="font-mono text-[10px] text-muted-foreground">{l.id}</span>
+                </span>
+                <span className={cn("inline-flex shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-px text-[10px] font-medium", LAUNCH_STATUS_CHIP[l.launchStatus])}>{l.launchStatus}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

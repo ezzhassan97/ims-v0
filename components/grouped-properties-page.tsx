@@ -60,7 +60,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { TabStrip, LinkedId } from "@/components/table-kit"
 import { launchesSnapshot, isIngestedLaunch, type Launch } from "@/lib/launches-mock"
-import { ChangeLinkedLaunchDialog } from "@/components/launch-form-dialog"
+import { ChangeLinkedLaunchDialog, listingForLaunchStatus } from "@/components/launch-form-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ReportIssueDrawer, RowIssuesBadge } from "@/components/report-issue-drawer"
@@ -1352,9 +1352,12 @@ function GroupCard({
           <ChangeLinkedLaunchDialog
             currentLaunchId={launchId}
             propertiesCount={group.details.length || 1}
+            current={{ listingStatus, saleStatus }}
             onClose={() => setMoveOpen(false)}
             onConfirm={(l) => {
               setLaunchId(l.id)
+              // Listing follows the destination launch: Active launch ⇒ Published, else Hidden
+              setListingStatus(listingForLaunchStatus(l.launchStatus))
               setMoveOpen(false)
               toast.success(`Moved to ${l.title ?? l.projectNameEn} (${l.id}) — property titles will be updated`)
             }}
