@@ -762,15 +762,14 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
             <a href={`/projects/${mainId}`} target="_blank" rel="noreferrer" className="w-fit text-sm font-medium hover:underline">{l.projectNameEn}</a>
             <IdTag value={mainId} />
           </div>
-        ) : l.projectLevel === "Phase" ? (
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm">{l.projectNameEn}</span>
-            <MiniTag tone="red">Unmatched Project</MiniTag>
-          </div>
         ) : (
           <div className="flex flex-col gap-0.5">
             <span className="text-sm">{l.projectNameEn}</span>
-            <MiniTag tone="grey">New Project</MiniTag>
+            {l.source === "WhatsApp" && (
+              l.projectLevel === "Phase"
+                ? <MiniTag tone="red">Unmatched Project</MiniTag>
+                : <MiniTag tone="grey">New Project</MiniTag>
+            )}
           </div>
         )
       }
@@ -785,7 +784,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
         ) : (
           <div className="flex flex-col gap-0.5">
             <span className="text-sm">{l.phase}</span>
-            <MiniTag tone="grey">New Phase</MiniTag>
+            {l.source === "WhatsApp" && <MiniTag tone="grey">New Phase</MiniTag>}
           </div>
         )
       }
@@ -830,12 +829,27 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       case "source": return <Chip tone={l.source === "WhatsApp" ? "green" : "white"}>{l.source}</Chip>
       case "startDate": return <span className="whitespace-nowrap text-xs text-muted-foreground">{l.startDate ? formatDate(l.startDate) : "—"}</span>
       case "endDate": return <span className="whitespace-nowrap text-xs text-muted-foreground">{l.endDate ? formatDate(l.endDate) : "—"}</span>
-      case "completion": return (
-        <div className="flex items-center gap-2">
-          <Progress value={l.listingCompletion} className="h-2 w-16" />
-          <span className="text-xs text-muted-foreground">{l.listingCompletion}%</span>
-        </div>
-      )
+      case "completion": {
+        const { pct, missing } = launchCompleteness(l)
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-2">
+                <Progress value={pct} className="h-2 w-16" />
+                <span className={cn("text-xs", pct === 100 ? "text-emerald-600" : "text-muted-foreground")}>{pct}%</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent className="text-xs">
+              {missing.length ? (
+                <>
+                  <p className="mb-1 font-medium">Missing for ingestion</p>
+                  {missing.map((m) => <p key={m}>{m}</p>)}
+                </>
+              ) : <p>Ready to ingest — all checks pass</p>}
+            </TooltipContent>
+          </Tooltip>
+        )
+      }
       case "activatedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.activatedAt)}</span>
       case "closedAt": return <span className="whitespace-nowrap text-xs text-muted-foreground">{formatDate(l.closedAt)}</span>
       // Sent At = WhatsApp message-extraction activity: last message datetime + update

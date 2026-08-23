@@ -1360,7 +1360,9 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                   ) : (
                     <>
                       <span className="text-xs font-medium text-foreground">{launch.projectNameEn || "—"}</span>
-                      <span className="inline-flex items-center whitespace-nowrap rounded border border-red-200 bg-red-50 px-1.5 py-px text-[10px] font-medium text-red-500">Unmatched Project</span>
+                      {launch.source === "WhatsApp" && (
+                        <span className="inline-flex items-center whitespace-nowrap rounded border border-red-200 bg-red-50 px-1.5 py-px text-[10px] font-medium text-red-500">Unmatched Project</span>
+                      )}
                     </>
                   )}
                 </span>
@@ -1376,7 +1378,9 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                     ) : (
                       <>
                         <span className="text-xs font-medium text-foreground">{launch.phase || "—"}</span>
-                        <span className="inline-flex items-center whitespace-nowrap rounded border border-gray-200 bg-gray-50 px-1.5 py-px text-[10px] font-medium text-gray-500">New Phase</span>
+                        {launch.source === "WhatsApp" && (
+                          <span className="inline-flex items-center whitespace-nowrap rounded border border-gray-200 bg-gray-50 px-1.5 py-px text-[10px] font-medium text-gray-500">New Phase</span>
+                        )}
                       </>
                     )}
                   </span>
@@ -1459,13 +1463,10 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
           <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
             {([
               ["Type", getTypeBadge(launchType)],
+              ["Source", <Badge key="src" variant="outline">{launch.source}</Badge>],
               ["Approval Status", getApprovalStatusBadge(approvalStatus)],
               ["Ingestion Status", getIngestionStatusBadge(ingestionStatus)],
               ["Launch Status", getLaunchStatusBadge(launchStatus)],
-              // The status this launch drives on the linked project
-              ...(linkedProjectRow
-                ? ([["Project Primary Status", <StatusTag key="pp" value={linkedProjectRow.primaryStatus} cls={PRIMARY_COLORS[linkedProjectRow.primaryStatus]} />]] as [string, React.ReactNode][])
-                : []),
             ] as [string, React.ReactNode][]).map(([label, badge]) => (
               <div key={label}>
                 <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
@@ -1500,12 +1501,8 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
           </Tooltip>
         </div>
 
-        {/* ── Section 3: Metadata ── */}
+        {/* ── Section 3: Timestamps only — Source lives in the status strip above ── */}
         <div className="grid grid-cols-6 gap-6 border-t border-border px-6 py-3">
-          <div>
-            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Source</p>
-            <Badge variant="outline">{launch.source}</Badge>
-          </div>
           <div>
             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Sent At</p>
             {launch.source === "WhatsApp" && launch.sentAt ? (
