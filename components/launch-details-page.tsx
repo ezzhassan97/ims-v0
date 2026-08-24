@@ -124,7 +124,7 @@ import { useLaunches, patchLaunches, activateLaunch, closeLaunch, activeConflict
 import { LaunchProjectDetailsCard } from "@/components/launch-form-dialog"
 import { ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
 import { PROJECTS } from "@/lib/projects-mock"
-import { Tag as StatusTag, PRIMARY_COLORS } from "@/components/projects-list-page"
+import { Tag as StatusTag, PRIMARY_COLORS, LISTING_COLORS } from "@/components/projects-list-page"
 import { useRef, useEffect, useCallback } from "react"
 import { cn } from "@/lib/utils"
 
@@ -1117,6 +1117,9 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   // Ingestion requires a linked system project/phase — changeable until the launch is ingested
   const [linkedProject] = useState(launch.existingProject)
   // Website-facing launch title/description — editable at any time, even after ingestion
+  // Cover image — set in the Launch Details tab, shown on the ingestion summary
+  const [coverImage, setCoverImage] = useState(launch.coverImage ?? "")
+  const coverInputRef = useRef<HTMLInputElement>(null)
   const [launchTitle, setLaunchTitle] = useState(launch.title ?? "")
   const [launchDescription, setLaunchDescription] = useState(launch.description ?? "")
   const conflictLaunch = (linkedProject && allLaunches)
@@ -1680,42 +1683,93 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
             <DialogTitle>Launch Ingestion Summary</DialogTitle>
           </DialogHeader>
           <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
-            {/* Cover image */}
-            <img
-              src={launch.coverImage || "/placeholder.svg"}
-              alt={launch.projectNameEn}
-              className="h-36 w-full rounded-lg border border-border bg-secondary object-cover"
-            />
+            {/* Cover image — the one set in the Launch Details tab */}
+            {coverImage ? (
+              <img src={coverImage} alt={launch.projectNameEn} className="h-36 w-full rounded-lg border border-border bg-secondary object-cover" />
+            ) : (
+              <div className="flex h-36 w-full flex-col items-center justify-center gap-1 rounded-lg border border-border bg-secondary text-muted-foreground">
+                <ImageIcon className="h-6 w-6" />
+                <span className="text-xs">No cover image — add one in Launch Details</span>
+              </div>
+            )}
 
             {/* Project details */}
             <div className="rounded-lg border border-border">
               <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Project Details</p>
-              <div className="grid grid-cols-3 gap-x-6 gap-y-2 px-4 py-3 text-sm">
-                <div><p className="text-[10px] uppercase text-muted-foreground">Developer</p><p className="font-medium">{launch.developer.name}</p></div>
-                <div><p className="text-[10px] uppercase text-muted-foreground">{launch.projectLevel === "Phase" ? "Phase" : "Project"}</p><p className="font-medium">{launch.projectLevel === "Phase" && launch.phase ? launch.phase : launch.projectNameEn}</p></div>
-                <div><p className="text-[10px] uppercase text-muted-foreground">Area</p><p className="font-medium">{launch.area}</p></div>
-                <div><p className="text-[10px] uppercase text-muted-foreground">Level</p><p className="font-medium">{launch.projectLevel}</p></div>
-                <div><p className="text-[10px] uppercase text-muted-foreground">Listing Status</p>{getListingStatusBadge(listingStatus)}</div>
-                <div><p className="text-[10px] uppercase text-muted-foreground">Type</p><p className="font-medium">{launchFormType}</p></div>
+              <div className="grid grid-cols-3 gap-x-6 gap-y-3 px-4 py-3 text-sm">
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground">Developer</p>
+                  <p className="font-medium">{launch.developer.name}</p>
+                  <p className="font-mono text-[10px] text-muted-foreground">{launch.developer.id}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground">Project</p>
+                  <p className="font-medium">{launch.projectNameEn || "—"}</p>
+                  <p className="font-mono text-[10px] text-muted-foreground">
+                    {(launch.projectLevel === "Phase" ? launch.parentProjectId : launch.projectId) ?? "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground">Phase</p>
+                  <p className="font-medium">{launch.projectLevel === "Phase" ? (launch.phase || "—") : "—"}</p>
+                  <p className="font-mono text-[10px] text-muted-foreground">
+                    {launch.projectLevel === "Phase" ? (launch.projectId ?? "—") : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground">Area</p>
+                  <p className="font-medium">{launch.area}</p>
+                  <p className="font-mono text-[10px] text-muted-foreground">{launch.areaId ?? "—"}</p>
+                </div>
+                <div>
+                  <p className="mb-1 text-[10px] uppercase text-muted-foreground">Project Listing Status</p>
+                  {linkedProjectRow
+                    ? <StatusTag value={linkedProjectRow.listingStatus} cls={LISTING_COLORS[linkedProjectRow.listingStatus]} />
+                    : <span className="text-muted-foreground">—</span>}
+                </div>
+                <div>
+                  <p className="mb-1 text-[10px] uppercase text-muted-foreground">Project Primary Status</p>
+                  {linkedProjectRow
+                    ? <StatusTag value={linkedProjectRow.primaryStatus} cls={PRIMARY_COLORS[linkedProjectRow.primaryStatus]} />
+                    : <span className="text-muted-foreground">—</span>}
+                </div>
               </div>
             </div>
 
             {/* Launch details */}
             <div className="rounded-lg border border-border">
               <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Launch Details</p>
-              <div className="grid grid-cols-3 gap-x-6 gap-y-2 px-4 py-3 text-sm">
-                <div><p className="text-[10px] uppercase text-muted-foreground">General EOI</p><p className="font-medium">{(() => { const g = eoiRules.find((r) => r.scope === "general"); return g ? eoiRuleText(g, offeringNameOf) : "—" })()}</p></div>
+              <div className="grid grid-cols-3 gap-x-6 gap-y-3 px-4 py-3 text-sm">
+                <div className="col-span-3">
+                  <p className="text-[10px] uppercase text-muted-foreground">Launch Title</p>
+                  <p className="font-medium">{launchTitle || "—"}</p>
+                </div>
+                <div className="col-span-3">
+                  <p className="text-[10px] uppercase text-muted-foreground">Launch Description</p>
+                  <p className="text-sm text-muted-foreground">{launchDescription || "—"}</p>
+                </div>
+                <div><p className="mb-1 text-[10px] uppercase text-muted-foreground">Type</p>{getTypeBadge(launchFormType)}</div>
+                <div><p className="mb-1 text-[10px] uppercase text-muted-foreground">Source</p><Badge variant="outline">{launch.source}</Badge></div>
+                <div />
                 <div><p className="text-[10px] uppercase text-muted-foreground">Start Date</p><p className="font-medium">{launchStartDate || "—"}</p></div>
                 <div><p className="text-[10px] uppercase text-muted-foreground">End Date</p><p className="font-medium">{launchEndDate || "—"}</p></div>
-                <div className="col-span-3">
-                  <p className="text-[10px] uppercase text-muted-foreground">EOI Rules</p>
-                  <p className="font-medium">
-                    {eoiRules.filter((r) => r.scope !== "general").length > 0
-                      ? eoiRules.filter((r) => r.scope !== "general").map((r) => eoiRuleText(r, offeringNameOf)).join(" · ")
-                      : "—"}
-                  </p>
-                  {eoiNotes && <p className="mt-0.5 text-xs text-muted-foreground">Notes: {eoiNotes}</p>}
-                </div>
+              </div>
+              {/* EOI — every rule from the Launch Details tab, plus the free-text notes */}
+              <div className="border-t border-border px-4 py-3">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Expression of Interest (EOI)</p>
+                {eoiRules.length ? (
+                  <div className="space-y-1.5">
+                    {eoiRules.map((r) => (
+                      <div key={r.id} className="flex items-start gap-2 text-sm">
+                        <span className="mt-px inline-flex shrink-0 items-center whitespace-nowrap rounded-md border border-blue-200 bg-blue-100 px-1.5 py-px text-[10px] font-medium text-blue-700">
+                          {EOI_SCOPE_LABEL[r.scope]}
+                        </span>
+                        <span className="font-medium">{eoiRuleText(r, offeringNameOf)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-sm text-muted-foreground">No EOI rules</p>}
+                {eoiNotes && <p className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground"><span className="font-medium text-foreground">Notes:</span> {eoiNotes}</p>}
               </div>
             </div>
 
@@ -1738,10 +1792,18 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Property Offerings ({offerings.length})</p>
               <div className="divide-y divide-border">
                 {offerings.map((o, i) => (
-                  <div key={o.id} className="flex items-center justify-between px-4 py-2 text-sm">
-                    <span className="font-medium">{o.offeringName || `Offering ${i + 1}`}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {[o.propertyType, o.grossAreaRange, o.priceRange && `${o.priceRange} EGP`].filter(Boolean).join(" · ") || "—"}
+                  <div key={o.id} className="flex flex-wrap items-baseline gap-x-3 px-4 py-2 text-sm">
+                    <span className="font-semibold">
+                      {/* Seeds sometimes carry the subtype inside the type — don't repeat it */}
+                      {[o.propertyType, o.propertySubtype !== o.propertyType ? o.propertySubtype : ""].filter(Boolean).join(" - ") || o.offeringName || `Offering ${i + 1}`}
+                    </span>
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {[
+                        o.bedrooms && `${o.bedrooms} Bedrooms`,
+                        o.grossAreaRange,
+                        o.priceRange && `${o.priceRange} EGP`,
+                        `${o.paymentPlansCount ?? 0} payment plan${(o.paymentPlansCount ?? 0) === 1 ? "" : "s"}`,
+                      ].filter(Boolean).join(" · ")}
                     </span>
                   </div>
                 ))}
@@ -2200,6 +2262,39 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
             <fieldset disabled={!launchEditing} className="min-w-0 space-y-8">
             {/* Title & description — website-facing, editable at any time (even after ingestion) */}
             <div>
+              <h3 className="text-sm font-semibold text-foreground mb-4">Cover Image</h3>
+              <div className="mb-8">
+                <div className="relative w-full max-w-xl overflow-hidden rounded-lg border border-border bg-secondary">
+                  {coverImage ? (
+                    <img src={coverImage} alt="Launch cover" className="h-40 w-full object-cover" />
+                  ) : (
+                    <div className="flex h-40 w-full flex-col items-center justify-center gap-1 text-muted-foreground">
+                      <ImageIcon className="h-6 w-6" />
+                      <span className="text-xs">No cover image yet</span>
+                    </div>
+                  )}
+                </div>
+                <input
+                  ref={coverInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) { setLaunchDirty(true); setCoverImage(URL.createObjectURL(f)) }
+                    e.target.value = ""
+                  }}
+                />
+                <div className="mt-2 flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => coverInputRef.current?.click()}>
+                    <ImageIcon className="h-3.5 w-3.5 mr-1" />{coverImage ? "Replace" : "Upload"} Cover
+                  </Button>
+                  {coverImage && (
+                    <Button type="button" variant="outline" size="sm" className="h-8 bg-transparent text-muted-foreground hover:text-destructive" onClick={() => { setLaunchDirty(true); setCoverImage("") }}>
+                      <X className="h-3.5 w-3.5 mr-1" />Remove
+                    </Button>
+                  )}
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">Shown on the website launch card and on the ingestion summary.</p>
+              </div>
+
               <h3 className="text-sm font-semibold text-foreground mb-4">Title & Description</h3>
               <div className="space-y-4">
                 <div className="max-w-md">
