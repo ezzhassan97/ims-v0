@@ -335,7 +335,7 @@ function BulkDialog({ kind, count, onClose, onConfirm }: { kind: BulkKind; count
 }
 
 type DialogState =
-  | { kind: "archive" | "approve" | "reject" | "activate" | "close" | "ingest"; launch: Launch }
+  | { kind: "archive" | "approve" | "reject" | "activate" | "close"; launch: Launch }
   | { kind: BulkKind }
   | null
 
@@ -374,6 +374,9 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [viewingLaunch, setViewingLaunch] = useState<Launch | null>(null)
+  // Ingest from a row jumps into the details page with its ingestion summary open
+  const [autoIngest, setAutoIngest] = useState(false)
+  const openIngest = (l: Launch) => { setAutoIngest(true); setViewingLaunch(l) }
   const [formOpen, setFormOpen] = useState(false)
   const [dialog, setDialog] = useState<DialogState>(null)
   const lastSelectedIndex = useRef<number | null>(null)
@@ -598,14 +601,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     toast.success(`${launch.projectNameEn} closed — sales portal notified`)
   }
 
-  // Ingestion is only possible for launches linked to an existing system project/phase.
-  const doIngest = (launch: Launch) => {
-    if (!launch.projectId || !launch.existingProject) return
-    patch([launch.id], { ingestionStatus: "Ingested", listingProject: launch.existingProject })
-    setDialog(null)
-    toast.success(`${launch.projectNameEn} ingested — linked to ${launch.existingProject.name} (${launch.existingProject.id})`)
-  }
-
   const doBulk = (kind: BulkKind) => {
     if (kind === "bulk-approve") patch(selectedIds, { approvalStatus: "Approved" })
     if (kind === "bulk-reject") patch(selectedIds, { approvalStatus: "Rejected" })
@@ -677,68 +672,64 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       </DropdownMenuItem>
     )
 
-  /** Approved + not ingested; enabled only at 100% data completeness. */
+  /** Gone once ingested; otherwise always listed — dimmed until approved AND 100% complete. */
   const ingestItem = (l: Launch) => {
-    if (l.approvalStatus !== "Approved" || l.ingestionStatus === "Ingested") return null
+    if (l.ingestionStatus === "Ingested") return null
     const { pct } = launchCompleteness(l)
-    const ready = pct === 100
+    const approved = l.approvalStatus === "Approved"
+    const ready = approved && pct === 100
+    const reason = !approved ? "Needs approval" : `${pct}% complete`
     return (
       <DropdownMenuItem
+        key="ingest"
         disabled={!ready}
         className={cn(!ready && "opacity-40")}
-        onClick={() => ready && setDialog({ kind: "ingest", launch: l })}
+        onClick={() => ready && openIngest(l)}
       >
-        <Database className="h-4 w-4 mr-2" />Ingest{!ready && <span className="ml-auto text-[10px] text-muted-foreground">{pct}% complete</span>}
+        <Database className="h-4 w-4 mr-2" />Ingest
+        {!ready && <span className="ml-auto pl-3 text-[10px] text-muted-foreground">{reason}</span>}
       </DropdownMenuItem>
     )
   }
 
+  /** Approval submenu — only meaningful before ingestion. */
+  const approvalItem = (l: Launch) =>
+    l.ingestionStatus === "Ingested" ? null : (
+      <DropdownMenuSub key="approval">
+        <DropdownMenuSubTrigger>
+          <ShieldCheck className="h-4 w-4 mr-2" />Approval
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent>
+          <DropdownMenuItem className="text-emerald-600 focus:text-emerald-700" onClick={() => setDialog({ kind: "approve", launch: l })}>
+            <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" />Approve
+          </DropdownMenuItem>
+          <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDialog({ kind: "reject", launch: l })}>
+            <XCircle className="h-4 w-4 mr-2 text-red-600" />Reject
+          </DropdownMenuItem>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+    )
+
 
   const rowMenu = (l: Launch) => {
-    if (tab === "all" || tab === "pending") {
-      const notIngested = l.ingestionStatus !== "Ingested"
-      return (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {viewItem(l)}
-            {editItem(l)}
-            <DropdownMenuSeparator />
-            {notIngested && (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <ShieldCheck className="h-4 w-4 mr-2" />Approval
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuItem className="text-emerald-600 focus:text-emerald-700" onClick={() => setDialog({ kind: "approve", launch: l })}>
-                    <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" />Approve
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => setDialog({ kind: "reject", launch: l })}>
-                    <XCircle className="h-4 w-4 mr-2 text-red-600" />Reject
-                  </DropdownMenuItem>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            )}
-            {ingestItem(l)}
-            <DropdownMenuSeparator />
-            {archiveItem(l)}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )
-    }
-    // Listed / Currently Active tabs hold ingested launches — no edit, approval or ingest.
+    // Groups render with a separator only between the ones that actually have items,
+    // so a hidden action never leaves two dividers stacked together.
+    const groups = (tab === "all" || tab === "pending")
+      ? [[viewItem(l), editItem(l)], [approvalItem(l), ingestItem(l)], [archiveItem(l)]]
+      : [[viewItem(l), editItem(l)], [archiveItem(l)]]
+    const filled = groups.map((g) => g.filter(Boolean)).filter((g) => g.length > 0)
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {viewItem(l)}
-          {editItem(l)}
-          <DropdownMenuSeparator />
-          {archiveItem(l)}
+          {filled.map((group, i) => (
+            <Fragment key={i}>
+              {i > 0 && <DropdownMenuSeparator />}
+              {group}
+            </Fragment>
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
     )
@@ -999,9 +990,12 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
           <TableHeader>
             <TableRow className="border-b border-border bg-muted/60 hover:bg-muted/60">
               <TableHead className="sticky left-0 z-20 w-10 bg-muted/60">
+                {/* Header checkbox covers the CURRENT PAGE — the bulk bar's "Select all" takes the whole result set */}
                 <Checkbox
-                  checked={rows.length > 0 && rows.every((l) => selectedIds.includes(l.id))}
-                  onCheckedChange={(c) => setSelectedIds(c ? rows.map((l) => l.id) : [])}
+                  checked={pageRows.length > 0 && pageRows.every((l) => selectedIds.includes(l.id))}
+                  onCheckedChange={(c) => setSelectedIds((prev) => c
+                    ? Array.from(new Set([...prev, ...pageRows.map((l) => l.id)]))
+                    : prev.filter((id) => !pageRows.some((l) => l.id === id)))}
                   className="cursor-pointer"
                 />
               </TableHead>
@@ -1108,7 +1102,12 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     return (
       <LaunchDetailsPage
         launch={viewingLaunch}
-        onBack={() => setViewingLaunch(null)}
+        onBack={() => { setViewingLaunch(null); setAutoIngest(false) }}
+        autoIngest={autoIngest}
+        onIngested={(id) => {
+          const l = launches.find((x) => x.id === id)
+          patch([id], { ingestionStatus: "Ingested", ...(l?.existingProject ? { listingProject: l.existingProject } : {}) })
+        }}
         allLaunches={launches}
         // Ingesting over an existing project closes its currently-active launch
         onResolveConflict={(closedId) => patch([closedId], { launchStatus: "Closed" })}
@@ -1403,22 +1402,6 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
       {dialog?.kind === "reject" && <RejectDialog launch={dialog.launch} onClose={() => setDialog(null)} onConfirm={(reason) => doReject(dialog.launch, reason)} />}
       {dialog?.kind === "activate" && <ActivateDialog launch={dialog.launch} conflict={activeConflictOf(dialog.launch, launches)} project={projectOf(dialog.launch)} onClose={() => setDialog(null)} onConfirm={(startDate, sync) => doActivate(dialog.launch, startDate, sync)} />}
       {dialog?.kind === "close" && <CloseLaunchDialog launch={dialog.launch} project={projectOf(dialog.launch)} onClose={() => setDialog(null)} onConfirm={(endDate, nextPrimary) => doCloseLaunch(dialog.launch, endDate, nextPrimary)} />}
-      {dialog?.kind === "ingest" && (
-        <ActionDialog
-          title="Ingest Launch"
-          launch={dialog.launch}
-          message={
-            dialog.launch.existingProject
-              ? `Launch info will be ingested and linked to ${dialog.launch.existingProject.name} (${dialog.launch.existingProject.id}).`
-              : `This launch isn't linked to a system ${dialog.launch.projectLevel === "Phase" ? "phase" : "project"}, so it can't be ingested. If the ${dialog.launch.projectLevel === "Phase" ? "phase" : "project"} doesn't exist yet, create it from the Projects page first, then link it from the Change Linked Project action.`
-          }
-          confirmLabel="Ingest Launch"
-          confirmClass="bg-emerald-600 text-white hover:bg-emerald-700"
-          confirmDisabled={!dialog.launch.existingProject}
-          onClose={() => setDialog(null)}
-          onConfirm={() => doIngest(dialog.launch)}
-        />
-      )}
       {(dialog?.kind === "bulk-approve" || dialog?.kind === "bulk-reject") && (
         <BulkDialog kind={dialog.kind} count={selectedIds.length} onClose={() => setDialog(null)} onConfirm={() => doBulk(dialog.kind as BulkKind)} />
       )}

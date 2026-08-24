@@ -3,7 +3,7 @@
 import type React from "react"
 import { useEffect, useRef, useState } from "react"
 import {
-  Search, X, Filter, SlidersHorizontal, ArrowUp, ArrowDown, ArrowUpDown, Group as GroupIcon, Columns3, ChevronDown, Check, Copy,
+  Search, X, Filter, SlidersHorizontal, ArrowUp, ArrowDown, ArrowUpDown, Group as GroupIcon, Columns3, ChevronDown, Check, CheckCheck, Copy,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, GripVertical, Lock, Unlock, Eye, EyeOff, Minus,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -395,12 +395,14 @@ export function FloatingBulkBar({
     <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 select-none items-center gap-0 overflow-hidden rounded-xl bg-zinc-900 text-sm text-white shadow-2xl">
       <div className="flex items-center gap-3 px-4 py-2.5">
         <span className="font-semibold tabular-nums">{count} selected</span>
-        {total > count ? (
-          <button onClick={onSelectAll} className="text-xs font-medium text-zinc-400 transition-colors hover:text-white">Select all {total.toLocaleString()}</button>
-        ) : (
-          <button onClick={onClear} className="text-xs font-medium text-zinc-400 transition-colors hover:text-white">Clear</button>
-        )}
+        <button onClick={onClear} className="text-xs font-medium text-zinc-400 transition-colors hover:text-white">Clear</button>
       </div>
+      {/* Header checkbox covers the current page — this takes the whole result set */}
+      {total > count && (
+        <BulkBarButton icon={<CheckCheck className="h-3.5 w-3.5 text-zinc-400" />} onClick={onSelectAll}>
+          Select all {total.toLocaleString()}
+        </BulkBarButton>
+      )}
       {children}
       <div className="h-8 w-px bg-zinc-700" />
       <button onClick={onClear} className="px-3 py-2.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"><X className="h-4 w-4" /></button>

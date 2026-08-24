@@ -251,6 +251,10 @@ interface LaunchDetailsPageProps {
   allLaunches?: Launch[]
   /** Called when ingesting replaces a conflicting active launch (the caller closes it). */
   onResolveConflict?: (closedLaunchId: string) => void
+  /** Opened from the table's Ingest action — lands directly on the ingestion summary. */
+  autoIngest?: boolean
+  /** Ingestion confirmed here — the caller persists it on the shared launch record. */
+  onIngested?: (launchId: string) => void
 }
 
 interface Offering {
@@ -1047,7 +1051,7 @@ function LaunchOfferingCard({
   )
 }
 
-export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConflict }: LaunchDetailsPageProps) {
+export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConflict, autoIngest = false, onIngested }: LaunchDetailsPageProps) {
 
   const [approvalStatus, setApprovalStatus] = useState<Launch["approvalStatus"]>(launch.approvalStatus)
   const [ingestionStatus, setIngestionStatus] = useState<Launch["ingestionStatus"]>(launch.ingestionStatus)
@@ -1109,7 +1113,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   const [headerDialog, setHeaderDialog] = useState<"approve" | "reject" | "archive" | null>(null)
   const [headerReason, setHeaderReason] = useState("")
   const [detailsPlan, setDetailsPlan] = useState<PlanCardData | null>(null)
-  const [ingestDialog, setIngestDialog] = useState<"summary" | "incomplete" | null>(null)
+  const [ingestDialog, setIngestDialog] = useState<"summary" | "incomplete" | null>(autoIngest ? "summary" : null)
   // Ingestion requires a linked system project/phase — changeable until the launch is ingested
   const [linkedProject] = useState(launch.existingProject)
   // Website-facing launch title/description — editable at any time, even after ingestion
@@ -1752,6 +1756,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               disabled={!linkedProject}
               onClick={() => {
                 setIngestionStatus("Ingested")
+                onIngested?.(launch.id)
                 // Launch ingestion carries the draft offerings AND draft plans with it
                 offerings.forEach((o) => { if (!o.listed) setOfferingListed(o.id, true) })
                 setIngestedPlanIds(new Set(plans.map((p) => p.id)))
