@@ -108,6 +108,9 @@ export interface PropertyRow {
   detailedPropertyId: string | null
   /** Ingested launch this Launch unit belongs to. */
   launchId?: string
+  /** Resale ⇄ Nawy Now cross-links — the counterpart record of this unit. */
+  nawyNowId?: string
+  resalePropertyId?: string
   entryType: EntryType
   developer: { id: string; name: string; logo: string; url: string }
   project: { id: string; name: string; url: string }
@@ -405,6 +408,9 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
     propertyMetadataId: `PMD-${String(10000 + index).padStart(6, "0")}`,
     detailedPropertyId: isManual ? null : `DPR-${String(84000 + index).padStart(6, "0")}`,
     launchId: saleType === "Launch" && rowLaunchIds().length ? rowLaunchIds()[index % rowLaunchIds().length] : undefined,
+    // A resale unit that is also listed on Nawy Now, and the reverse
+    nawyNowId: saleType === "Resale" ? `NN-${String(50100 + index * 17)}` : undefined,
+    resalePropertyId: saleType === "Nawy Now" ? `RSL-${String(70200 + index * 23)}` : undefined,
     entryType: isManual ? "Manual" : "Automatic",
     developer: {
       id: `DEV-${(index % 4) + 1}`,
@@ -2810,6 +2816,25 @@ export function ViewPropertyDrawer({
                 <span className="text-muted-foreground font-medium">Property Metadata ID</span>
                 <CopyableText value={row.propertyMetadataId} muted />
               </div>
+              {/* Linked records — underlined, copyable, open the counterpart in a new tab */}
+              {row.saleType === "Launch" && row.launchId && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground font-medium">Launch ID</span>
+                  <LinkedId value={row.launchId} href={`/launches/${row.launchId}`} />
+                </div>
+              )}
+              {row.saleType === "Resale" && row.nawyNowId && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground font-medium">Nawy Now ID</span>
+                  <LinkedId value={row.nawyNowId} href={`/nawy-now/${row.nawyNowId}`} />
+                </div>
+              )}
+              {row.saleType === "Nawy Now" && row.resalePropertyId && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground font-medium">Resale Property ID</span>
+                  <LinkedId value={row.resalePropertyId} href={`/resale/${row.resalePropertyId}`} />
+                </div>
+              )}
               {row.detailedPropertyId && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-muted-foreground font-medium">Detailed Property ID</span>
@@ -2820,12 +2845,6 @@ export function ViewPropertyDrawer({
                 <span className="text-muted-foreground font-medium">Unit Code</span>
                 <CopyableText value={row.unitCode} muted />
               </div>
-              {row.saleType === "Launch" && row.launchId && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-muted-foreground font-medium">Launch ID</span>
-                  <LinkedId value={row.launchId} href={`/launches/${row.launchId}`} />
-                </div>
-              )}
             </div>
 
             {/* Row 4: Property type + Price */}
