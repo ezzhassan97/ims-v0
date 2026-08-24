@@ -120,9 +120,8 @@ import {
   Database,
   Activity,
 } from "lucide-react"
-import { useLaunches, patchLaunches, activateLaunch, closeLaunch, activeConflictOf, isIngestedLaunch, launchPropsOf, setProjectPrimary, hasNewAiUpdate, aiUpdateDates, uuidOf, type Launch } from "@/lib/launches-mock"
+import { useLaunches, patchLaunches, isIngestedLaunch, launchPropsOf, hasNewAiUpdate, aiUpdateDates, uuidOf, type Launch } from "@/lib/launches-mock"
 import { LaunchProjectDetailsCard } from "@/components/launch-form-dialog"
-import { ActivateDialog, CloseLaunchDialog } from "@/components/launch-status-dialogs"
 import { PROJECTS } from "@/lib/projects-mock"
 import { Tag as StatusTag, PRIMARY_COLORS, LISTING_COLORS } from "@/components/projects-list-page"
 import { useRef, useEffect, useCallback } from "react"
@@ -1062,7 +1061,6 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
   const launchStatus = live.launchStatus
   const launchType = live.type
   const linkedProjectRow = PROJECTS.find((p) => p.id === live.projectId)
-  const [statusDialog, setStatusDialog] = useState<"activate" | "close" | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   // Payment Plans tab — real plan cards + create/edit drawer
   const [plans, setPlans] = useState<PlanCardData[]>(mockPaymentPlans)
@@ -1464,9 +1462,10 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               >
                 <ExternalLink className="h-4 w-4 mr-2" />View Project
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
+              {ingestionStatus !== "Ingested" && <DropdownMenuSeparator />}
+              {ingestionStatus !== "Ingested" && (
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger disabled={ingestionStatus === "Ingested"} className={cn(ingestionStatus === "Ingested" && "opacity-40")}>
+                <DropdownMenuSubTrigger>
                   <ShieldCheck className="h-4 w-4 mr-2" />Approval
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
@@ -1478,31 +1477,27 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                   </DropdownMenuItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
-              <DropdownMenuItem
-                disabled={ingestionStatus === "Ingested"}
-                className={cn(ingestionStatus === "Ingested" && "opacity-40")}
-                onClick={() => setIngestDialog(approvalStatus === "Approved" && completeness === 100 ? "summary" : "incomplete")}
-              >
-                <Database className="h-4 w-4 mr-2" />Ingest
-              </DropdownMenuItem>
-              {/* Same lifecycle actions as the launches table rows */}
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger disabled={!isIngestedLaunch(live)} className={cn(!isIngestedLaunch(live) && "opacity-40")}>
-                  <Activity className="h-4 w-4 mr-2" />Change Launch Status
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuItem disabled={launchStatus === "Active"} onClick={() => setStatusDialog("activate")}>
-                    <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" />Set Active
+              )}
+              {ingestionStatus !== "Ingested" && (() => {
+                const ready = approvalStatus === "Approved" && completeness === 100
+                return (
+                  <DropdownMenuItem
+                    disabled={!ready}
+                    className={cn(!ready && "opacity-40")}
+                    onClick={() => ready && setIngestDialog("summary")}
+                  >
+                    <Database className="h-4 w-4 mr-2" />Ingest
+                    {!ready && (
+                      <span className="ml-auto pl-3 text-[10px] text-muted-foreground">
+                        {approvalStatus !== "Approved" ? "Needs approval" : `${completeness}% complete`}
+                      </span>
+                    )}
                   </DropdownMenuItem>
-                  <DropdownMenuItem disabled={launchStatus === "Closed"} onClick={() => setStatusDialog("close")}>
-                    <XCircle className="h-4 w-4 mr-2 text-red-600" />Close Launch
-                  </DropdownMenuItem>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+                )
+              })()}
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                disabled={ingestionStatus === "Ingested"}
-                className={cn("text-destructive focus:text-destructive", ingestionStatus === "Ingested" && "opacity-40")}
+                className="text-destructive focus:text-destructive"
                 onClick={() => setHeaderDialog("archive")}
               >
                 <Archive className="h-4 w-4 mr-2" />Archive
@@ -1838,33 +1833,6 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
         </DialogContent>
       </Dialog>
 
-      {statusDialog === "activate" && (
-        <ActivateDialog
-          launch={live}
-          conflict={activeConflictOf(live, allRows)}
-          project={linkedProjectRow}
-          onClose={() => setStatusDialog(null)}
-          onConfirm={(startDate, sync) => {
-            activateLaunch(live.id, startDate)
-            if (sync && live.projectId) setProjectPrimary(live.projectId, "Launch")
-            setStatusDialog(null)
-            toast.success(`${live.projectNameEn} is now an active launch`)
-          }}
-        />
-      )}
-      {statusDialog === "close" && (
-        <CloseLaunchDialog
-          launch={live}
-          project={linkedProjectRow}
-          onClose={() => setStatusDialog(null)}
-          onConfirm={(endDate, nextPrimary) => {
-            closeLaunch(live.id, endDate)
-            if (nextPrimary && live.projectId) setProjectPrimary(live.projectId, nextPrimary)
-            setStatusDialog(null)
-            toast.success(`${live.projectNameEn} closed — sales portal notified`)
-          }}
-        />
-      )}
 
       {/* Tabbed Container — single-row scrollable icon tabs (shared design system) */}
       <Tabs defaultValue={launch.source === "WhatsApp" ? "whatsapp" : "project"} className="w-full">
