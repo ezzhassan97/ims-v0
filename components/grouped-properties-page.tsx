@@ -939,6 +939,15 @@ function GroupCard({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-52">
+                    {/* E-realty carries every sale type except Primary Automatic */}
+                    {!isPA && (
+                      <>
+                        <DropdownMenuItem onClick={() => window.open(`/e-realty/properties/${group.id}`, "_blank", "noopener")}>
+                          <Building2 className="h-3.5 w-3.5 mr-2" /> View on E-realty
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
                     <DropdownMenuItem onClick={toggleListing}>
                       {listingStatus === "Published" ? <EyeOff className="h-3.5 w-3.5 mr-2" /> : <Eye className="h-3.5 w-3.5 mr-2" />}
                       {listingStatus === "Published" ? "Hide Listing" : "Show Listing"}
@@ -981,6 +990,15 @@ function GroupCard({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-52">
+                  {/* E-realty carries every sale type except Primary Automatic */}
+                  {!isPA && (
+                    <>
+                      <DropdownMenuItem onClick={() => window.open(`/e-realty/properties/${group.id}`, "_blank", "noopener")}>
+                        <Building2 className="h-3.5 w-3.5 mr-2" /> View on E-realty
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
                   <DropdownMenuItem onClick={toggleListing}>
                     {listingStatus === "Published" ? <EyeOff className="h-3.5 w-3.5 mr-2" /> : <Eye className="h-3.5 w-3.5 mr-2" />}
                     {listingStatus === "Published" ? "Hide Listing" : "Show Listing"}
