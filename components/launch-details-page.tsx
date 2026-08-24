@@ -1792,12 +1792,12 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Property Offerings ({offerings.length})</p>
               <div className="divide-y divide-border">
                 {offerings.map((o, i) => (
-                  <div key={o.id} className="flex flex-wrap items-baseline gap-x-3 px-4 py-2 text-sm">
+                  <div key={o.id} className="flex flex-wrap items-baseline justify-between gap-x-3 px-4 py-2 text-sm">
                     <span className="font-semibold">
                       {/* Seeds sometimes carry the subtype inside the type — don't repeat it */}
                       {[o.propertyType, o.propertySubtype !== o.propertyType ? o.propertySubtype : ""].filter(Boolean).join(" - ") || o.offeringName || `Offering ${i + 1}`}
                     </span>
-                    <span className="text-xs font-normal text-muted-foreground">
+                    <span className="text-right text-xs font-normal text-muted-foreground">
                       {[
                         o.bedrooms && `${o.bedrooms} Bedrooms`,
                         o.grossAreaRange,
