@@ -1739,20 +1739,20 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
             {/* Launch details */}
             <div className="rounded-lg border border-border">
               <p className="border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Launch Details</p>
-              <div className="grid grid-cols-3 gap-x-6 gap-y-3 px-4 py-3 text-sm">
-                <div className="col-span-3">
+              <div className="grid grid-cols-4 gap-x-6 gap-y-3 px-4 py-3 text-sm">
+                <div className="col-span-4">
                   <p className="text-[10px] uppercase text-muted-foreground">Launch Title</p>
                   <p className="font-medium">{launchTitle || "—"}</p>
                 </div>
-                <div className="col-span-3">
+                <div className="col-span-4">
                   <p className="text-[10px] uppercase text-muted-foreground">Launch Description</p>
                   <p className="text-sm text-muted-foreground">{launchDescription || "—"}</p>
                 </div>
+                {/* Type · Source · Start · End all share one row */}
                 <div><p className="mb-1 text-[10px] uppercase text-muted-foreground">Type</p>{getTypeBadge(launchFormType)}</div>
                 <div><p className="mb-1 text-[10px] uppercase text-muted-foreground">Source</p><Badge variant="outline">{launch.source}</Badge></div>
-                <div />
-                <div><p className="text-[10px] uppercase text-muted-foreground">Start Date</p><p className="font-medium">{launchStartDate || "—"}</p></div>
-                <div><p className="text-[10px] uppercase text-muted-foreground">End Date</p><p className="font-medium">{launchEndDate || "—"}</p></div>
+                <div><p className="mb-1 text-[10px] uppercase text-muted-foreground">Start Date</p><p className="font-medium">{launchStartDate || "—"}</p></div>
+                <div><p className="mb-1 text-[10px] uppercase text-muted-foreground">End Date</p><p className="font-medium">{launchEndDate || "—"}</p></div>
               </div>
               {/* EOI — every rule from the Launch Details tab, plus the free-text notes */}
               <div className="border-t border-border px-4 py-3">

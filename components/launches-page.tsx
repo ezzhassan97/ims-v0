@@ -643,7 +643,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   // ── Renderers ───────────────────────────────────────────────────────────────
 
   const viewItem = (l: Launch) => (
-    <DropdownMenuItem onClick={() => setViewingLaunch(l)}>
+    <DropdownMenuItem key="view" onClick={() => setViewingLaunch(l)}>
       <Eye className="h-4 w-4 mr-2" />View Details
     </DropdownMenuItem>
   )
@@ -652,7 +652,7 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   /** One popup for every state: free edit pre-ingestion, move-with-properties when
       ingested + inactive, title/description only (linkage frozen) while Active. */
   const editItem = (l: Launch) => (
-    <DropdownMenuItem onClick={() => setEditLaunch(l)}>
+    <DropdownMenuItem key="edit" onClick={() => setEditLaunch(l)}>
       <Pencil className="h-4 w-4 mr-2" />Change Linked Project
     </DropdownMenuItem>
   )
@@ -660,11 +660,12 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
   /** Available on every launch, ingested or not. */
   const archiveItem = (l: Launch) =>
     l.archived ? (
-      <DropdownMenuItem onClick={() => doRestore(l)}>
+      <DropdownMenuItem key="restore" onClick={() => doRestore(l)}>
         <Undo2 className="h-4 w-4 mr-2" />Restore
       </DropdownMenuItem>
     ) : (
       <DropdownMenuItem
+        key="archive"
         className="text-destructive focus:text-destructive"
         onClick={() => setDialog({ kind: "archive", launch: l })}
       >
