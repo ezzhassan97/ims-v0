@@ -579,8 +579,10 @@ type EoiMoney = { id: string; currency: string; amount: string }
 type EoiRule = {
   id: string
   scope: "general" | "type" | "offering" | "sqm" | "percent"
+  /** "Any" is allowed for the type / sqm / percent scopes. */
   propertyType?: string
-  offeringId?: number
+  /** Specific-offering rules cover one or more offerings; an offering never repeats within the scope. */
+  offeringIds?: number[]
   finishing?: string
   sqm?: string
   percent?: string
@@ -595,12 +597,13 @@ const EOI_FINISHINGS = ["Any", "Core & Shell", "Semi-Finished", "Fully Finished"
 /** Compact one-line summary of an EOI rule (used in the ingestion summary). */
 function eoiRuleText(r: EoiRule, offeringName: (id?: number) => string): string {
   const money = r.amounts.filter((a) => a.amount).map((a) => `${a.amount} ${a.currency}`).join(" / ")
+  const type = r.propertyType && r.propertyType !== "Any" ? r.propertyType : "Any type"
   switch (r.scope) {
     case "general": return money || "—"
-    case "type": return `${r.propertyType || "Type"}: ${money || "—"}`
-    case "offering": return `${offeringName(r.offeringId)}: ${money || "—"}`
-    case "sqm": return `${r.propertyType || "Type"}${r.finishing && r.finishing !== "Any" ? ` (${r.finishing})` : ""}: ${money || "—"} per ${r.sqm || "?"} SQM`
-    case "percent": return `${r.propertyType || "Overall"}: ${r.percent || "?"}% of price`
+    case "type": return `${type}: ${money || "—"}`
+    case "offering": return `${(r.offeringIds ?? []).map((id) => offeringName(id)).join(", ") || "No offering"}: ${money || "—"}`
+    case "sqm": return `${type}${r.finishing && r.finishing !== "Any" ? ` (${r.finishing})` : ""}: ${money || "—"} per ${r.sqm || "?"} SQM`
+    case "percent": return `${type}: ${r.percent || "?"}% of price${money ? ` (${money})` : ""}`
   }
 }
 
@@ -613,6 +616,80 @@ function eoiErr(v: string): string | null {
   return null
 }
 
+
+
+/**
+ * Specific-offering EOI picker — wide multi-select showing enough of each offering
+ * (type, bedrooms, area, price, and the property id once ingested) to choose confidently.
+ * Offerings already used by a sibling record are disabled.
+ */
+function OfferingPicker({ offerings, values, taken, ingested, onChange }: {
+  offerings: Offering[]
+  values: number[]
+  taken: number[]
+  ingested: boolean
+  onChange: (ids: number[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener("mousedown", h)
+    return () => document.removeEventListener("mousedown", h)
+  }, [])
+  const label = values.length === 0
+    ? "Select offerings…"
+    : values.length === 1
+    ? (() => { const o = offerings.find((x) => x.id === values[0]); return o ? (o.offeringName || o.propertyType || "Offering") : "1 offering" })()
+    : `${values.length} offerings`
+  const detail = (o: Offering) => [
+    o.bedrooms && `${o.bedrooms} BR`,
+    o.grossAreaRange,
+    o.priceRange && `${o.priceRange} EGP`,
+  ].filter(Boolean).join(" · ")
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button" onClick={() => setOpen((v) => !v)}
+        className={cn("flex h-8 w-72 items-center justify-between gap-2 rounded-md border border-input bg-card px-2.5 text-sm transition-colors hover:bg-muted/50", values.length ? "text-foreground" : "text-muted-foreground")}
+      >
+        <span className="truncate">{label}</span>
+        <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-9 z-50 w-[26rem] rounded-md border border-border bg-popover p-1 shadow-md">
+          <div className="max-h-64 overflow-y-auto">
+            {offerings.map((o, i) => {
+              const checked = values.includes(o.id)
+              const disabled = !checked && taken.includes(o.id)
+              return (
+                <button
+                  key={o.id} type="button" disabled={disabled}
+                  onClick={() => onChange(checked ? values.filter((v) => v !== o.id) : [...values, o.id])}
+                  className={cn("flex w-full items-start gap-2 rounded px-2 py-1.5 text-left", disabled ? "cursor-not-allowed opacity-40" : "hover:bg-muted", checked && "bg-primary/5")}
+                >
+                  <span className={cn("mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border", checked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40")}>
+                    {checked && <Check className="h-3 w-3" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-foreground">
+                      {o.offeringName || `Offering ${i + 1}`}
+                      {o.propertyType ? <span className="font-normal text-muted-foreground"> — {o.propertyType}</span> : null}
+                    </span>
+                    <span className="block truncate text-[11px] text-muted-foreground">{detail(o) || "No details yet"}</span>
+                    {ingested && o.listed && <span className="font-mono text-[10px] text-muted-foreground">LOFF-{o.id}</span>}
+                    {disabled && <span className="text-[10px] text-amber-600">Already used in another record</span>}
+                  </span>
+                </button>
+              )
+            })}
+            {offerings.length === 0 && <p className="px-2 py-3 text-center text-xs text-muted-foreground">No property offerings yet</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Collected EOIs — per-organization totals with per-type contracted/collected bars ──
 const EOI_ORGS = ["Nawy", "Partners Brokers", "Partners Plus", "Partners Freelancers"]
@@ -1153,9 +1230,12 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
 
   const addEoiRule = (scope: EoiRule["scope"]) =>
     setEoiRules((prev) => [...prev, {
-      id: `EOI-${Date.now()}`,
+      id: `EOI-${Date.now()}-${prev.length}`,
       scope,
-      amounts: scope === "percent" ? [] : [{ id: `M-${Date.now()}`, currency: "EGP", amount: "" }],
+      propertyType: scope === "general" || scope === "offering" ? undefined : "Any",
+      finishing: scope === "sqm" ? "Any" : undefined,
+      offeringIds: scope === "offering" ? [] : undefined,
+      amounts: [{ id: `M-${Date.now()}-${prev.length}`, currency: "EGP", amount: "" }],
     }])
   const patchEoiRule = (id: string, patch: Partial<EoiRule>) =>
     setEoiRules((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
@@ -1462,6 +1542,11 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
               >
                 <ExternalLink className="h-4 w-4 mr-2" />View Project
               </DropdownMenuItem>
+              {isIngestedLaunch(live) && launchStatus === "Active" && (
+                <DropdownMenuItem onClick={() => window.open(`https://www.nawy.com/launches/${launch.id}`, "_blank", "noopener,noreferrer")}>
+                  <Globe className="h-4 w-4 mr-2" />View Launch on Website
+                </DropdownMenuItem>
+              )}
               {ingestionStatus !== "Ingested" && <DropdownMenuSeparator />}
               {ingestionStatus !== "Ingested" && (
               <DropdownMenuSub>
@@ -2322,117 +2407,130 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm" className="h-8 bg-transparent">
-                      <Plus className="h-3.5 w-3.5 mr-1" />Add EOI
+                      <Plus className="h-3.5 w-3.5 mr-1" />Add EOI Type
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     {(Object.keys(EOI_SCOPE_LABEL) as EoiRule["scope"][]).map((s) => (
-                      <DropdownMenuItem key={s} onClick={() => { setLaunchDirty(true); addEoiRule(s) }}>{EOI_SCOPE_LABEL[s]}</DropdownMenuItem>
+                      <DropdownMenuItem key={s} disabled={eoiRules.some((r) => r.scope === s)} onClick={() => { setLaunchDirty(true); addEoiRule(s) }}>
+                        {EOI_SCOPE_LABEL[s]}
+                        {eoiRules.some((r) => r.scope === s) && <span className="ml-auto pl-3 text-[10px] text-muted-foreground">added</span>}
+                      </DropdownMenuItem>
                     ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
+
+              {/* One card per EOI TYPE; each holds as many records as needed, one per line */}
               <div className="space-y-3">
-                {eoiRules.map((r) => {
-                  const typeOptions = [...new Set([...offerings.map((o) => o.propertyType).filter(Boolean), "Apartments", "Villas", "Chalets", "Townhouses", "Retail", "Offices", "Clinics"])]
-                  return (
-                    <div key={r.id} className="rounded-lg border border-border bg-card p-3">
-                      <div className="mb-2.5 flex items-center justify-between">
-                        <span className="inline-flex items-center whitespace-nowrap rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{EOI_SCOPE_LABEL[r.scope]}</span>
-                        <button type="button" onClick={() => { setLaunchDirty(true); removeEoiRule(r.id) }} className="text-muted-foreground transition-colors hover:text-destructive">
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-
-                      {/* Scope-specific pickers */}
-                      <div className="mb-2.5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-                        {(r.scope === "type" || r.scope === "sqm" || r.scope === "percent") && (
-                          <div>
-                            <Label className="text-xs">{r.scope === "percent" ? "Property Type (optional)" : "Property Type"}</Label>
-                            <Select value={r.propertyType ?? ""} onValueChange={(v) => { setLaunchDirty(true); patchEoiRule(r.id, { propertyType: v === "__all__" ? undefined : v }) }}>
-                              <SelectTrigger className="mt-1 h-8"><SelectValue placeholder={r.scope === "percent" ? "Overall" : "Select type…"} /></SelectTrigger>
-                              <SelectContent>
-                                {r.scope === "percent" && <SelectItem value="__all__">Overall (all types)</SelectItem>}
-                                {typeOptions.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
+                {(Object.keys(EOI_SCOPE_LABEL) as EoiRule["scope"][])
+                  .filter((scope) => eoiRules.some((r) => r.scope === scope))
+                  .map((scope) => {
+                    const records = eoiRules.filter((r) => r.scope === scope)
+                    const typeOptions = ["Any", ...new Set([...offerings.map((o) => o.propertyType).filter(Boolean), "Apartments", "Villas", "Chalets", "Townhouses", "Retail", "Offices", "Clinics"])]
+                    return (
+                      <div key={scope} className="rounded-lg border border-border bg-card">
+                        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                          <span className="inline-flex items-center whitespace-nowrap rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{EOI_SCOPE_LABEL[scope]}</span>
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { setLaunchDirty(true); addEoiRule(scope) }}>
+                              <Plus className="h-3 w-3 mr-1" />Add record
+                            </Button>
+                            <button type="button" title="Remove this EOI type" onClick={() => { setLaunchDirty(true); setEoiRules((prev) => prev.filter((r) => r.scope !== scope)) }} className="rounded p-1 text-muted-foreground transition-colors hover:text-destructive">
+                              <X className="h-3.5 w-3.5" />
+                            </button>
                           </div>
-                        )}
-                        {r.scope === "offering" && (
-                          <div className="col-span-2">
-                            <Label className="text-xs">Property Offering</Label>
-                            <Select value={r.offeringId != null ? String(r.offeringId) : ""} onValueChange={(v) => { setLaunchDirty(true); patchEoiRule(r.id, { offeringId: Number(v) }) }}>
-                              <SelectTrigger className="mt-1 h-8"><SelectValue placeholder="Select offering…" /></SelectTrigger>
-                              <SelectContent>
-                                {offerings.map((o, i) => <SelectItem key={o.id} value={String(o.id)}>{o.offeringName || `Offering ${i + 1}`}{o.propertyType ? ` — ${o.propertyType}` : ""}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
-                        {r.scope === "sqm" && (
-                          <>
-                            <div>
-                              <Label className="text-xs">Finishing</Label>
-                              <Select value={r.finishing ?? "Any"} onValueChange={(v) => { setLaunchDirty(true); patchEoiRule(r.id, { finishing: v }) }}>
-                                <SelectTrigger className="mt-1 h-8"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {EOI_FINISHINGS.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div>
-                              <Label className="text-xs">Per (SQM)</Label>
-                              <Input value={r.sqm ?? ""} onChange={(e) => { setLaunchDirty(true); patchEoiRule(r.id, { sqm: e.target.value.replace(/\D/g, "") }) }} placeholder="e.g. 50" inputMode="numeric" className="mt-1 h-8" />
-                            </div>
-                          </>
-                        )}
-                        {r.scope === "percent" && (
-                          <div>
-                            <Label className="text-xs">Percent of Price (%)</Label>
-                            <Input value={r.percent ?? ""} onChange={(e) => { setLaunchDirty(true); patchEoiRule(r.id, { percent: e.target.value.replace(/[^\d.]/g, "") }) }} placeholder="e.g. 2" inputMode="decimal" className="mt-1 h-8" />
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Amounts — one or more currency + amount pairs (percent rules have none) */}
-                      {r.scope !== "percent" && (
-                        <div className="space-y-2">
-                          {r.amounts.map((a) => (
-                            <div key={a.id} className="flex items-center gap-2">
-                              <Select value={a.currency} onValueChange={(v) => { setLaunchDirty(true); patchEoiRule(r.id, { amounts: r.amounts.map((x) => (x.id === a.id ? { ...x, currency: v } : x)) }) }}>
-                                <SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {EOI_CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                              <Input
-                                value={a.amount}
-                                onChange={(e) => { setLaunchDirty(true); patchEoiRule(r.id, { amounts: r.amounts.map((x) => (x.id === a.id ? { ...x, amount: fmtInt(e.target.value) } : x)) }) }}
-                                placeholder="e.g. 50,000" inputMode="numeric" className="h-8 w-44"
-                              />
-                              {r.amounts.length > 1 && (
-                                <button type="button" onClick={() => { setLaunchDirty(true); patchEoiRule(r.id, { amounts: r.amounts.filter((x) => x.id !== a.id) }) }} className="text-muted-foreground transition-colors hover:text-destructive">
-                                  <X className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={() => { setLaunchDirty(true); patchEoiRule(r.id, { amounts: [...r.amounts, { id: `M-${Date.now()}`, currency: EOI_CURRENCIES.find((c) => !r.amounts.some((a) => a.currency === c)) ?? "EGP", amount: "" }] }) }}
-                            className="flex items-center gap-1 text-xs text-primary hover:opacity-80"
-                          >
-                            <Plus className="h-3 w-3" />Add currency
-                          </button>
                         </div>
-                      )}
-                    </div>
-                  )
-                })}
-                {eoiRules.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No EOI rules — add one with "Add EOI".</p>}
+                        <div className="divide-y divide-border">
+                          {records.map((r) => {
+                            // Offerings already used by SIBLING records can't be picked again
+                            const takenIds = records.filter((x) => x.id !== r.id).flatMap((x) => x.offeringIds ?? [])
+                            return (
+                              <div key={r.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                                {scope === "offering" && (
+                                  <OfferingPicker
+                                    offerings={offerings}
+                                    ingested={ingestionStatus === "Ingested"}
+                                    values={r.offeringIds ?? []}
+                                    taken={takenIds}
+                                    onChange={(ids) => { setLaunchDirty(true); patchEoiRule(r.id, { offeringIds: ids }) }}
+                                  />
+                                )}
+                                {(scope === "type" || scope === "sqm" || scope === "percent") && (
+                                  <Select value={r.propertyType ?? "Any"} onValueChange={(v) => { setLaunchDirty(true); patchEoiRule(r.id, { propertyType: v }) }}>
+                                    <SelectTrigger className="h-8 w-44"><SelectValue placeholder="Property type" /></SelectTrigger>
+                                    <SelectContent>
+                                      {typeOptions.map((t) => <SelectItem key={t} value={t}>{t === "Any" ? "Any type" : t}</SelectItem>)}
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                                {scope === "sqm" && (
+                                  <>
+                                    <Select value={r.finishing ?? "Any"} onValueChange={(v) => { setLaunchDirty(true); patchEoiRule(r.id, { finishing: v }) }}>
+                                      <SelectTrigger className="h-8 w-40"><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        {EOI_FINISHINGS.map((f) => <SelectItem key={f} value={f}>{f === "Any" ? "Any finishing" : f}</SelectItem>)}
+                                      </SelectContent>
+                                    </Select>
+                                    <span className="text-xs text-muted-foreground">per</span>
+                                    <Input value={r.sqm ?? ""} onChange={(e) => { setLaunchDirty(true); patchEoiRule(r.id, { sqm: e.target.value.replace(/\D/g, "") }) }} placeholder="50" inputMode="numeric" className="h-8 w-20" />
+                                    <span className="text-xs text-muted-foreground">SQM</span>
+                                  </>
+                                )}
+                                {scope === "percent" && (
+                                  <>
+                                    <Input value={r.percent ?? ""} onChange={(e) => { setLaunchDirty(true); patchEoiRule(r.id, { percent: e.target.value.replace(/[^\d.]/g, "") }) }} placeholder="2" inputMode="decimal" className="h-8 w-20" />
+                                    <span className="text-xs text-muted-foreground">% of price</span>
+                                  </>
+                                )}
+
+                                {/* Amount(s) — one or more currencies per record */}
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {r.amounts.map((a) => (
+                                    <div key={a.id} className="flex items-center gap-1">
+                                      <Select value={a.currency} onValueChange={(v) => { setLaunchDirty(true); patchEoiRule(r.id, { amounts: r.amounts.map((x) => (x.id === a.id ? { ...x, currency: v } : x)) }) }}>
+                                        <SelectTrigger className="h-8 w-[84px]"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                          {EOI_CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                                        </SelectContent>
+                                      </Select>
+                                      <Input
+                                        value={a.amount}
+                                        onChange={(e) => { setLaunchDirty(true); patchEoiRule(r.id, { amounts: r.amounts.map((x) => (x.id === a.id ? { ...x, amount: fmtInt(e.target.value) } : x)) }) }}
+                                        placeholder={scope === "percent" ? "cap (optional)" : "50,000"} inputMode="numeric" className="h-8 w-32"
+                                      />
+                                      {r.amounts.length > 1 && (
+                                        <button type="button" onClick={() => { setLaunchDirty(true); patchEoiRule(r.id, { amounts: r.amounts.filter((x) => x.id !== a.id) }) }} className="text-muted-foreground transition-colors hover:text-destructive">
+                                          <X className="h-3 w-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                  <button
+                                    type="button" title="Add another currency"
+                                    onClick={() => { setLaunchDirty(true); patchEoiRule(r.id, { amounts: [...r.amounts, { id: `M-${Date.now()}`, currency: EOI_CURRENCIES.find((c) => !r.amounts.some((a) => a.currency === c)) ?? "EGP", amount: "" }] }) }}
+                                    className="rounded border border-dashed border-border px-1.5 py-1 text-[11px] text-primary transition-colors hover:bg-muted"
+                                  >
+                                    <Plus className="h-3 w-3" />
+                                  </button>
+                                </div>
+
+                                {records.length > 1 && (
+                                  <button type="button" title="Remove record" onClick={() => { setLaunchDirty(true); removeEoiRule(r.id) }} className="ml-auto rounded p-1 text-muted-foreground transition-colors hover:text-destructive">
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                {eoiRules.length === 0 && <p className="rounded-lg border border-dashed border-border py-6 text-center text-sm text-muted-foreground">No EOI rules yet — add a type with "Add EOI Type".</p>}
 
                 {/* Free-text notes — always available regardless of the rule mix */}
-                <div>
+                <div className="pt-1">
                   <Label className="mb-1 block">EOI Notes</Label>
                   <Textarea value={eoiNotes} onChange={(e) => { setLaunchDirty(true); setEoiNotes(e.target.value) }} placeholder="Anything sales should know about the EOI rules — exceptions, refund terms, collection windows…" rows={3} />
                 </div>
@@ -2456,10 +2554,7 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                 ))}
               </div>
             </div>
-            </>
-            )}
-
-            {/* Refundability */}
+            {/* Refundability — an EOI concept, so it hides with the EOI sections */}
             <div className="pt-6 border-t border-border">
               <h3 className="text-sm font-semibold text-foreground mb-4">Refundability</h3>
               <div className="space-y-4">
@@ -2504,6 +2599,9 @@ export function LaunchDetailsPage({ launch, onBack, allLaunches, onResolveConfli
                 )}
               </div>
             </div>
+
+            </>
+            )}
 
             {/* Released offerings — units, buildings and per-type counts (moved from Project Details) */}
             <div className="pt-6 border-t border-border">

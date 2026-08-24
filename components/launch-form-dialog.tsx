@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Pencil, Save, Sparkles, X } from "lucide-react"
+import { ExternalLink, Pencil, Save, Sparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type Launch, LAUNCH_AREAS, launchAreaId, launchPropsOf, launchesForProject, isIngestedLaunch, launchesSnapshot } from "@/lib/launches-mock"
 import { PROJECTS, PROJECT_DEVELOPERS } from "@/lib/projects-mock"
@@ -438,6 +438,16 @@ export function LaunchProjectDetailsCard({ launch, onPatch }: { launch: Launch; 
               : "Every launch links to an existing project or phase — the link can change until the launch is ingested."}
           </p>
         </div>
+        <div className="flex items-center gap-2">
+        {ingested && launch.projectId && (
+          <Button
+            variant="outline" size="icon" className="h-8 w-8 bg-transparent"
+            title={`Open ${launch.projectLevel === "Phase" ? "phase" : "project"} details in a new tab`}
+            onClick={() => window.open(`/projects/${launch.projectId}`, "_blank", "noopener,noreferrer")}
+          >
+            <ExternalLink className="h-4 w-4" />
+          </Button>
+        )}
         {!frozen && (editing ? (
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" className="h-8 bg-transparent" onClick={() => setEditing(false)}>
@@ -452,6 +462,7 @@ export function LaunchProjectDetailsCard({ launch, onPatch }: { launch: Launch; 
             <Pencil className="h-3.5 w-3.5 mr-1" />Edit
           </Button>
         ))}
+        </div>
       </div>
       <div className="grid gap-4">
         <LinkFormBody s={s} locked={frozen || !editing} unlinked={unlinked} />

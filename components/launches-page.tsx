@@ -67,6 +67,7 @@ import {
   ArrowRight,
   Undo2,
   Database,
+  Globe,
   Link2,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -657,6 +658,14 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     </DropdownMenuItem>
   )
 
+  /** Live on nawy.com only while an ingested launch is Active. */
+  const websiteItem = (l: Launch) =>
+    isIngestedLaunch(l) && l.launchStatus === "Active" ? (
+      <DropdownMenuItem key="website" onClick={() => window.open(`https://www.nawy.com/launches/${l.id}`, "_blank", "noopener,noreferrer")}>
+        <Globe className="h-4 w-4 mr-2" />View Launch on Website
+      </DropdownMenuItem>
+    ) : null
+
   /** Available on every launch, ingested or not. */
   const archiveItem = (l: Launch) =>
     l.archived ? (
@@ -716,8 +725,8 @@ export function LaunchesPage({ embedded = false, scopeProject }: {
     // Groups render with a separator only between the ones that actually have items,
     // so a hidden action never leaves two dividers stacked together.
     const groups = (tab === "all" || tab === "pending")
-      ? [[viewItem(l), editItem(l)], [approvalItem(l), ingestItem(l)], [archiveItem(l)]]
-      : [[viewItem(l), editItem(l)], [archiveItem(l)]]
+      ? [[viewItem(l), websiteItem(l), editItem(l)], [approvalItem(l), ingestItem(l)], [archiveItem(l)]]
+      : [[viewItem(l), websiteItem(l), editItem(l)], [archiveItem(l)]]
     const filled = groups.map((g) => g.filter(Boolean)).filter((g) => g.length > 0)
     return (
       <DropdownMenu>
