@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Building2, ChevronDown, LayoutGrid, ListTree, Users } from "lucide-react"
+import { Building2, ChevronDown, Download, LayoutGrid, ListTree, Users } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -128,6 +128,44 @@ export function QualityConfigurationsPage() {
       types: c.types.map((t) => (t.id !== typId ? t : { ...t, subtypes: t.subtypes.map((s) => (s.id === subId ? { ...s, ...patch } : s)) })),
     })))
 
+  /** Download the current taxonomy (as edited) — categories → types → subtypes,
+   *  each with priority, Active/Hidden status and score. */
+  const exportJson = () => {
+    const payload = {
+      entity,
+      exportedAt: new Date().toISOString(),
+      categories: cats.map((c) => ({
+        id: c.id,
+        name: c.name,
+        priority: c.priority,
+        status: c.active ? "Active" : "Hidden",
+        score: c.weight,
+        types: c.types.map((t) => ({
+          id: t.id,
+          name: t.name,
+          priority: t.priority,
+          status: t.active ? "Active" : "Hidden",
+          score: t.weight,
+          subtypes: t.subtypes.map((s) => ({
+            id: s.id,
+            name: s.name,
+            priority: s.priority,
+            status: s.active ? "Active" : "Hidden",
+            score: s.weight,
+          })),
+        })),
+      })),
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `quality-configurations-${entity.toLowerCase()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success("Quality configuration exported as JSON")
+  }
+
   const save = () => {
     if (problems.length) {
       toast.error(problems[0] + (problems.length > 1 ? ` (+${problems.length - 1} more)` : "") + " — every level must sum to 100%")
@@ -199,7 +237,14 @@ export function QualityConfigurationsPage() {
                   {cats.length > 0 && <span className="ml-2"><SumTag sum={catSum} label="Categories Σ" /></span>}
                 </>
               }
-              cta={<Button size="sm" className="h-8 gap-1.5" onClick={save}>Save Changes</Button>}
+              cta={
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={exportJson}>
+                    <Download className="h-3.5 w-3.5" />Export JSON
+                  </Button>
+                  <Button size="sm" className="h-8 gap-1.5" onClick={save}>Save Changes</Button>
+                </div>
+              }
             />
             {problems.length > 0 && (
               <div className="mx-4 mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
