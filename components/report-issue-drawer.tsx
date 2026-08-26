@@ -11,7 +11,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { IdTag } from "@/components/table-kit"
 import { ColorTag } from "@/components/projects-list-page"
-import { StoryBadge, BADGE_CLASS, type PropertyRow, type PlanCardData } from "@/components/all-properties-page"
+import { StoryBadge, BADGE_CLASS, RANGE_FIELD_IDS, rowSupportsRanges, rangeNum, type PropertyRow, type PlanCardData } from "@/components/all-properties-page"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
 import {
   ISSUE_FIELDS, ISSUE_FIELD_GROUPS, fieldTaxonomy, fieldPriority, PLAN_VALUE_FIELDS, PLAN_FIELD_OPTIONS, PHASE_NAMES, AMENITY_LIBRARY, DATA_OPS_TEAM,
@@ -73,10 +73,17 @@ interface PlanFieldIssue {
   note: string
 }
 
+/** Launch / Primary-Manual units report min–max ranges on these numeric fields. */
+function isRangeField(row: PropertyRow, field: IssueField): boolean {
+  return rowSupportsRanges(row) && (RANGE_FIELD_IDS as readonly string[]).includes(field.id)
+}
+
 interface FieldDraft {
   type: string
   subtype: string | null
   expected: string
+  /** Range-capable fields (Launch / Primary-Manual): the expected max — `expected` holds the min. */
+  expectedMax: string
   description: string
   items: string[] // floor plans / renders / plan selection
   planValues: Record<string, Record<string, PlanFieldIssue>> // plan → plan field → issue data
@@ -109,7 +116,7 @@ function availableTypes(field: IssueField, row: PropertyRow): IssueTypeDef[] {
 
 function emptyDraft(field: IssueField, row: PropertyRow): FieldDraft {
   const t = availableTypes(field, row)[0] ?? fieldTaxonomy(field)[0]
-  return { type: t.type, subtype: field.kind === "plans" ? null : t.subtypes?.[0] ?? null, expected: "", description: "", items: [], planValues: {}, addItems: [], removeItems: [] }
+  return { type: t.type, subtype: field.kind === "plans" ? null : t.subtypes?.[0] ?? null, expected: "", expectedMax: "", description: "", items: [], planValues: {}, addItems: [], removeItems: [] }
 }
 
 /** Boolean value mark — same idiom as the detailed properties table. */
@@ -134,6 +141,11 @@ function CurrentValue({ row, field }: { row: PropertyRow; field: IssueField }) {
     : (row as unknown as Record<string, unknown>)[field.id]
   if (field.valueType === "boolean") return <BoolMark value={!!raw} />
   if (raw == null || raw === "") return <span className="text-xs text-muted-foreground">—</span>
+  // Launch / Primary-Manual: numeric fields may be a min–max range
+  if (isRangeField(row, field) && (field.valueType === "currency" || field.valueType === "area" || field.valueType === "number")) {
+    const suffix = field.valueType === "currency" ? " EGP" : field.valueType === "area" ? " m²" : ""
+    return <span className="whitespace-nowrap text-xs font-medium text-foreground">{rangeNum(row, field.id as keyof PropertyRow)}{suffix}</span>
+  }
   if (field.valueType === "currency") return <span className="whitespace-nowrap text-xs font-medium text-foreground">{Number(raw).toLocaleString()} EGP</span>
   if (field.valueType === "area") return <span className="whitespace-nowrap text-xs text-foreground">{String(raw)} m²</span>
   if (field.valueType === "enum" || field.valueType === "phase") {
@@ -155,14 +167,34 @@ function currentText(row: PropertyRow, field: IssueField): string {
     : (row as unknown as Record<string, unknown>)[field.id]
   if (field.valueType === "boolean") return raw ? "Yes" : "No"
   if (raw == null || raw === "") return "—"
+  if (isRangeField(row, field) && (field.valueType === "currency" || field.valueType === "area" || field.valueType === "number")) {
+    const suffix = field.valueType === "currency" ? " EGP" : field.valueType === "area" ? " m²" : ""
+    return `${rangeNum(row, field.id as keyof PropertyRow)}${suffix}`
+  }
   if (field.valueType === "currency") return `${Number(raw).toLocaleString()} EGP`
   if (field.valueType === "area") return `${raw} m²`
   return String(raw)
 }
 
 /** Expected-result input that follows the field's value type. */
-function ExpectedInput({ row, field, value, onChange }: { row: PropertyRow; field: IssueField; value: string; onChange: (v: string) => void }) {
+function ExpectedInput({ row, field, value, onChange, max, onChangeMax }: { row: PropertyRow; field: IssueField; value: string; onChange: (v: string) => void; max?: string; onChangeMax?: (v: string) => void }) {
   const current = currentText(row, field)
+  // Launch / Primary-Manual: expected result is a min–max range on numeric fields
+  if (isRangeField(row, field) && (field.valueType === "currency" || field.valueType === "area" || field.valueType === "number") && onChangeMax) {
+    const suffix = field.valueType === "currency" ? "EGP" : field.valueType === "area" ? "m²" : null
+    const box = (v: string, set: (x: string) => void, ph: string) => (
+      <div className="relative">
+        <Input type="number" value={v} onChange={(e) => set(e.target.value)} placeholder={ph} className={cn("h-8 bg-card text-sm", suffix && "pr-10")} />
+        {suffix && <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{suffix}</span>}
+      </div>
+    )
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        {box(value, onChange, "Min")}
+        {box(max ?? "", onChangeMax, "Max")}
+      </div>
+    )
+  }
   if (field.valueType === "enum" || field.valueType === "phase") {
     const options = (field.valueType === "phase" ? PHASE_NAMES : field.options ?? []).filter((o) => o !== current)
     return (
@@ -372,7 +404,11 @@ export function ReportIssueDrawer({
       }
       const assignedTo = DATA_OPS_TEAM[assignSeq++ % DATA_OPS_TEAM.length] // auto-assignment
       const suffix = field.valueType === "currency" ? " EGP" : field.valueType === "area" ? " m²" : ""
-      const expected = d.expected ? `${d.expected}${/^\d/.test(d.expected) ? suffix : ""}` : null
+      const fmtN = (v: string) => (Number(v) ? Number(v).toLocaleString() : v)
+      const expected =
+        isRangeField(row, field) && d.expected && d.expectedMax
+          ? `${fmtN(d.expected)} – ${fmtN(d.expectedMax)}${suffix}`
+          : d.expected ? `${d.expected}${/^\d/.test(d.expected) ? suffix : ""}` : null
       const linkedItems =
         field.kind === "amenities"
           ? [...d.addItems.map((a) => `Add: ${a}`), ...d.removeItems.map((a) => `Remove: ${a}`)]
@@ -554,7 +590,7 @@ export function ReportIssueDrawer({
                                   </p>
                                   <Select value={draft.type} onValueChange={(v) => {
                                     const t = tax.find((x) => x.type === v) ?? tax[0]
-                                    patchDraft(field.id, { type: v, subtype: field.kind === "plans" ? null : t.subtypes?.[0] ?? null, items: [], planValues: {}, expected: "" })
+                                    patchDraft(field.id, { type: v, subtype: field.kind === "plans" ? null : t.subtypes?.[0] ?? null, items: [], planValues: {}, expected: "", expectedMax: "" })
                                   }}>
                                     <SelectTrigger className="h-8 bg-card text-sm"><SelectValue /></SelectTrigger>
                                     <SelectContent>
@@ -712,7 +748,14 @@ export function ReportIssueDrawer({
                                   Correct value / expected result
                                   {problem === "select the correct value" && <span className="ml-1 text-red-600">— required</span>}
                                 </p>
-                                <ExpectedInput row={row} field={field} value={draft.expected} onChange={(v) => patchDraft(field.id, { expected: v })} />
+                                <ExpectedInput
+                                  row={row}
+                                  field={field}
+                                  value={draft.expected}
+                                  onChange={(v) => patchDraft(field.id, { expected: v })}
+                                  max={draft.expectedMax}
+                                  onChangeMax={(v) => patchDraft(field.id, { expectedMax: v })}
+                                />
                               </div>
                             )}
 

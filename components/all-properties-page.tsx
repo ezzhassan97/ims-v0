@@ -102,6 +102,14 @@ type ListingStatus = "Active" | "Hidden"
 type SaleType = "Launch" | "Primary" | "Resale" | "Nawy Now" | "Rental" | "Financing"
 type EntryType = "Automatic" | "Manual"
 
+/** Numeric fields that may hold a min–max range on Launch / Primary-Manual units
+ *  (the base field holds the min, `row.ranges` the max). */
+export const RANGE_FIELD_IDS = [
+  "price", "grossBua", "floorNumber", "openRoofArea", "roofAnnexArea", "gardenArea",
+  "terraceArea", "landArea", "storageArea", "outdoorArea", "basementArea", "storagePrice", "outdoorPrice",
+] as const
+export type RangeFieldId = (typeof RANGE_FIELD_IDS)[number]
+
 export interface PropertyRow {
   propertyId: string
   propertyMetadataId: string
@@ -165,6 +173,8 @@ export interface PropertyRow {
   monthlyInstallment: string | null
   amenities: string[]
   services: string[]
+  /** Launch / Primary-Manual only: max values for range-capable numeric fields. */
+  ranges?: Partial<Record<RangeFieldId, number>>
   price: number | null
   priceRecords: number[]
   paymentPlans: number
@@ -503,6 +513,18 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
     })(),
     amenities: Array.from({ length: (index % 4) + 1 }, (_, i) => amenitiesPool[(index + i) % amenitiesPool.length]),
     services: index % 3 === 0 ? [] : Array.from({ length: (index % 3) + 1 }, (_, i) => servicesPool[(index + i) % servicesPool.length]),
+    // Launch / Primary-Manual units: numeric fields can hold min–max ranges
+    ranges:
+      (saleType === "Launch" || (saleType === "Primary" && isManual)) && index % 3 !== 2
+        ? {
+            ...(price ? { price: price + 400_000 + (index % 5) * 120_000 } : {}),
+            grossBua: grossBua + 12 + (index % 3) * 6,
+            ...(!isVillaLike && index % 2 === 0 ? { floorNumber: (index % 12) + 3 } : {}),
+            ...((isVillaLike || index % 4 === 1) && index % 2 === 1 ? { gardenArea: 30 + index * 2 + 16 } : {}),
+            ...(index % 5 !== 0 && index % 2 === 0 ? { outdoorPrice: 30000 + index * 3000 + 25000 } : {}),
+            ...(index % 4 !== 0 && index % 3 === 0 ? { outdoorArea: 10 + index * 2 + 8 } : {}),
+          }
+        : undefined,
     price,
     priceRecords:
       index % 4 === 0
@@ -532,6 +554,27 @@ function formatArea(v: number | null) {
 function formatPrice(v: number | null) {
   if (!v) return null
   return `${v.toLocaleString()} EGP`
+}
+/** Only Launch and Primary-Manual units can carry ranged numeric values. */
+export function rowSupportsRanges(row: Pick<PropertyRow, "saleType" | "entryType">): boolean {
+  return row.saleType === "Launch" || (row.saleType === "Primary" && row.entryType === "Manual")
+}
+/** "2,300 – 3,400" (min–max) or the single value, no suffix; null when empty. */
+export function rangeNum(row: PropertyRow, field: RangeFieldId | keyof PropertyRow): string | null {
+  const min = row[field as keyof PropertyRow] as number | null
+  if (!min && min !== 0) return null
+  const max = rowSupportsRanges(row) ? row.ranges?.[field as RangeFieldId] : undefined
+  return max != null && max > min ? `${min.toLocaleString()} – ${max.toLocaleString()}` : min.toLocaleString()
+}
+export function areaCell(row: PropertyRow, field: RangeFieldId | keyof PropertyRow): string | null {
+  const t = rangeNum(row, field)
+  return t ? `${t} m²` : null
+}
+export function priceCell(row: PropertyRow, field: RangeFieldId | keyof PropertyRow): string | null {
+  const min = row[field as keyof PropertyRow] as number | null
+  if (!min) return null // matches formatPrice: 0 renders as missing
+  const t = rangeNum(row, field)
+  return t ? `${t} EGP` : null
 }
 function relativeTime(iso: string) {
   const h = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 3600000))
@@ -2904,7 +2947,7 @@ export function ViewPropertyDrawer({
                 {row.price ? (
                   <>
                     <span className="text-lg font-bold tabular-nums">
-                      {row.price.toLocaleString()}
+                      {rangeNum(row, "price")}
                       <span className="text-sm font-medium text-muted-foreground ml-1">EGP</span>
                     </span>
                     {pricePerM2 && (
@@ -3010,10 +3053,10 @@ export function ViewPropertyDrawer({
                   <Field label="Developer Type" value={row.developerType} />
                   <Field label="Building Type" value={row.buildingType} />
                   <Field label="Building Number" value={row.buildingNumber} />
-                  <Field label="Floor Number" value={row.floorNumber} />
+                  <Field label="Floor Number" value={rangeNum(row, "floorNumber")} />
                 </Section>
                 <Section title="Dimensions">
-                  <Field label="Gross BUA" value={formatArea(row.grossBua)} />
+                  <Field label="Gross BUA" value={areaCell(row, "grossBua")} />
                   <Field label="Net BUA" value={formatArea(row.netBua)} />
                   <Field label="Bedrooms" value={row.bedrooms} />
                   <Field label="Bathrooms" value={row.bathrooms} />
@@ -3030,22 +3073,22 @@ export function ViewPropertyDrawer({
                   <Field label="Branded" value={<BooleanMark value={row.branded} />} />
                 </Section>
                 <Section title="Areas">
-                  <Field label="Open Roof Area" value={formatArea(row.openRoofArea)} />
-                  <Field label="Roof Annex Area" value={formatArea(row.roofAnnexArea)} />
-                  <Field label="Garden Area" value={formatArea(row.gardenArea)} />
-                  <Field label="Terrace Area" value={formatArea(row.terraceArea)} />
-                  <Field label="Land Area" value={formatArea(row.landArea)} />
-                  <Field label="Storage Area" value={formatArea(row.storageArea)} />
-                  <Field label="Outdoor Area" value={formatArea(row.outdoorArea)} />
-                  <Field label="Basement Area" value={formatArea(row.basementArea)} />
+                  <Field label="Open Roof Area" value={areaCell(row, "openRoofArea")} />
+                  <Field label="Roof Annex Area" value={areaCell(row, "roofAnnexArea")} />
+                  <Field label="Garden Area" value={areaCell(row, "gardenArea")} />
+                  <Field label="Terrace Area" value={areaCell(row, "terraceArea")} />
+                  <Field label="Land Area" value={areaCell(row, "landArea")} />
+                  <Field label="Storage Area" value={areaCell(row, "storageArea")} />
+                  <Field label="Outdoor Area" value={areaCell(row, "outdoorArea")} />
+                  <Field label="Basement Area" value={areaCell(row, "basementArea")} />
                 </Section>
                 <Section title="Parking & Storage">
                   <Field label="Parking" value={<BooleanMark value={row.parking} />} />
                   <Field label="Parking Slots" value={row.parkingSlots} />
                   <Field label="Additional Parking Slots" value={row.additionalParkingSlots} />
                   <Field label="Storage Included" value={<BooleanMark value={row.storageIncluded} />} />
-                  <Field label="Storage Price" value={formatPrice(row.storagePrice)} />
-                  <Field label="Outdoor Price" value={formatPrice(row.outdoorPrice)} />
+                  <Field label="Storage Price" value={priceCell(row, "storagePrice")} />
+                  <Field label="Outdoor Price" value={priceCell(row, "outdoorPrice")} />
                 </Section>
                 <Section title="Views & Orientation">
                   <Field label="Unit View" value={<TagBadge value={row.unitView} />} />
@@ -3354,11 +3397,13 @@ export function EmbeddedPropertyTable({
         )
       case "grossBua": case "netBua": case "gardenArea": case "terraceArea": case "landArea":
       case "storageArea": case "openRoofArea": case "roofAnnexArea": case "outdoorArea": case "basementArea":
-        return nil(formatArea(row[column.id] as number | null))
-      case "bedrooms": case "bathrooms": case "floorNumber": case "parkingSlots": case "additionalParkingSlots":
+        return nil(areaCell(row, column.id))
+      case "floorNumber":
+        return nil(rangeNum(row, "floorNumber"))
+      case "bedrooms": case "bathrooms": case "parkingSlots": case "additionalParkingSlots":
         return nil(row[column.id] as number | null)
       case "storagePrice": case "outdoorPrice":
-        return nil(formatPrice(row[column.id] as number | null))
+        return nil(priceCell(row, column.id))
       case "parking": case "storageIncluded": case "serviced": case "branded":
         return <BooleanMark value={Boolean(row[column.id])} />
       case "finishingLevel":
@@ -3374,7 +3419,7 @@ export function EmbeddedPropertyTable({
         return (
           <button className={cn("font-medium hover:text-primary tabular-nums text-right w-full block", !row.price && "text-red-600")}
             onClick={() => { setEditingPrice(row.propertyId); setPriceDraft(String(row.price ?? 0)) }}>
-            {formatPrice(row.price) ?? "0 EGP"}
+            {priceCell(row, "price") ?? "0 EGP"}
           </button>
         )
       case "pricePerMeter":
@@ -4015,16 +4060,17 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
       case "roofAnnexArea":
       case "outdoorArea":
       case "basementArea":
-        return nil(formatArea(row[column.id] as number | null))
+        return nil(areaCell(row, column.id))
+      case "floorNumber":
+        return nil(rangeNum(row, "floorNumber"))
       case "bedrooms":
       case "bathrooms":
-      case "floorNumber":
       case "parkingSlots":
       case "additionalParkingSlots":
         return nil(row[column.id] as number | null)
       case "storagePrice":
       case "outdoorPrice":
-        return nil(formatPrice(row[column.id] as number | null))
+        return nil(priceCell(row, column.id))
       case "parking":
       case "storageIncluded":
       case "serviced":
@@ -4058,7 +4104,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
               setPriceDraft(String(row.price ?? 0))
             }}
           >
-            {formatPrice(row.price) ?? "0 EGP"}
+            {priceCell(row, "price") ?? "0 EGP"}
           </button>
         )
       case "pricePerMeter":
