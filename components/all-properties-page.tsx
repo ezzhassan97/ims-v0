@@ -5910,8 +5910,9 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
 
             {/* Unified toolbar card */}
             <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
-              {/* Row 1: Search (420px fixed) + 8 primary filters sharing remaining space */}
-              <div className="flex items-center gap-2">
+              {/* Row 1: Search (420px fixed) + primary filter chips flowing beside it,
+                  wrapping across the FULL card width — never a stretched orphan chip */}
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="relative shrink-0 w-[420px]">
                   <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                   <Input
@@ -5926,31 +5927,31 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                     </button>
                   )}
                 </div>
-                <div className="flex flex-1 flex-wrap gap-2">
-                  {!embedded && <FilterDropdown label="District"       options={filterOptions.districts}       selected={districtFilter}      onChange={setDistrictFilter}      className="flex-1" />}
-                  {!embedded && <AreaTreeSelect multi tree={pickerData.areas} values={areaSelIds} onValuesChange={setAreaSelIds} placeholder="Area" className="w-40 flex-1" />}
-                  {!embedded && <DeveloperSelect multi developers={pickerData.developers} values={devSelIds} onValuesChange={setDevSelIds} placeholder="Developer" className="w-44 flex-1" />}
-                  <ProjectTreeSelect multi projects={pickerData.projectTree} values={projSelIds} onValuesChange={setProjSelIds} label="Project" className="w-44 flex-1" />
-                  {!fixedSaleType && <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter}      className="flex-1" />}
-                  <FilterDropdown label="Status"         options={filterOptions.availability}    selected={availabilityFilter}  onChange={setAvailabilityFilter}  className="flex-1" />
-                  {!fixedEntryType && <FilterDropdown label="Entry Type"     options={filterOptions.entryTypes}      selected={entryTypeFilter}     onChange={setEntryTypeFilter}     className="flex-1" />}
-                  <FilterDropdown label="Listing Status" options={filterOptions.listingStatuses} selected={listingFilter}       onChange={setListingFilter}       className="flex-1" />
-                  <FilterDropdown label="Source"         options={filterOptions.sources}         selected={sourceFilter}        onChange={setSourceFilter}        className="flex-1" />
+                <div className="contents">
+                  {!embedded && <FilterDropdown label="District"       options={filterOptions.districts}       selected={districtFilter}      onChange={setDistrictFilter}      />}
+                  {!embedded && <AreaTreeSelect multi tree={pickerData.areas} values={areaSelIds} onValuesChange={setAreaSelIds} placeholder="Area" className="w-40" />}
+                  {!embedded && <DeveloperSelect multi developers={pickerData.developers} values={devSelIds} onValuesChange={setDevSelIds} placeholder="Developer" className="w-44" />}
+                  <ProjectTreeSelect multi projects={pickerData.projectTree} values={projSelIds} onValuesChange={setProjSelIds} label="Project" className="w-44" />
+                  {!fixedSaleType && <FilterDropdown label="Sale Type"      options={filterOptions.saleTypes}       selected={saleTypeFilter}      onChange={setSaleTypeFilter}      />}
+                  <FilterDropdown label="Status"         options={filterOptions.availability}    selected={availabilityFilter}  onChange={setAvailabilityFilter}  />
+                  {!fixedEntryType && <FilterDropdown label="Entry Type"     options={filterOptions.entryTypes}      selected={entryTypeFilter}     onChange={setEntryTypeFilter}     />}
+                  <FilterDropdown label="Listing Status" options={filterOptions.listingStatuses} selected={listingFilter}       onChange={setListingFilter}       />
+                  <FilterDropdown label="Source"         options={filterOptions.sources}         selected={sourceFilter}        onChange={setSourceFilter}        />
                 </div>
               </div>
 
               {/* Row 2: full width, secondary filters (wraps — never overflows the card) */}
               <div className="flex items-center flex-wrap gap-2">
-                <FilterDropdown label="Property Category" options={filterOptions.categories}       selected={propertyCategoryFilter} onChange={setPropertyCategoryFilter} className="flex-1" />
-                <FilterDropdown label="Property Type"     options={filterOptions.propertyTypes}    selected={propertyTypeFilter}     onChange={setPropertyTypeFilter}     className="flex-1" />
-                <FilterDropdown label="Property Subtype"  options={filterOptions.propertySubTypes} selected={propertySubTypeFilter}  onChange={setPropertySubTypeFilter}  className="flex-1" />
-                <FilterDropdown label="Finishing Type"    options={filterOptions.finishingTypes}   selected={finishingTypeFilter}    onChange={setFinishingTypeFilter}    className="flex-1" />
-                <FilterDropdown label="Delivery Type"     options={filterOptions.deliveryTypes}    selected={deliveryTypeFilter}     onChange={setDeliveryTypeFilter}     className="flex-1" />
-                <DateRangeDropdown dateFrom={deliveryDateFrom} dateTo={deliveryDateTo} onChangeFrom={setDeliveryDateFrom} onChangeTo={setDeliveryDateTo} className="flex-1" />
-                <PriceRangeDropdown label="Area Range" unit="m²" priceMin={areaMin} priceMax={areaMax} onChangeMin={setAreaMin} onChangeMax={setAreaMax} className="flex-1" />
-                <PriceRangeDropdown priceMin={priceMin} priceMax={priceMax} onChangeMin={setPriceMin} onChangeMax={setPriceMax} className="flex-1" />
-                <FilterDropdown label="Plan Type"  options={filterOptions.planTypes} selected={planTypeFilter} onChange={setPlanTypeFilter} className="flex-1" />
-                <SingleSelectDropdown label="Plan Offer" options={["Offer", "No Offer"]} value={planOfferFilter} onChange={setPlanOfferFilter} className="flex-1" />
+                <FilterDropdown label="Property Category" options={filterOptions.categories}       selected={propertyCategoryFilter} onChange={setPropertyCategoryFilter} />
+                <FilterDropdown label="Property Type"     options={filterOptions.propertyTypes}    selected={propertyTypeFilter}     onChange={setPropertyTypeFilter}     />
+                <FilterDropdown label="Property Subtype"  options={filterOptions.propertySubTypes} selected={propertySubTypeFilter}  onChange={setPropertySubTypeFilter}  />
+                <FilterDropdown label="Finishing Type"    options={filterOptions.finishingTypes}   selected={finishingTypeFilter}    onChange={setFinishingTypeFilter}    />
+                <FilterDropdown label="Delivery Type"     options={filterOptions.deliveryTypes}    selected={deliveryTypeFilter}     onChange={setDeliveryTypeFilter}     />
+                <DateRangeDropdown dateFrom={deliveryDateFrom} dateTo={deliveryDateTo} onChangeFrom={setDeliveryDateFrom} onChangeTo={setDeliveryDateTo} />
+                <PriceRangeDropdown label="Area Range" unit="m²" priceMin={areaMin} priceMax={areaMax} onChangeMin={setAreaMin} onChangeMax={setAreaMax} />
+                <PriceRangeDropdown priceMin={priceMin} priceMax={priceMax} onChangeMin={setPriceMin} onChangeMax={setPriceMax} />
+                <FilterDropdown label="Plan Type"  options={filterOptions.planTypes} selected={planTypeFilter} onChange={setPlanTypeFilter} />
+                <SingleSelectDropdown label="Plan Offer" options={["Offer", "No Offer"]} value={planOfferFilter} onChange={setPlanOfferFilter} />
               </div>
 
               {/* Row 2: All Filters + Advanced + Clear | Sort + Group + Columns */}
