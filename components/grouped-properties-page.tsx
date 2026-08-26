@@ -115,6 +115,9 @@ export interface SharedFilterState {
   deliveryDateTo: string
   priceMin: string
   priceMax: string
+  sourceFilter: Set<string>
+  areaMin: string
+  areaMax: string
   planOfferFilter: string
 }
 
@@ -249,7 +252,7 @@ function makeGroups(): GroupedProperty[] {
     ["Private Beach", "Gym", "Security", "Club House", "Marina"],
     ["Pool", "Gym", "Parking", "Security", "Playground", "Mall Access"],
   ]
-  const sources = ["Nawy Website", "CRM", "Agent", "Direct", "Referral", "Walk-in", "Online Ad", "Partner"]
+  const sources = ["WebAPI", "IMS", "Property Management", "Nawy Shares", "Sales Portal", "Customer Properties"]
   const categories = ["Residential", "Commercial", "Residential", "Residential", "Commercial", "Residential", "Residential", "Residential"]
   const propertyTypes = ["Chalet", "Apartment", "Chalet", "Apartment", "Office", "Villa", "Duplex", "Apartment"]
   const propertySubTypes = ["Garden Chalet", "Garden Apartment", "Studio", "Penthouse", "Open Space", "Twin House", "Roof Duplex", "Standard"]
@@ -2628,7 +2631,8 @@ const GROUPED_HIDDEN_COLS: ColId[] = [
   "finishingType", "finishingLevel",
   "deliveryType", "deliveryDate",
   "grossBua", "bedrooms", "bathrooms", "price",
-  "source", "saleType", "entryType",
+  "parkingFees", "additionalParkingFees",
+  "saleType", "entryType",
   "availabilityUpdatedAt", "priceUpdatedAt", "propertyCreatedAt", "propertyUpdatedAt",
 ]
 
@@ -2816,6 +2820,9 @@ export function GroupedPropertiesView({
       if (filters.listingFilter.size > 0 && !filters.listingFilter.has(group.listingStatus)) return false
       if (filters.propertyTypeFilter.size > 0 && !filters.propertyTypeFilter.has(group.propertyType)) return false
       if (filters.deliveryTypeFilter.size > 0 && !filters.deliveryTypeFilter.has(group.deliveryType)) return false
+      if (filters.sourceFilter.size > 0 && !filters.sourceFilter.has(group.source)) return false
+      if (filters.areaMin && group.areaMax < Number(filters.areaMin)) return false
+      if (filters.areaMax && group.areaMin > Number(filters.areaMax)) return false
       if (!query) return true
       return [group.id, group.title, group.developer.name, group.project.name, group.propertyType].some((value) =>
         value.toLowerCase().includes(query),

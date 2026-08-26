@@ -106,6 +106,8 @@ export const ISSUE_FIELDS: IssueField[] = [
   // Parking & views
   { id: "parking", label: "Parking", group: "Parking & Views", kind: "value", valueType: "boolean" },
   { id: "parkingSlots", label: "Parking Slots", group: "Parking & Views", kind: "value", valueType: "number" },
+  { id: "parkingFees", label: "Parking Fees", group: "Parking & Views", kind: "value", valueType: "currency" },
+  { id: "additionalParkingFees", label: "Additional Parking Fees", group: "Parking & Views", kind: "value", valueType: "currency" },
   { id: "unitView", label: "Unit View", group: "Parking & Views", kind: "value", valueType: "enum", options: ["Garden View", "Pool View", "Sea View", "Street View", "Landscape View", "Club View"] },
   { id: "unitOrientation", label: "Unit Orientation", group: "Parking & Views", kind: "value", valueType: "enum", options: ["North", "North East", "East", "South East", "South", "South West", "West", "North West"] },
   // Amenities & services

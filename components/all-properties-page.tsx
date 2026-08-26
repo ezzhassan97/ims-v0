@@ -105,8 +105,9 @@ type EntryType = "Automatic" | "Manual"
 /** Numeric fields that may hold a min–max range on Launch / Primary-Manual units
  *  (the base field holds the min, `row.ranges` the max). */
 export const RANGE_FIELD_IDS = [
-  "price", "grossBua", "floorNumber", "openRoofArea", "roofAnnexArea", "gardenArea",
+  "price", "grossBua", "netBua", "floorNumber", "openRoofArea", "roofAnnexArea", "gardenArea",
   "terraceArea", "landArea", "storageArea", "outdoorArea", "basementArea", "storagePrice", "outdoorPrice",
+  "parkingFees", "additionalParkingFees",
 ] as const
 export type RangeFieldId = (typeof RANGE_FIELD_IDS)[number]
 
@@ -157,7 +158,8 @@ export interface PropertyRow {
   basementArea: number | null
   parking: boolean
   parkingSlots: number | null
-  additionalParkingSlots: number | null
+  parkingFees: number | null
+  additionalParkingFees: number | null
   storageIncluded: boolean
   storagePrice: number | null
   outdoorPrice: number | null
@@ -265,7 +267,8 @@ export const COLUMNS: ColumnDef[] = [
   { id: "basementArea", label: "Basement area", width: 135, align: "right" },
   { id: "parking", label: "Parking", width: 100, align: "center" },
   { id: "parkingSlots", label: "Parking slots", width: 130, align: "right" },
-  { id: "additionalParkingSlots", label: "Additional parking slots", width: 190, align: "right" },
+  { id: "parkingFees", label: "Parking fees", width: 150, align: "right" },
+  { id: "additionalParkingFees", label: "Additional parking fees", width: 190, align: "right" },
   { id: "storageIncluded", label: "Storage included", width: 140, align: "center" },
   { id: "storagePrice", label: "Storage price", width: 150, align: "right" },
   { id: "outdoorPrice", label: "Outdoor price", width: 150, align: "right" },
@@ -394,6 +397,9 @@ function tagColor(value: string): string {
 }
 
 // ── Mock data ──────────────────────────────────────────────────────────────────
+/** The fixed set of ingestion sources — the Source column tag + filter options. */
+export const SOURCE_OPTIONS = ["WebAPI", "IMS", "Property Management", "Nawy Shares", "Sales Portal", "Customer Properties"]
+
 export function createRows(): PropertyRow[] {
   return Array.from({ length: 3 }).flatMap((_, bi) =>
     initialUnits.map((unit, ui) => mapUnitToProperty(unit, bi, ui)),
@@ -413,6 +419,46 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
   const furnished = index % 4 === 0
   const projId = `PRJ-${100 + (index % 5)}`
   const phsId = `PHS-${200 + (index % 6)}`
+  // Numeric fields hoisted so the Launch / Primary-Manual `ranges` seed below
+  // can reference the same values.
+  const floorNumber = isVillaLike ? null : (index % 12) + 1
+  const netBua = index % 5 === 0 ? null : Math.max(45, grossBua - 14)
+  const openRoofArea = isVillaLike || index % 5 === 0 ? 20 + index * 3 : null
+  const roofAnnexArea = isVillaLike && index % 3 !== 0 ? 15 + index * 2 : null
+  const gardenArea = isVillaLike || index % 4 === 1 ? 30 + index * 2 : null
+  const terraceArea = index % 3 === 0 ? null : 8 + index
+  const landArea = isVillaLike ? grossBua + 90 : null
+  const storageArea = index % 4 === 0 ? null : 4 + (index % 8)
+  const outdoorArea = index % 4 === 0 ? null : 10 + index * 2
+  const basementArea = isVillaLike ? 30 + index * 4 : null
+  const storagePrice = index % 3 === 0 && index % 4 !== 0 ? 50000 + index * 5000 : null
+  const outdoorPrice = index % 5 === 0 ? null : 30000 + index * 3000
+  const parkingFees = index % 4 === 0 ? null : 120_000 + index * 8_000
+  const additionalParkingFees = index % 6 === 0 ? null : 80_000 + index * 5_000
+  // Launch / Primary-Manual units: every range-capable numeric field with a
+  // value gets a max (base value = min); ~1/3 of eligible rows stay single-value.
+  const bump = (v: number | null, d: number) => (v == null ? undefined : v + d)
+  const ranges: PropertyRow["ranges"] =
+    (saleType === "Launch" || (saleType === "Primary" && isManual)) && index % 3 !== 2
+      ? {
+          price: price ? price + 400_000 + (index % 5) * 120_000 : undefined,
+          grossBua: grossBua + 12 + (index % 3) * 6,
+          netBua: bump(netBua, 10 + (index % 3) * 4),
+          floorNumber: bump(floorNumber, 1 + (index % 3)),
+          openRoofArea: bump(openRoofArea, 6 + (index % 4)),
+          roofAnnexArea: bump(roofAnnexArea, 5),
+          gardenArea: bump(gardenArea, 12 + (index % 5)),
+          terraceArea: bump(terraceArea, 4),
+          landArea: bump(landArea, 30),
+          storageArea: bump(storageArea, 3),
+          outdoorArea: bump(outdoorArea, 8),
+          basementArea: bump(basementArea, 10),
+          storagePrice: bump(storagePrice, 15_000 + (index % 3) * 5_000),
+          outdoorPrice: bump(outdoorPrice, 20_000 + (index % 4) * 5_000),
+          parkingFees: bump(parkingFees, 30_000),
+          additionalParkingFees: bump(additionalParkingFees, 20_000),
+        }
+      : undefined
   return {
     propertyId,
     propertyMetadataId: `PMD-${String(10000 + index).padStart(6, "0")}`,
@@ -461,9 +507,9 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
     developerType: index % 4 === 0 ? null : `${unit.propertyType} ${unit.bedrooms}BR`,
     buildingType: isVillaLike ? "Standalone" : index % 3 === 0 ? "Cluster" : "Tower",
     buildingNumber: unit.buildingNumber || null,
-    floorNumber: isVillaLike ? null : (index % 12) + 1,
+    floorNumber,
     grossBua,
-    netBua: index % 5 === 0 ? null : Math.max(45, grossBua - 14),
+    netBua,
     bedrooms:
       unit.propertyType === "Apartment" && unit.bedrooms === 1 && index % 4 === 0 ? null : unit.bedrooms,
     bathrooms: index % 6 === 0 ? null : Math.max(1, unit.bedrooms - 1),
@@ -473,23 +519,24 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
     deliveryDate: index % 3 === 0 ? null : new Date(2026 + (index % 4), (index * 3) % 12, (index % 28) + 1).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
     unitView: index % 4 === 0 ? null : ["Sea view", "Lagoon", "Garden", "Clubhouse"][index % 4],
     unitOrientation: index % 5 === 0 ? null : ["North", "SW", "East", "NE"][index % 4],
-    openRoofArea: isVillaLike || index % 5 === 0 ? 20 + index * 3 : null,
-    roofAnnexArea: isVillaLike && index % 3 !== 0 ? 15 + index * 2 : null,
-    gardenArea: isVillaLike || index % 4 === 1 ? 30 + index * 2 : null,
-    terraceArea: index % 3 === 0 ? null : 8 + index,
-    landArea: isVillaLike ? grossBua + 90 : null,
-    storageArea: index % 4 === 0 ? null : 4 + (index % 8),
-    outdoorArea: index % 4 === 0 ? null : 10 + index * 2,
-    basementArea: isVillaLike ? 30 + index * 4 : null,
+    openRoofArea,
+    roofAnnexArea,
+    gardenArea,
+    terraceArea,
+    landArea,
+    storageArea,
+    outdoorArea,
+    basementArea,
     parking: index % 4 !== 0,
     parkingSlots: index % 5 === 0 ? null : isVillaLike ? 2 : 1,
-    additionalParkingSlots: index % 6 === 0 ? null : index % 3,
+    parkingFees,
+    additionalParkingFees,
     storageIncluded: index % 3 === 0,
-    storagePrice: index % 3 === 0 && index % 4 !== 0 ? 50000 + index * 5000 : null,
-    outdoorPrice: index % 5 === 0 ? null : 30000 + index * 3000,
+    storagePrice,
+    outdoorPrice,
     serviced: furnished && index % 3 === 2,
     branded: furnished && index % 3 === 1,
-    source: (["Nawy Portal", "Developer Feed", "Manual Entry", "API Sync", null] as (string | null)[])[index % 5],
+    source: SOURCE_OPTIONS[index % SOURCE_OPTIONS.length],
     district: (["New Cairo", "Sheikh Zayed", "North Coast", "Ain Sokhna", "6th October"])[index % 5],
     area: (["El Shorouk", "Katameya", "Beverly Hills", "Ras El Hekma", "El Gouna"])[index % 5],
     subarea: index % 4 === 0 ? null : (["District A", "Block 5", "Central Hub", "Phase Zone"])[index % 4],
@@ -513,18 +560,7 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
     })(),
     amenities: Array.from({ length: (index % 4) + 1 }, (_, i) => amenitiesPool[(index + i) % amenitiesPool.length]),
     services: index % 3 === 0 ? [] : Array.from({ length: (index % 3) + 1 }, (_, i) => servicesPool[(index + i) % servicesPool.length]),
-    // Launch / Primary-Manual units: numeric fields can hold min–max ranges
-    ranges:
-      (saleType === "Launch" || (saleType === "Primary" && isManual)) && index % 3 !== 2
-        ? {
-            ...(price ? { price: price + 400_000 + (index % 5) * 120_000 } : {}),
-            grossBua: grossBua + 12 + (index % 3) * 6,
-            ...(!isVillaLike && index % 2 === 0 ? { floorNumber: (index % 12) + 3 } : {}),
-            ...((isVillaLike || index % 4 === 1) && index % 2 === 1 ? { gardenArea: 30 + index * 2 + 16 } : {}),
-            ...(index % 5 !== 0 && index % 2 === 0 ? { outdoorPrice: 30000 + index * 3000 + 25000 } : {}),
-            ...(index % 4 !== 0 && index % 3 === 0 ? { outdoorArea: 10 + index * 2 + 8 } : {}),
-          }
-        : undefined,
+    ranges,
     price,
     priceRecords:
       index % 4 === 0
@@ -575,6 +611,18 @@ export function priceCell(row: PropertyRow, field: RangeFieldId | keyof Property
   if (!min) return null // matches formatPrice: 0 renders as missing
   const t = rangeNum(row, field)
   return t ? `${t} EGP` : null
+}
+/** Price per m² — a range when price and/or the area field carry ranges. */
+export function ppm2Text(row: PropertyRow, areaField: "grossBua" | "netBua"): string | null {
+  const p = row.price
+  const a = row[areaField]
+  if (!p || !a) return null
+  const rMax = (f: RangeFieldId) => (rowSupportsRanges(row) ? row.ranges?.[f] : undefined)
+  const p2 = rMax("price") ?? p
+  const a2 = rMax(areaField) ?? a
+  const lo = Math.round(Math.min(p / a, p2 / a2))
+  const hi = Math.round(Math.max(p / a, p2 / a2))
+  return lo === hi ? `${lo.toLocaleString()} EGP/m²` : `${lo.toLocaleString()} – ${hi.toLocaleString()} EGP/m²`
 }
 function relativeTime(iso: string) {
   const h = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 3600000))
@@ -2952,7 +3000,7 @@ export function ViewPropertyDrawer({
                     </span>
                     {pricePerM2 && (
                       <span className="text-xs text-muted-foreground tabular-nums">
-                        {pricePerM2.toLocaleString()} EGP/m²
+                        {ppm2Text(row, "grossBua")}
                       </span>
                     )}
                   </>
@@ -3057,7 +3105,7 @@ export function ViewPropertyDrawer({
                 </Section>
                 <Section title="Dimensions">
                   <Field label="Gross BUA" value={areaCell(row, "grossBua")} />
-                  <Field label="Net BUA" value={formatArea(row.netBua)} />
+                  <Field label="Net BUA" value={areaCell(row, "netBua")} />
                   <Field label="Bedrooms" value={row.bedrooms} />
                   <Field label="Bathrooms" value={row.bathrooms} />
                 </Section>
@@ -3085,7 +3133,8 @@ export function ViewPropertyDrawer({
                 <Section title="Parking & Storage">
                   <Field label="Parking" value={<BooleanMark value={row.parking} />} />
                   <Field label="Parking Slots" value={row.parkingSlots} />
-                  <Field label="Additional Parking Slots" value={row.additionalParkingSlots} />
+                  <Field label="Parking Fees" value={priceCell(row, "parkingFees")} />
+                  <Field label="Additional Parking Fees" value={priceCell(row, "additionalParkingFees")} />
                   <Field label="Storage Included" value={<BooleanMark value={row.storageIncluded} />} />
                   <Field label="Storage Price" value={priceCell(row, "storagePrice")} />
                   <Field label="Outdoor Price" value={priceCell(row, "outdoorPrice")} />
@@ -3321,7 +3370,7 @@ export function EmbeddedPropertyTable({
       case "monthlyInstallment":
         return row.planType === "Cash" ? <EmptyValue /> : nil(row.monthlyInstallment)
       case "source":
-        return nil(row.source)
+        return row.source ? <TagBadge value={row.source} /> : <EmptyValue />
       case "developer":
         return (
           <a href={row.developer.url} target="_blank" rel="noreferrer"
@@ -3400,9 +3449,9 @@ export function EmbeddedPropertyTable({
         return nil(areaCell(row, column.id))
       case "floorNumber":
         return nil(rangeNum(row, "floorNumber"))
-      case "bedrooms": case "bathrooms": case "parkingSlots": case "additionalParkingSlots":
+      case "bedrooms": case "bathrooms": case "parkingSlots":
         return nil(row[column.id] as number | null)
-      case "storagePrice": case "outdoorPrice":
+      case "storagePrice": case "outdoorPrice": case "parkingFees": case "additionalParkingFees":
         return nil(priceCell(row, column.id))
       case "parking": case "storageIncluded": case "serviced": case "branded":
         return <BooleanMark value={Boolean(row[column.id])} />
@@ -3424,7 +3473,7 @@ export function EmbeddedPropertyTable({
         )
       case "pricePerMeter":
         return row.price && row.netBua
-          ? <span className="tabular-nums text-right block">{Math.round(row.price / row.netBua).toLocaleString()} EGP/m²</span>
+          ? <span className="tabular-nums text-right block">{ppm2Text(row, "netBua")}</span>
           : <EmptyValue />
       case "paymentOptions":
         return (
@@ -3652,6 +3701,9 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
     deliveryTypeFilter,
     priceMin,
     priceMax,
+    sourceFilter,
+    areaMin,
+    areaMax,
     onClearFilters,
     sortConfigs,
     setSortConfigs,
@@ -3776,6 +3828,9 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
       if (deliveryTypeFilter.size > 0 && !deliveryTypeFilter.has(row.deliveryType)) return false
       if (priceMin && row.price != null && row.price < Number(priceMin)) return false
       if (priceMax && row.price != null && row.price > Number(priceMax)) return false
+      if (sourceFilter.size > 0 && (!row.source || !sourceFilter.has(row.source))) return false
+      if (areaMin && row.grossBua < Number(areaMin)) return false
+      if (areaMax && row.grossBua > Number(areaMax)) return false
       // Advanced filter groups
       if (filterGroups.length > 0) {
         const groupResults = filterGroups.map((group) => {
@@ -3803,7 +3858,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
       })
     }
     return result
-  }, [rows, searchQuery, developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter, priceMin, priceMax, sortConfigs, filterGroups, groupConnector, showIssues, issuesByProp])
+  }, [rows, searchQuery, developerFilter, projectFilter, saleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter, priceMin, priceMax, sourceFilter, areaMin, areaMax, sortConfigs, filterGroups, groupConnector, showIssues, issuesByProp])
 
   const groupedRows = useMemo(() => {
     if (!groupByColumn) return null
@@ -3936,7 +3991,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
       case "monthlyInstallment":
         return row.planType === "Cash" ? <EmptyValue /> : nil(row.monthlyInstallment)
       case "source":
-        return nil(row.source)
+        return row.source ? <TagBadge value={row.source} /> : <EmptyValue />
       case "developer":
         return (
           <a
@@ -4066,10 +4121,11 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
       case "bedrooms":
       case "bathrooms":
       case "parkingSlots":
-      case "additionalParkingSlots":
         return nil(row[column.id] as number | null)
       case "storagePrice":
       case "outdoorPrice":
+      case "parkingFees":
+      case "additionalParkingFees":
         return nil(priceCell(row, column.id))
       case "parking":
       case "storageIncluded":
@@ -4109,9 +4165,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
         )
       case "pricePerMeter":
         return row.price && row.grossBua ? (
-          <span className="tabular-nums">
-            {Math.round(row.price / row.grossBua).toLocaleString()} EGP/m²
-          </span>
+          <span className="tabular-nums">{ppm2Text(row, "grossBua")}</span>
         ) : (
           <EmptyValue />
         )
@@ -5387,12 +5441,16 @@ function PriceRangeDropdown({
   onChangeMin,
   onChangeMax,
   className,
+  label = "Price Range",
+  unit = "EGP",
 }: {
   priceMin: string
   priceMax: string
   onChangeMin: (v: string) => void
   onChangeMax: (v: string) => void
   className?: string
+  label?: string
+  unit?: string
 }) {
   const isActive = !!priceMin || !!priceMax
   return (
@@ -5407,7 +5465,7 @@ function PriceRangeDropdown({
             className,
           )}
         >
-          Price Range
+          {label}
           {isActive && (
             <span className="inline-flex items-center justify-center h-4 min-w-[1rem] px-1 rounded-full text-[10px] font-semibold bg-primary-foreground/20 text-primary-foreground">
               1
@@ -5417,7 +5475,7 @@ function PriceRangeDropdown({
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-52 p-3" align="start">
-        <p className="text-xs font-semibold text-muted-foreground mb-2">Price Range (EGP)</p>
+        <p className="text-xs font-semibold text-muted-foreground mb-2">{label} ({unit})</p>
         <div className="flex items-center gap-2">
           <Input
             className="h-8 text-sm"
@@ -5603,6 +5661,9 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
   const [deliveryDateTo, setDeliveryDateTo] = useState("")
   const [priceMin, setPriceMin] = useState("")
   const [priceMax, setPriceMax] = useState("")
+  const [sourceFilter, setSourceFilter] = useState<Set<string>>(new Set())
+  const [areaMin, setAreaMin] = useState("")
+  const [areaMax, setAreaMax] = useState("")
   const [planOfferFilter, setPlanOfferFilter] = useState("")
   // Advanced filter + group state — shared across both tabs
   const [filterGroups, setFilterGroups] = useState<FilterGroup[]>([])
@@ -5630,6 +5691,9 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
     deliveryDateTo,
     priceMin,
     priceMax,
+    sourceFilter,
+    areaMin,
+    areaMax,
     planOfferFilter,
   }
 
@@ -5653,6 +5717,9 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
     setDeliveryDateTo("")
     setPriceMin("")
     setPriceMax("")
+    setSourceFilter(new Set())
+    setAreaMin("")
+    setAreaMax("")
     setPlanOfferFilter("")
     setFilterGroups([])
     setGroupByColumn(null)
@@ -5669,6 +5736,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
     propertyCategoryFilter.size > 0 || propertyTypeFilter.size > 0 || propertySubTypeFilter.size > 0 ||
     finishingTypeFilter.size > 0 || deliveryTypeFilter.size > 0 ||
     !!deliveryDateFrom || !!deliveryDateTo || !!priceMin || !!priceMax || !!planOfferFilter ||
+    sourceFilter.size > 0 || !!areaMin || !!areaMax ||
     filterGroups.length > 0
 
   // ── Filter options ─────────────────────────────────────────────────────────
@@ -5687,6 +5755,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
     propertySubTypes: [...new Set(allRows.map((r) => r.propertySubType).filter(Boolean))].sort() as string[],
     finishingTypes:   [...new Set(allRows.map((r) => r.finishingType))].sort(),
     deliveryTypes:    [...new Set(allRows.map((r) => r.deliveryType))].sort(),
+    sources:          SOURCE_OPTIONS,
   }), [allRows])
 
   // ── Card stats ─────────────────────────────────────────────────────────────
@@ -5847,6 +5916,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                   <FilterDropdown label="Status"         options={filterOptions.availability}    selected={availabilityFilter}  onChange={setAvailabilityFilter}  className="flex-1" />
                   {!fixedEntryType && <FilterDropdown label="Entry Type"     options={filterOptions.entryTypes}      selected={entryTypeFilter}     onChange={setEntryTypeFilter}     className="flex-1" />}
                   <FilterDropdown label="Listing Status" options={filterOptions.listingStatuses} selected={listingFilter}       onChange={setListingFilter}       className="flex-1" />
+                  <FilterDropdown label="Source"         options={filterOptions.sources}         selected={sourceFilter}        onChange={setSourceFilter}        className="flex-1" />
                 </div>
               </div>
 
@@ -5858,6 +5928,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                 <FilterDropdown label="Finishing Type"    options={filterOptions.finishingTypes}   selected={finishingTypeFilter}    onChange={setFinishingTypeFilter}    className="flex-1" />
                 <FilterDropdown label="Delivery Type"     options={filterOptions.deliveryTypes}    selected={deliveryTypeFilter}     onChange={setDeliveryTypeFilter}     className="flex-1" />
                 <DateRangeDropdown dateFrom={deliveryDateFrom} dateTo={deliveryDateTo} onChangeFrom={setDeliveryDateFrom} onChangeTo={setDeliveryDateTo} className="flex-1" />
+                <PriceRangeDropdown label="Area Range" unit="m²" priceMin={areaMin} priceMax={areaMax} onChangeMin={setAreaMin} onChangeMax={setAreaMax} className="flex-1" />
                 <PriceRangeDropdown priceMin={priceMin} priceMax={priceMax} onChangeMin={setPriceMin} onChangeMax={setPriceMax} className="flex-1" />
                 <FilterDropdown label="Plan Type"  options={filterOptions.planTypes} selected={planTypeFilter} onChange={setPlanTypeFilter} className="flex-1" />
                 <SingleSelectDropdown label="Plan Offer" options={["Offer", "No Offer"]} value={planOfferFilter} onChange={setPlanOfferFilter} className="flex-1" />
@@ -5876,7 +5947,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                     All Filters
                     {hasAnyFilter && (
                       <Badge variant="secondary" className="ml-1.5 h-4 px-1.5 text-[10px]">
-                        {[districtFilter, areaFilter, planTypeFilter, developerFilter, projectFilter, countedSaleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + (priceMin || priceMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0) + (planOfferFilter ? 1 : 0)}
+                        {[districtFilter, areaFilter, planTypeFilter, developerFilter, projectFilter, countedSaleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + sourceFilter.size + (priceMin || priceMax ? 1 : 0) + (areaMin || areaMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0) + (planOfferFilter ? 1 : 0)}
                       </Badge>
                     )}
                   </Button>
@@ -6019,7 +6090,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                     <SheetTitle>All Filters</SheetTitle>
                     {hasAnyFilter && (
                       <Badge variant="secondary" className="text-[11px]">
-                        {[districtFilter, areaFilter, planTypeFilter, developerFilter, projectFilter, countedSaleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + (priceMin || priceMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0) + (planOfferFilter ? 1 : 0)} active
+                        {[districtFilter, areaFilter, planTypeFilter, developerFilter, projectFilter, countedSaleTypeFilter, availabilityFilter, entryTypeFilter, listingFilter, propertyCategoryFilter, propertyTypeFilter, propertySubTypeFilter, finishingTypeFilter, deliveryTypeFilter].reduce((n, s) => n + s.size, 0) + sourceFilter.size + (priceMin || priceMax ? 1 : 0) + (areaMin || areaMax ? 1 : 0) + (deliveryDateFrom || deliveryDateTo ? 1 : 0) + (planOfferFilter ? 1 : 0)} active
                       </Badge>
                     )}
                   </div>
@@ -6053,6 +6124,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                       { label: "Status",             filter: availabilityFilter,       setFilter: setAvailabilityFilter,       options: filterOptions.availability },
                       { label: "Entry Type",         filter: entryTypeFilter,          setFilter: setEntryTypeFilter,          options: filterOptions.entryTypes },
                       { label: "Listing Status",     filter: listingFilter,            setFilter: setListingFilter,            options: filterOptions.listingStatuses },
+                      { label: "Source",             filter: sourceFilter,             setFilter: setSourceFilter,             options: filterOptions.sources },
                       { label: "Property Category",  filter: propertyCategoryFilter,   setFilter: setPropertyCategoryFilter,   options: filterOptions.categories },
                       { label: "Property Type",      filter: propertyTypeFilter,       setFilter: setPropertyTypeFilter,       options: filterOptions.propertyTypes },
                       { label: "Property Subtype",   filter: propertySubTypeFilter,    setFilter: setPropertySubTypeFilter,    options: filterOptions.propertySubTypes },
@@ -6124,6 +6196,16 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                         )}
                       </div>
                     )}
+                  </div>
+
+                  {/* Area Range */}
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-foreground">Area Range (m²)</p>
+                    <div className="flex items-center gap-2">
+                      <Input className="h-8 text-sm" placeholder="Min" type="number" value={areaMin} onChange={(e) => setAreaMin(e.target.value)} />
+                      <span className="text-muted-foreground text-sm shrink-0">–</span>
+                      <Input className="h-8 text-sm" placeholder="Max" type="number" value={areaMax} onChange={(e) => setAreaMax(e.target.value)} />
+                    </div>
                   </div>
 
                   {/* Price Range */}
