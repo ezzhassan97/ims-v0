@@ -1444,7 +1444,7 @@ export const PAYMENT_PLAN_GROUPS: PriceGroup[] = [
   },
 ]
 
-function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewOnly = false, lockRemoval = false, singleColumn = false, onRemovePlan, onRemovePrice, onView }: {
+function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewOnly = false, lockRemoval = false, singleColumn = false, onRemovePlan, onRemovePrice, onView, flatOffset = 0, planRing }: {
   group: PriceGroup; groupIndex: number; totalGroups: number
   expandedPlans: Set<string>; setExpandedPlans: React.Dispatch<React.SetStateAction<Set<string>>>
   viewOnly?: boolean
@@ -1453,6 +1453,10 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewO
   onRemovePlan?: (planId: string) => void
   onRemovePrice?: () => void
   onView?: (plan: PlanCardData) => void
+  /** Flat plan index of this group's first plan (for issue highlighting across groups). */
+  flatOffset?: number
+  /** Ring class for a flat plan index with a reported issue (issue tracking drawer). */
+  planRing?: (flatIdx: number) => string | undefined
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const canDeletePrice = !viewOnly && !lockRemoval && totalGroups > 1
@@ -1491,10 +1495,11 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewO
       </div>
       {/* Cards */}
       <div className="flex flex-wrap gap-2.5 items-start">
-        {group.plans.map((plan) => {
+        {group.plans.map((plan, pIdx) => {
           const canUnlink = !viewOnly && !lockRemoval && (group.plans.length > 1 || totalGroups > 1)
           const cascade = group.plans.length === 1 && totalGroups > 1
-          return (
+          const ring = planRing?.(flatOffset + pIdx)
+          const card = (
             <LinkedPlanCard
               key={plan.id}
               plan={plan}
@@ -1513,6 +1518,7 @@ function PriceGroup({ group, totalGroups, expandedPlans, setExpandedPlans, viewO
               })}
             />
           )
+          return ring ? <div key={plan.id} className={cn("rounded-xl", ring, singleColumn && "w-full")}>{card}</div> : card
         })}
       </div>
     </div>
@@ -1810,7 +1816,7 @@ export function LinkedPlanCard({ plan, isExpanded, onToggleExpand, totalInGroup,
 // ── Media Gallery Tab ─────────────────────────────────────────────────────────
 export function MediaGalleryTab({
   field, items, label, onUpload, onView, onRemove, onReorder, readOnly = false, hideHeader = false,
-  reorderOnly = false, onAddFromProject, onAutoMatch, matching = false,
+  reorderOnly = false, onAddFromProject, onAutoMatch, matching = false, issueIndices, issueFocusIndices,
 }: {
   field: string; items: string[]; label: string
   onUpload: () => void
@@ -1824,6 +1830,9 @@ export function MediaGalleryTab({
   onAddFromProject?: () => void
   onAutoMatch?: () => void
   matching?: boolean
+  /** Item indices with reported issues (red ring); focus = the currently-open issue's items (strong ring). */
+  issueIndices?: number[]
+  issueFocusIndices?: number[]
 }) {
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -1900,6 +1909,7 @@ export function MediaGalleryTab({
                 canDrag && "cursor-grab active:cursor-grabbing",
                 dragOverIndex === i && dragIndex !== i ? "border-primary ring-2 ring-primary/30 scale-[1.02]" : "border-border hover:border-primary/50",
                 dragIndex === i ? "opacity-40" : "opacity-100",
+                issueFocusIndices?.includes(i) ? "ring-2 ring-red-500" : issueIndices?.includes(i) && "ring-1 ring-red-300/70",
               )}
             >
               <img src={img} alt="" className="w-full h-full object-cover pointer-events-none" />
@@ -1957,6 +1967,16 @@ export function MediaGalleryTab({
 // ── View Property Drawer ───────────────────────────────────────────────────────
 // ── Shared tab panels (used by the unit drawer AND the grouped property details page) ──
 // Renders a single tab's content for the given property row. Self-contained state + overlays.
+/** Issue-driven item highlights (issue tracking drawer): red rings on the
+ *  affected plan cards / media / amenities. `focus` carries the currently-open
+ *  issue's items (strong ring); the rest render faint. */
+export interface ItemIssueHighlights {
+  plans?: { indices: number[]; focus: number[] }
+  images?: { indices: number[]; focus: number[] }
+  floorPlans?: { indices: number[]; focus: number[] }
+  amenities?: { names: string[]; focus: string[] }
+}
+
 export function PropertyDetailTab({
   tab,
   row,
@@ -1965,6 +1985,7 @@ export function PropertyDetailTab({
   variation,
   priceRange,
   singleColumn = false,
+  itemIssues,
 }: {
   tab: string
   row: PropertyRow
@@ -1976,6 +1997,7 @@ export function PropertyDetailTab({
   priceRange?: { min: number; max: number }
   /** Render payment-plan cards one-per-row (compact side-drawer view). */
   singleColumn?: boolean
+  itemIssues?: ItemIssueHighlights
 }) {
   const [carouselState, setCarouselState] = useState<{ imgs: string[]; idx: number; field: "images" | "floorPlans" } | null>(null)
   const [uploadState, setUploadState] = useState<"images" | "floorPlans" | null>(null)
@@ -2030,6 +2052,12 @@ export function PropertyDetailTab({
       .map((g, i) => (i === gi ? { ...g, plans: g.plans.filter((p) => p.id !== planId) } : g))
       .filter((g) => g.plans.length > 0))
   const removePrice = (gi: number) => setPpGroups((prev) => prev.filter((_, i) => i !== gi))
+  /** Red ring class for a flat plan-card index with a reported issue. */
+  const planRing = (flatIdx: number): string | undefined => {
+    const pi = itemIssues?.plans
+    if (!pi) return undefined
+    return pi.focus.includes(flatIdx) ? "ring-2 ring-red-500" : pi.indices.includes(flatIdx) ? "ring-1 ring-red-300/70" : undefined
+  }
   const [auditLogDrawerEntry, setAuditLogDrawerEntry] = useState<{ id: string; action: "Edit" | "Create" | "Delete"; entity: string; label: string; detail: string; user: string; ts: string } | null>(null)
 
   const dummyAuditLogs = [
@@ -2070,23 +2098,27 @@ export function PropertyDetailTab({
                 <p className="text-[11px] text-muted-foreground">These payment plans are linked to both prices in the range.</p>
               )}
               <div className="flex flex-wrap items-start gap-2.5">
-                {sharedPlans.map((plan) => (
-                  <LinkedPlanCard
-                    key={plan.id}
-                    plan={plan}
-                    readOnly={ppViewOnly}
-                    fullWidth={singleColumn}
-                    isExpanded={expandedPlans.has(plan.id)}
-                    totalInGroup={sharedPlans.length}
-                    onView={() => setDetailsPlan(plan)}
-                    onRemove={!ppViewOnly && sharedPlans.length > 1 ? () => removeSharedPlan(plan.id) : undefined}
-                    onToggleExpand={() => setExpandedPlans((prev) => {
-                      const next = new Set(prev)
-                      if (next.has(plan.id)) next.delete(plan.id); else next.add(plan.id)
-                      return next
-                    })}
-                  />
-                ))}
+                {sharedPlans.map((plan, pIdx) => {
+                  const ring = planRing(pIdx)
+                  const card = (
+                    <LinkedPlanCard
+                      key={plan.id}
+                      plan={plan}
+                      readOnly={ppViewOnly}
+                      fullWidth={singleColumn}
+                      isExpanded={expandedPlans.has(plan.id)}
+                      totalInGroup={sharedPlans.length}
+                      onView={() => setDetailsPlan(plan)}
+                      onRemove={!ppViewOnly && sharedPlans.length > 1 ? () => removeSharedPlan(plan.id) : undefined}
+                      onToggleExpand={() => setExpandedPlans((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(plan.id)) next.delete(plan.id); else next.add(plan.id)
+                        return next
+                      })}
+                    />
+                  )
+                  return ring ? <div key={plan.id} className={cn("rounded-xl", ring, singleColumn && "w-full")}>{card}</div> : card
+                })}
                 {sharedPlans.length === 0 && <p className="w-full py-10 text-center text-sm text-muted-foreground">No payment plans linked.</p>}
               </div>
             </div>
@@ -2100,6 +2132,8 @@ export function PropertyDetailTab({
                   onRemovePlan={(planId) => removePlan(gi, planId)}
                   onRemovePrice={() => removePrice(gi)}
                   onView={(plan) => setDetailsPlan(plan)}
+                  flatOffset={ppGroups.slice(0, gi).reduce((s, g) => s + g.plans.length, 0)}
+                  planRing={itemIssues?.plans ? planRing : undefined}
                 />
               ))}
               {ppGroups.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">No payment plans linked.</p>}
@@ -2122,6 +2156,8 @@ export function PropertyDetailTab({
           onView={(idx) => setCarouselState({ imgs: row.images, idx, field: "images" })}
           onRemove={(idx) => onUpdateRow(row.propertyId, { images: row.images.filter((_, i) => i !== idx) })}
           onReorder={(items) => onUpdateRow(row.propertyId, { images: items })}
+          issueIndices={itemIssues?.images?.indices}
+          issueFocusIndices={itemIssues?.images?.focus}
         />
       )}
 
@@ -2140,6 +2176,8 @@ export function PropertyDetailTab({
           onView={(idx) => setCarouselState({ imgs: row.floorPlans, idx, field: "floorPlans" })}
           onRemove={(idx) => onUpdateRow(row.propertyId, { floorPlans: row.floorPlans.filter((_, i) => i !== idx) })}
           onReorder={(items) => onUpdateRow(row.propertyId, { floorPlans: items })}
+          issueIndices={itemIssues?.floorPlans?.indices}
+          issueFocusIndices={itemIssues?.floorPlans?.focus}
         />
       )}
 
@@ -2444,8 +2482,10 @@ export function ViewPropertyDrawer({
   editableTabs = [],
   highlightField,
   highlightFields,
+  highlightFocusField,
   highlightTooltips,
   onIssueFieldClick,
+  itemIssues,
   embedded = false,
 }: {
   row: PropertyRow | null
@@ -2458,10 +2498,14 @@ export function ViewPropertyDrawer({
   highlightField?: string
   /** Multiple field labels → severity (Show Issues toggle: every open-issue field). */
   highlightFields?: Record<string, PropIssueSeverity>
+  /** The current issue's field — full highlight; other highlighted fields render dimmed. */
+  highlightFocusField?: string
   /** Field label → hover tooltip (the issue type(s) reported on it). */
   highlightTooltips?: Record<string, string>
   /** Clicking a highlighted field (e.g. to open/switch the issue tracking drawer). */
   onIssueFieldClick?: (fieldLabel: string) => void
+  /** Red rings on affected plan cards / media / amenities (issue tracking drawer). */
+  itemIssues?: ItemIssueHighlights
   /** Render inline (no Sheet) — the property pane of the issue tracking drawer. */
   embedded?: boolean
 }) {
@@ -2508,12 +2552,16 @@ export function ViewPropertyDrawer({
       highlightFields?.[label] ?? (highlightField === label ? "Medium" : undefined)
     const blocking = severity != null && isCriticalSeverity(severity)
     const clickable = severity != null && onIssueFieldClick != null
+    // With a focused issue, its own field stays fully highlighted; siblings dim.
+    const dimmed = severity != null && highlightFocusField != null && label !== highlightFocusField
     return (
       <div
         className={cn(
           "space-y-0.5",
           span === 2 && "col-span-2",
           severity && (blocking ? "-mx-2 -my-1.5 rounded-md border border-red-300 bg-red-50 px-2 py-1.5" : "-mx-2 -my-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5"),
+          severity && !dimmed && highlightFocusField != null && "ring-2 ring-offset-1 ring-red-400/70",
+          dimmed && "opacity-40",
           clickable && "cursor-pointer transition-shadow hover:ring-2 hover:ring-primary/30",
         )}
         title={severity ? highlightTooltips?.[label] ?? `${severity} issue — click to open` : undefined}
@@ -2866,7 +2914,7 @@ export function ViewPropertyDrawer({
 
             {/* Payment Plans */}
             {/* Shared panels: payment-plans · images · floor-plans · entries-log · activity-log · price-history */}
-            <PropertyDetailTab tab={activeTab} row={row} onUpdateRow={onUpdateRow} readOnly={!editableTabs.includes(activeTab)} />
+            <PropertyDetailTab tab={activeTab} row={row} onUpdateRow={onUpdateRow} readOnly={!editableTabs.includes(activeTab)} itemIssues={itemIssues} />
 
             {/* Amenities */}
             {activeTab === "amenities" && (
@@ -2882,8 +2930,10 @@ export function ViewPropertyDrawer({
                     <div className="grid grid-cols-3 gap-2">
                       {row.amenities.map((name) => {
                         const Icon = AMENITY_ICONS[name] ?? Sparkles
+                        const amIssue = itemIssues?.amenities
+                        const ring = amIssue?.focus.includes(name) ? "border-red-500 ring-2 ring-red-500/60" : amIssue?.names.includes(name) ? "border-red-300 ring-1 ring-red-300/50" : undefined
                         return (
-                          <div key={name} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground">
+                          <div key={name} className={cn("flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground", ring)}>
                             <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
                             <span className="truncate">{name}</span>
                           </div>
@@ -2904,8 +2954,10 @@ export function ViewPropertyDrawer({
                     <div className="grid grid-cols-3 gap-2">
                       {row.services.map((name) => {
                         const Icon = AMENITY_ICONS[name] ?? Wrench
+                        const svIssue = itemIssues?.amenities
+                        const ring = svIssue?.focus.includes(name) ? "border-red-500 ring-2 ring-red-500/60" : svIssue?.names.includes(name) ? "border-red-300 ring-1 ring-red-300/50" : undefined
                         return (
-                          <div key={name} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground">
+                          <div key={name} className={cn("flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground", ring)}>
                             <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
                             <span className="truncate">{name}</span>
                           </div>
