@@ -37,6 +37,17 @@ export interface IssueField {
   valueType?: FieldValueType
   /** Enum fields: the valid values (expected-result dropdown). */
   options?: string[]
+  /** Category-level priority — issues on this field inherit it as severity.
+   *  (Editable per category in Quality Configurations.) */
+  priority?: PropIssueSeverity
+}
+
+/** Fields whose value changes over time — they additionally get "Outdated Value". */
+export const OUTDATED_FIELD_IDS = new Set(["price", "storagePrice", "outdoorPrice", "deliveryDate", "deliveryType", "finishingType", "availability"])
+
+/** Effective category priority of a field (default Medium). */
+export function fieldPriority(field: IssueField): PropIssueSeverity {
+  return field.priority ?? "Medium"
 }
 
 export const DEVELOPER_NAMES = ["Palm Hills", "Sodic", "Mountain View", "Emaar"]
@@ -50,11 +61,11 @@ export const AMENITY_LIBRARY = [
 export const ISSUE_FIELDS: IssueField[] = [
   // Placement — the unit itself may be right but sit under the wrong developer/project/phase,
   // or carry the wrong sale/listing state
-  { id: "developer", label: "Developer", group: "Placement", kind: "value", valueType: "enum", options: DEVELOPER_NAMES },
-  { id: "project", label: "Project", group: "Placement", kind: "value", valueType: "enum", options: PROJECT_NAMES },
-  { id: "phase", label: "Phase", group: "Placement", kind: "value", valueType: "phase" },
-  { id: "availability", label: "Sale Status", group: "Placement", kind: "value", valueType: "enum", options: ["Available", "Hold", "Sold-Off", "Archived"] },
-  { id: "listingStatus", label: "Listing Status", group: "Placement", kind: "value", valueType: "enum", options: ["Active", "Hidden"] },
+  { id: "developer", label: "Developer", priority: "Critical", group: "Placement", kind: "value", valueType: "enum", options: DEVELOPER_NAMES },
+  { id: "project", label: "Project", priority: "Critical", group: "Placement", kind: "value", valueType: "enum", options: PROJECT_NAMES },
+  { id: "phase", label: "Phase", priority: "Critical", group: "Placement", kind: "value", valueType: "phase" },
+  { id: "availability", label: "Sale Status", priority: "Critical", group: "Placement", kind: "value", valueType: "enum", options: ["Available", "Hold", "Sold-Off", "Archived"] },
+  { id: "listingStatus", label: "Listing Status", priority: "Critical", group: "Placement", kind: "value", valueType: "enum", options: ["Active", "Hidden"] },
   // Identity
   { id: "unitCode", label: "Unit Code", group: "Identity", kind: "value" },
   { id: "unitNumber", label: "Unit Number", group: "Identity", kind: "value" },
@@ -69,14 +80,14 @@ export const ISSUE_FIELDS: IssueField[] = [
   { id: "buildingNumber", label: "Building Number", group: "Classification", kind: "value" },
   { id: "floorNumber", label: "Floor Number", group: "Classification", kind: "value", valueType: "number" },
   // Dimensions
-  { id: "grossBua", label: "Gross BUA", group: "Dimensions", kind: "value", valueType: "area" },
+  { id: "grossBua", label: "Gross BUA", priority: "High", group: "Dimensions", kind: "value", valueType: "area" },
   { id: "netBua", label: "Net BUA", group: "Dimensions", kind: "value", valueType: "area" },
-  { id: "bedrooms", label: "Bedrooms", group: "Dimensions", kind: "value", valueType: "number" },
+  { id: "bedrooms", label: "Bedrooms", priority: "High", group: "Dimensions", kind: "value", valueType: "number" },
   { id: "bathrooms", label: "Bathrooms", group: "Dimensions", kind: "value", valueType: "number" },
   // Pricing
-  { id: "price", label: "Price", group: "Pricing", kind: "value", valueType: "currency" },
-  { id: "storagePrice", label: "Storage Price", group: "Pricing", kind: "value", valueType: "currency" },
-  { id: "outdoorPrice", label: "Outdoor Price", group: "Pricing", kind: "value", valueType: "currency" },
+  { id: "price", label: "Price", priority: "Critical", group: "Pricing", kind: "value", valueType: "currency" },
+  { id: "storagePrice", label: "Storage Price", priority: "High", group: "Pricing", kind: "value", valueType: "currency" },
+  { id: "outdoorPrice", label: "Outdoor Price", priority: "High", group: "Pricing", kind: "value", valueType: "currency" },
   // Delivery & finishing
   { id: "deliveryType", label: "Delivery Type", group: "Delivery & Finishing", kind: "value", valueType: "enum", options: ["Ready to move", "Off Plan", "Under Construction"] },
   { id: "deliveryDate", label: "Delivery Date", group: "Delivery & Finishing", kind: "value" },
@@ -98,11 +109,11 @@ export const ISSUE_FIELDS: IssueField[] = [
   { id: "unitView", label: "Unit View", group: "Parking & Views", kind: "value", valueType: "enum", options: ["Garden View", "Pool View", "Sea View", "Street View", "Landscape View", "Club View"] },
   { id: "unitOrientation", label: "Unit Orientation", group: "Parking & Views", kind: "value", valueType: "enum", options: ["North", "North East", "East", "South East", "South", "South West", "West", "North West"] },
   // Amenities & services
-  { id: "amenities", label: "Amenities & Services", group: "Amenities & Services", kind: "amenities" },
+  { id: "amenities", label: "Amenities & Services", group: "Amenities & Services", kind: "amenities", priority: "Medium" },
   // Attachments
-  { id: "paymentPlans", label: "Payment Plans", group: "Attachments", kind: "plans" },
-  { id: "floorPlans", label: "Floor Plans", group: "Attachments", kind: "floorPlans" },
-  { id: "images", label: "Render Images", group: "Attachments", kind: "images" },
+  { id: "paymentPlans", label: "Payment Plans", group: "Attachments", kind: "plans", priority: "High" },
+  { id: "floorPlans", label: "Floor Plans", group: "Attachments", kind: "floorPlans", priority: "High" },
+  { id: "images", label: "Render Images", group: "Attachments", kind: "images", priority: "Medium" },
 ]
 
 export const FIELD_BY_ID = new Map(ISSUE_FIELDS.map((f) => [f.id, f]))
@@ -121,15 +132,18 @@ export interface IssueTypeDef {
   active: boolean
 }
 
-const VALUE_TYPES = (wrongPriority: PropIssueSeverity = "High", canBeMissing = true): IssueTypeDef[] => [
-  { type: "Wrong Value", subtypes: ["Mismatch with developer sheet", "Mismatch with brochure", "Typo / impossible value"], priority: wrongPriority, active: true },
-  ...(canBeMissing ? [{ type: "Missing Value", priority: "Medium" as PropIssueSeverity, active: true }] : []),
-  { type: "Outdated Value", subtypes: ["Developer update not reflected", "Stale after re-ingestion"], priority: "Medium", active: true },
-  { type: "Formatting", priority: "Low", active: true },
-]
+const WRONG_VALUE = (p: PropIssueSeverity): IssueTypeDef => ({ type: "Wrong Value", subtypes: ["Mismatch with developer sheet", "Mismatch with brochure", "Typo / impossible value"], priority: p, active: true })
+const MISSING_VALUE = (p: PropIssueSeverity): IssueTypeDef => ({ type: "Missing Value", priority: p, active: true })
+const OUTDATED_VALUE = (p: PropIssueSeverity): IssueTypeDef => ({ type: "Outdated Value", subtypes: ["Developer update not reflected", "Stale after re-ingestion"], priority: p, active: true })
 
-/** Fields the "Wrong Values" plan issue can point at (per selected plan). */
-export const PLAN_VALUE_FIELDS = ["Down Payment %", "Duration", "Installment %", "Frequency", "Delivery Payment", "Maintenance %", "Clubhouse %", "Currency", "Offer / Discount"]
+/** Fields the "Wrong Values" plan issue can point at, in reporting order. */
+export const PLAN_VALUE_FIELDS = ["Type", "Duration", "Down Payment %", "Frequency", "Installment %", "Currency", "Milestones", "Bulk Installments"]
+/** Plan fields with a fixed set of valid values (expected-result dropdown). */
+export const PLAN_FIELD_OPTIONS: Record<string, string[]> = {
+  Type: ["Equal", "Backloaded", "Frontloaded", "Cash"],
+  Frequency: ["Monthly", "Quarterly", "Semi-Annually", "Annually"],
+  Currency: ["EGP", "USD"],
+}
 /** Back-compat alias. */
 export const PLAN_ASPECTS = PLAN_VALUE_FIELDS
 
@@ -165,27 +179,20 @@ const STATUS_TYPES: IssueTypeDef[] = [
   { type: "Outdated Status", priority: "Medium", active: true },
 ]
 
-/** The fixed taxonomy for a field — business logic per field/kind. Mandatory
- *  fields (developer/project) can never be "missing"; statuses get status
- *  types; every value field's expected input follows its valueType. */
+/** The fixed taxonomy for a field. Value fields get Wrong/Missing Value (and
+ *  Outdated Value when the field changes over time). Priorities come from the
+ *  field's category-level priority. */
 export function fieldTaxonomy(field: IssueField): IssueTypeDef[] {
-  // Developer/project are mandatory at property creation — no "missing" type
-  if (field.id === "developer" || field.id === "project")
-    return [{ type: "Wrong Assignment", priority: "Critical", active: true }]
-  if (field.id === "phase")
-    return [
-      { type: "Wrong Assignment", priority: "Critical", active: true },
-      { type: "Missing Assignment", priority: "Medium", active: true },
-    ]
-  if (field.id === "availability" || field.id === "listingStatus") return STATUS_TYPES
+  const p = fieldPriority(field)
   if (field.kind === "amenities") return AMENITY_TYPES
   if (field.kind === "plans") return PLANS_TYPES
   if (field.kind === "floorPlans") return FLOOR_PLAN_TYPES
   if (field.kind === "images") return IMAGE_TYPES
-  if (field.id === "price") return VALUE_TYPES("Critical")
-  // Enum/boolean classification fields are set at creation — no "missing"
-  if (field.valueType === "enum" || field.valueType === "boolean") return VALUE_TYPES("High", false)
-  return VALUE_TYPES()
+  return [
+    WRONG_VALUE(p),
+    MISSING_VALUE(p),
+    ...(OUTDATED_FIELD_IDS.has(field.id) ? [OUTDATED_VALUE(p)] : []),
+  ]
 }
 
 export const ALL_ISSUE_TYPES = Array.from(new Set(ISSUE_FIELDS.flatMap((f) => fieldTaxonomy(f).map((t) => t.type))))
@@ -239,6 +246,17 @@ export interface IssueComment {
   at: string
 }
 
+/** Structured payload for attachment/amenity issues — drives the rich
+ *  rendering in the issue details pane. */
+export interface IssueDetails {
+  /** Payment plans: the affected plans, each optionally with wrong-value fields. */
+  plans?: { name: string; fields?: { field: string; expected: string | null; note: string | null }[] }[]
+  amenitiesAdd?: string[]
+  amenitiesRemove?: string[]
+  /** "Render 3" / "Floor Plan 1" — resolvable to the unit's media by index. */
+  media?: string[]
+}
+
 export interface IssueActivity {
   id: string
   kind: "created" | "status" | "assigned"
@@ -276,6 +294,7 @@ export interface PropertyIssue {
   closedAt: string | null
   comments: IssueComment[]
   activity: IssueActivity[]
+  details?: IssueDetails
 }
 
 export const PROP_ISSUE_STATUSES: PropIssueStatus[] = ["To Do", "In Progress", "Resolved", "Closed", "Invalid"]
@@ -352,10 +371,12 @@ function makeIssue(i: number): PropertyIssue {
   const ctx = unitContext(rowIndex)
   const field = ISSUE_FIELDS[(i * 5) % ISSUE_FIELDS.length]
   const tax = fieldTaxonomy(field)
-  const t = tax[i % tax.length]
+  // i steps by ISSUE_FIELDS.length between instances of the same field, so use
+  // i/len (not i) to cycle through ALL of the field's types across instances.
+  const t = tax[Math.floor(i / ISSUE_FIELDS.length) % tax.length]
   const subtype = t.subtypes ? t.subtypes[i % t.subtypes.length] : null
   const source: PropIssueSource = (["Data Quality", "System", "Sales Agent", "Data Quality", "System"] as const)[i % 5]
-  const severity = t.priority // issues inherit the type's configured priority
+  const severity = fieldPriority(field) // category-level priority
   const status = PROP_ISSUE_STATUSES[[0, 0, 1, 0, 2, 3, 1, 3, 4, 0][i % 10]]
   const created = 12 + (i % 700) * 3
   const updated = status === "To Do" ? created : Math.max(2, created - 24 - (i % 48))
@@ -364,13 +385,31 @@ function makeIssue(i: number): PropertyIssue {
   const samples = EXPECTED_SAMPLES[field.id]
   const [current, expected] = samples ? samples[i % samples.length] : [null, field.kind === "value" ? "Match developer sheet" : null]
   const needsItems = t.requiresSelection === true
-  const linkedItems = field.kind === "amenities"
-    ? (t.type === "Missing Amenity" ? [`Add: ${AMENITY_LIBRARY[i % AMENITY_LIBRARY.length]}`] : [`Remove: ${AMENITY_LIBRARY[(i + 5) % AMENITY_LIBRARY.length]}`])
-    : !needsItems ? null
-    : field.kind === "plans" ? [`${["Standard Plan", "Flexible Plan", "Premium Plan", "Investor Plan"][i % 4]} (${PLAN_VALUE_FIELDS[i % PLAN_VALUE_FIELDS.length]})`]
-    : field.kind === "floorPlans" ? [`Floor Plan ${(i % 3) + 1}`]
-    : field.kind === "images" ? [`Render ${(i % 4) + 1}`]
-    : null
+  let details: IssueDetails | undefined
+  let linkedItems: string[] | null = null
+  if (field.kind === "amenities") {
+    details = t.type === "Missing Amenity"
+      ? { amenitiesAdd: [AMENITY_LIBRARY[i % AMENITY_LIBRARY.length]] }
+      : { amenitiesRemove: [AMENITY_LIBRARY[(i + 5) % AMENITY_LIBRARY.length]] }
+    linkedItems = [...(details.amenitiesAdd ?? []).map((a) => `Add: ${a}`), ...(details.amenitiesRemove ?? []).map((a) => `Remove: ${a}`)]
+  } else if (field.kind === "plans" && needsItems) {
+    const plan = ["Standard Plan", "Flexible Plan", "Premium Plan", "Investor Plan"][i % 4]
+    if (t.type === "Wrong Values") {
+      const pf = PLAN_VALUE_FIELDS[i % PLAN_VALUE_FIELDS.length]
+      details = { plans: [{ name: plan, fields: [{ field: pf, expected: PLAN_FIELD_OPTIONS[pf]?.[i % (PLAN_FIELD_OPTIONS[pf]?.length || 1)] ?? "12", note: null }] }] }
+      linkedItems = [`${plan} (${pf})`]
+    } else {
+      details = { plans: [{ name: plan }] }
+      linkedItems = [plan]
+    }
+  } else if (field.kind === "floorPlans" && needsItems) {
+    // ponytail: low indices — most units hold 1-2 files, so the thumbnail resolves
+    details = { media: [`Floor Plan ${(i % 2) + 1}`] }
+    linkedItems = details.media!
+  } else if (field.kind === "images" && needsItems) {
+    details = { media: [`Render ${(i % 2) + 1}`] }
+    linkedItems = details.media!
+  }
   const reportedBy = source === "System" ? "System" : source === "Sales Agent" ? SALES_AGENTS[i % SALES_AGENTS.length] : QUALITY_TEAM[i % QUALITY_TEAM.length]
   const assignedTo = status === "To Do" && i % 4 === 0 ? null : DATA_OPS_TEAM[i % DATA_OPS_TEAM.length]
 
@@ -396,6 +435,7 @@ function makeIssue(i: number): PropertyIssue {
     updatedAt: ts(updated),
     resolvedAt: resolvedAt != null ? ts(resolvedAt) : null,
     closedAt: closedAt != null ? ts(closedAt) : null,
+    details,
     comments: commentsFor(i, status, created),
     activity: activityFor(i, status, reportedBy, assignedTo, created, updated, resolvedAt, closedAt),
   }

@@ -61,6 +61,12 @@ const ACT_ICON: Record<IssueActivity["kind"], React.ReactNode> = {
   assigned: <UserRound className="h-3 w-3" />,
 }
 
+// Mock plan universe (matches unitPlans in report-issue-drawer + the plans tab
+// card order) — issue plan names resolve to plan-card indices for highlighting.
+const PLAN_ORDER = ["Standard Plan", "Flexible Plan", "Premium Plan", "Investor Plan"]
+/** "Render 3" / "Floor Plan 1" → 0-based media index. */
+const mediaIdx = (m: string) => (parseInt(m.replace(/\D/g, ""), 10) || 0) - 1
+
 /**
  * The single issue drawer: Issue Details | Comments/Logs | the unit details
  * panel (embedded, width-constrained). All open issues on the property live in
@@ -89,6 +95,33 @@ export function IssueTrackingDrawer({
     const open = openIssuesFor(issue.propertyId)
     return open.some((i) => i.id === issue.id) ? open : [issue, ...open]
   }, [issue])
+
+  // Item-level highlights for the property pane: red rings on the affected plan
+  // cards / media / amenities; the current issue's items get the strong ring.
+  const itemIssues = useMemo(() => {
+    const acc = {
+      plans: { indices: [] as number[], focus: [] as number[] },
+      images: { indices: [] as number[], focus: [] as number[] },
+      floorPlans: { indices: [] as number[], focus: [] as number[] },
+      amenities: { names: [] as string[], focus: [] as string[] },
+    }
+    for (const i of unitIssues) {
+      const focus = i.id === issue?.id
+      const d = i.details
+      if (!d) continue
+      d.plans?.forEach((p) => {
+        const k = PLAN_ORDER.indexOf(p.name)
+        if (k >= 0) { acc.plans.indices.push(k); if (focus) acc.plans.focus.push(k) }
+      })
+      d.media?.forEach((m) => {
+        const k = mediaIdx(m)
+        const bucket = m.startsWith("Floor") ? acc.floorPlans : acc.images
+        if (k >= 0) { bucket.indices.push(k); if (focus) bucket.focus.push(k) }
+      })
+      d.amenitiesRemove?.forEach((a) => { acc.amenities.names.push(a); if (focus) acc.amenities.focus.push(a) })
+    }
+    return acc
+  }, [unitIssues, issue?.id])
 
   if (!issue) return null
   const idx = list ? list.findIndex((r) => r.id === issue.id) : -1
@@ -195,8 +228,75 @@ export function IssueTrackingDrawer({
 
             <div className="space-y-3">
               <SectionTitle>Description</SectionTitle>
-              <p className="text-sm leading-relaxed text-foreground">{issue.description}</p>
-              {issue.linkedItems && issue.linkedItems.length > 0 && (
+              <p className="min-w-0 break-words text-sm leading-relaxed text-foreground">{issue.description}</p>
+
+              {/* Payment plans — the affected plans, with per-field expected + note */}
+              {issue.details?.plans && (
+                <div className="space-y-2">
+                  {issue.details.plans.map((p) => (
+                    <div key={p.name} className="min-w-0 rounded-lg border border-red-200 bg-red-50/50 px-3 py-2">
+                      <p className="break-words text-xs font-semibold text-foreground">{p.name}</p>
+                      {p.fields?.map((f) => (
+                        <div key={f.field} className="mt-1.5 min-w-0 space-y-0.5 border-t border-red-200/60 pt-1.5">
+                          <p className="break-words text-[11px]">
+                            <span className="font-medium text-foreground">{f.field}</span>
+                            {f.expected && <span className="font-medium text-emerald-700"> → {f.expected}</span>}
+                          </p>
+                          {f.note && <p className="break-words text-[11px] leading-snug text-muted-foreground">{f.note}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Amenities — wrong (remove) / missing (add) */}
+              {(issue.details?.amenitiesRemove?.length || issue.details?.amenitiesAdd?.length) ? (
+                <div className="space-y-2">
+                  {!!issue.details?.amenitiesRemove?.length && (
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-medium text-red-700">Wrong — should be removed</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {issue.details.amenitiesRemove.map((a) => (
+                          <span key={a} className="rounded-md border border-red-200 bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">{a}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {!!issue.details?.amenitiesAdd?.length && (
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-medium text-emerald-700">Missing — should be added</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {issue.details.amenitiesAdd.map((a) => (
+                          <span key={a} className="rounded-md border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">{a}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {/* Wrong renders / floor plans — small image cards */}
+              {issue.details?.media && (
+                <div className="grid grid-cols-2 gap-2">
+                  {issue.details.media.map((m) => {
+                    const k = mediaIdx(m)
+                    const src = m.startsWith("Floor") ? unit?.floorPlans[k] : unit?.images[k]
+                    return (
+                      <div key={m} className="min-w-0 overflow-hidden rounded-lg border border-red-300">
+                        {src
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={src} alt={m} className="aspect-video w-full object-cover" />
+                          : <div className="flex aspect-video w-full items-center justify-center bg-muted text-[10px] text-muted-foreground">No preview</div>}
+                        <p className="truncate bg-card px-2 py-1 text-[10px] font-medium text-foreground">{m}</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Fallback — older issues without a structured payload */}
+              {!issue.details && issue.linkedItems && issue.linkedItems.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {issue.linkedItems.map((x) => <ColorTag key={x} value={x} />)}
                 </div>
@@ -318,7 +418,9 @@ export function IssueTrackingDrawer({
                 onUpdateRow={() => {}}
                 embedded
                 highlightFields={highlightFields}
+                highlightFocusField={issue.fieldLabel}
                 highlightTooltips={highlightTooltips}
+                itemIssues={itemIssues}
                 onIssueFieldClick={(label) => {
                   const target = unitIssues.find((i) => i.fieldLabel === label)
                   if (target) onStep(target)

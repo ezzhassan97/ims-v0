@@ -14,9 +14,9 @@ import { ColorTag } from "@/components/projects-list-page"
 import { StoryBadge, BADGE_CLASS, type PropertyRow, type PlanCardData } from "@/components/all-properties-page"
 import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-drawer"
 import {
-  ISSUE_FIELDS, ISSUE_FIELD_GROUPS, fieldTaxonomy, PLAN_VALUE_FIELDS, PHASE_NAMES, AMENITY_LIBRARY, DATA_OPS_TEAM,
+  ISSUE_FIELDS, ISSUE_FIELD_GROUPS, fieldTaxonomy, fieldPriority, PLAN_VALUE_FIELDS, PLAN_FIELD_OPTIONS, PHASE_NAMES, AMENITY_LIBRARY, DATA_OPS_TEAM,
   SEVERITY_COLORS, STATUS_COLORS, addPropertyIssues, nextIssueId, isCriticalSeverity,
-  type IssueField, type IssueTypeDef, type PropertyIssue,
+  type IssueField, type IssueTypeDef, type PropertyIssue, type IssueDetails,
 } from "@/lib/property-issues-mock"
 import { cn } from "@/lib/utils"
 
@@ -84,8 +84,31 @@ interface FieldDraft {
   removeItems: string[] // amenities to remove (wrong)
 }
 
-function emptyDraft(field: IssueField): FieldDraft {
-  const t = fieldTaxonomy(field)[0]
+/** Does the unit actually hold a value/content for this field? Drives which
+ *  issue types are reportable (value present → no "Missing …"; absent → only). */
+function fieldHasValue(row: PropertyRow, field: IssueField): boolean {
+  if (field.kind === "amenities") return true // add & remove flows both stay valid
+  if (field.kind === "plans") return row.paymentPlans > 0
+  if (field.kind === "floorPlans") return row.floorPlans.length > 0
+  if (field.kind === "images") return row.images.length > 0
+  if (field.valueType === "boolean") return true
+  const raw = field.id === "developer" ? row.developer.name
+    : field.id === "project" ? row.project.name
+    : field.id === "phase" ? row.phase?.name ?? null
+    : (row as unknown as Record<string, unknown>)[field.id]
+  return raw != null && raw !== ""
+}
+
+/** Taxonomy filtered by whether the field currently has a value. */
+function availableTypes(field: IssueField, row: PropertyRow): IssueTypeDef[] {
+  const tax = fieldTaxonomy(field).filter((t) => t.active)
+  if (field.kind === "amenities") return tax
+  const isMissing = (t: IssueTypeDef) => t.type.startsWith("Missing")
+  return fieldHasValue(row, field) ? tax.filter((t) => !isMissing(t)) : tax.filter(isMissing)
+}
+
+function emptyDraft(field: IssueField, row: PropertyRow): FieldDraft {
+  const t = availableTypes(field, row)[0] ?? fieldTaxonomy(field)[0]
   return { type: t.type, subtype: field.kind === "plans" ? null : t.subtypes?.[0] ?? null, expected: "", description: "", items: [], planValues: {}, addItems: [], removeItems: [] }
 }
 
@@ -249,7 +272,7 @@ export function ReportIssueDrawer({
   const toggleField = (field: IssueField, on: boolean) =>
     setDrafts((prev) => {
       const n = new Map(prev)
-      if (on) n.set(field.id, emptyDraft(field)); else n.delete(field.id)
+      if (on) n.set(field.id, emptyDraft(field, row)); else n.delete(field.id)
       return n
     })
   const patchDraft = (fieldId: string, patch: Partial<FieldDraft>) =>
@@ -360,10 +383,25 @@ export function ReportIssueDrawer({
       const planNotes = field.kind === "plans" && def.type === "Wrong Values"
         ? Object.entries(d.planValues).flatMap(([plan, fields]) => Object.entries(fields).filter(([, v]) => v.note).map(([pf, v]) => `${plan} ${pf}: ${v.note}`))
         : []
+      // Structured payload — drives the rich rendering in the tracking drawer
+      const sortPf = (a: string, b: string) => PLAN_VALUE_FIELDS.indexOf(a) - PLAN_VALUE_FIELDS.indexOf(b)
+      const details: IssueDetails | undefined =
+        field.kind === "amenities"
+          ? { amenitiesAdd: d.addItems, amenitiesRemove: d.removeItems }
+          : field.kind === "plans" && def.type === "Wrong Values"
+            ? { plans: Object.entries(d.planValues).map(([plan, fields]) => ({
+                name: plan,
+                fields: Object.entries(fields).sort(([a], [b]) => sortPf(a, b)).map(([pf, v]) => ({ field: pf, expected: v.expected || null, note: v.note || null })),
+              })) }
+            : field.kind === "plans" && d.items.length
+              ? { plans: d.items.map((name) => ({ name })) }
+              : (field.kind === "floorPlans" || field.kind === "images") && d.items.length
+                ? { media: d.items }
+                : undefined
       return {
         id: nextIssueId(),
         source: "Data Quality",
-        severity: def.priority,
+        severity: fieldPriority(field),
         status: "To Do",
         fieldId: field.id,
         fieldLabel: field.label,
@@ -390,6 +428,7 @@ export function ReportIssueDrawer({
         closedAt: null,
         comments: [],
         activity: [{ id: `ACT-${now}-${field.id}`, kind: "created", actor: "Ezz H.", at: now, detail: "Issue created — To Do" }],
+        details,
       }
     })
     addPropertyIssues(created)
@@ -490,8 +529,8 @@ export function ReportIssueDrawer({
                 <div className="divide-y divide-border">
                   {fields.map((field) => {
                     const draft = drafts.get(field.id)
-                    const tax = fieldTaxonomy(field)
-                    const def = draft ? typeDefOf(field, draft) : tax[0]
+                    const tax = availableTypes(field, row)
+                    const def = draft ? typeDefOf(field, draft) : tax[0] ?? fieldTaxonomy(field)[0]
                     const problem = draft ? problemOf(field, draft) : null
                     return (
                       <div key={field.id} className="px-5 py-2.5">
@@ -511,7 +550,7 @@ export function ReportIssueDrawer({
                                 <div className="space-y-1">
                                   <p className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
                                     Type
-                                    <span className={cn("rounded border px-1 py-px text-[9px] font-semibold", SEVERITY_COLORS[def.priority])}>{def.priority}</span>
+                                    <span className={cn("rounded border px-1 py-px text-[9px] font-semibold", SEVERITY_COLORS[fieldPriority(field)])}>{fieldPriority(field)}</span>
                                   </p>
                                   <Select value={draft.type} onValueChange={(v) => {
                                     const t = tax.find((x) => x.type === v) ?? tax[0]
@@ -519,7 +558,7 @@ export function ReportIssueDrawer({
                                   }}>
                                     <SelectTrigger className="h-8 bg-card text-sm"><SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                      {tax.filter((t) => t.active).map((t) => <SelectItem key={t.type} value={t.type} className="text-sm">{t.type}</SelectItem>)}
+                                      {tax.map((t) => <SelectItem key={t.type} value={t.type} className="text-sm">{t.type}</SelectItem>)}
                                     </SelectContent>
                                   </Select>
                                 </div>
@@ -589,15 +628,24 @@ export function ReportIssueDrawer({
                                                 )
                                               })}
                                             </div>
-                                            {Object.entries(draft.planValues[plan.name] ?? {}).map(([pf, v]) => (
+                                            {Object.entries(draft.planValues[plan.name] ?? {}).sort(([a], [b]) => PLAN_VALUE_FIELDS.indexOf(a) - PLAN_VALUE_FIELDS.indexOf(b)).map(([pf, v]) => (
                                               <div key={pf} className="grid grid-cols-[110px_1fr_1fr] items-center gap-1.5">
                                                 <span className="truncate text-[11px] font-medium text-foreground">{pf}</span>
-                                                <Input
-                                                  value={v.expected}
-                                                  onChange={(e) => patchPlanField(field.id, plan.name, pf, { expected: e.target.value })}
-                                                  placeholder="Expected"
-                                                  className="h-7 bg-card text-xs"
-                                                />
+                                                {PLAN_FIELD_OPTIONS[pf] ? (
+                                                  <Select value={v.expected || undefined} onValueChange={(val) => patchPlanField(field.id, plan.name, pf, { expected: val })}>
+                                                    <SelectTrigger className="h-7 bg-card text-xs"><SelectValue placeholder="Expected" /></SelectTrigger>
+                                                    <SelectContent>
+                                                      {PLAN_FIELD_OPTIONS[pf].map((o) => <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}
+                                                    </SelectContent>
+                                                  </Select>
+                                                ) : (
+                                                  <Input
+                                                    value={v.expected}
+                                                    onChange={(e) => patchPlanField(field.id, plan.name, pf, { expected: e.target.value })}
+                                                    placeholder="Expected"
+                                                    className="h-7 bg-card text-xs"
+                                                  />
+                                                )}
                                                 <Input
                                                   value={v.note}
                                                   onChange={(e) => patchPlanField(field.id, plan.name, pf, { note: e.target.value })}
