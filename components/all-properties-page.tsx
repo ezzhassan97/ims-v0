@@ -115,6 +115,8 @@ export interface PropertyRow {
   propertyId: string
   propertyMetadataId: string
   detailedPropertyId: string | null
+  /** Launch / Primary-Manual units map to TWO detailed-property records. */
+  detailedPropertyId2?: string | null
   /** Ingested launch this Launch unit belongs to. */
   launchId?: string
   /** Resale ⇄ Nawy Now cross-links — the counterpart record of this unit. */
@@ -127,7 +129,7 @@ export interface PropertyRow {
   saleType: SaleType
   availability: Availability
   listingStatus: ListingStatus
-  unitCode: string
+  unitCode: string | null
   unitNumber: string | null
   unitModel: string | null
   zone: string | null
@@ -217,7 +219,7 @@ interface FilterGroup {
 export const COLUMNS: ColumnDef[] = [
   { id: "propertyId", label: "Property ID", width: 150 },
   { id: "propertyMetadataId", label: "Property Metadata ID", width: 185 },
-  { id: "detailedPropertyId", label: "Detailed Property ID", width: 170 },
+  { id: "detailedPropertyId", label: "Detailed Property ID", width: 215 },
   { id: "entryType", label: "Entry type", width: 120 },
   { id: "district", label: "District", width: 130 },
   { id: "area", label: "Area", width: 130 },
@@ -247,12 +249,12 @@ export const COLUMNS: ColumnDef[] = [
   { id: "finishingLevel", label: "Finishing level", width: 150 },
   { id: "deliveryType", label: "Delivery type", width: 140 },
   { id: "deliveryDate", label: "Delivery date", width: 130 },
-  { id: "price", label: "Price", width: 200, align: "right" },
+  { id: "price", label: "Price", width: 235, align: "right" },
   { id: "planType", label: "Plan type", width: 140 },
   { id: "planDuration", label: "Plan duration", width: 150 },
   { id: "downpayment", label: "Downpayment", width: 190 },
   { id: "monthlyInstallment", label: "Monthly installment", width: 210 },
-  { id: "pricePerMeter", label: "Price per m²", width: 150, align: "right" },
+  { id: "pricePerMeter", label: "Price per m²", width: 190, align: "right" },
   { id: "paymentOptions", label: "Payment options", width: 230 },
   { id: "priceUpdatedAt", label: "Price Updated At", width: 190 },
   { id: "unitView", label: "Unit view", width: 150 },
@@ -267,11 +269,11 @@ export const COLUMNS: ColumnDef[] = [
   { id: "basementArea", label: "Basement area", width: 135, align: "right" },
   { id: "parking", label: "Parking", width: 100, align: "center" },
   { id: "parkingSlots", label: "Parking slots", width: 130, align: "right" },
-  { id: "parkingFees", label: "Parking fees", width: 150, align: "right" },
-  { id: "additionalParkingFees", label: "Additional parking fees", width: 190, align: "right" },
+  { id: "parkingFees", label: "Parking fees", width: 185, align: "right" },
+  { id: "additionalParkingFees", label: "Additional parking fees", width: 195, align: "right" },
   { id: "storageIncluded", label: "Storage included", width: 140, align: "center" },
-  { id: "storagePrice", label: "Storage price", width: 150, align: "right" },
-  { id: "outdoorPrice", label: "Outdoor price", width: 150, align: "right" },
+  { id: "storagePrice", label: "Storage price", width: 185, align: "right" },
+  { id: "outdoorPrice", label: "Outdoor price", width: 185, align: "right" },
   { id: "serviced", label: "Serviced", width: 100, align: "center" },
   { id: "branded", label: "Branded", width: 100, align: "center" },
   { id: "source", label: "Source", width: 150 },
@@ -281,10 +283,8 @@ export const COLUMNS: ColumnDef[] = [
   { id: "images", label: "Images", width: 220 },
   { id: "createdAt", label: "DP Created At", width: 175 },
   { id: "lastUpdated", label: "DP Updated At", width: 175 },
-  { id: "propertyCreatedAt", label: "Property Created At", width: 190 },
-  { id: "availabilityUpdatedAt", label: "Property Availability Updated", width: 230 },
   { id: "dpAvailabilityUpdatedAt", label: "DP Availability Updated At", width: 220 },
-  { id: "propertyUpdatedAt", label: "Property Updated At", width: 190 },
+  { id: "availabilityUpdatedAt", label: "Property Availability Updated At", width: 240 },
 ]
 
 // ── Static options ─────────────────────────────────────────────────────────────
@@ -419,6 +419,7 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
   const furnished = index % 4 === 0
   const projId = `PRJ-${100 + (index % 5)}`
   const phsId = `PHS-${200 + (index % 6)}`
+  const supportsRanges = saleType === "Launch" || (saleType === "Primary" && isManual)
   // Numeric fields hoisted so the Launch / Primary-Manual `ranges` seed below
   // can reference the same values.
   const floorNumber = isVillaLike ? null : (index % 12) + 1
@@ -439,7 +440,7 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
   // value gets a max (base value = min); ~1/3 of eligible rows stay single-value.
   const bump = (v: number | null, d: number) => (v == null ? undefined : v + d)
   const ranges: PropertyRow["ranges"] =
-    (saleType === "Launch" || (saleType === "Primary" && isManual)) && index % 3 !== 2
+    supportsRanges && index % 3 !== 2
       ? {
           price: price ? price + 400_000 + (index % 5) * 120_000 : undefined,
           grossBua: grossBua + 12 + (index % 3) * 6,
@@ -462,7 +463,8 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
   return {
     propertyId,
     propertyMetadataId: `PMD-${String(10000 + index).padStart(6, "0")}`,
-    detailedPropertyId: isManual ? null : `DPR-${String(84000 + index).padStart(6, "0")}`,
+    detailedPropertyId: `DPR-${String(84000 + index).padStart(6, "0")}`,
+    detailedPropertyId2: supportsRanges ? `DPR-${String(84500 + index).padStart(6, "0")}` : undefined,
     launchId: saleType === "Launch" && rowLaunchIds().length ? rowLaunchIds()[index % rowLaunchIds().length] : undefined,
     // A resale unit that is also listed on Nawy Now, and the reverse
     nawyNowId: saleType === "Resale" ? `NN-${String(50100 + index * 17)}` : undefined,
@@ -491,7 +493,7 @@ function mapUnitToProperty(unit: Unit, batchIndex: number, unitIndex: number): P
     availability:
       index % 8 === 0 ? "Hold" : unit.status === "Sold Off" ? "Sold-Off" : index % 13 === 0 ? "Archived" : "Available",
     listingStatus: index % 6 === 0 ? "Hidden" : "Active",
-    unitCode: unit.unitCode || `TMP-${propertyId.slice(-4)}`,
+    unitCode: supportsRanges ? null : unit.unitCode || `TMP-${propertyId.slice(-4)}`,
     unitNumber: unit.unitCode ? unit.unitCode.split("-").at(-1) ?? null : null,
     unitModel: index % 3 === 0 ? null : `${unit.bedrooms}BR`,
     zone: index % 4 === 0 ? null : `Zone ${String.fromCharCode(65 + (index % 5))}`,
@@ -611,6 +613,11 @@ export function priceCell(row: PropertyRow, field: RangeFieldId | keyof Property
   if (!min) return null // matches formatPrice: 0 renders as missing
   const t = rangeNum(row, field)
   return t ? `${t} EGP` : null
+}
+/** Both detailed-property ids of a Launch / Primary-Manual unit, comma-separated. */
+export function dpIdText(row: PropertyRow): string | null {
+  if (!row.detailedPropertyId) return null
+  return row.detailedPropertyId2 ? `${row.detailedPropertyId}, ${row.detailedPropertyId2}` : row.detailedPropertyId
 }
 /** Price per m² — a range when price and/or the area field carry ranges. */
 export function ppm2Text(row: PropertyRow, areaField: "grossBua" | "netBua"): string | null {
@@ -2949,42 +2956,48 @@ export function ViewPropertyDrawer({
               )}
             </div>
 
-            {/* Property Metadata ID + Detailed Property ID + Unit Code */}
+            {/* Line 1: Property Metadata ID · Detailed Property ID(s) · Unit Code */}
             <div className="flex items-center gap-5 flex-wrap text-[11px]">
               <div className="flex items-center gap-1.5">
                 <span className="text-muted-foreground font-medium">Property Metadata ID</span>
                 <CopyableText value={row.propertyMetadataId} muted />
               </div>
-              {/* Linked records — underlined, copyable, open the counterpart in a new tab */}
-              {row.saleType === "Launch" && row.launchId && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-muted-foreground font-medium">Launch ID</span>
-                  <LinkedId value={row.launchId} href={`/launches/${row.launchId}`} />
-                </div>
-              )}
-              {row.saleType === "Resale" && row.nawyNowId && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-muted-foreground font-medium">Nawy Now ID</span>
-                  <LinkedId value={row.nawyNowId} href={`/nawy-now/${row.nawyNowId}`} />
-                </div>
-              )}
-              {row.saleType === "Nawy Now" && row.resalePropertyId && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-muted-foreground font-medium">Resale Property ID</span>
-                  <LinkedId value={row.resalePropertyId} href={`/resale/${row.resalePropertyId}`} />
-                </div>
-              )}
               {row.detailedPropertyId && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-muted-foreground font-medium">Detailed Property ID</span>
-                  <CopyableText value={row.detailedPropertyId} muted />
+                  <CopyableText value={dpIdText(row)} muted />
                 </div>
               )}
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground font-medium">Unit Code</span>
-                <CopyableText value={row.unitCode} muted />
-              </div>
+              {row.unitCode && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground font-medium">Unit Code</span>
+                  <CopyableText value={row.unitCode} muted />
+                </div>
+              )}
             </div>
+            {/* Line 2: linked counterpart records — underlined, open in a new tab */}
+            {((row.saleType === "Resale" && row.nawyNowId) || (row.saleType === "Nawy Now" && row.resalePropertyId) || (row.saleType === "Launch" && row.launchId)) && (
+              <div className="flex items-center gap-5 flex-wrap text-[11px]">
+                {row.saleType === "Resale" && row.nawyNowId && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground font-medium">Linked Nawy Now ID</span>
+                    <LinkedId value={row.nawyNowId} href={`/nawy-now/${row.nawyNowId}`} />
+                  </div>
+                )}
+                {row.saleType === "Nawy Now" && row.resalePropertyId && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground font-medium">Linked Resale ID</span>
+                    <LinkedId value={row.resalePropertyId} href={`/resale/${row.resalePropertyId}`} />
+                  </div>
+                )}
+                {row.saleType === "Launch" && row.launchId && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground font-medium">Linked Launch ID</span>
+                    <LinkedId value={row.launchId} href={`/launches/${row.launchId}`} />
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Row 4: Property type + Price */}
             <div className="flex items-center justify-between gap-4 pt-0.5">
@@ -3088,7 +3101,7 @@ export function ViewPropertyDrawer({
                   <Field label="Listing Status" value={<StoryBadge value={row.listingStatus} />} />
                   <Field label="Availability" value={<StoryBadge value={row.availability} />} />
                   {/* Detailed Property ID + Unit Code on same line */}
-                  <Field label="Detailed Property ID" value={row.detailedPropertyId ? <CopyableText value={row.detailedPropertyId} muted /> : null} />
+                  <Field label="Detailed Property ID" value={row.detailedPropertyId ? <CopyableText value={dpIdText(row)} muted /> : null} />
                   <Field label="Unit Code" value={<CopyableText value={row.unitCode} muted />} />
                   <Field label="Unit Number" value={row.unitNumber} />
                   <Field label="Unit Model" value={row.unitModel} />
@@ -3148,10 +3161,8 @@ export function ViewPropertyDrawer({
                     {[
                       { label: "DP Created At", value: formatTimestamp(row.createdAt) },
                       { label: "DP Updated At", value: formatTimestamp(row.lastUpdated) },
-                      { label: "Price Updated At", value: formatTimestamp(row.priceUpdatedAt) },
-                      { label: "Property Created At", value: formatTimestamp(row.propertyCreatedAt) },
-                      { label: "Property Availability Updated", value: formatTimestamp(row.availabilityUpdatedAt) },
-                      { label: "Property Updated At", value: formatTimestamp(row.propertyUpdatedAt) },
+                      { label: "DP Availability Updated At", value: formatTimestamp(row.dpAvailabilityUpdatedAt) },
+                      { label: "Property Availability Updated At", value: formatTimestamp(row.availabilityUpdatedAt) },
                     ].map(({ label, value }) => (
                       <div key={label} className="space-y-0.5">
                         <dt className="text-[11px] font-medium text-muted-foreground">{label}</dt>
@@ -3352,7 +3363,7 @@ export function EmbeddedPropertyTable({
       case "propertyMetadataId":
         return <span className="font-mono text-[10px]"><CopyableText value={row.propertyMetadataId} /></span>
       case "detailedPropertyId":
-        return <span className="font-mono text-[10px]"><CopyableText value={row.detailedPropertyId} /></span>
+        return <span className="font-mono text-[10px] whitespace-nowrap"><CopyableText value={dpIdText(row)} /></span>
       case "entryType":
         return <StoryBadge value={row.entryType} />
       case "district":
@@ -3445,14 +3456,18 @@ export function EmbeddedPropertyTable({
             onViewInDrawer={() => setViewDrawer({ propertyId: row.propertyId, tab: "amenities" })} />
         )
       case "grossBua": case "netBua": case "gardenArea": case "terraceArea": case "landArea":
-      case "storageArea": case "openRoofArea": case "roofAnnexArea": case "outdoorArea": case "basementArea":
-        return nil(areaCell(row, column.id))
+      case "storageArea": case "openRoofArea": case "roofAnnexArea": case "outdoorArea": case "basementArea": {
+        const a = areaCell(row, column.id)
+        return nil(a && <span className="whitespace-nowrap">{a}</span>)
+      }
       case "floorNumber":
         return nil(rangeNum(row, "floorNumber"))
       case "bedrooms": case "bathrooms": case "parkingSlots":
         return nil(row[column.id] as number | null)
-      case "storagePrice": case "outdoorPrice": case "parkingFees": case "additionalParkingFees":
-        return nil(priceCell(row, column.id))
+      case "storagePrice": case "outdoorPrice": case "parkingFees": case "additionalParkingFees": {
+        const v = priceCell(row, column.id)
+        return nil(v && <span className="whitespace-nowrap">{v}</span>)
+      }
       case "parking": case "storageIncluded": case "serviced": case "branded":
         return <BooleanMark value={Boolean(row[column.id])} />
       case "finishingLevel":
@@ -3466,14 +3481,14 @@ export function EmbeddedPropertyTable({
               className="h-7 text-right text-xs tabular-nums" autoFocus />
           )
         return (
-          <button className={cn("font-medium hover:text-primary tabular-nums text-right w-full block", !row.price && "text-red-600")}
+          <button className={cn("font-medium hover:text-primary tabular-nums text-right w-full block whitespace-nowrap", !row.price && "text-red-600")}
             onClick={() => { setEditingPrice(row.propertyId); setPriceDraft(String(row.price ?? 0)) }}>
             {priceCell(row, "price") ?? "0 EGP"}
           </button>
         )
       case "pricePerMeter":
         return row.price && row.netBua
-          ? <span className="tabular-nums text-right block">{ppm2Text(row, "netBua")}</span>
+          ? <span className="tabular-nums text-right block whitespace-nowrap">{ppm2Text(row, "netBua")}</span>
           : <EmptyValue />
       case "paymentOptions":
         return (
@@ -3811,7 +3826,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
         const matchesSearch =
           row.propertyId.toLowerCase().includes(q) ||
           (row.detailedPropertyId ?? "").toLowerCase().includes(q) ||
-          row.unitCode.toLowerCase().includes(q)
+          (row.unitCode ?? "").toLowerCase().includes(q)
         if (!matchesSearch) return false
       }
       // Multiselect filters (empty = all)
@@ -3970,8 +3985,8 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
         )
       case "detailedPropertyId":
         return (
-          <span className="font-mono text-[10px]">
-            <CopyableText value={row.detailedPropertyId} />
+          <span className="font-mono text-[10px] whitespace-nowrap">
+            <CopyableText value={dpIdText(row)} />
           </span>
         )
       case "entryType":
@@ -4114,8 +4129,10 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
       case "openRoofArea":
       case "roofAnnexArea":
       case "outdoorArea":
-      case "basementArea":
-        return nil(areaCell(row, column.id))
+      case "basementArea": {
+        const a = areaCell(row, column.id)
+        return nil(a && <span className="whitespace-nowrap">{a}</span>)
+      }
       case "floorNumber":
         return nil(rangeNum(row, "floorNumber"))
       case "bedrooms":
@@ -4125,8 +4142,10 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
       case "storagePrice":
       case "outdoorPrice":
       case "parkingFees":
-      case "additionalParkingFees":
-        return nil(priceCell(row, column.id))
+      case "additionalParkingFees": {
+        const v = priceCell(row, column.id)
+        return nil(v && <span className="whitespace-nowrap">{v}</span>)
+      }
       case "parking":
       case "storageIncluded":
       case "serviced":
@@ -4154,7 +4173,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
           )
         return (
           <button
-            className={cn("font-medium hover:text-primary tabular-nums text-right w-full block", !row.price && "text-red-600")}
+            className={cn("font-medium hover:text-primary tabular-nums text-right w-full block whitespace-nowrap", !row.price && "text-red-600")}
             onClick={() => {
               setEditingPrice(row.propertyId)
               setPriceDraft(String(row.price ?? 0))
@@ -4165,7 +4184,7 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
         )
       case "pricePerMeter":
         return row.price && row.grossBua ? (
-          <span className="tabular-nums">{ppm2Text(row, "grossBua")}</span>
+          <span className="tabular-nums whitespace-nowrap">{ppm2Text(row, "grossBua")}</span>
         ) : (
           <EmptyValue />
         )
@@ -5907,7 +5926,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                     </button>
                   )}
                 </div>
-                <div className="flex flex-1 gap-2">
+                <div className="flex flex-1 flex-wrap gap-2">
                   {!embedded && <FilterDropdown label="District"       options={filterOptions.districts}       selected={districtFilter}      onChange={setDistrictFilter}      className="flex-1" />}
                   {!embedded && <AreaTreeSelect multi tree={pickerData.areas} values={areaSelIds} onValuesChange={setAreaSelIds} placeholder="Area" className="w-40 flex-1" />}
                   {!embedded && <DeveloperSelect multi developers={pickerData.developers} values={devSelIds} onValuesChange={setDevSelIds} placeholder="Developer" className="w-44 flex-1" />}
@@ -5920,8 +5939,8 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                 </div>
               </div>
 
-              {/* Row 2: full width, 9 secondary filters */}
-              <div className="flex items-center gap-2">
+              {/* Row 2: full width, secondary filters (wraps — never overflows the card) */}
+              <div className="flex items-center flex-wrap gap-2">
                 <FilterDropdown label="Property Category" options={filterOptions.categories}       selected={propertyCategoryFilter} onChange={setPropertyCategoryFilter} className="flex-1" />
                 <FilterDropdown label="Property Type"     options={filterOptions.propertyTypes}    selected={propertyTypeFilter}     onChange={setPropertyTypeFilter}     className="flex-1" />
                 <FilterDropdown label="Property Subtype"  options={filterOptions.propertySubTypes} selected={propertySubTypeFilter}  onChange={setPropertySubTypeFilter}  className="flex-1" />
