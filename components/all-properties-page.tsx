@@ -5938,10 +5938,7 @@ export function AllPropertiesPage({ onOpenGroupDetail, onCreateProperty, embedde
                   <FilterDropdown label="Listing Status" options={filterOptions.listingStatuses} selected={listingFilter}       onChange={setListingFilter}       />
                   <FilterDropdown label="Source"         options={filterOptions.sources}         selected={sourceFilter}        onChange={setSourceFilter}        />
                 </div>
-              </div>
-
-              {/* Row 2: full width, secondary filters (wraps — never overflows the card) */}
-              <div className="flex items-center flex-wrap gap-2">
+                {/* Secondary filters — same continuous flow, chips fill every line */}
                 <FilterDropdown label="Property Category" options={filterOptions.categories}       selected={propertyCategoryFilter} onChange={setPropertyCategoryFilter} />
                 <FilterDropdown label="Property Type"     options={filterOptions.propertyTypes}    selected={propertyTypeFilter}     onChange={setPropertyTypeFilter}     />
                 <FilterDropdown label="Property Subtype"  options={filterOptions.propertySubTypes} selected={propertySubTypeFilter}  onChange={setPropertySubTypeFilter}  />
