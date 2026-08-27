@@ -52,6 +52,7 @@ import {
   Upload,
   User,
   Waves,
+  ShieldCheck,
   Wand2,
   Wind,
   Wrench,
@@ -95,6 +96,7 @@ import { PaymentPlanDetailsDrawer } from "@/components/payment-plan-details-draw
 import { ReportIssueDrawer, RowIssuesBadge } from "@/components/report-issue-drawer"
 import { openIssuesByProperty, isCriticalSeverity, PROPERTY_ISSUES, type PropertyIssue, type PropIssueSeverity } from "@/lib/property-issues-mock"
 import { IssueTrackingDrawer, statusPatch, assigneePatch } from "@/components/issue-tracking-drawer"
+import { ValidationReportDialog } from "@/components/validation-report-dialog"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Availability = "Available" | "Hold" | "Sold-Off" | "Archived"
@@ -3768,6 +3770,8 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
   const [priceDraft, setPriceDraft] = useState("")
   // Selection
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
+  // Data quality bulk action: run Validation Rules over the selected units
+  const [qualityReportRows, setQualityReportRows] = useState<PropertyRow[] | null>(null)
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
 
   // Build ordered visible columns
@@ -4725,6 +4729,9 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
       </div>
 
       {/* Bulk action bar */}
+      {qualityReportRows && (
+        <ValidationReportDialog rows={qualityReportRows} onClose={() => setQualityReportRows(null)} />
+      )}
       {selectedRows.size > 0 && (() => {
         const selRows = rows.filter(r => selectedRows.has(r.propertyId))
         const allActive = selRows.every(r => r.listingStatus === "Active")
@@ -4768,6 +4775,24 @@ export function DetailedPropertiesView({ filters, onCreateProperty, scopeProject
                 : <><Eye className="h-3.5 w-3.5 text-zinc-400" /> Publish listing</>
               }
             </button>
+
+            <div className="w-px h-8 bg-zinc-700" />
+
+            {/* Data Quality report */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-1.5 px-4 py-2.5 hover:bg-zinc-800 transition-colors">
+                  <ShieldCheck className="h-3.5 w-3.5 text-zinc-400" />
+                  Quality Report
+                  <ChevronDown className="h-3 w-3 text-zinc-500 ml-0.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="center" side="top" className="w-48">
+                <DropdownMenuItem onClick={() => setQualityReportRows(selRows)}><ShieldCheck className="mr-2 h-3.5 w-3.5" />Validation Rules</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => toast.info("Format Analysis is coming soon")}><FileText className="mr-2 h-3.5 w-3.5" />Format Analysis</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => toast.info("AI Analysis is coming soon")}><Wand2 className="mr-2 h-3.5 w-3.5" />AI Analysis</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <div className="w-px h-8 bg-zinc-700" />
 

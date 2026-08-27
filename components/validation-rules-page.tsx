@@ -148,7 +148,7 @@ function seedRules(): ValidationRule[] {
   return out
 }
 
-const mockRules: ValidationRule[] = seedRules()
+export const mockRules: ValidationRule[] = seedRules()
 
 export function ValidationRulesPage() {
   const [rules, setRules] = useState<ValidationRule[]>(mockRules)

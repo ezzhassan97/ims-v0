@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Sidebar } from "@/components/sidebar"
 import { ProjectsPage } from "@/components/projects-list-page"
 import { ComingSoon } from "@/components/coming-soon"
@@ -8,6 +8,7 @@ import { TestingPlayground } from "@/components/testing-playground"
 import { ValidationRulesPage } from "@/components/validation-rules-page"
 import { DataIssuesPage } from "@/components/data-issues-page"
 import { ProjectIssuesPage } from "@/components/project-issues-page"
+import { QualityReportsPage } from "@/components/quality-reports-page"
 import { QualityConfigurationsPage } from "@/components/quality-configurations-page"
 import { LaunchesPage } from "@/components/launches-page"
 import { SoldUnitsPage } from "@/components/sold-units-page"
@@ -44,6 +45,17 @@ export function AppShell() {
   const [groupDetail, setGroupDetail] = useState<GroupDetailPayload | null>(null)
   const [createProperty, setCreateProperty] = useState<Variation | null>(null)
   const [sheetEntry, setSheetEntry] = useState<{ entry: IngestionEntry; mode: IngestionMode } | null>(null)
+
+  // Cross-page navigation for flows that finish on another page (e.g. a quality
+  // report generated from a properties bulk action opens Data Quality Reports).
+  useEffect(() => {
+    const onNav = (e: Event) => {
+      const page = (e as CustomEvent<string>).detail
+      if (page) { setActivePage(page); setGroupDetail(null); setCreateProperty(null); setSheetEntry(null) }
+    }
+    window.addEventListener("ims:navigate", onNav)
+    return () => window.removeEventListener("ims:navigate", onNav)
+  }, [])
 
   const renderContent = () => {
     if (createProperty) {
@@ -110,6 +122,8 @@ export function AppShell() {
         return <DataIssuesPage />
       case "Projects Data Issues":
         return <ProjectIssuesPage />
+      case "Data Quality Reports":
+        return <QualityReportsPage />
       case "Quality Configurations":
         return <QualityConfigurationsPage />
       case "Sold Units":
