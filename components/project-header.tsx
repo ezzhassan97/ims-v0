@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Building2, Check, ChevronDown, ExternalLink, GitBranch, Globe, Layers, Map as MapIcon, MapPin, MoreHorizontal, Pencil, Repeat, Tag as TagIcon, ToggleRight, X } from "lucide-react"
+import { AlertTriangle, Building2, Check, ChevronDown, ExternalLink, GitBranch, Globe, Layers, Map as MapIcon, MapPin, MoreHorizontal, Pencil, Repeat, Tag as TagIcon, ToggleRight, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -9,6 +9,7 @@ import { FilterSelect, IdTag } from "@/components/table-kit"
 import { MapDrawDialog, type Pt } from "@/components/area-map"
 import { ListingStatusDialog, PrimaryStatusDialog, CascadeChangeDialog, CLASSIFICATION, fmtDateTime, projSiteUrl, type CascadeKind } from "@/components/projects-list-page"
 import { PROJECTS, type ProjectRow, type ProjListingStatus, type ProjPrimaryStatus, type ProjEntryType } from "@/lib/projects-mock"
+import { ReportProjectIssueDrawer } from "@/components/report-project-issue-drawer"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
@@ -98,6 +99,7 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
   const [geo, setGeo] = useState<{ pin: Pt | null; polygon: Pt[] | null }>({ pin: { x: 500, y: 350 }, polygon: null })
   const [drawOpen, setDrawOpen] = useState(false)
   const [listingDlg, setListingDlg] = useState(false)
+  const [reportIssueOpen, setReportIssueOpen] = useState(false)
   const [primaryDlg, setPrimaryDlg] = useState(false)
   const [cascade, setCascade] = useState<CascadeKind | null>(null)
   const set = (k: keyof HeaderForm) => (val: string) => setForm((f) => ({ ...f, [k]: val }))
@@ -273,6 +275,8 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
             <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0 text-muted-foreground"><MoreHorizontal className="h-4 w-4" /></Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onClick={() => setReportIssueOpen(true)}><AlertTriangle className="mr-2 h-3.5 w-3.5" />Report an Issue</DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setCascade("entry")}><Repeat className="mr-2 h-3.5 w-3.5" />Change Entry Type</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setListingDlg(true)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setPrimaryDlg(true)}><TagIcon className="mr-2 h-3.5 w-3.5" />Change Primary Status</DropdownMenuItem>
@@ -441,6 +445,10 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
           }}
         />
       )}
+      <ReportProjectIssueDrawer
+        row={reportIssueOpen ? (PROJECTS.find((x) => x.id === p.id) ?? PROJECTS[0]) : null}
+        onClose={() => setReportIssueOpen(false)}
+      />
     </div>
   )
 }

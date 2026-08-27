@@ -8,8 +8,9 @@
 // Category scores must sum to 100%.
 
 import { ISSUE_FIELDS, fieldTaxonomy, fieldPriority, distribute, type PropIssueSeverity } from "./property-issues-mock"
+import { PROJECT_ISSUE_FIELDS, projectFieldTaxonomy, projectFieldPriority } from "./project-issues-mock"
 
-export type QcEntity = "Property" | "Project" | "Developer"
+export type QcEntity = "Property" | "Project"
 
 export interface QcSubtype {
   id: string // SUB-001
@@ -63,8 +64,28 @@ export const QC_TAXONOMY: QcTaxonomy = {
       })),
     }))
   })(),
-  Project: [],
-  Developer: [],
+  // Project categories ARE the reportable project fields (single source of
+  // truth: PROJECT_ISSUE_FIELDS + projectFieldTaxonomy in project-issues-mock).
+  Project: (() => {
+    const catW = distribute(100, PROJECT_ISSUE_FIELDS.length)
+    return PROJECT_ISSUE_FIELDS.map((f, i) => ({
+      id: `PCT-${pad(i + 1)}`,
+      name: f.label,
+      weight: catW[i],
+      priority: projectFieldPriority(f),
+      active: true,
+      types: projectFieldTaxonomy(f).map((t, ti) => ({
+        id: `PTY-${pad(i * 10 + ti + 1)}`,
+        name: t.type,
+        active: t.active,
+        subtypes: (t.subtypes ?? []).map((sub, si) => ({
+          id: `PSB-${pad(i * 40 + ti * 10 + si + 1)}`,
+          name: sub,
+          active: true,
+        })),
+      })),
+    }))
+  })(),
 }
 
 let newSubSeq = 500
@@ -72,4 +93,4 @@ export function nextSubtypeId(): string {
   return `SUB-${pad(++newSubSeq)}`
 }
 
-export const QC_ENTITIES: QcEntity[] = ["Property", "Project", "Developer"]
+export const QC_ENTITIES: QcEntity[] = ["Property", "Project"]

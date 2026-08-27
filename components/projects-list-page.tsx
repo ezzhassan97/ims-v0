@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
-  AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ExternalLink, Eye, EyeOff, GitBranch, ImagePlus, Info, MoreHorizontal, Download, FileText, Globe, Repeat, ToggleRight, Layers, Building2,
+  AlertTriangle, AlignLeft, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ExternalLink, Eye, EyeOff, GitBranch, ImagePlus, Info, MoreHorizontal, Download, FileText, Globe, Repeat, ToggleRight, Layers, Building2,
   Group as GroupIcon, ListChecks, MapPin, Plus, Tag as TagIcon, Map as MapIcon, Upload, X,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -22,6 +22,7 @@ import {
   type SortLevel, type ProjectTreeSelection, type AreaPick,
 } from "@/components/table-kit"
 import { ProjectDetails } from "@/components/projects-page"
+import { ReportProjectIssueDrawer } from "@/components/report-project-issue-drawer"
 import { useLaunches, launchesForProject, launchPropsOf, isIngestedLaunch, launchLabel, eoiRangeText, activateLaunch, closeLaunch, setProjectPrimary, useProjectPrimaryVersion, type Launch } from "@/lib/launches-mock"
 import {
   PROJECTS, PROJECT_DEVELOPERS, AREAS, DISTRICTS, SUBAREAS, AREA_TREE,
@@ -285,6 +286,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
   const [projGeo, setProjGeo] = useState<GeoRef[]>(PROJECT_GEO0)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [listingDlg, setListingDlg] = useState<ProjectRow | null>(null)
+  const [reportIssueRow, setReportIssueRow] = useState<ProjectRow | null>(null)
   const [primaryDlg, setPrimaryDlg] = useState<ProjectRow | null>(null)
   const [drawTarget, setDrawTarget] = useState<ProjectRow | null>(null)
   const [creating, setCreating] = useState(false)
@@ -670,6 +672,7 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem onClick={() => setSelected(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
               <DropdownMenuItem onClick={() => window.open(projSiteUrl(r.name), "_blank", "noopener")}><ExternalLink className="mr-2 h-3.5 w-3.5" />View on Website</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setReportIssueRow(r)}><AlertTriangle className="mr-2 h-3.5 w-3.5" />Report an Issue</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "entry", targets: [r], ignored: 0 })}><Repeat className="mr-2 h-3.5 w-3.5" />Change Entry Type</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setListingDlg(r)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
@@ -905,6 +908,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         </TableCard>
 
         {dataCheck && <DataCheckDialog kind={dataCheck} rows={rows} onClose={() => setDataCheck(null)} />}
+
+        <ReportProjectIssueDrawer row={reportIssueRow} onClose={() => setReportIssueRow(null)} />
 
         {mapOpen && (
           <GlobalMapDialog

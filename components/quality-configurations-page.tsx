@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Building2, Check, ChevronDown, Download, LayoutGrid, ListTree, Pencil, Plus, Trash2, Users, X } from "lucide-react"
+import { Building2, Check, ChevronDown, Download, LayoutGrid, ListTree, Pencil, Plus, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils"
 const ENTITY_META: Record<QcEntity, { label: string; icon: React.ReactNode }> = {
   Property: { label: "Properties", icon: <LayoutGrid className="mr-1.5 h-3.5 w-3.5" /> },
   Project: { label: "Projects", icon: <Building2 className="mr-1.5 h-3.5 w-3.5" /> },
-  Developer: { label: "Developers", icon: <Users className="mr-1.5 h-3.5 w-3.5" /> },
 }
 
 function SumTag({ sum, label = "Σ" }: { sum: number; label?: string }) {
@@ -161,7 +160,7 @@ export function QualityConfigurationsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Quality Configurations</h1>
           <p className="text-sm text-muted-foreground">
-            Property fields are the categories — priority and score live on the category; subtypes can be added, renamed or removed.
+            Entity fields are the categories — priority and score live on the category; subtypes can be added, renamed or removed.
           </p>
         </div>
 
@@ -178,25 +177,15 @@ export function QualityConfigurationsPage() {
             {QC_ENTITIES.map((e) => (
               <TabsTrigger key={e} value={e} className="data-[state=active]:bg-card">
                 {ENTITY_META[e].icon}{ENTITY_META[e].label}
-                {e === "Property" ? (
-                  <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-blue-200 bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">
-                    {taxonomy[e].length}
-                  </span>
-                ) : (
-                  <span className="ml-1.5 inline-flex h-4 items-center justify-center rounded border border-gray-200 bg-gray-100 px-1 text-[10px] font-semibold text-gray-500">Soon</span>
-                )}
+                <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded border border-blue-200 bg-blue-100 px-1 text-[10px] font-semibold text-blue-700">
+                  {taxonomy[e].length}
+                </span>
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
 
-        {entity !== "Property" ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-24 text-center">
-            <ListTree className="mb-3 h-8 w-8 text-muted-foreground" />
-            <p className="text-sm font-semibold text-foreground">{ENTITY_META[entity].label} taxonomy is coming soon</p>
-            <p className="mt-1 text-xs text-muted-foreground">Property fields are live — project and developer issue taxonomies follow the same structure.</p>
-          </div>
-        ) : (
+        {(
           <TableCard>
             <TableCardHeader
               title={`${ENTITY_META[entity].label} Categories`}
