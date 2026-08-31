@@ -89,3 +89,47 @@ export const SHEET_TABS: SheetGridTab[] = [
 export function normalizedGrid(tab: SheetGridTab): (string | number | null)[][] {
   return tab.grid.slice(tab.headerRow).map((row) => row.slice(tab.headerCol))
 }
+
+// ── Diff model — output vs input, per cell (GitHub-style, but for spreadsheet cells) ──
+
+export type DiffStatus = "added" | "changed" | "removed"
+export interface DiffCell {
+  v: string | number | null
+  status?: DiffStatus
+  /** For "changed" cells — the input value this cell moved away from */
+  from?: string | number | null
+}
+
+/**
+ * Deterministic diff of a tab's normalized output against its input:
+ *  - every 5th data row gets a changed Delivery + Price cell (from → to)
+ *  - one mid-sheet row is removed (kept in place, struck through)
+ *  - two appended rows are added
+ */
+export function diffGrid(tab: SheetGridTab): DiffCell[][] {
+  const base = normalizedGrid(tab)
+  const [header, ...data] = base
+  const rows: DiffCell[][] = [header.map((v) => ({ v }))]
+
+  data.forEach((row, i) => {
+    if (i === 4 && data.length > 6) {
+      rows.push(row.map((v) => ({ v, status: "removed" as const })))
+      return
+    }
+    rows.push(row.map((v, c) => {
+      if (i % 5 === 2 && c === 4 && v != null) return { v: String(v).replace("Jan", "Feb"), from: v, status: "changed" as const }
+      if (i % 5 === 2 && c === 7 && v != null) {
+        const to = (Number(String(v).replace(/,/g, "")) + 250_000).toLocaleString("en-US")
+        return { v: to, from: v, status: "changed" as const }
+      }
+      return { v }
+    }))
+  })
+
+  if (tab.isUnits) {
+    for (let k = 0; k < 2; k++) {
+      rows.push(unitRow(tab.name, 900 + k).map((v) => ({ v, status: "added" as const })))
+    }
+  }
+  return rows
+}

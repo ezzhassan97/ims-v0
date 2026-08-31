@@ -105,11 +105,9 @@ export function AppShell() {
         return <BrochuresPage />
       case "Floor Plans":
         return <FloorPlansPage />
-      // key: both pages render the same component — without it React keeps one instance and leaks filter state across them
-      case "Automatic Sheets Entries":
-        return <IngestionEntriesPage key="sheets" mode="sheets" onView={(e) => setSheetEntry({ entry: e, mode: "sheets" })} />
-      case "Manual Grouped Entries":
-        return <IngestionEntriesPage key="manual" mode="manual" onView={(e) => setSheetEntry({ entry: e, mode: "manual" })} />
+      case "Properties Bulk Ingestion":
+        // Structured entries open the sheets wizard, unstructured the manual one
+        return <IngestionEntriesPage onView={(e) => setSheetEntry({ entry: e, mode: e.dataType === "Structured Detailed" ? "sheets" : "manual" })} />
       case "Properties Configurations":
         return <PropertiesConfigurationsPage />
       case "Project Configurations":
