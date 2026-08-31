@@ -3,6 +3,8 @@
 import { PROJECTS, PROJECT_DEVELOPERS } from "@/lib/projects-mock"
 
 export type IngestionMode = "sheets" | "manual"
+export type SaleType = "Primary" | "Launch" | "Resale" | "Nawy Now"
+export type EntryDataType = "Structured Detailed" | "Unstructured Grouped"
 export type IngestionSource = "WhatsApp" | "Device"
 export type PropertyCategory = "Residential" | "Commercial"
 
@@ -26,6 +28,10 @@ export interface IngestionEntry {
    *  A phase may be selected without its main project (the parent is then only implied). */
   projects: { id: string; name: string; main: string | null }[]
   stage: string
+  /** Sale type covered by this ingestion entry */
+  saleType: SaleType
+  /** Structured (unit codes, automatic) vs unstructured (no unit codes, manual) */
+  dataType: EntryDataType
   uploadedBy: string
   fileType: string
   source: IngestionSource
@@ -78,6 +84,8 @@ function buildEntries(mode: IngestionMode): IngestionEntry[] {
       developer: isFirstStage ? null : dev,
       projects: isFirstStage ? [] : projectRefs,
       stage,
+      saleType: (["Primary", "Launch", "Resale", "Nawy Now"] as const)[i % 4],
+      dataType: mode === "sheets" ? "Structured Detailed" : "Unstructured Grouped",
       uploadedBy: USERS[i % USERS.length],
       fileType,
       source: (i % 3 === 0 ? "WhatsApp" : "Device") as IngestionSource,
@@ -95,3 +103,8 @@ function buildEntries(mode: IngestionMode): IngestionEntry[] {
 
 export const SHEET_ENTRIES: IngestionEntry[] = buildEntries("sheets")
 export const MANUAL_ENTRIES: IngestionEntry[] = buildEntries("manual")
+
+/** Unified bulk-ingestion list — structured and unstructured entries interleaved. */
+export const ENTRIES: IngestionEntry[] = SHEET_ENTRIES.flatMap((e, i) =>
+  MANUAL_ENTRIES[i] ? [e, MANUAL_ENTRIES[i]] : [e],
+)

@@ -141,8 +141,7 @@ const navItems: NavItem[] = [
     label: "Data Ingestion",
     icon: <Database className="h-4 w-4" />,
     children: [
-      { label: "Automatic Sheets Entries", icon: <FileSpreadsheet className="h-4 w-4" /> },
-      { label: "Manual Grouped Entries", icon: <Layers2 className="h-4 w-4" /> },
+      { label: "Properties Bulk Ingestion", icon: <FileSpreadsheet className="h-4 w-4" /> },
     ],
   },
   {

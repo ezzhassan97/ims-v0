@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react"
 import {
   Archive, ArrowDown, ArrowUp, ArrowUpDown, Boxes, Building2, CheckCircle2, ChevronDown, ChevronsDownUp,
   ChevronsUpDown, Clock, Download, Eye, FileSpreadsheet, FileStack, FileText, FolderTree, Group as GroupIcon,
-  MoreHorizontal, Rows3, ScanSearch, Timer, User as UserIcon,
+  MoreHorizontal, Plus, Rows3, ScanSearch, Timer, Upload, User as UserIcon, X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -23,8 +23,8 @@ import {
 import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
 import { PROJECT_DEVELOPERS, PROJECTS } from "@/lib/projects-mock"
 import {
-  SHEET_ENTRIES, MANUAL_ENTRIES, SHEET_STAGES, MANUAL_STAGES, SHEET_FILE_TYPES, MANUAL_FILE_TYPES,
-  type IngestionEntry, type IngestionMode,
+  ENTRIES, SHEET_STAGES, MANUAL_STAGES, SHEET_FILE_TYPES, MANUAL_FILE_TYPES,
+  type IngestionEntry,
 } from "@/lib/ingestion-mock"
 
 const TAG = "inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium"
@@ -42,6 +42,8 @@ const ENTRY_COLS = [
   { id: "fileName", label: "File", width: 260 },
   { id: "developer", label: "Developer", width: 200 },
   { id: "projects", label: "Projects", width: 240 },
+  { id: "saleType", label: "Sale Type", width: 120 },
+  { id: "dataType", label: "Data Type", width: 170 },
   { id: "stage", label: "Stage", width: 160 },
   { id: "uploadedBy", label: "Uploaded By", width: 160 },
   { id: "fileType", label: "File Type", width: 110 },
@@ -72,14 +74,17 @@ const PROJECT_TREE: ProjectTreeNode[] = PROJECTS.filter((p) => !p.isPhase).map((
   phases: PROJECTS.filter((ph) => ph.isPhase && ph.mainProject?.id === p.id).map((ph) => ({ id: ph.id, name: ph.name })),
 }))
 
-type GroupByKey = "none" | "developer" | "stage" | "user" | "fileType" | "source"
+type GroupByKey = "none" | "developer" | "stage" | "saleType" | "dataType" | "user" | "fileType" | "source"
 const GROUP_LABEL: Record<GroupByKey, string> = {
-  none: "Group by", developer: "Developer", stage: "Stage", user: "User", fileType: "File Type", source: "Source",
+  none: "Group by", developer: "Developer", stage: "Stage", saleType: "Sale Type", dataType: "Data Type",
+  user: "User", fileType: "File Type", source: "Source",
 }
 function groupKeyOf(e: IngestionEntry, k: GroupByKey): string {
   switch (k) {
     case "developer": return e.developer?.name ?? "No developer"
     case "stage": return e.stage
+    case "saleType": return e.saleType
+    case "dataType": return e.dataType
     case "user": return e.uploadedBy
     case "fileType": return e.fileType
     case "source": return e.source
@@ -162,18 +167,19 @@ function ProjectsCell({ projects }: { projects: IngestionEntry["projects"] }) {
  * Shared Data Ingestion entries table — Automatic Sheets Entries & Manual Grouped
  * Entries are the same experience with different titles, stages and file types.
  */
-export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; onView?: (entry: IngestionEntry) => void }) {
-  const [rows, setRows] = useState<IngestionEntry[]>(() => (mode === "sheets" ? SHEET_ENTRIES : MANUAL_ENTRIES))
-  const stages = mode === "sheets" ? [...SHEET_STAGES] : [...MANUAL_STAGES]
-  const fileTypes = mode === "sheets" ? [...SHEET_FILE_TYPES] : [...MANUAL_FILE_TYPES]
-  const title = mode === "sheets" ? "Automatic Sheets Entries" : "Manual Grouped Entries"
-  const subtitle = mode === "sheets"
-    ? "Inventory entries ingested automatically from developer sheets"
-    : "Inventory entries grouped and entered manually by the team"
+export function IngestionEntriesPage({ onView }: { onView?: (entry: IngestionEntry) => void }) {
+  const [rows, setRows] = useState<IngestionEntry[]>(() => ENTRIES)
+  const stages = [...new Set([...SHEET_STAGES, ...MANUAL_STAGES])]
+  const fileTypes = [...new Set([...SHEET_FILE_TYPES, ...MANUAL_FILE_TYPES])]
+  const title = "Properties Bulk Ingestion"
+  const subtitle = "Properties Inventory bulk ingestion entries"
 
   const [q, setQ] = useState("")
   const [developerF, setDeveloperF] = useState<string[]>([])
   const [projectF, setProjectF] = useState<string[]>([])
+  const [saleTypeF, setSaleTypeF] = useState<string[]>([])
+  const [dataTypeF, setDataTypeF] = useState<string[]>([])
+  const [addOpen, setAddOpen] = useState(false)
   const [stageF, setStageF] = useState<string[]>([])
   const [fileTypeF, setFileTypeF] = useState("")
   const [sourceF, setSourceF] = useState("")
@@ -200,9 +206,9 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
 
   const activeFilterCount =
     [fileTypeF, sourceF, createdFrom || createdTo, finalizedFrom || finalizedTo].filter(Boolean).length +
-    [developerF, projectF, stageF, categoryF].filter((a) => a.length > 0).length
+    [developerF, projectF, saleTypeF, dataTypeF, stageF, categoryF].filter((a) => a.length > 0).length
   const clearAllFilters = () => {
-    setDeveloperF([]); setProjectF([]); setStageF([]); setFileTypeF(""); setSourceF(""); setCategoryF([])
+    setDeveloperF([]); setProjectF([]); setSaleTypeF([]); setDataTypeF([]); setStageF([]); setFileTypeF(""); setSourceF(""); setCategoryF([])
     setCreatedFrom(""); setCreatedTo(""); setFinalizedFrom(""); setFinalizedTo(""); setPage(1)
   }
 
@@ -212,6 +218,8 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
       if (needle && !`${e.fileName} ${e.id}`.toLowerCase().includes(needle)) return false
       if (developerF.length > 0 && (!e.developer || !developerF.includes(e.developer.id))) return false
       if (projectF.length > 0 && !e.projects.some((p) => projectF.includes(p.id))) return false
+      if (saleTypeF.length > 0 && !saleTypeF.includes(e.saleType)) return false
+      if (dataTypeF.length > 0 && !dataTypeF.includes(e.dataType)) return false
       if (stageF.length > 0 && !stageF.includes(e.stage)) return false
       if (fileTypeF && e.fileType !== fileTypeF) return false
       if (sourceF && e.source !== sourceF) return false
@@ -232,7 +240,7 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
       })
     }
     return out
-  }, [rows, q, developerF, projectF, stageF, fileTypeF, sourceF, categoryF, createdFrom, createdTo, finalizedFrom, finalizedTo, sorts])
+  }, [rows, q, developerF, projectF, saleTypeF, dataTypeF, stageF, fileTypeF, sourceF, categoryF, createdFrom, createdTo, finalizedFrom, finalizedTo, sorts])
 
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
 
@@ -311,6 +319,8 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
         case "developer": return e.developer?.name ?? ""
         case "projects": return e.projects.map((p) => p.name).join("; ")
         case "stage": return e.stage
+        case "saleType": return e.saleType
+        case "dataType": return e.dataType
         case "uploadedBy": return e.uploadedBy
         case "fileType": return e.fileType
         case "source": return e.source
@@ -369,6 +379,8 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
             </Button>
           </div>
         )
+      case "saleType": return <ColorTag value={e.saleType} />
+      case "dataType": return <ColorTag value={e.dataType} />
       case "stage": return STAGE_TONE[e.stage] ? <span className={cn(TAG, STAGE_TONE[e.stage])}>{e.stage}</span> : <ColorTag value={e.stage} />
       case "uploadedBy":
         return (
@@ -408,10 +420,10 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
               <button className="flex h-full w-12 items-center justify-center text-muted-foreground hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem onClick={() => (onView ? onView(e) : toast.info("Entry details page is coming soon"))}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => (onView ? onView(e) : toast.info("Entry details page is coming soon"))}><Eye className="mr-2 h-3.5 w-3.5" />View Entry details</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setPreview(entryPreviewFile(e))}><FileText className="mr-2 h-3.5 w-3.5" />View Original File</DropdownMenuItem>
               <DropdownMenuItem disabled={!isFin} onClick={() => setPreview(finalizedPreviewFile(e))}><FileSpreadsheet className="mr-2 h-3.5 w-3.5" />View Finalized Sheet</DropdownMenuItem>
-              <DropdownMenuItem disabled={!isFin} onClick={() => setSummaryEntry(e)}><ScanSearch className="mr-2 h-3.5 w-3.5" />View Entry Summary</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSummaryEntry(e)}><ScanSearch className="mr-2 h-3.5 w-3.5" />View Entry Summary</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem disabled={isFin} className="text-red-600 focus:text-red-600" onClick={() => setArchiveDlg({ entries: [e], ignored: 0 })}>
                 <Archive className="mr-2 h-3.5 w-3.5" />Archive
@@ -433,12 +445,12 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
 
         {/* Analytics — dynamic with the applied filters; property & time cards read finalized entries */}
         {/* One row on xl: 7 cards on sheets, 6 on manual (no Detailed Properties there) */}
-        <div className={cn("grid grid-cols-2 gap-3 md:grid-cols-4", mode === "sheets" ? "xl:grid-cols-7" : "xl:grid-cols-6")}>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
           <StatCard icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} label="Finalized Entries" value={fin.length} />
           <StatCard icon={<Building2 className="h-4 w-4 text-blue-600" />} label="Developers" value={finDevelopers} />
           <StatCard icon={<FolderTree className="h-4 w-4 text-purple-600" />} label="Parent Projects" value={finParents} />
           <StatCard icon={<Boxes className="h-4 w-4 text-amber-500" />} label="Grouped Properties" value={groupedProps.toLocaleString("en-US")} />
-          {mode === "sheets" && <StatCard icon={<Rows3 className="h-4 w-4 text-cyan-600" />} label="Detailed Properties" value={detailedProps.toLocaleString("en-US")} />}
+          <StatCard icon={<Rows3 className="h-4 w-4 text-cyan-600" />} label="Detailed Properties" value={detailedProps.toLocaleString("en-US")} />
           <StatCard icon={<Clock className="h-4 w-4 text-muted-foreground" />} label="Avg Total Time" value={fmtDur(avgOf((e) => e.totalTimeSec))} />
           <StatCard icon={<Timer className="h-4 w-4 text-muted-foreground" />} label="Avg Active Time" value={fmtDur(avgOf((e) => e.activeTimeSec))} />
         </div>
@@ -469,6 +481,8 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
             <>
               <FilterMultiSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-44" />
               <ProjectTreeSelect multi projects={PROJECT_TREE} values={projectF} onValuesChange={(v) => { setProjectF(v); setPage(1) }} className="w-48" />
+              <FilterMultiSelect label="Sale Type" value={saleTypeF} options={["Primary", "Launch", "Resale", "Nawy Now"]} onChange={(v) => { setSaleTypeF(v); setPage(1) }} className="w-40" />
+              <FilterMultiSelect label="Data Type" value={dataTypeF} options={["Structured Detailed", "Unstructured Grouped"]} onChange={(v) => { setDataTypeF(v); setPage(1) }} className="w-48" />
               <FilterMultiSelect label="Stage" value={stageF} options={stages} onChange={(v) => { setStageF(v); setPage(1) }} className="w-44" />
               <FilterSelect label="File Type" value={fileTypeF} options={fileTypes} onChange={(v) => { setFileTypeF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Source" value={sourceF} options={["WhatsApp", "Device"]} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-36" />
@@ -482,8 +496,13 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
 
         <TableCard>
           <TableCardHeader
-            title={title}
+            title="Properties ingestion entries"
             count={filtered.length}
+            cta={
+              <Button size="sm" className="h-8 gap-1.5" onClick={() => setAddOpen(true)}>
+                <Plus className="h-3.5 w-3.5" />Add Entry
+              </Button>
+            }
             extra={groupBy !== "none" ? (
               <div className="ml-2 flex items-center gap-1">
                 <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => setCollapsedGroups(new Set())}>
@@ -564,6 +583,7 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
         <EntrySummarySheet entry={summaryEntry} onClose={() => setSummaryEntry(null)} />
         <EntryProjectsDrawer entry={projectsDrawer} onClose={() => setProjectsDrawer(null)} />
         <ArchiveDialog dlg={archiveDlg} onClose={() => setArchiveDlg(null)} onConfirm={archiveConfirmed} />
+        <AddEntryDialog open={addOpen} onClose={() => setAddOpen(false)} />
 
         {/* All Filters drawer — same filters, order and state as the toolbar */}
         <FiltersDrawer open={showFilters} onClose={() => setShowFilters(false)} activeCount={activeFilterCount} onClear={clearAllFilters}>
@@ -572,6 +592,12 @@ export function IngestionEntriesPage({ mode, onView }: { mode: IngestionMode; on
           </FilterDrawerField>
           <FilterDrawerField label="Project">
             <ProjectTreeSelect multi projects={PROJECT_TREE} values={projectF} onValuesChange={(v) => { setProjectF(v); setPage(1) }} className="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Sale Type">
+            <FilterMultiSelect label="Sale Type" value={saleTypeF} options={["Primary", "Launch", "Resale", "Nawy Now"]} onChange={(v) => { setSaleTypeF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="Data Type">
+            <FilterMultiSelect label="Data Type" value={dataTypeF} options={["Structured Detailed", "Unstructured Grouped"]} onChange={(v) => { setDataTypeF(v); setPage(1) }} className="w-full" width="w-full" />
           </FilterDrawerField>
           <FilterDrawerField label="Stage">
             <FilterMultiSelect label="Stage" value={stageF} options={stages} onChange={(v) => { setStageF(v); setPage(1) }} className="w-full" width="w-full" />
@@ -865,5 +891,57 @@ export function EntryProjectsDrawer({ entry, onClose }: { entry: IngestionEntry 
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+/* ── Add Entry — upload the files that start a new ingestion entry ──────────── */
+
+function AddEntryDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [files, setFiles] = useState<{ name: string; size: number }[]>([])
+  const close = () => { setFiles([]); onClose() }
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && close()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogTitle className="text-lg font-bold text-foreground">Add Entry</DialogTitle>
+        <p className="text-sm text-muted-foreground">Upload the sheet, PDF, image or text files for this entry. Setup continues inside the entry after upload.</p>
+        <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-border px-6 py-10 text-center transition-colors hover:border-primary/50 hover:bg-muted/30">
+          <Upload className="h-8 w-8 text-muted-foreground" />
+          <span className="text-sm font-medium text-foreground">Drag &amp; drop files here, or click to browse</span>
+          <span className="text-xs text-muted-foreground">XLSX, CSV, PDF, PNG, JPG, TXT — up to 25 MB each</span>
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const picked = [...(e.target.files ?? [])].map((f) => ({ name: f.name, size: f.size }))
+              if (picked.length) setFiles((prev) => [...prev, ...picked])
+              e.target.value = ""
+            }}
+          />
+        </label>
+        {files.length > 0 && (
+          <div className="max-h-44 space-y-1.5 overflow-y-auto">
+            {files.map((f, i) => (
+              <div key={`${f.name}-${i}`} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <FileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm font-medium text-foreground">{f.name}</span>
+                </div>
+                <div className="flex flex-shrink-0 items-center gap-2">
+                  <span className="font-mono text-[11px] text-muted-foreground">{f.size >= 1_000_000 ? `${(f.size / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(f.size / 1_000))} KB`}</span>
+                  <button className="text-muted-foreground hover:text-red-600" onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}><X className="h-3.5 w-3.5" /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={close}>Cancel</Button>
+          <Button disabled={files.length === 0} onClick={() => { toast.success(`${files.length} file${files.length > 1 ? "s" : ""} uploaded — entry created`); close() }}>
+            Upload
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
