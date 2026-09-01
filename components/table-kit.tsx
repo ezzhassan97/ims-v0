@@ -641,10 +641,14 @@ export type SortLevel = { key: string; dir: "asc" | "desc" }
  * Canonical multi-level Sort button: add levels, pick a field, asc/desc per level,
  * levels are ranked in order. Use this for EVERY table/grid Sort button.
  */
-export function MultiSortControl({ fields, sorts, onChange }: {
+export function MultiSortControl({ fields, sorts, onChange, iconOnly = false, disabled = false, title = "Multi-level sort" }: {
   fields: { key: string; label: string }[]
   sorts: SortLevel[]
   onChange: (next: SortLevel[]) => void
+  /** Icon-only trigger (toolbars where every control is an icon button). */
+  iconOnly?: boolean
+  disabled?: boolean
+  title?: string
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -660,9 +664,17 @@ export function MultiSortControl({ fields, sorts, onChange }: {
 
   return (
     <div ref={ref} className="relative">
-      <Button variant={sorts.length ? "default" : "outline"} size="sm" className="h-8 gap-1.5" onClick={() => setOpen((v) => !v)}>
-        <ArrowUpDown className="h-3.5 w-3.5" />Sort
-        {sorts.length > 0 && <span className="ml-0.5 rounded-full bg-primary-foreground/20 px-1.5 text-[10px] font-semibold">{sorts.length}</span>}
+      <Button
+        variant={sorts.length ? "default" : "outline"}
+        size={iconOnly ? "icon" : "sm"}
+        className={iconOnly ? "h-8 w-8" : "h-8 gap-1.5"}
+        disabled={disabled}
+        title={iconOnly ? (sorts.length ? `${title} · ${sorts.length}` : title) : undefined}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <ArrowUpDown className="h-3.5 w-3.5" />
+        {!iconOnly && "Sort"}
+        {sorts.length > 0 && !iconOnly && <span className="ml-0.5 rounded-full bg-primary-foreground/20 px-1.5 text-[10px] font-semibold">{sorts.length}</span>}
       </Button>
       {open && (
         <div className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-md">
