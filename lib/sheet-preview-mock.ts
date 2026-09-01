@@ -13,6 +13,8 @@ export interface SheetGridTab {
   headerCol: number
   /** Non-unit tabs (cover sheets, terms, legends) are excluded from the output by default */
   isUnits: boolean
+  /** Already clean — this step changes nothing, so input and output match */
+  unchanged?: boolean
 }
 
 const UNIT_COLS = ["Unit Code", "Type", "Category", "Project", "Delivery", "BUA", "Land", "Price", "Maint."]
@@ -39,7 +41,7 @@ function pad(len: number): null[] {
 }
 
 /** Clean tab — header at A1, data straight after. */
-function cleanTab(name: string, rows: number): SheetGridTab {
+function cleanTab(name: string, rows: number, unchanged = false): SheetGridTab {
   return {
     name,
     grid: [UNIT_COLS, ...Array.from({ length: rows }, (_, i) => unitRow(name, i))],
@@ -47,6 +49,7 @@ function cleanTab(name: string, rows: number): SheetGridTab {
     headerRow: 0,
     headerCol: 0,
     isUnits: true,
+    unchanged,
   }
 }
 
@@ -82,7 +85,7 @@ export const SHEET_TABS: SheetGridTab[] = [
   offsetTab("Uptown Cairo", 56, ["Uptown Cairo — Inventory update", "Issued 12 Jan 2026 · Sales dept."], 2),
   offsetTab("Mivida", 76, ["MIVIDA RESALE + PRIMARY"], 0),
   notesTab("Payment Terms"),
-  cleanTab("Soul", 56),
+  cleanTab("Soul", 56, true), // already clean — demoes an empty diff
 ]
 
 /** Output grid — header normalized to the top-left corner, junk rows/columns dropped. */
@@ -107,6 +110,8 @@ export interface DiffCell {
  */
 export function diffGrid(tab: SheetGridTab): DiffCell[][] {
   const base = normalizedGrid(tab)
+  // Already-clean tab: output is byte-for-byte the input, so the diff is empty
+  if (tab.unchanged) return base.map((row) => row.map((v) => ({ v })))
   const [header, ...data] = base
   const rows: DiffCell[][] = [header.map((v) => ({ v }))]
 

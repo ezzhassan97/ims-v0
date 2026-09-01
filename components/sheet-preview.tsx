@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, ChevronUp,
-  Check, Columns3, Eye, EyeOff, Filter, GitCompareArrows, GripVertical, Group as GroupIcon, Maximize2, Search, X,
+  Check, Columns3, Download, Eye, EyeOff, Filter, GitCompareArrows, GripVertical, Group as GroupIcon, Maximize2, Search, X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -328,6 +328,20 @@ export function SheetPreviewCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleRows, renderCols.join(",")])
 
+  /** Export the shown tab as it stands on either side of this step. */
+  const downloadCsv = (which: "input" | "output") => {
+    const v = buildView(shownTab, which)
+    const esc = (val: string) => `"${val.replace(/"/g, '""')}"`
+    const lines = [...(v.header ? [v.header] : []), ...v.rows.map((r) => r.cells)]
+      .map((row) => Array.from({ length: v.colCount }, (_, j) => esc(displayVal(row[j]?.v))).join(","))
+      .join("\n")
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(new Blob([lines], { type: "text/csv" }))
+    a.download = `${shownTab.name.toLowerCase().replace(/\s+/g, "-")}-${which}.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
   /* ── Cell rendering ───────────────────────────────────────────────────── */
   const zebra = (i: number) => (i % 2 ? "bg-muted/20" : "bg-card")
   /** Amber for value → value, red when a value was cleared, green when one was added. */
@@ -380,7 +394,7 @@ export function SheetPreviewCard({
           {selectable && (
             <td className={cn("sticky z-20 w-9 border-b border-r border-border px-2 py-1.5 text-center", zb)} style={{ left: IDX_W }}>
               <Checkbox
-                className="h-3.5 w-3.5 align-middle"
+                className="h-3.5 w-3.5 border-input bg-white align-middle data-[state=checked]:bg-primary"
                 checked={selected.has(keyOf(r))}
                 onClick={(e) => clickRow(r, i, (e as React.MouseEvent).shiftKey)}
               />
@@ -420,7 +434,7 @@ export function SheetPreviewCard({
               {selectable && (
                 <th className="sticky top-0 z-30 h-7 w-9 border-b border-r border-border bg-muted" style={{ left: IDX_W }}>
                   <Checkbox
-                    className="h-3.5 w-3.5 align-middle"
+                    className="h-3.5 w-3.5 border-input bg-white align-middle data-[state=checked]:bg-primary"
                     checked={allSelected}
                     onCheckedChange={(v) => setSelected((prev) => {
                       const n = new Set(prev)
@@ -561,20 +575,18 @@ export function SheetPreviewCard({
           <Button variant="outline" size="icon" className="h-8 w-8" title="Next match" disabled={!findMatches.length} onClick={() => setFindIdx((v) => v + 1)}><ChevronDown className="h-3.5 w-3.5" /></Button>
         </span>
       )}
-      {selectable && selCount > 0 && (
-        <span className={cn(TAG, "border-primary/40 bg-primary/5 text-primary")}>
-          {selCount} selected
-          <button title="Clear selection" onClick={() => setSelected(new Set())} className="hover:text-foreground"><X className="h-3 w-3" /></button>
-        </span>
-      )}
-
       <div className="flex rounded-lg border border-border p-0.5">
         {(["input", "output"] as const).map((m) => (
           <button
             key={m}
             title={m === "input" ? "Sheet as this step received it" : "Sheet this step hands to the next one"}
             onClick={() => { setMode(m); setDiff(false) }}
-            className={cn("rounded-md px-3 py-1 text-sm font-medium capitalize", mode === m && !diff ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
+            className={cn(
+              "rounded-md px-3 py-1 text-sm font-medium capitalize",
+              // In diff the sheet IS the output, so output stays selected and input greys out
+              (diff ? m === "output" : mode === m) ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+              diff && m === "input" && "opacity-40",
+            )}
           >
             {m}
           </button>
@@ -651,6 +663,18 @@ export function SheetPreviewCard({
         <Columns3 className="h-3.5 w-3.5" />
       </Button>
 
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="icon" className="h-8 w-8" title="Download this tab as CSV">
+            <Download className="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem className="text-sm" onClick={() => downloadCsv("input")}>Download Input</DropdownMenuItem>
+          <DropdownMenuItem className="text-sm" onClick={() => downloadCsv("output")}>Download Output</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <Button variant="outline" size="icon" className="h-8 w-8" title={inFull ? "Close fullscreen" : "Fullscreen"} onClick={() => setFull(!inFull)}>
         {inFull ? <X className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
       </Button>
@@ -663,6 +687,12 @@ export function SheetPreviewCard({
       <span className={cn(TAG, "border-blue-200 bg-blue-100 text-blue-700")}>
         {anyFilter ? `${sheetFiltered.toLocaleString("en-US")} of ${sheetTotal.toLocaleString("en-US")} rows` : `${sheetTotal.toLocaleString("en-US")} rows`}
       </span>
+      {selectable && selCount > 0 && (
+        <span className={cn(TAG, "border-primary/40 bg-primary/5 text-primary")}>
+          {selCount} selected
+          <button title="Clear selection" onClick={() => setSelected(new Set())} className="hover:text-foreground"><X className="h-3 w-3" /></button>
+        </span>
+      )}
       {groups && (
         <span className="flex items-center gap-1">
           <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => patchTS({ collapsed: [] })}>
@@ -729,7 +759,13 @@ export function SheetPreviewCard({
   const body = (inFull: boolean) => (
     <>
       {tabStrip}
-      {view === "diff" && diffCounts && (
+      {view === "diff" && diffCounts && diffCounts.added + diffCounts.changed + diffCounts.removed === 0 && (
+        <div className="flex items-center gap-1.5 border-b border-border bg-emerald-50/60 px-4 py-1.5">
+          <Check className="h-3.5 w-3.5 text-emerald-600" />
+          <span className="text-xs font-medium text-emerald-800">No changes — this tab&apos;s output matches its input.</span>
+        </div>
+      )}
+      {view === "diff" && diffCounts && diffCounts.added + diffCounts.changed + diffCounts.removed > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-muted/30 px-4 py-1.5">
           <span className="text-xs font-medium text-muted-foreground">Changes vs input:</span>
           <span className={cn(TAG, "border-emerald-200 bg-emerald-50 text-emerald-700")}>{diffCounts.added} rows added</span>
