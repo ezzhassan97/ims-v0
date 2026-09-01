@@ -298,8 +298,10 @@ export function SheetPreviewCard({
     setHidden(n)
   }
 
+  const FROZEN_EDGE = "shadow-[2px_0_5px_-2px_rgba(15,23,42,0.18)]"
   const IDX_W = 48
   const SEL_W = 36
+  const lastFrozen = [...renderCols].reverse().find((id) => frozen.has(id))
   const frozenLeft = (id: string) => {
     let left = IDX_W + (selectable ? SEL_W : 0)
     for (const cid of renderCols) {
@@ -394,7 +396,7 @@ export function SheetPreviewCard({
         <tr key={r.idx} className="group">
           <td className="sticky left-0 z-20 w-12 border-b border-r border-border bg-muted px-2 py-1.5 text-center text-[10px] text-muted-foreground">{r.idx}</td>
           {selectable && (
-            <td className={cn("sticky z-20 w-9 border-b border-r border-border px-2 py-1.5 text-center", zb)} style={{ left: IDX_W }}>
+            <td className={cn("sticky z-30 w-9 border-b border-r border-border px-2 py-1.5 text-center", zb)} style={{ left: IDX_W }}>
               <Checkbox
                 className="h-3.5 w-3.5 border-input bg-white align-middle data-[state=checked]:bg-primary"
                 checked={selected.has(keyOf(r))}
@@ -412,6 +414,7 @@ export function SheetPreviewCard({
                   "whitespace-nowrap border-b border-r border-border px-3 py-1.5 text-[13px] tabular-nums group-hover:bg-muted",
                   frozen.has(id) ? cn("sticky z-10", zb) : zb,
                   frozen.has(id) && "min-w-[132px] max-w-[132px] truncate",
+                  id === lastFrozen && FROZEN_EDGE,
                   cellTone(c, r.removed),
                   dim && "opacity-35",
                 )}
@@ -434,7 +437,7 @@ export function SheetPreviewCard({
             <tr>
               <th className="sticky left-0 top-0 z-40 h-7 w-12 border-b border-r border-border bg-muted" />
               {selectable && (
-                <th className="sticky top-0 z-30 h-7 w-9 border-b border-r border-border bg-muted" style={{ left: IDX_W }}>
+                <th className="sticky top-0 z-40 h-7 w-9 border-b border-r border-border bg-muted" style={{ left: IDX_W }}>
                   <Checkbox
                     className="h-3.5 w-3.5 border-input bg-white align-middle data-[state=checked]:bg-primary"
                     checked={allSelected}
@@ -458,6 +461,7 @@ export function SheetPreviewCard({
                     className={cn(
                       "sticky top-0 h-7 min-w-[132px] border-b border-r border-border bg-muted px-2 text-[10px] font-normal text-muted-foreground",
                       frozen.has(id) ? "z-40 max-w-[132px]" : "z-30",
+                      id === lastFrozen && FROZEN_EDGE,
                     )}
                     style={frozen.has(id) ? { left: frozenLeft(id) } : undefined}
                   >
@@ -482,7 +486,7 @@ export function SheetPreviewCard({
             {vm.header && (
               <tr>
                 <th className="sticky left-0 top-7 z-40 w-12 border-b border-r border-border bg-muted px-2 py-1 text-center text-[10px] font-normal text-muted-foreground">{vm.headerIdx}</th>
-                {selectable && <th className="sticky top-7 z-30 w-9 border-b border-r border-border bg-muted" style={{ left: IDX_W }} />}
+                {selectable && <th className="sticky top-7 z-40 w-9 border-b border-r border-border bg-muted" style={{ left: IDX_W }} />}
                 {renderCols.map((id) => {
                   const s = ts.sorts.find((x) => x.key === id)
                   const fActive = (ts.filters[id] ?? []).length > 0
@@ -493,6 +497,7 @@ export function SheetPreviewCard({
                       className={cn(
                         "sticky top-7 whitespace-nowrap border-b border-r border-border bg-muted px-3 py-1 text-left text-xs font-semibold text-foreground",
                         frozen.has(id) ? "z-40 min-w-[132px] max-w-[132px]" : "z-20", dim && "opacity-40",
+                        id === lastFrozen && FROZEN_EDGE,
                       )}
                       style={frozen.has(id) ? { left: frozenLeft(id) } : undefined}
                     >
