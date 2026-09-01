@@ -346,6 +346,7 @@ export function SheetPreviewCard({
   const zebra = (i: number) => (i % 2 ? "bg-muted/20" : "bg-card")
   /** Amber for value → value, red when a value was cleared, green when one was added. */
   const cellTone = (c: DiffCell | undefined, rowRemoved?: boolean) => {
+    if (view !== "diff") return ""
     if (rowRemoved) return "bg-red-50 text-red-700 line-through decoration-red-300"
     if (!c?.status) return ""
     if (c.status === "added") return "bg-emerald-50 text-emerald-800"
@@ -360,7 +361,7 @@ export function SheetPreviewCard({
     const idx = matchSet.get(fmKey)
     const val = displayVal(c?.v)
     let body: React.ReactNode
-    if (c?.status === "changed") {
+    if (view === "diff" && c?.status === "changed") {
       const gone = isEmpty(c.v) && !isEmpty(c.from)
       const born = !isEmpty(c.v) && isEmpty(c.from)
       body = (
