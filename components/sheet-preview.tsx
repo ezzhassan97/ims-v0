@@ -343,7 +343,8 @@ export function SheetPreviewCard({
   }
 
   /* ── Cell rendering ───────────────────────────────────────────────────── */
-  const zebra = (i: number) => (i % 2 ? "bg-muted/20" : "bg-card")
+  // Solid, not alpha: sticky cells would otherwise show the rows scrolling underneath
+  const zebra = (i: number) => (i % 2 ? "bg-slate-50" : "bg-card")
   /** Amber for value → value, red when a value was cleared, green when one was added. */
   const cellTone = (c: DiffCell | undefined, rowRemoved?: boolean) => {
     if (view !== "diff") return ""
@@ -408,7 +409,7 @@ export function SheetPreviewCard({
               <td
                 key={id}
                 className={cn(
-                  "whitespace-nowrap border-b border-r border-border px-3 py-1.5 text-[13px] tabular-nums group-hover:bg-muted/60",
+                  "whitespace-nowrap border-b border-r border-border px-3 py-1.5 text-[13px] tabular-nums group-hover:bg-muted",
                   frozen.has(id) ? cn("sticky z-10", zb) : zb,
                   frozen.has(id) && "min-w-[132px] max-w-[132px] truncate",
                   cellTone(c, r.removed),
@@ -456,7 +457,7 @@ export function SheetPreviewCard({
                     onDrop={() => { if (dragCol.current) reorderCols(dragCol.current, id); dragCol.current = null }}
                     className={cn(
                       "sticky top-0 h-7 min-w-[132px] border-b border-r border-border bg-muted px-2 text-[10px] font-normal text-muted-foreground",
-                      frozen.has(id) ? "z-40" : "z-30",
+                      frozen.has(id) ? "z-40 max-w-[132px]" : "z-30",
                     )}
                     style={frozen.has(id) ? { left: frozenLeft(id) } : undefined}
                   >
@@ -491,7 +492,7 @@ export function SheetPreviewCard({
                       key={id}
                       className={cn(
                         "sticky top-7 whitespace-nowrap border-b border-r border-border bg-muted px-3 py-1 text-left text-xs font-semibold text-foreground",
-                        frozen.has(id) ? "z-40" : "z-20", dim && "opacity-40",
+                        frozen.has(id) ? "z-40 min-w-[132px] max-w-[132px]" : "z-20", dim && "opacity-40",
                       )}
                       style={frozen.has(id) ? { left: frozenLeft(id) } : undefined}
                     >
@@ -567,7 +568,7 @@ export function SheetPreviewCard({
     <div className="flex flex-wrap items-center gap-1.5">
       <div className="relative">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input value={find} onChange={(e) => setFind(e.target.value)} placeholder="Find in sheet…" className="h-8 w-40 pl-7 pr-2 text-sm" />
+        <Input value={find} onChange={(e) => setFind(e.target.value)} placeholder="Search in sheet" className="h-8 w-56 pl-7 pr-2 text-sm" />
       </div>
       {needle && (
         <span className="flex items-center gap-0.5">
