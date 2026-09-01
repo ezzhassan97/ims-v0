@@ -445,18 +445,18 @@ export function SheetPreviewCard({
                     )}
                     style={frozen.has(id) ? { left: frozenLeft(id) } : undefined}
                   >
-                    <span className="flex items-center justify-center gap-1">
-                      <GripVertical className="h-3 w-3 cursor-grab text-muted-foreground/50 active:cursor-grabbing" />
-                      <span className={cn(dim && "opacity-40")}>{colLetter(Number(id))}</span>
+                    <span className="flex items-center justify-between gap-1">
+                      <GripVertical className="h-3 w-3 flex-shrink-0 cursor-grab text-muted-foreground/50 active:cursor-grabbing" />
+                      <span className={cn("flex-1 text-center", dim && "opacity-40")}>{colLetter(Number(id))}</span>
                       {view === "input" ? (
                         <button
                           title={dim ? "Show column (kept in output)" : "Hide column (excluded from output)"}
                           onClick={() => toggleHidden(id)}
-                          className="text-muted-foreground/60 hover:text-foreground"
+                          className="flex-shrink-0 text-muted-foreground/60 hover:text-foreground"
                         >
                           {dim ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                         </button>
-                      ) : <span className="w-3" />}
+                      ) : <span className="w-3 flex-shrink-0" />}
                     </span>
                   </th>
                 )
@@ -480,9 +480,17 @@ export function SheetPreviewCard({
                       )}
                       style={frozen.has(id) ? { left: frozenLeft(id) } : undefined}
                     >
-                      <span className="flex items-center gap-1">
-                        <button onClick={() => cycleSort(id)} disabled={!featuresOn} className="inline-flex items-center gap-1 hover:text-primary disabled:cursor-not-allowed">
+                      <span className="flex items-center justify-between gap-2">
+                        <button onClick={() => cycleSort(id)} disabled={!featuresOn} className="min-w-0 truncate text-left hover:text-primary disabled:cursor-not-allowed">
                           {headLabel(id)}
+                        </button>
+                        <span className="flex flex-shrink-0 items-center gap-0.5">
+                        <button
+                          onClick={() => cycleSort(id)}
+                          disabled={!featuresOn}
+                          title={`Sort by ${headLabel(id)}`}
+                          className="rounded p-0.5 hover:bg-secondary disabled:opacity-30"
+                        >
                           {s ? (s.dir === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />) : <ArrowUpDown className="h-3 w-3 opacity-30" />}
                         </button>
                         <Popover>
@@ -500,6 +508,7 @@ export function SheetPreviewCard({
                             />
                           </PopoverContent>
                         </Popover>
+                        </span>
                       </span>
                     </th>
                   )
