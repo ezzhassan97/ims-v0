@@ -20,7 +20,7 @@ const TYPES = ["I-VILLA R", "I-VILLA S", "I-VILLA T", "I-VILLA U", "I-VILLA V", 
 const CATS = ["Villa", "I-Villa Roof Garden", "I-Villa Sky Garden", "Apartment", "Townhouse"]
 
 /** Deterministic unit row (no Date.now / Math.random — SSR and client must match). */
-function unitRow(project: string, i: number): (string | number)[] {
+function unitRow(project: string, i: number): (string | number | null)[] {
   return [
     `${project.slice(0, 3).toUpperCase()}-${220 + (i % 40)}-${["A4", "C4", "B2"][i % 3]}-${(i % 9) + 1}`,
     TYPES[i % TYPES.length],
@@ -28,7 +28,7 @@ function unitRow(project: string, i: number): (string | number)[] {
     project,
     `Jan ${(i % 27) + 1}, 2026`,
     160 + ((i * 7) % 90),
-    i % 4 === 0 ? 0 : 60 + ((i * 5) % 120),
+    i % 4 === 0 ? null : 60 + ((i * 5) % 120),
     (4_800_000 + i * 137_000).toLocaleString("en-US"),
     (450_000 + (i % 6) * 50_000).toLocaleString("en-US"),
   ]
@@ -101,10 +101,9 @@ export interface DiffCell {
 }
 
 /**
- * Deterministic diff of a tab's normalized output against its input:
- *  - every 5th data row gets a changed Delivery + Price cell (from → to)
- *  - one mid-sheet row is removed (kept in place, struck through)
- *  - two appended rows are added
+ * Deterministic diff of a tab's normalized output against its input.
+ * Row-level: one mid-sheet row removed (kept in place), two rows appended.
+ * Cell-level: value → value (amber), value → empty (red), empty → value (green).
  */
 export function diffGrid(tab: SheetGridTab): DiffCell[][] {
   const base = normalizedGrid(tab)
@@ -117,11 +116,16 @@ export function diffGrid(tab: SheetGridTab): DiffCell[][] {
       return
     }
     rows.push(row.map((v, c) => {
+      // Delivery pushed a month + price bumped — classic value → value edits
       if (i % 5 === 2 && c === 4 && v != null) return { v: String(v).replace("Jan", "Feb"), from: v, status: "changed" as const }
       if (i % 5 === 2 && c === 7 && v != null) {
         const to = (Number(String(v).replace(/,/g, "")) + 250_000).toLocaleString("en-US")
         return { v: to, from: v, status: "changed" as const }
       }
+      // Maintenance dropped during cleaning — value → empty
+      if (i % 7 === 3 && c === 8 && v != null) return { v: null, from: v, status: "changed" as const }
+      // Missing land area filled in — empty → value
+      if (c === 6 && (v === null || v === "")) return { v: 55 + ((i * 3) % 90), from: null, status: "changed" as const }
       return { v }
     }))
   })
