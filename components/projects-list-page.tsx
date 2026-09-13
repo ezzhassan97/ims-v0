@@ -3387,9 +3387,14 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                     <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
                   )}
                 </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">
+                    Primary Status <span className="font-normal text-muted-foreground">(set on creation — change it later from the project's actions)</span>
+                  </div>
+                  <TagSelect value="On-Sale" options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
+                </div>
                 <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
-                  {({ main: "Project", phase: "Phase", sub: "Sub-project" } as const)[level]} Primary Status will be set to{" "}
-                  <span className="font-semibold">On-Sale</span> by default — it can be edited later to Launch or any other status.
+                  Project Primary Status will be set to <span className="font-semibold">On-Sale</span> by default — it can be edited later to Launch or any other status.
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">Entry Type <EntryTypeInfo /></div>
@@ -3511,28 +3516,12 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                 </div>
                 <div className="space-y-1.5">
                   <div className="text-xs font-medium text-foreground">
-                    Primary Status <span className="font-normal text-muted-foreground">(set on creation — change it later from the phase's actions)</span>
+                    Primary Status <span className="font-normal text-muted-foreground">(set on creation — change it later from the sub-project's actions)</span>
                   </div>
-                  <TagSelect value={primaryF} options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
+                  <TagSelect value="On-Sale" options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
                 </div>
-                {/* Tone follows the parent's primary status: On-Hold amber, Sold-Off light red, otherwise blue */}
-                <div className={cn(
-                  "col-span-2 rounded-lg border px-3 py-2.5 text-[11px] leading-4",
-                  parentRow?.primaryStatus === "On-Hold" ? "border-amber-200 bg-amber-50 text-amber-800"
-                    : parentRow?.primaryStatus === "Sold-Off" ? "border-red-200 bg-red-50 text-red-700"
-                    : "border-blue-200 bg-blue-50 text-blue-800",
-                )}>
-                  {parentClosed ? (
-                    <>
-                      The parent project is <span className="font-semibold">{parentRow.primaryStatus}</span>, so this phase will be created as{" "}
-                      <span className="font-semibold">{primaryF}</span> too. You can change its primary status later from the phase's actions.
-                    </>
-                  ) : (
-                    <>
-                      The parent project is <span className="font-semibold">{parentRow?.primaryStatus}</span>, so this phase will be created as{" "}
-                      <span className="font-semibold">On-Sale</span> by default — it can be changed later to Launch or any other status.
-                    </>
-                  )}
+                <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
+                  Sub-project Primary Status will be set to <span className="font-semibold">On-Sale</span> by default — it can be edited later to Launch or any other status.
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">Entry Type <EntryTypeInfo /></div>
