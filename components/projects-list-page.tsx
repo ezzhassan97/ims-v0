@@ -3163,7 +3163,6 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
   // Primary status is never picked at creation: everything starts On-Sale and
   // moves to Launch or any other status from the project's own actions later.
   const [entryF, setEntryF] = useState<ProjEntryType>("Automatic")
-  const primaryF: ProjPrimaryStatus = "On-Sale"
   const [listingF, setListingF] = useState<ProjListingStatus>("Hidden")
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -3176,6 +3175,10 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
 
   const mains = PROJECTS.filter((p) => !p.isPhase)
   const parentRow = parentSel ? mains.find((m) => m.id === parentSel.id) : null
+  // Primary status on creation: On-Sale, except a phase under an On-Hold / Sold-Off
+  // parent inherits that closed status (a phase never starts live under a closed parent).
+  const parentClosed = level === "phase" && !!parentRow && (parentRow.primaryStatus === "On-Hold" || parentRow.primaryStatus === "Sold-Off")
+  const primaryF: ProjPrimaryStatus = parentClosed ? parentRow!.primaryStatus : "On-Sale"
   const pickParent = (v: ProjectTreeSelection) => {
     setParentSel(v)
     const row = v ? mains.find((m) => m.id === v.id) : null
@@ -3188,10 +3191,6 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
     setParentSel(null); setDevId(""); setOrgs([])
     setEntryF("Automatic"); setListingF("Hidden")
   }
-  /** Parent Sold-Off/On-Hold + On-Sale phase = live phase under a closed parent — warn. */
-  const phaseStatusAlert = level === "phase" && parentRow
-    && (parentRow.primaryStatus === "Sold-Off" || parentRow.primaryStatus === "On-Hold")
-    && primaryF === "On-Sale"
   // Going live on creation needs a cover to show on the website
   // A locked-Hidden project (hidden developer) never demands a cover image
   const coverRequired = level !== "phase" && listingF === "Active" && !(level === "main" && devHidden)
@@ -3201,13 +3200,7 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
     && (level === "main" ? orgs.length > 0 && devId && !!loc
       : level === "phase" ? !!parentRow
       : !!parentRow && !!devId && orgs.length > 0)
-  // Phase with a primary status different from its parent → surface the parent's
-  // Change Primary Status popup BEFORE creating (change it, or dismiss to proceed as is).
-  const [parentDlg, setParentDlg] = useState<ProjectRow | null>(null)
-  const tryCreate = () => {
-    if (level === "phase" && parentRow && parentRow.primaryStatus !== primaryF) { setParentDlg(parentRow); return }
-    create()
-  }
+  const tryCreate = () => create()
 
   const create = () => {
     const stamp = new Date().toISOString()
@@ -3460,21 +3453,31 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                     <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
                   )}
                 </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">
+                    Primary Status <span className="font-normal text-muted-foreground">(set on creation — change it later from the phase's actions)</span>
+                  </div>
+                  <TagSelect value={primaryF} options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
+                </div>
                 <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
-                  {({ main: "Project", phase: "Phase", sub: "Sub-project" } as const)[level]} Primary Status will be set to{" "}
-                  <span className="font-semibold">On-Sale</span> by default — it can be edited later to Launch or any other status.
+                  {parentClosed ? (
+                    <>
+                      The parent project is <span className="font-semibold">{parentRow.primaryStatus}</span>, so this phase will be created as{" "}
+                      <span className="font-semibold">{primaryF}</span> too — a phase never starts live under a closed parent. You can change
+                      its primary status later from the phase's actions.
+                    </>
+                  ) : (
+                    <>
+                      The parent project is <span className="font-semibold">{parentRow?.primaryStatus}</span>, so this phase will be created as{" "}
+                      <span className="font-semibold">On-Sale</span> by default — it can be changed later to Launch or any other status.
+                    </>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">Entry Type <EntryTypeInfo /></div>
                   <TagSelect value={entryF} options={["Automatic", "Manual"]} colors={ENTRY_COLORS} onChange={(v) => setEntryF(v as ProjEntryType)} />
                 </div>
                 <div />
-                {phaseStatusAlert && (
-                  <div className="col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
-                    The parent project is <span className="font-semibold">{parentRow.primaryStatus}</span> — creating an{" "}
-                    <span className="font-semibold">On-Sale</span> phase under it makes this phase live while the parent isn't. Double-check before proceeding.
-                  </div>
-                )}
               </>
             )}
 
@@ -3501,9 +3504,25 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                     <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
                   )}
                 </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-medium text-foreground">
+                    Primary Status <span className="font-normal text-muted-foreground">(set on creation — change it later from the phase's actions)</span>
+                  </div>
+                  <TagSelect value={primaryF} options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
+                </div>
                 <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
-                  {({ main: "Project", phase: "Phase", sub: "Sub-project" } as const)[level]} Primary Status will be set to{" "}
-                  <span className="font-semibold">On-Sale</span> by default — it can be edited later to Launch or any other status.
+                  {parentClosed ? (
+                    <>
+                      The parent project is <span className="font-semibold">{parentRow.primaryStatus}</span>, so this phase will be created as{" "}
+                      <span className="font-semibold">{primaryF}</span> too — a phase never starts live under a closed parent. You can change
+                      its primary status later from the phase's actions.
+                    </>
+                  ) : (
+                    <>
+                      The parent project is <span className="font-semibold">{parentRow?.primaryStatus}</span>, so this phase will be created as{" "}
+                      <span className="font-semibold">On-Sale</span> by default — it can be changed later to Launch or any other status.
+                    </>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">Entry Type <EntryTypeInfo /></div>
@@ -3574,20 +3593,6 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
         </div>
       </div>
 
-      {/* Phase primary differs from the parent's — the parent's regular Change Primary
-          Status popup opens BEFORE creation: apply a change, or dismiss to proceed as is. */}
-      {parentDlg && (
-        <PrimaryStatusDialog
-          r={parentDlg}
-          phases={parentPhasesOf(parentDlg)}
-          onClose={() => { setParentDlg(null); create() }}
-          onConfirm={(next, opts) => {
-            onParentPrimaryChange(parentDlg, next, opts?.excludedPhaseIds)
-            setParentDlg(null)
-            create()
-          }}
-        />
-      )}
     </div>
   )
 }
