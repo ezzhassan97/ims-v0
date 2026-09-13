@@ -93,6 +93,10 @@ export function ColorTag({ value }: { value: string }) {
   return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium", tagColor(value))}>{value}</span>
 }
 
+// Canonical area picker resolution — the tree holds ids, the rows hold names
+const AREA_NAME_BY_ID = new Map<string, string>(AREA_TREE.map((a) => [a.id, a.name]))
+const SUBAREA_NAME_BY_ID = new Map<string, string>(AREA_TREE.flatMap((a) => a.subareas.map((s) => [s.id, s.name] as [string, string])))
+
 export const LISTING_COLORS: Record<ProjListingStatus, string> = {
   Active: "bg-emerald-50 text-emerald-700 border-emerald-200",
   Hidden: "bg-red-50 text-red-600 border-red-200",
@@ -444,7 +448,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
       if (needle && !`${r.name} ${r.id}`.toLowerCase().includes(needle)) return false
       if (developerF.length > 0 && !developerF.includes(r.developer.id)) return false
       if (districtF.length > 0 && !districtF.includes(r.district)) return false
-      if (areaF.length > 0 && !areaF.includes(r.area)) return false
+      // Area picker holds AREA-/SUB- ids — an area pick cascades to its subareas, a subarea pick matches that subarea only
+      if (areaF.length > 0 && !areaF.some((id) => AREA_NAME_BY_ID.get(id) === r.area || SUBAREA_NAME_BY_ID.get(id) === r.subarea)) return false
       if (listingF && r.listingStatus !== listingF) return false
       if (primaryF.length > 0 && !primaryF.includes(r.primaryStatus)) return false
       if (entryF && r.entryType !== entryF) return false
@@ -730,9 +735,9 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
           activeFilters={activeFilterCount}
           filters={
             <>
-              {!hideDeveloperFilter && <FilterMultiSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-44" />}
+              {!hideDeveloperFilter && <DeveloperSelect multi developers={PROJECT_DEVELOPERS} values={developerF} onValuesChange={(v) => { setDeveloperF(v); setPage(1) }} placeholder="Developer" className="w-44" />}
               <FilterMultiSelect label="District" value={districtF} options={DISTRICTS} onChange={(v) => { setDistrictF(v); setPage(1) }} className="w-40" />
-              <FilterMultiSelect label="Area" value={areaF} options={AREAS} onChange={(v) => { setAreaF(v); setPage(1) }} className="w-40" />
+              <AreaTreeSelect multi tree={AREA_TREE} values={areaF} onValuesChange={(v) => { setAreaF(v); setPage(1) }} placeholder="Area" className="w-40" />
               <FilterSelect label="Listing Status" value={listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v); setPage(1) }} className="w-40" />
               <FilterMultiSelect label="Primary Status" value={primaryF} options={PRIMARY_STATUSES} onChange={(v) => { setPrimaryF(v); setPage(1) }} className="w-40" />
               <FilterSelect label="Entry Type" value={entryF} options={["Automatic", "Manual"]} onChange={(v) => { setEntryF(v); setPage(1) }} className="w-36" />
@@ -1053,14 +1058,14 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
         <FiltersDrawer open={showFilters} onClose={() => setShowFilters(false)} activeCount={activeFilterCount} onClear={clearAllFilters}>
           {!hideDeveloperFilter && (
             <FilterDrawerField label="Developer">
-              <FilterMultiSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-full" width="w-full" />
+              <DeveloperSelect multi developers={PROJECT_DEVELOPERS} values={developerF} onValuesChange={(v) => { setDeveloperF(v); setPage(1) }} placeholder="Developer" className="w-full" />
             </FilterDrawerField>
           )}
           <FilterDrawerField label="District">
             <FilterMultiSelect label="District" value={districtF} options={DISTRICTS} onChange={(v) => { setDistrictF(v); setPage(1) }} className="w-full" width="w-full" />
           </FilterDrawerField>
           <FilterDrawerField label="Area">
-            <FilterMultiSelect label="Area" value={areaF} options={AREAS} onChange={(v) => { setAreaF(v); setPage(1) }} className="w-full" width="w-full" />
+            <AreaTreeSelect multi tree={AREA_TREE} values={areaF} onValuesChange={(v) => { setAreaF(v); setPage(1) }} placeholder="Area" className="w-full" />
           </FilterDrawerField>
           <FilterDrawerField label="Listing Status">
             <FilterSelect label="Listing Status" value={listingF} options={["Active", "Hidden"]} onChange={(v) => { setListingF(v); setPage(1) }} className="w-full" width="w-full" />
