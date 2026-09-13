@@ -17,7 +17,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { StoryBadge } from "@/components/all-properties-page"
-import { TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, FiltersDrawer, FilterDrawerField, ColumnsSheet, GroupPager, type ManagedColumn } from "@/components/table-kit"
+import { TableCard, TableCardHeader, TableToolbar, TableFooter, FilterSelect, FilterMultiSelect, FloatingBulkBar, BulkBarButton, IdTag, COL_SEP, FiltersDrawer, FilterDrawerField, ColumnsSheet, GroupPager, CheckBox, type ManagedColumn } from "@/components/table-kit"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { RichTextEditor } from "@/components/rich-text-editor"
@@ -527,10 +527,14 @@ export function DevelopersPage() {
             dev={waGroupDev}
             devContacts={devContactsFor(waGroupDev.id, waGroupDev.whatsappGroups[0] ? { id: waGroupDev.whatsappGroups[0].id, name: waGroupDev.whatsappGroups[0].name } : null)}
             linkedIds={waGroupDev.whatsappGroups.map((g) => g.id)}
+            takenIds={rows.filter((d) => d.id !== waGroupDev.id).flatMap((d) => d.whatsappGroups.map((g) => g.id))}
             onClose={() => setWaGroupDev(null)}
-            onLink={(group) => {
-              update(waGroupDev.id, { whatsappGroups: [...waGroupDev.whatsappGroups.filter((g) => g.id !== group.id), group] })
-              toast.success(`${waGroupDev.name} linked to ${group.name} (${group.id})`)
+            onLink={(groups) => {
+              const before = new Set(waGroupDev.whatsappGroups.map((g) => g.id))
+              const added = groups.filter((g) => !before.has(g.id)).length
+              const removed = waGroupDev.whatsappGroups.filter((g) => !groups.some((x) => x.id === g.id)).length
+              update(waGroupDev.id, { whatsappGroups: groups })
+              toast.success(`${waGroupDev.name}: ${added} group${added === 1 ? "" : "s"} linked, ${removed} unlinked`)
               setWaGroupDev(null)
             }}
             onCreate={(members, groupName, groupImage) => {
@@ -1722,26 +1726,34 @@ export interface WaGroupDev {
  * per-contact exclude and Admin ↔ Member toggles.
  * `mode="creation"` embeds it in the developer creation flow: create with or without the group.
  */
-export function CreateWaGroupDialog({ dev, devContacts, mode = "action", linkedIds = [], onClose, onCreate, onLink, onSkip }: {
+export function CreateWaGroupDialog({ dev, devContacts, mode = "action", linkedIds = [], takenIds = [], onClose, onCreate, onLink, onSkip }: {
   dev: WaGroupDev
   /** The developer's own contacts (from its Contacts tab) — offered alongside the default Nawy contacts.
    *  Absent in creation mode, since the developer's contacts don't exist yet at that point. */
   devContacts?: DevContact[]
   mode?: "action" | "creation"
-  /** Ids of groups already linked to this developer — shown as Linked and unpickable. */
+  /** Ids of groups already linked to this developer — pre-checked; unchecking unlinks. */
   linkedIds?: string[]
+  /** Ids of groups linked to OTHER developers — never offered. */
+  takenIds?: string[]
   onClose: () => void
   onCreate: (members: WaContact[], groupName: string, groupImage: string) => void
-  /** action mode — link an already-existing WhatsApp group instead of creating one */
-  onLink?: (group: { id: string; name: string; image: string }) => void
+  /** action mode — the developer's full set of linked groups after the edit (multi-select; unchecked = unlinked) */
+  onLink?: (groups: { id: string; name: string; image: string }[]) => void
   /** creation mode only — create the developer without a WhatsApp group */
   onSkip?: () => void
 }) {
   // Link to an existing group vs create a new one (action mode only)
   const [choice, setChoice] = useState<"link" | "create">(mode === "action" && onLink ? "link" : "create")
-  const [pickedGroupId, setPickedGroupId] = useState("")
+  const [pickedIds, setPickedIds] = useState<Set<string>>(() => new Set(linkedIds))
   const [groupQ, setGroupQ] = useState("")
-  const pickedGroup = WA_GROUP_OPTIONS.find((g) => g.id === pickedGroupId)
+  const togglePicked = (id: string) =>
+    setPickedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  // Offer the developer's own groups plus groups no other developer holds
+  const offeredGroups = WA_GROUP_OPTIONS.filter((g) => linkedIds.includes(g.id) || !takenIds.includes(g.id))
+  const addedCount = [...pickedIds].filter((id) => !linkedIds.includes(id)).length
+  const removedCount = linkedIds.filter((id) => !pickedIds.has(id)).length
+  const linkDirty = addedCount > 0 || removedCount > 0
   // The member list is split into two collapsible sections — Developer contacts above Nawy contacts
   const [openSections, setOpenSections] = useState<{ Developer: boolean; Nawy: boolean }>({ Developer: true, Nawy: true })
   type GroupMember = WaContact & { source: "Nawy" | "Developer" }
@@ -1803,37 +1815,55 @@ export function CreateWaGroupDialog({ dev, devContacts, mode = "action", linkedI
 
         {choice === "link" && onLink && (
           <div className="space-y-1.5">
-            <div className="text-xs font-medium text-foreground">Pick a WhatsApp group</div>
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-medium text-foreground">Pick WhatsApp groups</div>
+              <span className="text-[11px] text-muted-foreground">{pickedIds.size} selected</span>
+            </div>
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input value={groupQ} onChange={(e) => setGroupQ(e.target.value)} placeholder="Group name or ID…" className="h-8 pl-8 text-sm" />
             </div>
             <div className="max-h-60 overflow-y-auto rounded-lg border border-border">
-              {WA_GROUP_OPTIONS
+              {offeredGroups
                 .filter((g) => !groupQ.trim() || `${g.name} ${g.id}`.toLowerCase().includes(groupQ.trim().toLowerCase()))
                 .map((g, i) => {
-                  const already = linkedIds.includes(g.id)
-                  const sel = pickedGroupId === g.id
+                  const wasLinked = linkedIds.includes(g.id)
+                  const sel = pickedIds.has(g.id)
                   return (
                     <button
-                      key={g.id} type="button" disabled={already}
-                      onClick={() => setPickedGroupId(g.id)}
+                      key={g.id} type="button"
+                      onClick={() => togglePicked(g.id)}
                       className={cn(
                         "flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors",
                         i > 0 && "border-t border-border/70",
-                        already ? "cursor-not-allowed opacity-50" : sel ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : "hover:bg-muted/40",
+                        sel ? "bg-primary/5" : "hover:bg-muted/40",
                       )}
                     >
+                      <CheckBox state={sel ? "on" : "off"} />
                       <img src={g.image} alt="" className="h-9 w-9 flex-shrink-0 rounded-lg border border-border object-cover" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-foreground">{g.name}</p>
                         <IdTag value={g.id} />
                       </div>
-                      {already && <span className="inline-flex items-center rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Linked</span>}
+                      {/* Currently linked groups stay tagged so an uncheck reads as an unlink */}
+                      {wasLinked && (
+                        <span className={cn(
+                          "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
+                          sel ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-50 text-red-600 line-through",
+                        )}>Linked</span>
+                      )}
                     </button>
                   )
                 })}
+              {offeredGroups.length === 0 && <p className="px-3 py-4 text-center text-xs text-muted-foreground">No groups available — every group is linked to another developer.</p>}
             </div>
+            {linkDirty && (
+              <p className="text-[11px] text-muted-foreground">
+                {addedCount > 0 && <span className="text-emerald-700">+{addedCount} to link</span>}
+                {addedCount > 0 && removedCount > 0 && " · "}
+                {removedCount > 0 && <span className="text-red-600">−{removedCount} to unlink</span>}
+              </p>
+            )}
           </div>
         )}
 
@@ -1935,8 +1965,8 @@ export function CreateWaGroupDialog({ dev, devContacts, mode = "action", linkedI
           ) : choice === "link" ? (
             <>
               <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-              <Button size="sm" disabled={!pickedGroup} onClick={() => pickedGroup && onLink?.(pickedGroup)}>
-                <MessageCircle className="mr-1.5 h-3.5 w-3.5" />Link Group
+              <Button size="sm" disabled={!linkDirty} onClick={() => onLink?.(WA_GROUP_OPTIONS.filter((g) => pickedIds.has(g.id)))}>
+                <MessageCircle className="mr-1.5 h-3.5 w-3.5" />Save Groups
               </Button>
             </>
           ) : (

@@ -804,7 +804,8 @@ function ProjRowTags({ node }: { node: ProjectTreeLeaf }) {
  *    project, clicking a phase picks that phase; the picked row is highlighted.
  */
 /** Span-based faux checkbox — pickers render options as <button>s, and buttons can't nest. */
-const CheckBox = ({ state }: { state: "on" | "off" | "some" }) => (
+/** Span-based checkbox for use INSIDE option <button>s (the shadcn Checkbox can't nest there). */
+export const CheckBox = ({ state }: { state: "on" | "off" | "some" }) => (
   <span className={cn(
     "flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-sm border transition-colors",
     state === "off" ? "border-border bg-white" : "border-primary bg-primary",

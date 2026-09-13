@@ -70,8 +70,18 @@ const WA_GROUPS: Array<{ id: string; name: string; image: string } | null> = [
   { id: "WA-8830", name: "New Launches", image: "/aerial-view-masterplan-residential-development-blu.jpg" },
 ]
 
+/** Groups that exist but aren't linked to any developer yet — what the picker offers beyond a developer's own. */
+const UNASSIGNED_WA_GROUPS = [
+  { id: "WA-8841", name: "Brokers Network", image: "/placeholder-user.jpg" },
+  { id: "WA-8847", name: "Coastal Releases", image: "/aerial-view-masterplan-residential-development-blu.jpg" },
+  { id: "WA-8853", name: "Commercial Offers", image: "/placeholder-logo.png" },
+]
+
 /** All linkable WhatsApp groups — the picker catalog. */
-export const WA_GROUP_OPTIONS = WA_GROUPS.filter((g): g is NonNullable<(typeof WA_GROUPS)[number]> => g !== null)
+export const WA_GROUP_OPTIONS = [
+  ...WA_GROUPS.filter((g): g is NonNullable<(typeof WA_GROUPS)[number]> => g !== null),
+  ...UNASSIGNED_WA_GROUPS,
+]
 
 // Deterministic pseudo-random so SSR/CSR match (no Date.now / Math.random).
 export const DEVELOPERS: Developer[] = NAMES.map((n, i) => {
