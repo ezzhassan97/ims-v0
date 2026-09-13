@@ -3150,6 +3150,8 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
   const [nameEn, setNameEn] = useState("")
   const [nameAr, setNameAr] = useState("")
   const [devId, setDevId] = useState("")
+  // A project can't be shown while its developer is Hidden — same rule as a phase under a hidden parent
+  const devHidden = PROJECT_DEVELOPERS.find((d) => d.id === devId)?.status === "Hidden"
   const [loc, setLoc] = useState<AreaPick | null>(null)
   const [parentSel, setParentSel] = useState<ProjectTreeSelection>(null)
   const [category, setCategory] = useState("")
@@ -3191,7 +3193,8 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
     && (parentRow.primaryStatus === "Sold-Off" || parentRow.primaryStatus === "On-Hold")
     && primaryF === "On-Sale"
   // Going live on creation needs a cover to show on the website
-  const coverRequired = level !== "phase" && listingF === "Active"
+  // A locked-Hidden project (hidden developer) never demands a cover image
+  const coverRequired = level !== "phase" && listingF === "Active" && !(level === "main" && devHidden)
   const canSave = nameEn.trim() && nameAr.trim()
     && !!category && !!projectType
     && (!coverRequired || !!cover)
@@ -3285,7 +3288,7 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
     onSave({
       ...base,
       entryType: entryF,
-      listingStatus: listingF,
+      listingStatus: devHidden ? "Hidden" : listingF,
       primaryStatus: primaryF,
       id: newId,
       name: nameEn.trim(),
@@ -3381,8 +3384,15 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   <p className="text-[11px] text-muted-foreground">District is deduced from the selected area</p>
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Listing Status</div>
-                  <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
+                  <div className="text-xs font-medium text-foreground">
+                    Listing Status{" "}
+                    {devHidden && <span className="font-normal text-muted-foreground">(locked — the developer is Hidden)</span>}
+                  </div>
+                  {devHidden ? (
+                    <TagSelect value="Hidden" options={[]} colors={LISTING_COLORS} onChange={() => {}} disabled />
+                  ) : (
+                    <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
+                  )}
                 </div>
                 <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
                   {({ main: "Project", phase: "Phase", sub: "Sub-project" } as const)[level]} Primary Status will be set to{" "}
@@ -3481,8 +3491,15 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   <Input value={parentRow ? `${parentRow.area} · ${parentRow.district}` : ""} disabled placeholder="—" className="h-9 text-sm" />
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">Listing Status</div>
-                  <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
+                  <div className="text-xs font-medium text-foreground">
+                    Listing Status{" "}
+                    {devHidden && <span className="font-normal text-muted-foreground">(locked — the developer is Hidden)</span>}
+                  </div>
+                  {devHidden ? (
+                    <TagSelect value="Hidden" options={[]} colors={LISTING_COLORS} onChange={() => {}} disabled />
+                  ) : (
+                    <TagSelect value={listingF} options={["Active", "Hidden"]} colors={LISTING_COLORS} onChange={(v) => setListingF(v as ProjListingStatus)} />
+                  )}
                 </div>
                 <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
                   {({ main: "Project", phase: "Phase", sub: "Sub-project" } as const)[level]} Primary Status will be set to{" "}
