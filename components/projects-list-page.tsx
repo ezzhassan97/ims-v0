@@ -3459,12 +3459,17 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   </div>
                   <TagSelect value={primaryF} options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
                 </div>
-                <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
+                {/* Tone follows the parent's primary status: On-Hold amber, Sold-Off light red, otherwise blue */}
+                <div className={cn(
+                  "col-span-2 rounded-lg border px-3 py-2.5 text-[11px] leading-4",
+                  parentRow?.primaryStatus === "On-Hold" ? "border-amber-200 bg-amber-50 text-amber-800"
+                    : parentRow?.primaryStatus === "Sold-Off" ? "border-red-200 bg-red-50 text-red-700"
+                    : "border-blue-200 bg-blue-50 text-blue-800",
+                )}>
                   {parentClosed ? (
                     <>
                       The parent project is <span className="font-semibold">{parentRow.primaryStatus}</span>, so this phase will be created as{" "}
-                      <span className="font-semibold">{primaryF}</span> too — a phase never starts live under a closed parent. You can change
-                      its primary status later from the phase's actions.
+                      <span className="font-semibold">{primaryF}</span> too. You can change its primary status later from the phase's actions.
                     </>
                   ) : (
                     <>
@@ -3510,12 +3515,17 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   </div>
                   <TagSelect value={primaryF} options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
                 </div>
-                <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
+                {/* Tone follows the parent's primary status: On-Hold amber, Sold-Off light red, otherwise blue */}
+                <div className={cn(
+                  "col-span-2 rounded-lg border px-3 py-2.5 text-[11px] leading-4",
+                  parentRow?.primaryStatus === "On-Hold" ? "border-amber-200 bg-amber-50 text-amber-800"
+                    : parentRow?.primaryStatus === "Sold-Off" ? "border-red-200 bg-red-50 text-red-700"
+                    : "border-blue-200 bg-blue-50 text-blue-800",
+                )}>
                   {parentClosed ? (
                     <>
                       The parent project is <span className="font-semibold">{parentRow.primaryStatus}</span>, so this phase will be created as{" "}
-                      <span className="font-semibold">{primaryF}</span> too — a phase never starts live under a closed parent. You can change
-                      its primary status later from the phase's actions.
+                      <span className="font-semibold">{primaryF}</span> too. You can change its primary status later from the phase's actions.
                     </>
                   ) : (
                     <>
