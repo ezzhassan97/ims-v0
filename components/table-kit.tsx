@@ -1102,7 +1102,9 @@ export function AreaTreeSelect({ tree, value, onChange, values = [], onValuesCha
             multiActive ? <>{placeholder.replace(/Select |…/g, "") || "Areas"}<span className="ml-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold">{values.length}</span></> : placeholder
           ) : value ? (
             <>
-              <span className="truncate">{value.name}</span>
+              <span className="truncate">
+                {value.level === "Subarea" && value.parent ? <><span className="text-muted-foreground">{value.parent} · </span>{value.name}</> : value.name}
+              </span>
               <span className={cn("inline-flex flex-shrink-0 items-center rounded border px-1.5 py-px text-[10px] font-medium", LEVEL_TAG[value.level])}>{value.level}</span>
             </>
           ) : placeholder}
@@ -1197,7 +1199,20 @@ export function DeveloperSelect({ developers, value = "", onChange, values = [],
         <span className="flex min-w-0 items-center gap-1 truncate text-left">
           {multi
             ? (multiActive ? <>{placeholder.replace(/Select |…/g, "") || "Developers"}<span className="ml-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold">{values.length}</span></> : placeholder)
-            : (selected?.name ?? placeholder)}
+            : selected ? (
+              <>
+                <span className="truncate">{selected.name}</span>
+                {/* Same listing-status tag as the option row, so the pick stays legible when collapsed */}
+                {selected.status && (
+                  <span className={cn(
+                    "inline-flex flex-shrink-0 items-center rounded border px-1.5 py-px text-[10px] font-medium",
+                    selected.status === "Active" ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-700",
+                  )}>
+                    {selected.status}
+                  </span>
+                )}
+              </>
+            ) : placeholder}
         </span>
         {valueExtra && <span className="ml-auto flex flex-shrink-0 items-center gap-1">{valueExtra}</span>}
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
