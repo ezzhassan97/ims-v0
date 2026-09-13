@@ -3388,9 +3388,7 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">
-                    Primary Status <span className="font-normal text-muted-foreground">(set on creation — change it later from the project's actions)</span>
-                  </div>
+                  <div className="text-xs font-medium text-foreground">Primary Status</div>
                   <TagSelect value="On-Sale" options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
                 </div>
                 <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
@@ -3459,9 +3457,7 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">
-                    Primary Status <span className="font-normal text-muted-foreground">(set on creation — change it later from the phase's actions)</span>
-                  </div>
+                  <div className="text-xs font-medium text-foreground">Primary Status</div>
                   <TagSelect value={primaryF} options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
                 </div>
                 {/* Tone follows the parent's primary status: On-Hold amber, Sold-Off light red, otherwise blue */}
@@ -3515,9 +3511,7 @@ function AddProjectPage({ onBack, onSave, parentPhasesOf, onParentPrimaryChange 
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-xs font-medium text-foreground">
-                    Primary Status <span className="font-normal text-muted-foreground">(set on creation — change it later from the sub-project's actions)</span>
-                  </div>
+                  <div className="text-xs font-medium text-foreground">Primary Status</div>
                   <TagSelect value="On-Sale" options={[]} colors={PRIMARY_COLORS} onChange={() => {}} disabled />
                 </div>
                 <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-[11px] leading-4 text-blue-800">
