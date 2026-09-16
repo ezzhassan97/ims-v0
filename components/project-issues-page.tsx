@@ -139,7 +139,9 @@ function ProjectInfoPanel({
       <div
         className={cn(
           "space-y-0.5",
-          severity && (blocking ? "-mx-2 -my-1.5 rounded-md border border-red-300 bg-red-50 px-2 py-1.5" : "-mx-2 -my-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5"),
+          // Horizontal-only negative margin — a vertical one makes adjacent
+          // highlighted fields swallow the grid gap and clash into each other.
+          severity && (blocking ? "-mx-2 rounded-md border border-red-300 bg-red-50 px-2 py-1.5" : "-mx-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5"),
           severity && focus && "ring-2 ring-offset-1 ring-red-400/70",
           dimmed && "opacity-40",
           severity && "cursor-pointer transition-shadow hover:ring-2 hover:ring-primary/30",
