@@ -160,10 +160,10 @@ export const navItems: NavItem[] = [
     icon: <ShieldCheck className="h-4 w-4" />,
     children: [
       { label: "Validation Rules", icon: <ShieldCheck className="h-4 w-4" /> },
-      { label: "Properties Data Issues", icon: <AlertTriangle className="h-4 w-4" /> },
-      { label: "Data Quality Reports", icon: <FileBarChart2 className="h-4 w-4" /> },
-      { label: "Projects Data Issues", icon: <FolderKanban className="h-4 w-4" /> },
       { label: "Quality Configurations", icon: <SlidersHorizontal className="h-4 w-4" /> },
+      { label: "Properties Data Issues", icon: <AlertTriangle className="h-4 w-4" /> },
+      { label: "Projects Data Issues", icon: <Building2 className="h-4 w-4" /> },
+      { label: "Data Quality Reports", icon: <FileBarChart2 className="h-4 w-4" /> },
     ],
   },
   {
