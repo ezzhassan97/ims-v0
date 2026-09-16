@@ -3279,6 +3279,10 @@ export function EmbeddedPropertyTable({
   allowReportIssue = false,
   issuesByProp = null,
   onIssuesChanged,
+  selectedIds = null,
+  onSelectedChange,
+  extraMenuItems,
+  maxHeight = 380,
 }: {
   rows: PropertyRow[]
   hiddenColumns: ColId[]
@@ -3288,11 +3292,33 @@ export function EmbeddedPropertyTable({
   /** Data quality: open issues per property id — non-null while Show Issues is on. */
   issuesByProp?: Map<string, PropertyIssue[]> | null
   onIssuesChanged?: () => void
+  /** Non-null enables the frozen-left selection checkbox column (controlled). */
+  selectedIds?: Set<string> | null
+  onSelectedChange?: (next: Set<string>) => void
+  /** Extra items appended to a ⋯ actions dropdown (the ⋯ renders only when provided). */
+  extraMenuItems?: (row: PropertyRow) => React.ReactNode
+  maxHeight?: number
 }) {
   // Floor plans editable per-unit only when sale type is Primary Automatic;
   // amenities/services/images are always view-only in this embedded table.
   const floorPlansEditable = variation === "primary-automatic"
   const [rows, setRows] = useState<PropertyRow[]>(initialRows)
+  // Callers may filter/shrink the row set (report rule filter, exclusions) — sync
+  // only when the ids actually change so local cell edits survive parent re-renders.
+  useEffect(() => {
+    setRows((prev) => {
+      const same = prev.length === initialRows.length && prev.every((r, i) => r.propertyId === initialRows[i].propertyId)
+      return same ? prev : initialRows
+    })
+  }, [initialRows])
+  const selectable = selectedIds != null
+  const toggleSelected = (ids: string[], on: boolean) => {
+    if (!selectedIds || !onSelectedChange) return
+    const n = new Set(selectedIds)
+    ids.forEach((id) => (on ? n.add(id) : n.delete(id)))
+    onSelectedChange(n)
+  }
+  const actionsW = extraMenuItems ? (allowReportIssue ? "w-[104px]" : "w-20") : allowReportIssue ? "w-20" : "w-12"
   const [reportRow, setReportRow] = useState<PropertyRow | null>(null)
   const [embedTrackIssue, setEmbedTrackIssue] = useState<PropertyIssue | null>(null)
   const patchEmbedIssue = (iss: PropertyIssue, patch: Partial<PropertyIssue>) => {
@@ -3571,10 +3597,19 @@ export function EmbeddedPropertyTable({
   return (
     <>
       <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="overflow-x-auto overscroll-x-contain" style={{ maxHeight: 380 }}>
+        <div className="overflow-x-auto overscroll-x-contain" style={{ maxHeight }}>
           <div className="min-w-max">
             {/* Header row */}
             <div className="sticky top-0 z-20 flex border-b border-border bg-muted/80 backdrop-blur-sm">
+              {selectable && (
+                <div className="sticky left-0 z-10 flex w-10 shrink-0 items-center border-r border-border bg-muted/80 py-2.5 pl-4 pr-0">
+                  <Checkbox
+                    className="h-4 w-4"
+                    checked={sortedRows.length > 0 && sortedRows.every((r) => selectedIds!.has(r.propertyId))}
+                    onCheckedChange={(v) => toggleSelected(sortedRows.map((r) => r.propertyId), !!v)}
+                  />
+                </div>
+              )}
               {visibleCols.map((col) => (
                 <div
                   key={col.id}
@@ -3595,7 +3630,7 @@ export function EmbeddedPropertyTable({
                 </div>
               ))}
               {/* Actions header */}
-              <div className={cn("sticky right-0 z-10 shrink-0 border-l border-border bg-muted/80", allowReportIssue ? "w-20" : "w-12")} />
+              <div className={cn("sticky right-0 z-10 shrink-0 border-l border-border bg-muted/80", actionsW)} />
             </div>
 
             {/* Body rows */}
@@ -3605,6 +3640,18 @@ export function EmbeddedPropertyTable({
                 className="group/row flex border-b border-border last:border-b-0 bg-card hover:bg-muted/40 transition-colors"
                 onClick={() => setViewDrawer({ propertyId: row.propertyId, tab: "unit-details" })}
               >
+                {selectable && (
+                  <div
+                    className="sticky left-0 z-10 flex w-10 shrink-0 items-center border-r border-border bg-card py-2 pl-4 pr-0 transition-colors group-hover/row:bg-muted/40"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Checkbox
+                      className="h-4 w-4"
+                      checked={selectedIds!.has(row.propertyId)}
+                      onCheckedChange={(v) => toggleSelected([row.propertyId], !!v)}
+                    />
+                  </div>
+                )}
                 {visibleCols.map((col) => {
                   const ci = issuesByProp ? (issuesByProp.get(row.propertyId) ?? []).filter((i) => i.fieldId === col.id) : []
                   const hl = ci.length ? (ci.some((i) => isCriticalSeverity(i.severity)) ? "bg-red-100/80" : "bg-amber-100/80") : null
@@ -3626,7 +3673,7 @@ export function EmbeddedPropertyTable({
                   )
                 })}
                 {/* Sticky right action */}
-                <div className={cn("sticky right-0 z-10 flex shrink-0 items-center justify-center gap-1 border-l border-border bg-card group-hover/row:bg-muted/40 transition-colors", allowReportIssue ? "w-20" : "w-12")}>
+                <div className={cn("sticky right-0 z-10 flex shrink-0 items-center justify-center gap-1 border-l border-border bg-card group-hover/row:bg-muted/40 transition-colors", actionsW)}>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
@@ -3650,6 +3697,30 @@ export function EmbeddedPropertyTable({
                       </TooltipTrigger>
                       <TooltipContent>Report an issue</TooltipContent>
                     </Tooltip>
+                  )}
+                  {extraMenuItems && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-border bg-white text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenuItem onClick={() => setViewDrawer({ propertyId: row.propertyId, tab: "unit-details" })}>
+                          <Eye className="mr-2 h-3.5 w-3.5" />View
+                        </DropdownMenuItem>
+                        {allowReportIssue && (
+                          <DropdownMenuItem onClick={() => setReportRow(row)}>
+                            <AlertTriangle className="mr-2 h-3.5 w-3.5" />Report Issue
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        {extraMenuItems(row)}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
                 </div>
               </div>

@@ -4,7 +4,7 @@
 // Configurations, the Report an Issue (project) drawer and the Projects Data
 // Issues page.
 
-import { PROJECTS, PROJECT_DEVELOPERS, AREAS } from "./projects-mock"
+import { PROJECTS, PROJECT_DEVELOPERS, AREAS, SUBAREAS } from "./projects-mock"
 import {
   QUALITY_TEAM, DATA_OPS_TEAM, SALES_AGENTS, PROP_ISSUE_STATUSES, OPEN_STATUSES,
   type PropIssueStatus, type PropIssueSeverity, type PropIssueSource,
@@ -20,7 +20,7 @@ export interface ProjectIssueField {
   priority?: PropIssueSeverity
   group: string
   kind: ProjectFieldKind
-  valueType?: "text" | "enum"
+  valueType?: "text" | "enum" | "number"
   options?: string[]
 }
 
@@ -31,6 +31,11 @@ export function projectFieldPriority(f: ProjectIssueField): PropIssueSeverity {
 export const PROJECT_AMENITY_LIBRARY = [
   "Clubhouse", "Commercial Strip", "Lagoon", "Sports Club", "International Schools", "Medical Center",
   "Mosque", "Security & Gates", "Landscape Parks", "Cycling Tracks", "Business Hub", "Kids Area",
+]
+
+export const PROJECT_SERVICE_LIBRARY = [
+  "24/7 Security", "Facility Management", "Housekeeping", "Landscaping", "Maintenance",
+  "Concierge", "Shuttle Bus", "Waste Management", "Valet Parking",
 ]
 
 const DEV_NAMES = PROJECT_DEVELOPERS.map((d) => d.name)
@@ -44,52 +49,68 @@ export const PROJECT_ISSUE_FIELDS: ProjectIssueField[] = [
   { id: "primaryStatus", label: "Primary Status", priority: "Critical", group: "Identity", kind: "value", valueType: "enum", options: ["Launch", "On-Sale", "On-Hold", "Sold-Off"] },
   // Placement
   { id: "developer", label: "Developer", priority: "Critical", group: "Placement", kind: "value", valueType: "enum", options: DEV_NAMES },
-  { id: "areaSubarea", label: "Area / Subarea", priority: "Critical", group: "Placement", kind: "value", valueType: "enum", options: AREAS },
+  { id: "area", label: "Area", priority: "Critical", group: "Placement", kind: "value", valueType: "enum", options: AREAS },
+  { id: "subarea", label: "Subarea", priority: "Critical", group: "Placement", kind: "value", valueType: "enum", options: SUBAREAS },
   { id: "location", label: "Location", priority: "High", group: "Placement", kind: "value", valueType: "text" },
-  { id: "polygon", label: "Polygon", priority: "High", group: "Placement", kind: "value" },
-  { id: "organizations", label: "Organizations", priority: "High", group: "Placement", kind: "value", valueType: "enum", options: ["Nawy", "Partners", "Nawy & Partners"] },
+  { id: "mapCoordinates", label: "Map Coordinates", priority: "High", group: "Placement", kind: "value", valueType: "text" },
+  { id: "polygon", label: "Map Polygon", priority: "High", group: "Placement", kind: "value" },
+  // Multi-select: a project can belong to several organizations at once
+  { id: "organizations", label: "Organizations", priority: "High", group: "Placement", kind: "value", valueType: "enum", options: ["Nawy", "Partners"] },
   // Classification
   { id: "category", label: "Category", group: "Classification", kind: "value", valueType: "enum", options: ["Residential", "Commercial", "Coastal", "Administrative"] },
   { id: "projectType", label: "Type", group: "Classification", kind: "value", valueType: "enum", options: ["Compound", "Standalone", "Mixed Use", "Resort"] },
   { id: "projectSubtype", label: "Subtype", group: "Classification", kind: "value", valueType: "text" },
+  { id: "manualRank", label: "Manual Rank", group: "Classification", kind: "value", valueType: "number" },
   // Content
-  { id: "description", label: "Project Description", group: "Content", kind: "value", valueType: "text" },
+  { id: "descriptionEn", label: "Project Description En", group: "Content", kind: "value", valueType: "text" },
+  { id: "descriptionAr", label: "Project Description Ar", group: "Content", kind: "value", valueType: "text" },
   { id: "metadata", label: "Project Metadata", priority: "Low", group: "Content", kind: "value", valueType: "text" },
-  // Attachments
+  // Attachments — logo / cover / gallery lead, right after Project Metadata
+  { id: "logo", label: "Project Logo", priority: "Low", group: "Attachments", kind: "media" },
+  { id: "coverImage", label: "Project Cover Image", priority: "High", group: "Attachments", kind: "media" },
+  { id: "gallery", label: "Project Gallery", group: "Attachments", kind: "media" },
   { id: "brochure", label: "Brochure", group: "Attachments", kind: "media" },
   { id: "listingMasterplan", label: "Listing Masterplan", priority: "High", group: "Attachments", kind: "media" },
   { id: "gisMasterplan", label: "GIS Masterplan", group: "Attachments", kind: "media" },
   { id: "numberedMasterplan", label: "Numbered Masterplan", group: "Attachments", kind: "media" },
-  { id: "gallery", label: "Gallery", group: "Attachments", kind: "media" },
-  { id: "logo", label: "Project Logo", priority: "Low", group: "Attachments", kind: "media" },
   // Amenities
   { id: "amenities", label: "Project Amenities", group: "Amenities", kind: "amenities" },
+  { id: "services", label: "Services", group: "Amenities", kind: "amenities" },
 ]
 
 export const PROJECT_FIELD_BY_ID = new Map(PROJECT_ISSUE_FIELDS.map((f) => [f.id, f]))
 export const PROJECT_ISSUE_FIELD_GROUPS = Array.from(new Set(PROJECT_ISSUE_FIELDS.map((f) => f.group)))
 
 /** Fields whose value legitimately changes over time → also "Outdated Value". */
-export const PROJECT_OUTDATED_FIELD_IDS = new Set(["listingStatus", "primaryStatus", "description", "metadata"])
+export const PROJECT_OUTDATED_FIELD_IDS = new Set(["listingStatus", "primaryStatus", "descriptionEn", "descriptionAr", "metadata"])
 
-const GALLERY_DIMS = ["Cover Image", "Images", "Videos"]
+const GALLERY_DIMS = ["Images", "Videos"]
 
 /** Fixed taxonomy for a project field (priorities come from the category). */
 export function projectFieldTaxonomy(field: ProjectIssueField): IssueTypeDef[] {
   const p = projectFieldPriority(field)
   if (field.kind === "amenities") {
+    const noun = field.id === "services" ? "Service" : "Amenity"
     return [
-      { type: "Missing Amenity", priority: p, active: true },
-      { type: "Wrong Amenity", priority: p, active: true },
-      { type: "Amenities Update", priority: p, active: true },
+      { type: `Missing ${noun}`, priority: p, active: true },
+      { type: `Wrong ${noun}`, priority: p, active: true },
+      { type: `${noun === "Service" ? "Services" : "Amenities"} Update`, priority: p, active: true },
     ]
   }
   if (field.kind === "media") {
-    const dims = field.id === "gallery" ? GALLERY_DIMS : undefined
+    if (field.id === "gallery") {
+      // Gallery mirrors the property flow's render-image reporting: pick the
+      // wrong images from the project's actual gallery.
+      return [
+        { type: `Missing ${field.label}`, subtypes: GALLERY_DIMS, priority: p, active: true },
+        { type: "Wrong Images", subtypes: ["Belongs to another project", "Outdated version"], requiresSelection: true, priority: p, active: true },
+        { type: "Low Quality", subtypes: ["Blurred / unreadable", "Watermarked", "Low resolution"], requiresSelection: true, priority: p, active: true },
+      ]
+    }
     return [
-      { type: `Missing ${field.label}`, subtypes: dims, priority: p, active: true },
-      { type: `Wrong ${field.label}`, subtypes: dims ?? ["Belongs to another project", "Outdated version"], priority: p, active: true },
-      { type: "Low Quality", subtypes: ["Blurred / unreadable", "Watermarked", "Low resolution"], priority: p, active: true },
+      { type: `Missing ${field.label}`, priority: p, active: true },
+      { type: `Wrong ${field.label}`, subtypes: ["Belongs to another project", "Outdated version"], requiresSelection: true, priority: p, active: true },
+      { type: "Low Quality", subtypes: ["Blurred / unreadable", "Watermarked", "Low resolution"], requiresSelection: true, priority: p, active: true },
     ]
   }
   if (field.id === "polygon") {
@@ -124,8 +145,13 @@ export interface ProjectIssue {
   current: string | null
   reportedBy: string
   assignedTo: string | null
-  developer: { id: string; name: string }
+  developer: { id: string; name: string; logo: string }
+  /** The MAIN project (for phase-level issues this is the phase's parent). */
   project: { id: string; name: string }
+  /** Set when the issue was reported on a phase. */
+  phase: { id: string; name: string } | null
+  /** The PROJECTS row the issue was reported on (phase id for phase issues). */
+  entityId: string
   projectLevel: "Project" | "Phase"
   listingStatus: string
   primaryStatus: string
@@ -137,6 +163,8 @@ export interface ProjectIssue {
   comments: IssueComment[]
   activity: IssueActivity[]
   details?: IssueDetails
+  /** Archived issues are hidden from the tables (toggle to see + restore). */
+  archived?: boolean
 }
 
 const BASE = Date.UTC(2026, 7, 10, 9, 0, 0)
@@ -159,7 +187,8 @@ const EXPECTED_SAMPLES: Record<string, [string, string][]> = {
   listingStatus: [["Hidden", "Active"]],
   primaryStatus: [["On-Sale", "Sold-Off"], ["Launch", "On-Sale"]],
   developer: [["Sodic", "Ora Developers"]],
-  areaSubarea: [["New Cairo", "Mostakbal City"]],
+  area: [["New Cairo", "Mostakbal City"]],
+  subarea: [["Golden Square", "Bloomfields"]],
   organizations: [["Nawy", "Nawy & Partners"]],
   category: [["Residential", "Coastal"]],
 }
@@ -182,9 +211,10 @@ function makeProjectIssue(i: number): ProjectIssue {
   const [current, expected] = samples ? samples[i % samples.length] : [null, field.kind === "value" ? "Match developer sheet" : null]
   let details: IssueDetails | undefined
   if (field.kind === "amenities") {
-    details = t.type === "Missing Amenity"
-      ? { amenitiesAdd: [PROJECT_AMENITY_LIBRARY[i % PROJECT_AMENITY_LIBRARY.length]] }
-      : { amenitiesRemove: [PROJECT_AMENITY_LIBRARY[(i + 5) % PROJECT_AMENITY_LIBRARY.length]] }
+    const lib = field.id === "services" ? PROJECT_SERVICE_LIBRARY : PROJECT_AMENITY_LIBRARY
+    details = t.type.startsWith("Missing")
+      ? { amenitiesAdd: [lib[i % lib.length]] }
+      : { amenitiesRemove: [lib[(i + 5) % lib.length]] }
   }
   const reportedBy = source === "System" ? "System" : source === "Sales Agent" ? SALES_AGENTS[i % SALES_AGENTS.length] : QUALITY_TEAM[i % QUALITY_TEAM.length]
   const assignedTo = status === "To Do" && i % 4 === 0 ? null : DATA_OPS_TEAM[i % DATA_OPS_TEAM.length]
@@ -204,8 +234,10 @@ function makeProjectIssue(i: number): ProjectIssue {
     current,
     reportedBy,
     assignedTo,
-    developer: { id: proj.developer.id, name: proj.developer.name },
-    project: { id: proj.id, name: proj.name },
+    developer: { id: proj.developer.id, name: proj.developer.name, logo: proj.developer.logo },
+    project: proj.isPhase && proj.mainProject ? { id: proj.mainProject.id, name: proj.mainProject.name } : { id: proj.id, name: proj.name },
+    phase: proj.isPhase ? { id: proj.id, name: proj.name } : null,
+    entityId: proj.id,
     projectLevel: proj.isPhase ? "Phase" : "Project",
     listingStatus: proj.listingStatus,
     primaryStatus: proj.primaryStatus,
@@ -214,6 +246,7 @@ function makeProjectIssue(i: number): ProjectIssue {
     updatedAt: ts(updated),
     resolvedAt: resolvedAt != null ? ts(resolvedAt) : null,
     closedAt: closedAt != null ? ts(closedAt) : null,
+    archived: i % 37 === 0,
     details,
     comments: Array.from({ length: status === "To Do" ? i % 2 : (i % 3) + 1 }, (_, k) => ({
       id: `PCM-${i}-${k}`,
@@ -241,6 +274,6 @@ export function nextProjectIssueId(): string {
 export function addProjectIssues(issues: ProjectIssue[]) {
   PROJECT_ISSUES.unshift(...issues)
 }
-export function openProjectIssuesFor(projectId: string): ProjectIssue[] {
-  return PROJECT_ISSUES.filter((i) => i.project.id === projectId && OPEN_STATUSES.includes(i.status))
+export function openProjectIssuesFor(entityId: string): ProjectIssue[] {
+  return PROJECT_ISSUES.filter((i) => i.entityId === entityId && OPEN_STATUSES.includes(i.status) && !i.archived)
 }

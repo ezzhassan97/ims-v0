@@ -275,8 +275,6 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
             <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0 text-muted-foreground"><MoreHorizontal className="h-4 w-4" /></Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuItem onClick={() => setReportIssueOpen(true)}><AlertTriangle className="mr-2 h-3.5 w-3.5" />Report an Issue</DropdownMenuItem>
-            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setCascade("entry")}><Repeat className="mr-2 h-3.5 w-3.5" />Change Entry Type</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setListingDlg(true)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setPrimaryDlg(true)}><TagIcon className="mr-2 h-3.5 w-3.5" />Change Primary Status</DropdownMenuItem>
@@ -294,6 +292,8 @@ export function ProjectHeader({ project }: { project?: Partial<ProjectRow> }) {
             )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setDrawOpen(true)}><MapIcon className="mr-2 h-3.5 w-3.5" />Draw on Map</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setReportIssueOpen(true)}><AlertTriangle className="mr-2 h-3.5 w-3.5" />Report an Issue</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

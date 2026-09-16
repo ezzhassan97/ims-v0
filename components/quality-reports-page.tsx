@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react"
 import {
-  AlertTriangle, ArrowDown, ChevronRight, CircleCheck, Eye, FileBarChart2, LayoutGrid, MoreHorizontal,
-  Search, ShieldCheck, X,
+  AlertTriangle, ArrowDown, ChevronRight, CircleCheck, Eye, FileBarChart2, FileDown, LayoutGrid,
+  MinusCircle, MoreHorizontal, Search, ShieldCheck, X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -13,18 +13,35 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { TableCard, TableCardHeader, TableFooter, IdTag, COL_SEP } from "@/components/table-kit"
-import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import {
-  QUALITY_REPORTS, reportStats, reportViolations, violationFixed, openIssuesFromReport, consumePendingReport,
-  type QualityReport, type ReportRule, type ReportUnit,
+  TableCard, TableCardHeader, TableFooter, IdTag, COL_SEP, FloatingBulkBar, BulkBarButton,
+} from "@/components/table-kit"
+import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
+import { createRows, EmbeddedPropertyTable, type ColId, type PropertyRow } from "@/components/all-properties-page"
+import { mockRules } from "@/components/validation-rules-page"
+import {
+  QUALITY_REPORTS, reportStats, reportViolations, violationFixed, openIssuesFromReport,
+  excludeUnitsFromReport, consumePendingReport,
+  type QualityReport, type ReportRule,
 } from "@/lib/quality-reports-mock"
 import { cn } from "@/lib/utils"
 
 // ── Small bits ────────────────────────────────────────────────────────────────
-function PctTag({ pct, tone }: { pct: number; tone: "red" | "amber" | "emerald" | "gray" }) {
+type PctTone = "red" | "orange" | "amber" | "emerald" | "gray"
+
+/** Share of units with issues — the higher, the worse. */
+function pctTone(pct: number): PctTone {
+  if (pct === 0) return "emerald"
+  if (pct <= 33) return "amber"
+  if (pct <= 66) return "orange"
+  return "red"
+}
+
+function PctTag({ pct, tone }: { pct: number; tone: PctTone }) {
   const cls = {
     red: "border-red-200 bg-red-50 text-red-700",
+    orange: "border-orange-200 bg-orange-50 text-orange-700",
     amber: "border-amber-200 bg-amber-50 text-amber-700",
     emerald: "border-emerald-200 bg-emerald-100 text-emerald-700",
     gray: "border-gray-200 bg-gray-100 text-gray-600",
@@ -32,14 +49,27 @@ function PctTag({ pct, tone }: { pct: number; tone: "red" | "amber" | "emerald" 
   return <span className={cn("inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium tabular-nums", cls)}>{pct}%</span>
 }
 
-/** "At creation X% · b blocking / w warning" summary chips. */
-function IssueBreakdown({ units, blocking, warning, pct }: { units: number; blocking: number; warning: number; pct: number }) {
+function PersonCell({ name }: { name: string }) {
+  const sys = name === "System"
   return (
-    <span className="flex flex-wrap items-center gap-1.5 whitespace-nowrap">
-      <PctTag pct={pct} tone={pct === 0 ? "emerald" : "gray"} />
-      <span className="text-xs tabular-nums text-muted-foreground">{units} units</span>
-      {blocking > 0 && <span className="rounded-md border border-red-200 bg-red-50 px-1.5 py-px text-[10px] font-medium tabular-nums text-red-700">{blocking} blocking</span>}
-      {warning > 0 && <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-medium tabular-nums text-amber-700">{warning} warning</span>}
+    <span className="flex items-center gap-2 whitespace-nowrap">
+      <span className={cn(
+        "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold",
+        sys ? "bg-emerald-100 text-emerald-700" : "bg-primary/10 text-primary",
+      )}>
+        {sys ? "SYS" : name.split(" ").map((x) => x[0]).join("").slice(0, 2)}
+      </span>
+      <span className="text-xs">{name}</span>
+    </span>
+  )
+}
+
+/** "N of M units" + color-coded percentage (higher = worse). */
+function IssueShareCell({ units, total, pct }: { units: number; total: number; pct: number }) {
+  return (
+    <span className="flex items-center gap-1.5 whitespace-nowrap">
+      <PctTag pct={pct} tone={pctTone(pct)} />
+      <span className="text-xs tabular-nums text-muted-foreground">{units} of {total} units</span>
     </span>
   )
 }
@@ -51,7 +81,7 @@ function NowCell({ r }: { r: QualityReport }) {
   }
   return (
     <span className="flex items-center gap-1.5 whitespace-nowrap">
-      <IssueBreakdown units={s.nowUnits} blocking={s.nowBlocking} warning={s.nowWarning} pct={s.nowPct} />
+      <IssueShareCell units={s.nowUnits} total={s.totalUnits} pct={s.nowPct} />
       {s.nowPct < s.initialPct && (
         <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-600"><ArrowDown className="h-3 w-3" />{s.initialPct - s.nowPct}%</span>
       )}
@@ -69,28 +99,118 @@ function StatCard({ label, value, sub, tone }: { label: string; value: React.Rea
   )
 }
 
+// ── Validation rule details drawer ────────────────────────────────────────────
+const OP_LABEL: Record<string, string> = {
+  equals: "equals", notEquals: "not equals", greaterThan: "greater than", lessThan: "less than",
+  greaterThanOrEqual: "≥", lessThanOrEqual: "≤", contains: "contains", isEmpty: "is empty", isNotEmpty: "is not empty",
+}
+
+function RuleDetailsDrawer({
+  rule, scope, onClose,
+}: {
+  rule: ReportRule | null
+  /** This report's scope for the rule — units checked / broken / fixed / issues. */
+  scope: { totalUnits: number; broken: number; fixed: number; issues: number } | null
+  onClose: () => void
+}) {
+  const full = rule ? mockRules.find((m) => m.id === rule.id) ?? null : null
+  const conditions: { field: string; operator: string; value: unknown }[] = full?.conditions?.conditions ?? []
+  const blocking = rule?.type === "Blocking"
+  return (
+    <Sheet open={!!rule} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-[440px]">
+        {rule && (
+          <>
+            <SheetHeader className="space-y-2 border-b border-border bg-card px-5 py-4">
+              <SheetTitle className="flex items-start justify-between gap-2 pr-6 text-base">{rule.name}</SheetTitle>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className={cn("rounded-md border px-2 py-0.5 text-xs font-medium", blocking ? "border-red-200 bg-red-100 text-red-700" : "border-amber-200 bg-amber-50 text-amber-700")}>{rule.type}</span>
+                {full && (
+                  <span className={cn("rounded-md border px-2 py-0.5 text-xs font-medium", full.isActive ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-700")}>
+                    {full.isActive ? "Active" : "Inactive"}
+                  </span>
+                )}
+                <IdTag value={rule.id} />
+              </div>
+            </SheetHeader>
+
+            <div className="flex-1 space-y-5 px-5 py-4">
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</h4>
+                <p className="mt-1.5 text-sm leading-snug text-foreground">{rule.description}</p>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Filter</h4>
+                <div className="mt-1.5 rounded-lg border border-border bg-muted/40 p-3">
+                  {conditions.length ? (
+                    <div className="space-y-1.5">
+                      {conditions.map((c, i) => (
+                        <div key={i} className="flex flex-wrap items-center gap-1.5 text-xs">
+                          {i > 0 && <span className="rounded bg-primary/10 px-1.5 py-px text-[10px] font-bold text-primary">{full?.conditions?.operator ?? "AND"}</span>}
+                          <span className="rounded-md border border-border bg-card px-1.5 py-px font-mono text-[11px]">{c.field}</span>
+                          <span className="text-muted-foreground">{OP_LABEL[c.operator] ?? c.operator}</span>
+                          {c.value !== "" && c.value != null && <span className="rounded-md border border-border bg-card px-1.5 py-px font-mono text-[11px] tabular-nums">{String(c.value)}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Rule conditions snapshot not available for this report.</p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Scope</h4>
+                <div className="mt-1.5 space-y-2 rounded-lg border border-border bg-muted/40 p-3 text-xs">
+                  <div className="flex items-center justify-between"><span className="text-muted-foreground">Applies to entity</span><ColorTag value={full?.entity ?? "Property"} /></div>
+                  {scope && (
+                    <>
+                      <div className="flex items-center justify-between"><span className="text-muted-foreground">Units checked in this report</span><span className="font-semibold tabular-nums">{scope.totalUnits}</span></div>
+                      <div className="flex items-center justify-between"><span className="text-muted-foreground">Currently breaking the rule</span><span className={cn("font-semibold tabular-nums", scope.broken > 0 ? "text-red-600" : "text-emerald-600")}>{scope.broken}</span></div>
+                      <div className="flex items-center justify-between"><span className="text-muted-foreground">Fixed since creation</span><span className="font-semibold tabular-nums text-emerald-600">{scope.fixed}</span></div>
+                      <div className="flex items-center justify-between"><span className="text-muted-foreground">Issues opened</span><span className="font-semibold tabular-nums text-blue-700">{scope.issues}</span></div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {full && (
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div><p className="text-muted-foreground">Created At</p><p className="mt-0.5 tabular-nums">{fmtDateTime(full.createdAt)}</p></div>
+                  <div><p className="text-muted-foreground">Updated At</p><p className="mt-0.5 tabular-nums">{fmtDateTime(full.updatedAt)}</p></div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
+  )
+}
+
 // ── Report details ────────────────────────────────────────────────────────────
+// Detailed-properties columns hidden in the report's Properties table
+const REPORT_HIDDEN_COLS = ["floorPlans", "images", "paymentOptions"] as ColId[]
+
 function ReportDetails({ report, onBack, onChanged }: { report: QualityReport; onBack: () => void; onChanged: () => void }) {
   const [activeRule, setActiveRule] = useState<string | null>(null)
-  const [focusUnit, setFocusUnit] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [viewRule, setViewRule] = useState<ReportRule | null>(null)
   const [version, setVersion] = useState(0)
 
   const stats = useMemo(() => reportStats(report), [report, version])
-  const violations = useMemo(() => reportViolations(report), [report])
+  const violations = useMemo(() => reportViolations(report), [report, version])
 
-  // Per-unit current broken rules + opened issue counts
+  // Full detailed-property rows joined by property id
+  const propertyById = useMemo(() => new Map(createRows().map((r) => [r.propertyId, r])), [])
+
+  // Per-unit current broken rules
   const unitInfo = useMemo(() => {
-    const m = new Map<string, { broken: ReportRule[]; fixed: number; issues: number }>()
-    for (const u of report.units) m.set(u.propertyId, { broken: [], fixed: 0, issues: 0 })
+    const m = new Map<string, { broken: ReportRule[] }>()
+    for (const u of report.units) m.set(u.propertyId, { broken: [] })
     for (const { rule, unit } of violations) {
-      const e = m.get(unit.propertyId)!
-      if (violationFixed(report, rule.id, unit.propertyId)) e.fixed++
-      else e.broken.push(rule)
-    }
-    for (const o of report.openedIssues) {
-      const e = m.get(o.propertyId)
-      if (e) e.issues++
+      if (!violationFixed(report, rule.id, unit.propertyId)) m.get(unit.propertyId)!.broken.push(rule)
     }
     return m
   }, [report, violations, version])
@@ -111,13 +231,11 @@ function ReportDetails({ report, onBack, onChanged }: { report: QualityReport; o
     return m
   }, [report, violations, version])
 
-  const visibleUnits = useMemo(() => {
+  const visibleRows = useMemo(() => {
     let units = report.units
-    if (activeRule) {
-      units = units.filter((u) => unitInfo.get(u.propertyId)!.broken.some((r) => r.id === activeRule))
-    }
-    return units
-  }, [report.units, activeRule, unitInfo])
+    if (activeRule) units = units.filter((u) => unitInfo.get(u.propertyId)?.broken.some((r) => r.id === activeRule))
+    return units.map((u) => propertyById.get(u.propertyId)).filter(Boolean) as PropertyRow[]
+  }, [report.units, activeRule, unitInfo, propertyById, version])
 
   const openIssues = (ids: string[]) => {
     const created = openIssuesFromReport(report, ids)
@@ -129,6 +247,16 @@ function ReportDetails({ report, onBack, onChanged }: { report: QualityReport; o
       : "Nothing new to open — the selected units' violations are fixed or already have issues")
   }
 
+  const exclude = (ids: string[]) => {
+    const removed = excludeUnitsFromReport(report, ids)
+    setSelected(new Set())
+    setVersion((v) => v + 1)
+    onChanged()
+    toast.success(removed
+      ? `${removed} propert${removed === 1 ? "y" : "ies"} excluded from ${report.id}`
+      : "Nothing to exclude")
+  }
+
   const blockingRules = report.rules.filter((r) => r.type === "Blocking")
   const warningRules = report.rules.filter((r) => r.type === "Warning")
 
@@ -136,27 +264,35 @@ function ReportDetails({ report, onBack, onChanged }: { report: QualityReport; o
     const info = ruleInfo.get(rule.id)!
     const blocking = rule.type === "Blocking"
     const active = activeRule === rule.id
-    const dimmedByUnit = focusUnit != null && !unitInfo.get(focusUnit)?.broken.some((r) => r.id === rule.id)
     return (
-      <button
-        onClick={() => { setActiveRule(active ? null : rule.id); setFocusUnit(null) }}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setActiveRule(active ? null : rule.id)}
+        onKeyDown={(e) => { if (e.key === "Enter") setActiveRule(active ? null : rule.id) }}
         className={cn(
-          "block w-full rounded-xl border p-3 text-left transition-all",
+          "block w-full cursor-pointer rounded-xl border p-3 text-left transition-all",
           blocking ? "border-red-200 bg-red-50/40" : "border-amber-200 bg-amber-50/40",
           active && "ring-2 ring-primary/60",
-          (dimmedByUnit || (activeRule && !active)) && "opacity-40",
+          activeRule && !active && "opacity-40",
         )}
       >
         <div className="flex items-start justify-between gap-2">
-          <span className={cn("flex items-center gap-1.5 text-sm font-semibold", blocking ? "text-red-700" : "text-amber-700")}>
-            {rule.name}
-            <Eye className="h-3.5 w-3.5 shrink-0 opacity-60" />
-          </span>
-          <span className={cn(
-            "shrink-0 whitespace-nowrap rounded-md border bg-card px-2 py-0.5 text-xs font-medium tabular-nums",
-            blocking ? "border-red-200 text-red-700" : "border-amber-200 text-amber-700",
-          )}>
-            {info.broken} Unit{info.broken !== 1 ? "s" : ""}
+          <span className={cn("text-sm font-semibold", blocking ? "text-red-700" : "text-amber-700")}>{rule.name}</span>
+          <span className="flex shrink-0 items-center gap-1">
+            <span className={cn(
+              "whitespace-nowrap rounded-md border bg-card px-2 py-0.5 text-xs font-medium tabular-nums",
+              blocking ? "border-red-200 text-red-700" : "border-amber-200 text-amber-700",
+            )}>
+              {info.broken} Unit{info.broken !== 1 ? "s" : ""}
+            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setViewRule(rule) }}
+              title="View rule details"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <Eye className="h-3.5 w-3.5" />
+            </button>
           </span>
         </div>
         <p className="mt-1 font-mono text-[10px] text-muted-foreground">ID: {rule.id}</p>
@@ -167,9 +303,16 @@ function ReportDetails({ report, onBack, onChanged }: { report: QualityReport; o
             <span className="rounded-md border border-blue-200 bg-blue-50 px-1.5 py-px font-medium tabular-nums text-blue-700">{info.issues} issue{info.issues !== 1 ? "s" : ""} opened</span>
           )}
         </div>
-      </button>
+      </div>
     )
   }
+
+  const viewScope = viewRule ? {
+    totalUnits: report.units.length,
+    broken: ruleInfo.get(viewRule.id)?.broken ?? 0,
+    fixed: (ruleInfo.get(viewRule.id)?.total ?? 0) - (ruleInfo.get(viewRule.id)?.broken ?? 0),
+    issues: ruleInfo.get(viewRule.id)?.issues ?? 0,
+  } : null
 
   return (
     <div className="space-y-4">
@@ -190,14 +333,14 @@ function ReportDetails({ report, onBack, onChanged }: { report: QualityReport; o
           <span className="text-xs text-muted-foreground">Created by {report.createdBy} · {fmtDateTime(report.createdAt)}</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 font-medium text-blue-700">{report.units.length} units</span>
+          <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 font-medium text-blue-700">{report.units.length} properties</span>
           <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 font-medium text-blue-700">{report.rules.length} rules</span>
         </div>
       </div>
 
       {/* Analytics */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <StatCard label="Total Units" value={stats.totalUnits} />
+        <StatCard label="Total Properties" value={stats.totalUnits} />
         <StatCard label="With Issues at Creation" value={`${stats.initialPct}%`} sub={`${stats.initialUnits} units · ${stats.initialBlocking} blocking / ${stats.initialWarning} warning`} />
         <StatCard
           label="With Issues Now"
@@ -210,117 +353,51 @@ function ReportDetails({ report, onBack, onChanged }: { report: QualityReport; o
         <StatCard label="Issues Opened" value={report.openedIssues.length} sub="visible in Properties Data Issues" />
       </div>
 
-      {/* Units | Rules */}
-      <div className="grid grid-cols-[minmax(0,1fr)_400px] items-start gap-4">
-        {/* Units table */}
-        <TableCard>
-          <TableCardHeader
-            title="Units"
-            count={visibleUnits.length}
-            extra={activeRule ? (
-              <button
-                onClick={() => setActiveRule(null)}
-                className="ml-1 inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
-              >
-                Filtered: {report.rules.find((r) => r.id === activeRule)?.name}
-                <X className="h-3 w-3" />
-              </button>
-            ) : undefined}
-            cta={
-              <Button
-                size="sm"
-                className="h-8 gap-1.5"
-                disabled={selected.size === 0}
-                onClick={() => openIssues([...selected])}
-              >
-                <AlertTriangle className="h-3.5 w-3.5" />Open Issues{selected.size > 0 ? ` (${selected.size})` : ""}
-              </Button>
-            }
-          />
-          <div className="max-h-[560px] overflow-auto">
-            <table className="w-full min-w-max border-collapse text-sm">
-              <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
-                <tr className="border-b border-border">
-                  <th className={cn("w-10 px-3 py-2", COL_SEP)}>
-                    <Checkbox
-                      className="h-4 w-4"
-                      checked={visibleUnits.length > 0 && visibleUnits.every((u) => selected.has(u.propertyId))}
-                      onCheckedChange={(v) =>
-                        setSelected((prev) => {
-                          const n = new Set(prev)
-                          visibleUnits.forEach((u) => (v ? n.add(u.propertyId) : n.delete(u.propertyId)))
-                          return n
-                        })
-                      }
-                    />
-                  </th>
-                  {["Property ID", "Detailed Property ID", "Project", "Broken Rules", "Fixed", "Issues"].map((h) => (
-                    <th key={h} className={cn("whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground", COL_SEP)}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {visibleUnits.map((u) => {
-                  const info = unitInfo.get(u.propertyId)!
-                  const blocking = info.broken.filter((r) => r.type === "Blocking").length
-                  const warning = info.broken.length - blocking
-                  const focused = focusUnit === u.propertyId
-                  return (
-                    <tr
-                      key={u.propertyId}
-                      onClick={() => { setFocusUnit(focused ? null : u.propertyId); setActiveRule(null) }}
-                      className={cn(
-                        "cursor-pointer transition-colors",
-                        blocking > 0 ? "bg-red-50/60" : warning > 0 ? "bg-amber-50/50" : "bg-card",
-                        "hover:bg-muted/50",
-                        focused && "ring-2 ring-inset ring-primary/60",
-                      )}
-                    >
-                      <td className={cn("w-10 px-3 py-1.5", COL_SEP)} onClick={(e) => e.stopPropagation()}>
-                        <Checkbox
-                          className="h-4 w-4"
-                          checked={selected.has(u.propertyId)}
-                          onCheckedChange={(v) => setSelected((prev) => { const n = new Set(prev); v ? n.add(u.propertyId) : n.delete(u.propertyId); return n })}
-                        />
-                      </td>
-                      <td className={cn("whitespace-nowrap px-3 py-1.5 font-mono text-[10px]", COL_SEP)}>{u.propertyId}</td>
-                      <td className={cn("whitespace-nowrap px-3 py-1.5 font-mono text-[10px] text-muted-foreground", COL_SEP)}>{u.detailedPropertyId ?? "—"}</td>
-                      <td className={cn("whitespace-nowrap px-3 py-1.5 text-xs", COL_SEP)}>{u.project.name}</td>
-                      <td className={cn("px-3 py-1.5", COL_SEP)}>
-                        <span className="flex items-center gap-1.5 whitespace-nowrap">
-                          {blocking > 0 && <span className="rounded-md border border-red-200 bg-red-100 px-1.5 py-px text-[10px] font-medium tabular-nums text-red-700">{blocking} blocking</span>}
-                          {warning > 0 && <span className="rounded-md border border-amber-200 bg-amber-100 px-1.5 py-px text-[10px] font-medium tabular-nums text-amber-700">{warning} warning</span>}
-                          {info.broken.length === 0 && <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600"><CircleCheck className="h-3 w-3" />Clean</span>}
-                        </span>
-                      </td>
-                      <td className={cn("whitespace-nowrap px-3 py-1.5 text-xs tabular-nums text-emerald-700", COL_SEP)}>{info.fixed > 0 ? info.fixed : "—"}</td>
-                      <td className={cn("whitespace-nowrap px-3 py-1.5", COL_SEP)}>
-                        {info.issues > 0
-                          ? <span className="rounded-md border border-blue-200 bg-blue-50 px-1.5 py-px text-[10px] font-medium tabular-nums text-blue-700">{info.issues} issue{info.issues !== 1 ? "s" : ""}</span>
-                          : <span className="text-xs text-muted-foreground">—</span>}
-                      </td>
-                    </tr>
-                  )
-                })}
-                {visibleUnits.length === 0 && (
-                  <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-muted-foreground">No units currently break this rule.</td></tr>
-                )}
-              </tbody>
-            </table>
+      {/* Properties | Rules */}
+      <div className="grid grid-cols-[minmax(0,1fr)_340px] items-start gap-4">
+        {/* Properties table — full detailed-properties columns */}
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-foreground">Properties</h3>
+              <span className="rounded-md border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">{visibleRows.length}</span>
+              {activeRule && (
+                <button
+                  onClick={() => setActiveRule(null)}
+                  className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
+                >
+                  Filtered: {report.rules.find((r) => r.id === activeRule)?.name}
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+            <Button
+              size="sm"
+              className="h-8 gap-1.5"
+              disabled={selected.size === 0}
+              onClick={() => openIssues([...selected])}
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />Open Issues{selected.size > 0 ? ` (${selected.size})` : ""}
+            </Button>
           </div>
-        </TableCard>
+          <EmbeddedPropertyTable
+            rows={visibleRows}
+            hiddenColumns={REPORT_HIDDEN_COLS}
+            allowReportIssue
+            selectedIds={selected}
+            onSelectedChange={setSelected}
+            extraMenuItems={(row) => (
+              <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => exclude([row.propertyId])}>
+                <MinusCircle className="mr-2 h-3.5 w-3.5" />Exclude from Report
+              </DropdownMenuItem>
+            )}
+            onIssuesChanged={() => { setVersion((v) => v + 1); onChanged() }}
+            maxHeight={560}
+          />
+        </div>
 
         {/* Rule cards */}
         <div className="space-y-5 rounded-xl border border-border bg-card p-4">
-          {focusUnit && (
-            <button
-              onClick={() => setFocusUnit(null)}
-              className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
-            >
-              Showing rules broken by {focusUnit}
-              <X className="h-3 w-3" />
-            </button>
-          )}
           {blockingRules.length > 0 && (
             <div className="space-y-2.5">
               <div className="flex items-center gap-2">
@@ -341,11 +418,38 @@ function ReportDetails({ report, onBack, onChanged }: { report: QualityReport; o
           )}
         </div>
       </div>
+
+      {/* Bulk actions */}
+      <FloatingBulkBar
+        count={selected.size}
+        total={visibleRows.length}
+        onSelectAll={() => setSelected(new Set(visibleRows.map((r) => r.propertyId)))}
+        onClear={() => setSelected(new Set())}
+      >
+        <BulkBarButton icon={<AlertTriangle className="h-3.5 w-3.5 text-zinc-400" />} onClick={() => openIssues([...selected])}>Open Issues</BulkBarButton>
+        <BulkBarButton danger icon={<MinusCircle className="h-3.5 w-3.5" />} onClick={() => exclude([...selected])}>Exclude from Report</BulkBarButton>
+      </FloatingBulkBar>
+
+      {/* Rule details drawer */}
+      <RuleDetailsDrawer rule={viewRule} scope={viewScope} onClose={() => setViewRule(null)} />
     </div>
   )
 }
 
 // ── The page ──────────────────────────────────────────────────────────────────
+const REPORT_COLS = [
+  { id: "id", label: "Report ID" },
+  { id: "kind", label: "Type" },
+  { id: "units", label: "Units" },
+  { id: "rules", label: "Rules" },
+  { id: "atCreation", label: "At Creation" },
+  { id: "now", label: "Now" },
+  { id: "issuesOpened", label: "Issues Opened" },
+  { id: "createdBy", label: "Created By" },
+  { id: "createdAt", label: "Created At" },
+  { id: "updatedAt", label: "Updated At" },
+]
+
 export function QualityReportsPage() {
   const [tab, setTab] = useState<"Properties" | "Projects">("Properties")
   const [q, setQ] = useState("")
@@ -353,6 +457,7 @@ export function QualityReportsPage() {
   const [pageSize, setPageSize] = useState(10)
   const [version, setVersion] = useState(0)
   const [openReport, setOpenReport] = useState<QualityReport | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   // A report just generated from the properties bulk action opens directly
   useEffect(() => {
@@ -371,6 +476,36 @@ export function QualityReportsPage() {
   }, [q, version])
 
   const pageRows = reports.slice((page - 1) * pageSize, page * pageSize)
+
+  const renderCell = (r: QualityReport, colId: string): React.ReactNode => {
+    const s = reportStats(r)
+    switch (colId) {
+      case "id": return <IdTag value={r.id} />
+      case "kind": return <ColorTag value={r.kind} />
+      case "units": return <span className="text-xs tabular-nums">{r.units.length}</span>
+      case "rules": {
+        const blocking = r.rules.filter((x) => x.type === "Blocking").length
+        const warning = r.rules.length - blocking
+        return (
+          <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className="text-sm font-semibold tabular-nums">{r.rules.length}</span>
+            {warning > 0 && <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-medium tabular-nums text-amber-700">{warning} warning</span>}
+            {blocking > 0 && <span className="rounded-md border border-red-200 bg-red-50 px-1.5 py-px text-[10px] font-medium tabular-nums text-red-700">{blocking} blocking</span>}
+          </span>
+        )
+      }
+      case "atCreation": return <IssueShareCell units={s.initialUnits} total={s.totalUnits} pct={s.initialPct} />
+      case "now": return <NowCell r={r} />
+      case "issuesOpened":
+        return r.openedIssues.length > 0
+          ? <span className="rounded-md border border-blue-200 bg-blue-50 px-1.5 py-px text-[10px] font-medium tabular-nums text-blue-700">{r.openedIssues.length}</span>
+          : <span className="text-xs text-muted-foreground">—</span>
+      case "createdBy": return <PersonCell name={r.createdBy} />
+      case "createdAt": return <span className="text-xs tabular-nums text-muted-foreground">{fmtDateTime(r.createdAt)}</span>
+      case "updatedAt": return <span className="text-xs tabular-nums text-muted-foreground">{fmtDateTime(r.updatedAt)}</span>
+      default: return null
+    }
+  }
 
   if (openReport) {
     return (
@@ -419,35 +554,43 @@ export function QualityReportsPage() {
             <TableCard>
               <TableCardHeader title="Reports" count={reports.length} />
               <div className="overflow-x-auto">
-                <table className="w-full min-w-max border-collapse text-sm">
+                <table className={cn("w-max min-w-full text-sm", COL_SEP)}>
                   <thead>
-                    <tr className="border-b border-border bg-muted/50">
-                      {["Report ID", "Type", "Units", "Rules", "At Creation", "Now", "Issues Opened", "Created By", "Created At", ""].map((h, i) => (
-                        <th key={i} className={cn("whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground", COL_SEP)}>{h}</th>
+                    <tr className="border-b border-border bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      <th className="sticky left-0 z-20 w-10 bg-muted/60 py-2.5 pl-4 pr-0">
+                        <Checkbox
+                          className="h-4 w-4"
+                          checked={pageRows.length > 0 && pageRows.every((r) => selected.has(r.id))}
+                          onCheckedChange={(v) =>
+                            setSelected((prev) => {
+                              const n = new Set(prev)
+                              pageRows.forEach((r) => (v ? n.add(r.id) : n.delete(r.id)))
+                              return n
+                            })
+                          }
+                        />
+                      </th>
+                      {REPORT_COLS.map((c) => (
+                        <th key={c.id} className="whitespace-nowrap px-3 py-2.5 text-left">{c.label}</th>
                       ))}
+                      <th className="sticky right-0 z-10 w-12 border-l border-border bg-muted/60" />
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border">
-                    {pageRows.map((r) => {
-                      const s = reportStats(r)
-                      return (
-                        <tr key={r.id} className="group cursor-pointer bg-card transition-colors hover:bg-muted/40" onClick={() => setOpenReport(r)}>
-                          <td className={cn("px-3 py-2", COL_SEP)}><IdTag value={r.id} /></td>
-                          <td className={cn("px-3 py-2", COL_SEP)}><ColorTag value={r.kind} /></td>
-                          <td className={cn("whitespace-nowrap px-3 py-2 text-xs tabular-nums", COL_SEP)}>{r.units.length}</td>
-                          <td className={cn("whitespace-nowrap px-3 py-2 text-xs tabular-nums", COL_SEP)}>{r.rules.length}</td>
-                          <td className={cn("px-3 py-2", COL_SEP)}>
-                            <IssueBreakdown units={s.initialUnits} blocking={s.initialBlocking} warning={s.initialWarning} pct={s.initialPct} />
-                          </td>
-                          <td className={cn("px-3 py-2", COL_SEP)}><NowCell r={r} /></td>
-                          <td className={cn("whitespace-nowrap px-3 py-2", COL_SEP)}>
-                            {r.openedIssues.length > 0
-                              ? <span className="rounded-md border border-blue-200 bg-blue-50 px-1.5 py-px text-[10px] font-medium tabular-nums text-blue-700">{r.openedIssues.length}</span>
-                              : <span className="text-xs text-muted-foreground">—</span>}
-                          </td>
-                          <td className={cn("whitespace-nowrap px-3 py-2 text-xs", COL_SEP)}>{r.createdBy}</td>
-                          <td className={cn("whitespace-nowrap px-3 py-2 text-xs tabular-nums text-muted-foreground", COL_SEP)}>{fmtDateTime(r.createdAt)}</td>
-                          <td className="w-12 px-1 py-2" onClick={(e) => e.stopPropagation()}>
+                  <tbody>
+                    {pageRows.map((r) => (
+                      <tr key={r.id} className="cursor-pointer border-b border-border bg-card transition-colors hover:bg-muted/40" onClick={() => setOpenReport(r)}>
+                        <td className="sticky left-0 z-10 w-10 bg-card py-2 pl-4 pr-0" onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            className="h-4 w-4"
+                            checked={selected.has(r.id)}
+                            onCheckedChange={(v) => setSelected((prev) => { const n = new Set(prev); v ? n.add(r.id) : n.delete(r.id); return n })}
+                          />
+                        </td>
+                        {REPORT_COLS.map((c) => (
+                          <td key={c.id} className="whitespace-nowrap px-3 py-2.5 align-middle">{renderCell(r, c.id)}</td>
+                        ))}
+                        <td className="sticky right-0 z-10 w-12 border-l border-border bg-card p-0" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-center">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <button className="flex h-7 w-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
@@ -456,18 +599,32 @@ export function QualityReportsPage() {
                                 <DropdownMenuItem onClick={() => setOpenReport(r)}><Eye className="mr-2 h-3.5 w-3.5" />View Details</DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
-                          </td>
-                        </tr>
-                      )
-                    })}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                     {pageRows.length === 0 && (
-                      <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-muted-foreground">No reports yet — bulk-select units on a properties page and run Validation Rules.</td></tr>
+                      <tr><td colSpan={REPORT_COLS.length + 2} className="px-4 py-12 text-center text-sm text-muted-foreground">No reports yet — bulk-select units on a properties page and run Validation Rules.</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
               <TableFooter page={page} pageSize={pageSize} total={reports.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="reports" />
             </TableCard>
+
+            <FloatingBulkBar
+              count={selected.size}
+              total={reports.length}
+              onSelectAll={() => setSelected(new Set(reports.map((r) => r.id)))}
+              onClear={() => setSelected(new Set())}
+            >
+              <BulkBarButton
+                icon={<FileDown className="h-3.5 w-3.5 text-zinc-400" />}
+                onClick={() => { toast.success(`${selected.size} report${selected.size !== 1 ? "s" : ""} exported as CSV`); setSelected(new Set()) }}
+              >
+                Export CSV
+              </BulkBarButton>
+            </FloatingBulkBar>
           </>
         )}
       </div>

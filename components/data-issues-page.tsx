@@ -2,9 +2,9 @@
 
 import { Fragment, useMemo, useState } from "react"
 import {
-  AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Building2, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
+  AlertTriangle, Archive, ArchiveRestore, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   ChevronsDownUp, ChevronsUpDown, CircleDot, Clock, Download, ExternalLink, Eye, FileDown, FileSpreadsheet, FileText,
-  LayoutGrid, Loader2, MoreHorizontal, Send, UserRound, Users, XCircle,
+  LayoutGrid, Loader2, MoreHorizontal, Send, SquareKanban, Table2, UserRound, Users, UsersRound, XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { IssueKanban, type SwimlaneKey } from "@/components/issue-kanban"
 import {
   TableCard, TableCardHeader, TableToolbar, TableFooter, FilterMultiSelect, DateRangeFilter, FiltersDrawer,
   FilterDrawerField, FloatingBulkBar, MultiSortControl, ColumnsSheet, GroupPager, IdTag, COL_SEP, type SortLevel,
@@ -220,6 +223,11 @@ export function DataIssuesPage() {
 
   const [trackIssue, setTrackIssue] = useState<PropertyIssue | null>(null)
   const [viewProperty, setViewProperty] = useState<PropertyIssue | null>(null)
+  // Header toggles + view
+  const [showArchived, setShowArchived] = useState(false)
+  const [myIssues, setMyIssues] = useState(false)
+  const [view, setView] = useState<"table" | "kanban">("table")
+  const [confirmArchive, setConfirmArchive] = useState<PropertyIssue | null>(null)
 
   const propertyRows = useMemo(() => createRows(), [])
   const propertyById = useMemo(() => new Map(propertyRows.map((r) => [r.propertyId, r])), [propertyRows])
@@ -238,8 +246,12 @@ export function DataIssuesPage() {
     setPage(1)
   }
 
+  // The table's Group by doubles as the kanban swimlane (Jira-style)
+  const swimlane: SwimlaneKey =
+    ({ assignedTo: "assignedTo", reportedBy: "reportedBy", developer: "developer", project: "project" } as Partial<Record<GroupByKey, SwimlaneKey>>)[groupBy] ?? "none"
+
   const filtered = useMemo(() => {
-    let rows = issues
+    let rows = issues.filter((r) => !!r.archived === showArchived && (!myIssues || r.assignedTo === "Ezz H."))
     const needle = q.trim().toLowerCase()
     if (needle)
       rows = rows.filter((r) =>
@@ -279,7 +291,7 @@ export function DataIssuesPage() {
       })
     }
     return rows
-  }, [issues, q, developerF, projectF, statusF, severityF, sourceF, fieldF, typeF, subtypeF, reporterF, assigneeF, saleTypeF, entryTypeF, unitStatusF, listingStatusF, createdR, updatedR, resolvedR, closedR, sorts, propertyById])
+  }, [issues, q, showArchived, myIssues, developerF, projectF, statusF, severityF, sourceF, fieldF, typeF, subtypeF, reporterF, assigneeF, saleTypeF, entryTypeF, unitStatusF, listingStatusF, createdR, updatedR, resolvedR, closedR, sorts, propertyById])
 
   const groups = useMemo(() => {
     if (groupBy === "none") return null
@@ -345,6 +357,55 @@ export function DataIssuesPage() {
     patchIssues(ids, (r) => assigneePatch(r, person))
     toast.success(person ? `Assigned to ${person}` : "Unassigned")
   }
+  const setArchived = (ids: Set<string>, archived: boolean) => {
+    const now = new Date().toISOString()
+    patchIssues(ids, (r) => ({
+      archived,
+      updatedAt: now,
+      activity: [...r.activity, { id: `ACT-A${now}-${r.id}`, kind: "status" as const, actor: "Ezz H.", at: now, detail: archived ? "Issue archived" : "Issue restored" }],
+    }))
+    setSelected(new Set())
+    toast.success(`${ids.size > 1 ? `${ids.size} issues` : "Issue"} ${archived ? "archived" : "restored"}`)
+  }
+
+  /** Shared row/card actions — View, assignment, status transitions, archive/restore. */
+  const menuItems = (r: PropertyIssue) => (
+    <>
+      <DropdownMenuItem onClick={() => setTrackIssue(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={() => setAssignee(new Set([r.id]), "Ezz H.")}><UserRound className="mr-2 h-3.5 w-3.5" />Assign to Me</DropdownMenuItem>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger><UsersRound className="mr-2 h-3.5 w-3.5" />Change Assignee</DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="max-h-72 w-44 overflow-y-auto">
+          {ALL_PEOPLE.map((p) => (
+            <DropdownMenuItem key={p} onClick={() => setAssignee(new Set([r.id]), p)}>{p}</DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setAssignee(new Set([r.id]), null)}>Unassigned</DropdownMenuItem>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+      <DropdownMenuSeparator />
+      {PROP_ISSUE_STATUSES.filter((s) => s !== r.status).map((s) => (
+        <DropdownMenuItem
+          key={s}
+          className={s === "Invalid" ? "text-red-600 focus:text-red-600" : undefined}
+          onClick={() => setStatus(new Set([r.id]), s)}
+        >
+          <span className={cn("mr-2 h-2 w-2 rounded-full", STATUS_COLORS[s].split(" ")[0])} />{s}
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuSeparator />
+      {r.archived ? (
+        <DropdownMenuItem onClick={() => setArchived(new Set([r.id]), false)}>
+          <ArchiveRestore className="mr-2 h-3.5 w-3.5" />Restore
+        </DropdownMenuItem>
+      ) : (
+        <DropdownMenuItem onClick={() => setConfirmArchive(r)}>
+          <Archive className="mr-2 h-3.5 w-3.5" />Archive
+        </DropdownMenuItem>
+      )}
+    </>
+  )
   const exportSelected = (fmt: string) => {
     toast.success(`Exporting ${selected.size.toLocaleString()} issue${selected.size !== 1 ? "s" : ""} as ${fmt} (mock)`)
     setSelected(new Set())
@@ -495,13 +556,7 @@ export function DataIssuesPage() {
             <button className="flex h-full min-h-[36px] w-12 items-center justify-center text-muted-foreground hover:text-foreground"><MoreHorizontal className="h-4 w-4" /></button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuItem onClick={() => setTrackIssue(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setViewProperty(r)}><Building2 className="mr-2 h-3.5 w-3.5" />View Property</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setAssignee(new Set([r.id]), "Ezz H.")}><UserRound className="mr-2 h-3.5 w-3.5" />Assign to Me</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatus(new Set([r.id]), "Resolved")}><CheckCircle2 className="mr-2 h-3.5 w-3.5" />Mark Resolved</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatus(new Set([r.id]), "Closed")}><CheckCircle2 className="mr-2 h-3.5 w-3.5" />Close</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatus(new Set([r.id]), "Invalid")} className="text-red-600 focus:text-red-600"><XCircle className="mr-2 h-3.5 w-3.5" />Mark Invalid</DropdownMenuItem>
+            {menuItems(r)}
           </DropdownMenuContent>
         </DropdownMenu>
       </td>
@@ -609,9 +664,52 @@ export function DataIssuesPage() {
 
             <TableCard>
               <TableCardHeader
-                title="Issues"
+                title={showArchived ? "Archived Issues" : "Issues"}
                 count={filtered.length}
-                extra={groupBy !== "none" ? (
+                cta={
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={myIssues ? "default" : "outline"}
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      onClick={() => { setMyIssues((v) => !v); setPage(1) }}
+                    >
+                      <UserRound className="h-3.5 w-3.5" />My Issues
+                    </Button>
+                    <Button
+                      variant={showArchived ? "default" : "outline"}
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      title="Show archived issues"
+                      onClick={() => { setShowArchived((v) => !v); setSelected(new Set()); setPage(1) }}
+                    >
+                      <Archive className="h-3.5 w-3.5" />Archived
+                      <span className={cn(
+                        "rounded border px-1 text-[10px] font-semibold tabular-nums",
+                        showArchived ? "border-primary-foreground/30 bg-primary-foreground/20" : "border-blue-200 bg-blue-100 text-blue-700",
+                      )}>
+                        {issues.filter((i) => i.archived).length}
+                      </span>
+                    </Button>
+                    <div className="flex items-center overflow-hidden rounded-md border border-border">
+                      <button
+                        className={cn("flex h-8 w-9 items-center justify-center transition-colors", view === "table" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted")}
+                        title="Table view"
+                        onClick={() => setView("table")}
+                      >
+                        <Table2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        className={cn("flex h-8 w-9 items-center justify-center transition-colors", view === "kanban" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted")}
+                        title="Kanban view"
+                        onClick={() => setView("kanban")}
+                      >
+                        <SquareKanban className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                }
+                extra={view === "table" && groupBy !== "none" ? (
                   <div className="ml-2 flex items-center gap-1">
                     <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => setCollapsedGroups(new Set())}>
                       <ChevronsUpDown className="h-3.5 w-3.5" />Expand all
@@ -622,6 +720,18 @@ export function DataIssuesPage() {
                   </div>
                 ) : undefined}
               />
+              {view === "kanban" ? (
+                <div className="p-4">
+                  <IssueKanban
+                    issues={filtered}
+                    swimlane={swimlane}
+                    onOpen={(i) => setTrackIssue(i)}
+                    onStatusChange={(i, st) => setStatus(new Set([i.id]), st)}
+                    renderMenuItems={menuItems}
+                  />
+                </div>
+              ) : (
+                <>
               <div className="overflow-x-auto">
                 <table className={cn("w-max min-w-full text-sm", COL_SEP)}>
                   <thead className="border-b border-border bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -699,6 +809,8 @@ export function DataIssuesPage() {
               ) : (
                 <TableFooter page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} label="issues" />
               )}
+                </>
+              )}
             </TableCard>
 
             <FloatingBulkBar
@@ -707,6 +819,13 @@ export function DataIssuesPage() {
               onSelectAll={() => setSelected(new Set(filtered.map((r) => r.id)))}
               onClear={() => setSelected(new Set())}
             >
+              {showArchived ? (
+                <>
+                  <div className="h-8 w-px bg-zinc-700" />
+                  <button className={bulkBtnCls} onClick={() => setArchived(selected, false)}><ArchiveRestore className="h-3.5 w-3.5" />Restore</button>
+                </>
+              ) : (
+                <>
               <div className="h-8 w-px bg-zinc-700" />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -745,7 +864,34 @@ export function DataIssuesPage() {
                   <DropdownMenuItem onClick={() => exportSelected("PDF")}><FileDown className="mr-2 h-4 w-4" />PDF</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+                </>
+              )}
             </FloatingBulkBar>
+
+            {/* Archive confirmation */}
+            <Dialog open={!!confirmArchive} onOpenChange={(o) => { if (!o) setConfirmArchive(null) }}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-base"><Archive className="h-4 w-4" />Archive issue {confirmArchive?.id}?</DialogTitle>
+                </DialogHeader>
+                <p className="text-sm text-muted-foreground">
+                  Archived issues are hidden from the table and the kanban board. You can view and restore them anytime from the <span className="font-medium text-foreground">Archived</span> toggle above the table.
+                </p>
+                <DialogFooter className="gap-2">
+                  <Button variant="outline" size="sm" className="h-8" onClick={() => setConfirmArchive(null)}>Cancel</Button>
+                  <Button
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    onClick={() => {
+                      if (confirmArchive) setArchived(new Set([confirmArchive.id]), true)
+                      setConfirmArchive(null)
+                    }}
+                  >
+                    <Archive className="h-3.5 w-3.5" />Archive
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             <ColumnsSheet
               open={showColumns}

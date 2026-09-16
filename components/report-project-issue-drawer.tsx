@@ -1,17 +1,18 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Search, X } from "lucide-react"
+import { Check, Search, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { IdTag } from "@/components/table-kit"
 import { ColorTag } from "@/components/projects-list-page"
 import {
-  PROJECT_ISSUE_FIELDS, PROJECT_ISSUE_FIELD_GROUPS, PROJECT_AMENITY_LIBRARY,
+  PROJECT_ISSUE_FIELDS, PROJECT_ISSUE_FIELD_GROUPS, PROJECT_AMENITY_LIBRARY, PROJECT_SERVICE_LIBRARY,
   projectFieldTaxonomy, projectFieldPriority, addProjectIssues, nextProjectIssueId,
   type ProjectIssueField, type ProjectIssue,
 } from "@/lib/project-issues-mock"
@@ -28,7 +29,66 @@ export function projectAmenities(row: ProjectRow): string[] {
   return PROJECT_AMENITY_LIBRARY.filter((_, i) => (n + i) % 3 !== 0)
 }
 
-function currentText(row: ProjectRow, field: ProjectIssueField): string | null {
+/** The project's current mock services (deterministic subset of the library). */
+export function projectServices(row: ProjectRow): string[] {
+  const n = idNum(row)
+  return PROJECT_SERVICE_LIBRARY.filter((_, i) => (n + i) % 3 !== 1)
+}
+
+/** SEO-tab description content (project details → SEO tab shows the same copy). */
+export function projectDescriptionEn(row: ProjectRow): string | null {
+  return row.seoDescription ? `${row.name} is one of ${row.area}'s most in-demand projects.` : null
+}
+export function projectDescriptionAr(row: ProjectRow): string | null {
+  return row.seoDescription ? `${row.name} من أكثر المشروعات طلبًا في ${row.area}.` : null
+}
+
+/** The full rich-text description as authored in the SEO tab's editor — large
+ *  formatted HTML, so the drawer clamps a preview and opens it in a dialog. */
+export function projectDescriptionHtml(row: ProjectRow, lang: "en" | "ar"): string | null {
+  if (!row.seoDescription) return null
+  if (lang === "ar") {
+    return `<h3>عن ${row.name}</h3>
+<p>يعد <strong>${row.name}</strong> من أكثر المشروعات طلبًا في ${row.area}، بتطوير من ${row.developer.name}. يقدم المشروع مزيجًا متكاملًا من الوحدات السكنية والخدمات.</p>
+<ul><li>موقع متميز في قلب ${row.area}</li><li>مساحات خضراء ومسطحات مائية واسعة</li><li>خطط سداد مرنة تصل إلى 10 سنوات</li></ul>
+<p>تتنوع الوحدات بين شقق وفيلات وتاون هاوس بمساحات مختلفة تناسب جميع الاحتياجات، مع تشطيبات عالية الجودة وإطلالات مميزة.</p>`
+  }
+  return `<h3>About ${row.name}</h3>
+<p><strong>${row.name}</strong> is one of ${row.area}'s most in-demand projects, developed by ${row.developer.name}. The development blends residential living with retail, landscaped parks and community services.</p>
+<ul><li>Prime location in the heart of ${row.area}</li><li>Wide green areas and water features</li><li>Flexible payment plans up to 10 years</li></ul>
+<h3>Unit Mix</h3>
+<p>The project offers apartments, townhouses and standalone villas across a wide range of areas, with premium finishing options and distinctive views. Delivery phases roll out district by district, anchored by a central clubhouse and commercial strip.</p>
+<p>Residents get access to schools, medical facilities and daily-needs retail within the masterplan, making ${row.name} a self-sufficient community minutes away from ${row.district}.</p>`
+}
+
+/** Metadata-tab content (project details → Metadata tab seeds the same keys). */
+export const PROJECT_METADATA_PREVIEW: [string, string][] = [
+  ["Footprint", "15 %"], ["Open Spaces", "85 %"], ["Beach Area", "1,400,000 sqm"], ["Number of Gates", "7"],
+  ["International Marina", "370 berths"], ["Golf Course Area", "980,000 sqm"], ["Waterbody", "Open-to-sea Lagoon"], ["Beachfront", "Yes"],
+]
+
+const MASTERPLAN_IMG = "/aerial-view-masterplan-residential-development-blu.jpg"
+const COVER_IMG = "/luxury-clubhouse-exterior.jpg"
+
+/** The project's current files for a media field — what the reporter can see and
+ *  select from (mirrors the properties flow's floor-plan / render thumbnails). */
+export function projectMediaItems(row: ProjectRow, field: ProjectIssueField): { name: string; src: string }[] {
+  const n = idNum(row)
+  switch (field.id) {
+    case "gallery": return row.galleryImages.map((s, i) => ({ name: `Image ${i + 1}`, src: s }))
+    case "coverImage": return n % 6 === 0 ? [] : [{ name: "Cover Image", src: COVER_IMG }]
+    case "logo": return n % 5 === 0 ? [] : [{ name: "Project Logo", src: "/placeholder.jpg" }]
+    case "listingMasterplan": return row.listingMasterplan ? [{ name: "Listing Masterplan", src: MASTERPLAN_IMG }] : []
+    case "gisMasterplan": return row.gisMasterplan ? [{ name: "GIS Masterplan", src: MASTERPLAN_IMG }] : []
+    case "numberedMasterplan": return n % 2 === 1 ? [{ name: "Numbered Masterplan", src: MASTERPLAN_IMG }] : []
+    case "brochure": return Array.from({ length: row.brochureCount }, (_, i) => ({ name: `Brochure ${i + 1}`, src: "/placeholder.jpg" }))
+    default: return []
+  }
+}
+
+/** The project's current mock value for a reportable field (shared with the
+ *  issue drawer's embedded project panel). */
+export function projectFieldCurrent(row: ProjectRow, field: ProjectIssueField): string | null {
   const n = idNum(row)
   switch (field.id) {
     case "projectNameEn": return row.name
@@ -37,22 +97,28 @@ function currentText(row: ProjectRow, field: ProjectIssueField): string | null {
     case "entryType": return row.entryType
     case "primaryStatus": return row.primaryStatus
     case "developer": return row.developer.name
-    case "areaSubarea": return `${row.area} · ${row.subarea}`
+    case "area": return row.area
+    case "subarea": return row.subarea || null
     case "location": return `${row.district}, ${row.area}`
+    case "mapCoordinates": return n % 4 === 0 ? null : `${(29.9 + (n % 10) * 0.11).toFixed(4)}, ${(31.1 + (n % 7) * 0.13).toFixed(4)}`
     case "polygon": return n % 3 === 0 ? null : "Drawn"
     case "organizations": return row.organizations.length === 2 ? "Nawy & Partners" : row.organizations[0]
     case "category": return row.category
     case "projectType": return row.projectType
     case "projectSubtype": return row.projectSubtype || null
-    case "description": return row.seoDescription ? "Available" : null
-    case "metadata": return n % 2 === 0 ? "Complete" : null
+    case "manualRank": return row.manualRank != null ? String(row.manualRank) : null
+    case "descriptionEn": return projectDescriptionEn(row)
+    case "descriptionAr": return projectDescriptionAr(row)
+    case "metadata": return n % 2 === 0 ? `${PROJECT_METADATA_PREVIEW.length} keys` : null
     case "brochure": return row.brochureCount > 0 ? `${row.brochureCount} file${row.brochureCount !== 1 ? "s" : ""}` : null
     case "listingMasterplan": return row.listingMasterplan ? "Uploaded" : null
     case "gisMasterplan": return row.gisMasterplan ? "Uploaded" : null
     case "numberedMasterplan": return n % 2 === 1 ? "Uploaded" : null
     case "gallery": return row.galleryImages.length > 0 ? `${row.galleryImages.length} items` : null
     case "logo": return n % 5 === 0 ? null : "Uploaded"
+    case "coverImage": return n % 6 === 0 ? null : "Uploaded"
     case "amenities": return `${projectAmenities(row).length} amenities`
+    case "services": return `${projectServices(row).length} services`
     default: return null
   }
 }
@@ -62,7 +128,7 @@ function currentText(row: ProjectRow, field: ProjectIssueField): string | null {
 function availableTypes(field: ProjectIssueField, row: ProjectRow): IssueTypeDef[] {
   const tax = projectFieldTaxonomy(field).filter((t) => t.active)
   if (field.kind === "amenities") return tax
-  const has = currentText(row, field) != null
+  const has = projectFieldCurrent(row, field) != null
   const isMissing = (t: IssueTypeDef) => t.type.startsWith("Missing")
   return has ? tax.filter((t) => !isMissing(t)) : tax.filter(isMissing)
 }
@@ -74,11 +140,13 @@ interface FieldDraft {
   description: string
   addItems: string[]
   removeItems: string[]
+  /** Media fields: the selected files (gallery images, masterplans, brochures…). */
+  items: string[]
 }
 
 function emptyDraft(field: ProjectIssueField, row: ProjectRow): FieldDraft {
   const t = availableTypes(field, row)[0] ?? projectFieldTaxonomy(field)[0]
-  return { type: t.type, subtype: t.subtypes?.[0] ?? null, expected: "", description: "", addItems: [], removeItems: [] }
+  return { type: t.type, subtype: t.subtypes?.[0] ?? null, expected: "", description: "", addItems: [], removeItems: [], items: [] }
 }
 
 const STATUS_TAG: Record<string, string> = {
@@ -90,6 +158,8 @@ const STATUS_TAG: Record<string, string> = {
   "On-Sale": "bg-emerald-100 text-emerald-700 border-emerald-200",
   "On-Hold": "bg-orange-50 text-orange-700 border-orange-200",
   "Sold-Off": "bg-red-50 text-red-600 border-red-200",
+  Nawy: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  Partners: "bg-blue-100 text-blue-700 border-blue-200",
 }
 
 function SmallTag({ value }: { value: string }) {
@@ -109,6 +179,8 @@ export function ReportProjectIssueDrawer({
 }) {
   const [q, setQ] = useState("")
   const [drafts, setDrafts] = useState<Map<string, FieldDraft>>(new Map())
+  // Full rich-text content viewer (large formatted descriptions don't fit inline)
+  const [contentView, setContentView] = useState<{ title: string; html: string; rtl?: boolean } | null>(null)
 
   const visibleFields = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -118,7 +190,11 @@ export function ReportProjectIssueDrawer({
   if (!row) return null
 
   const currentAmenities = projectAmenities(row)
-  const missingAmenityOptions = PROJECT_AMENITY_LIBRARY.filter((a) => !currentAmenities.includes(a))
+  const currentServices = projectServices(row)
+  const chipSetsOf = (field: ProjectIssueField) => {
+    const [library, current] = field.id === "services" ? [PROJECT_SERVICE_LIBRARY, currentServices] : [PROJECT_AMENITY_LIBRARY, currentAmenities]
+    return { current, missing: library.filter((a) => !current.includes(a)) }
+  }
 
   const toggleField = (field: ProjectIssueField, on: boolean) =>
     setDrafts((prev) => {
@@ -133,7 +209,7 @@ export function ReportProjectIssueDrawer({
       if (cur) n.set(fieldId, { ...cur, ...patch })
       return n
     })
-  const toggleIn = (fieldId: string, key: "addItems" | "removeItems", item: string) =>
+  const toggleIn = (fieldId: string, key: "addItems" | "removeItems" | "items", item: string) =>
     setDrafts((prev) => {
       const n = new Map(prev)
       const cur = n.get(fieldId)
@@ -149,6 +225,8 @@ export function ReportProjectIssueDrawer({
 
   const problemOf = (field: ProjectIssueField, d: FieldDraft): string | null => {
     if (field.kind === "amenities") return d.addItems.length + d.removeItems.length === 0 ? "select what to add or remove" : null
+    if (field.kind === "media" && typeDefOf(field, d).requiresSelection && projectMediaItems(row, field).length > 0 && d.items.length === 0)
+      return "select the affected file(s)"
     if (field.valueType === "enum" && typeDefOf(field, d).type.startsWith("Wrong") && !d.expected) return "select the correct value"
     return null
   }
@@ -165,12 +243,19 @@ export function ReportProjectIssueDrawer({
       const field = PROJECT_ISSUE_FIELDS.find((f) => f.id === fieldId)!
       let def = typeDefOf(field, d)
       if (field.kind === "amenities") {
-        const derived = d.addItems.length && d.removeItems.length ? "Amenities Update" : d.addItems.length ? "Missing Amenity" : "Wrong Amenity"
+        const noun = field.id === "services" ? "Service" : "Amenity"
+        const derived = d.addItems.length && d.removeItems.length
+          ? `${noun === "Service" ? "Services" : "Amenities"} Update`
+          : d.addItems.length ? `Missing ${noun}` : `Wrong ${noun}`
         def = projectFieldTaxonomy(field).find((t) => t.type === derived) ?? def
       }
       const assignedTo = DATA_OPS_TEAM[assignSeq++ % DATA_OPS_TEAM.length]
       const details: IssueDetails | undefined =
-        field.kind === "amenities" ? { amenitiesAdd: d.addItems, amenitiesRemove: d.removeItems } : undefined
+        field.kind === "amenities"
+          ? { amenitiesAdd: d.addItems, amenitiesRemove: d.removeItems }
+          : field.kind === "media" && d.items.length
+            ? { media: d.items }
+            : undefined
       return {
         id: nextProjectIssueId(),
         source: "Data Quality" as const,
@@ -185,11 +270,13 @@ export function ReportProjectIssueDrawer({
           d.description.trim(),
         ].filter(Boolean).join(" — "),
         expected: d.expected || null,
-        current: currentText(row, field),
+        current: projectFieldCurrent(row, field),
         reportedBy: "Ezz H.",
         assignedTo,
-        developer: { id: row.developer.id, name: row.developer.name },
-        project: { id: row.id, name: row.name },
+        developer: { id: row.developer.id, name: row.developer.name, logo: row.developer.logo },
+        project: row.isPhase && row.mainProject ? { id: row.mainProject.id, name: row.mainProject.name } : { id: row.id, name: row.name },
+        phase: row.isPhase ? { id: row.id, name: row.name } : null,
+        entityId: row.id,
         projectLevel: row.isPhase ? "Phase" as const : "Project" as const,
         listingStatus: row.listingStatus,
         primaryStatus: row.primaryStatus,
@@ -272,7 +359,7 @@ export function ReportProjectIssueDrawer({
                     const tax = availableTypes(field, row)
                     const def = draft ? typeDefOf(field, draft) : tax[0] ?? projectFieldTaxonomy(field)[0]
                     const problem = draft ? problemOf(field, draft) : null
-                    const current = currentText(row, field)
+                    const current = projectFieldCurrent(row, field)
                     return (
                       <div key={field.id} className="px-5 py-2.5">
                         <label className="flex cursor-pointer items-center justify-between gap-2">
@@ -280,9 +367,11 @@ export function ReportProjectIssueDrawer({
                             <Checkbox className="h-4 w-4" checked={!!draft} onCheckedChange={(v) => toggleField(field, !!v)} />
                             <span className="text-sm font-medium text-foreground">{field.label}</span>
                           </span>
-                          {field.valueType === "enum" && current
-                            ? <SmallTag value={current} />
-                            : <span className="max-w-[220px] truncate text-xs text-muted-foreground">{current ?? "—"}</span>}
+                          {field.id === "organizations"
+                            ? <span className="flex flex-wrap justify-end gap-1">{row.organizations.map((o) => <SmallTag key={o} value={o} />)}</span>
+                            : field.valueType === "enum" && current
+                              ? <SmallTag value={current} />
+                              : <span className="max-w-[220px] truncate text-xs text-muted-foreground">{current ?? "—"}</span>}
                         </label>
 
                         {draft && (
@@ -318,20 +407,105 @@ export function ReportProjectIssueDrawer({
                               </div>
                             )}
 
-                            {field.kind === "amenities" && (
-                              <>
-                                <div className="space-y-1.5">
-                                  <p className="text-[11px] font-medium text-foreground">Missing — should be added</p>
-                                  <ChipPicker options={missingAmenityOptions} selected={draft.addItems} onToggle={(o) => toggleIn(field.id, "addItems", o)} tone="add" />
-                                </div>
+                            {field.kind === "amenities" && (() => {
+                              const sets = chipSetsOf(field)
+                              return (
+                                <>
+                                  <div className="space-y-1.5">
+                                    <p className="text-[11px] font-medium text-foreground">Missing — should be added</p>
+                                    <ChipPicker options={sets.missing} selected={draft.addItems} onToggle={(o) => toggleIn(field.id, "addItems", o)} tone="add" />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <p className="text-[11px] font-medium text-foreground">
+                                      Wrong — should be removed
+                                      {problem && <span className="ml-1 text-red-600">— required</span>}
+                                    </p>
+                                    <ChipPicker options={sets.current} selected={draft.removeItems} onToggle={(o) => toggleIn(field.id, "removeItems", o)} tone="remove" />
+                                  </div>
+                                </>
+                              )
+                            })()}
+
+                            {/* Media — see and select the existing files when the type points at them */}
+                            {field.kind === "media" && def.requiresSelection && (() => {
+                              const items = projectMediaItems(row, field)
+                              return (
                                 <div className="space-y-1.5">
                                   <p className="text-[11px] font-medium text-foreground">
-                                    Wrong — should be removed
-                                    {problem && <span className="ml-1 text-red-600">— required</span>}
+                                    Select the {field.label.toLowerCase()} file{items.length !== 1 ? "s" : ""} with the issue
+                                    {problem === "select the affected file(s)" && <span className="ml-1 text-red-600">— required</span>}
                                   </p>
-                                  <ChipPicker options={currentAmenities} selected={draft.removeItems} onToggle={(o) => toggleIn(field.id, "removeItems", o)} tone="remove" />
+                                  {items.length === 0
+                                    ? <p className="text-xs text-muted-foreground">Nothing uploaded on this project — use a "missing" type instead.</p>
+                                    : (
+                                      <div className="grid grid-cols-3 gap-2">
+                                        {items.map((it) => {
+                                          const on = draft.items.includes(it.name)
+                                          return (
+                                            <button
+                                              key={it.name}
+                                              onClick={() => toggleIn(field.id, "items", it.name)}
+                                              className={cn(
+                                                "group relative overflow-hidden rounded-lg border transition-all",
+                                                on ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-muted-foreground/40",
+                                              )}
+                                            >
+                                              {on && (
+                                                <span className="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                                                  <Check className="h-3 w-3" />
+                                                </span>
+                                              )}
+                                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                                              <img src={it.src || "/placeholder.svg"} alt={it.name} className="h-16 w-full object-cover" />
+                                              <span className="block bg-card px-1.5 py-1 text-left text-[10px] font-medium text-foreground">{it.name}</span>
+                                            </button>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
                                 </div>
-                              </>
+                              )
+                            })()}
+
+                            {/* Content fields — the description is large formatted HTML from the
+                                SEO tab's editor: clamp a preview, open the rest in a dialog */}
+                            {(field.id === "descriptionEn" || field.id === "descriptionAr") && current && (() => {
+                              const ar = field.id === "descriptionAr"
+                              const html = projectDescriptionHtml(row, ar ? "ar" : "en")!
+                              return (
+                                <div className="space-y-1">
+                                  <p className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+                                    Current content (project details → SEO tab)
+                                    <button
+                                      onClick={() => setContentView({ title: field.label, html, rtl: ar })}
+                                      className="font-medium text-primary hover:underline"
+                                    >
+                                      View full content
+                                    </button>
+                                  </p>
+                                  <div className="relative overflow-hidden rounded-md border border-border bg-card">
+                                    <div
+                                      dir={ar ? "rtl" : "ltr"}
+                                      className="max-h-24 px-2.5 py-2 text-xs leading-snug text-foreground [&_h3]:mb-1 [&_h3]:text-xs [&_h3]:font-semibold [&_li]:list-disc [&_p]:mb-1.5 [&_ul]:mb-1.5 [&_ul]:pl-4"
+                                      dangerouslySetInnerHTML={{ __html: html }}
+                                    />
+                                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-card to-transparent" />
+                                  </div>
+                                </div>
+                              )
+                            })()}
+                            {field.id === "metadata" && current && (
+                              <div className="space-y-1">
+                                <p className="text-[11px] font-medium text-muted-foreground">Current content (project details → Metadata tab)</p>
+                                <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border border-border bg-card px-2.5 py-2">
+                                  {PROJECT_METADATA_PREVIEW.map(([k, v]) => (
+                                    <div key={k} className="flex items-center justify-between gap-2 text-xs">
+                                      <span className="text-muted-foreground">{k}</span>
+                                      <span className="font-medium tabular-nums text-foreground">{v}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
                             )}
 
                             {/* Expected result — enums pick the correct value, text fields type it */}
@@ -341,7 +515,19 @@ export function ReportProjectIssueDrawer({
                                   Correct value / expected result
                                   {problem === "select the correct value" && <span className="ml-1 text-red-600">— required</span>}
                                 </p>
-                                {field.valueType === "enum" ? (
+                                {field.id === "organizations" ? (
+                                  // Multi-select — pick the correct organization set from chips
+                                  <ChipPicker
+                                    options={field.options ?? []}
+                                    selected={draft.expected ? draft.expected.split(" & ") : []}
+                                    onToggle={(o) => {
+                                      const cur = draft.expected ? draft.expected.split(" & ") : []
+                                      const next = cur.includes(o) ? cur.filter((x) => x !== o) : [...cur, o]
+                                      patchDraft(field.id, { expected: next.join(" & ") })
+                                    }}
+                                    tone="add"
+                                  />
+                                ) : field.valueType === "enum" ? (
                                   <Select value={draft.expected || undefined} onValueChange={(v) => patchDraft(field.id, { expected: v })}>
                                     <SelectTrigger className="h-8 bg-card text-sm"><SelectValue placeholder={`Select the correct ${field.label.toLowerCase()}…`} /></SelectTrigger>
                                     <SelectContent>
@@ -350,9 +536,10 @@ export function ReportProjectIssueDrawer({
                                   </Select>
                                 ) : (
                                   <Input
+                                    type={field.valueType === "number" ? "number" : "text"}
                                     value={draft.expected}
                                     onChange={(e) => patchDraft(field.id, { expected: e.target.value })}
-                                    placeholder={`Expected ${field.label.toLowerCase()}${current ? ` (current: ${current})` : ""}`}
+                                    placeholder={`Expected ${field.label.toLowerCase()}${current && current.length <= 40 ? ` (current: ${current})` : ""}`}
                                     className="h-8 bg-card text-sm"
                                   />
                                 )}
@@ -394,6 +581,19 @@ export function ReportProjectIssueDrawer({
             </Button>
           </div>
         </div>
+        {/* Full rich-text content viewer */}
+        <Dialog open={!!contentView} onOpenChange={(o) => !o && setContentView(null)}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="text-base">{contentView?.title}</DialogTitle>
+            </DialogHeader>
+            <div
+              dir={contentView?.rtl ? "rtl" : "ltr"}
+              className="max-h-[60vh] overflow-y-auto rounded-md border border-border bg-muted/30 px-4 py-3 text-sm leading-relaxed text-foreground [&_h3]:mb-1.5 [&_h3]:mt-3 [&_h3]:text-sm [&_h3]:font-semibold first:[&_h3]:mt-0 [&_li]:list-disc [&_p]:mb-2 [&_ul]:mb-2 [&_ul]:pl-5"
+              dangerouslySetInnerHTML={{ __html: contentView?.html ?? "" }}
+            />
+          </DialogContent>
+        </Dialog>
       </SheetContent>
     </Sheet>
   )
