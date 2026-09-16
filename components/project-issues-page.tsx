@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -196,10 +195,12 @@ function ProjectInfoPanel({
 
   const HTML_PREVIEW_CLS = "max-h-44 overflow-y-auto rounded-md border border-border bg-card px-2.5 py-2 text-xs leading-snug text-foreground [&_h3]:mb-1 [&_h3]:text-xs [&_h3]:font-semibold [&_li]:list-disc [&_p]:mb-1.5 [&_ul]:mb-1.5 [&_ul]:pl-4"
 
-  // Attachment card — same highlight/focus/dim behavior as Field
-  const AttachmentCard = ({ fieldId }: { fieldId: string }) => {
+  // Attachment card — same highlight/focus/dim behavior as Field. Pass `item`
+  // to render a single file (gallery images, brochure files) instead of the
+  // whole field.
+  const AttachmentCard = ({ fieldId, item, label }: { fieldId: string; item?: { name: string; src: string }; label?: string }) => {
     const field = PROJECT_FIELD_BY_ID.get(fieldId)!
-    const items = projectMediaItems(row, field)
+    const items = item ? [item] : projectMediaItems(row, field)
     const severity = highlight.get(field.label)
     const blocking = severity != null && isCriticalSeverity(severity)
     const focus = field.label === currentIssue.fieldLabel
@@ -222,7 +223,7 @@ function ProjectInfoPanel({
         ) : isBrochure ? (
           <div className="flex h-20 items-center justify-center gap-2 bg-muted/40 text-muted-foreground">
             <ScrollText className="h-6 w-6" />
-            <span className="text-xs font-medium">{items.length} file{items.length !== 1 ? "s" : ""}</span>
+            {!item && <span className="text-xs font-medium">{items.length} file{items.length !== 1 ? "s" : ""}</span>}
           </div>
         ) : items.length === 1 ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -237,13 +238,13 @@ function ProjectInfoPanel({
         )}
         <div className={cn("flex items-center gap-1 border-t px-2 py-1.5", severity ? (blocking ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50") : "border-border")}>
           {severity && <AlertTriangle className={cn("h-3 w-3 shrink-0", blocking ? "text-red-700" : "text-amber-700")} />}
-          <span className={cn("truncate text-[11px] font-medium", severity ? (blocking ? "text-red-700" : "text-amber-700") : "text-foreground")}>{field.label}</span>
+          <span className={cn("truncate text-[11px] font-medium", severity ? (blocking ? "text-red-700" : "text-amber-700") : "text-foreground")}>{label ?? field.label}</span>
           {isBrochure && items.length > 0 ? (
             <button
               onClick={(e) => { e.stopPropagation(); setBrochureOpen(true) }}
               className="ml-auto shrink-0 text-[10px] font-medium tabular-nums text-primary hover:underline"
             >
-              Open {items.length} file{items.length !== 1 ? "s" : ""}
+              {item ? "Open" : `Open ${items.length} file${items.length !== 1 ? "s" : ""}`}
             </button>
           ) : (
             <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">
@@ -286,15 +287,24 @@ function ProjectInfoPanel({
         </p>
       </div>
 
-      {/* Tab strip — sticky so it stays reachable while the panel scrolls */}
-      <div className="sticky top-0 z-10 border-b border-border bg-card px-4 py-2">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-          <TabsList className="h-8 bg-secondary">
-            <TabsTrigger value="main" className="h-6 gap-1 px-2.5 text-xs data-[state=active]:bg-card"><Info className="h-3 w-3" />Main Info</TabsTrigger>
-            <TabsTrigger value="seo" className="h-6 gap-1 px-2.5 text-xs data-[state=active]:bg-card"><Globe className="h-3 w-3" />SEO</TabsTrigger>
-            <TabsTrigger value="attachments" className="h-6 gap-1 px-2.5 text-xs data-[state=active]:bg-card"><Paperclip className="h-3 w-3" />Attachments</TabsTrigger>
-          </TabsList>
-        </Tabs>
+      {/* Tab strip — same underline style as the property details drawer; sticky */}
+      <div className="sticky top-0 z-10 flex border-b border-border bg-card">
+        {([
+          ["main", "Main Info", Info],
+          ["seo", "SEO", Globe],
+          ["attachments", "Attachments", Paperclip],
+        ] as const).map(([id, label, IconCmp]) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={cn(
+              "-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
+              tab === id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <IconCmp className="h-3.5 w-3.5" />{label}
+          </button>
+        ))}
       </div>
 
       <div className="space-y-5 px-4 py-4">
@@ -360,16 +370,37 @@ function ProjectInfoPanel({
           </div>
         )}
 
-        {tab === "attachments" && (
-          <div className="space-y-3">
-            <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Attachments</h4>
-            <div className="grid grid-cols-2 gap-3">
-              {PANEL_SECTIONS.find((s) => s.title === "Attachments")!.fieldIds.map((fid) => (
-                <AttachmentCard key={fid} fieldId={fid} />
-              ))}
+        {tab === "attachments" && (() => {
+          const galleryItems = projectMediaItems(row, PROJECT_FIELD_BY_ID.get("gallery")!)
+          const brochureItems = projectMediaItems(row, PROJECT_FIELD_BY_ID.get("brochure")!)
+          const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+            <div className="space-y-3">
+              <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</h4>
+              <div className="grid grid-cols-2 gap-3">{children}</div>
             </div>
-          </div>
-        )}
+          )
+          return (
+            <>
+              <Section title="Project Logo"><AttachmentCard fieldId="logo" /></Section>
+              <Section title="Project Cover Image"><AttachmentCard fieldId="coverImage" /></Section>
+              <Section title="Gallery">
+                {galleryItems.length === 0
+                  ? <AttachmentCard fieldId="gallery" />
+                  : galleryItems.map((it) => <AttachmentCard key={it.name} fieldId="gallery" item={it} label={it.name} />)}
+              </Section>
+              <Section title="Masterplans">
+                <AttachmentCard fieldId="listingMasterplan" />
+                <AttachmentCard fieldId="gisMasterplan" />
+                <AttachmentCard fieldId="numberedMasterplan" />
+              </Section>
+              <Section title="Brochures">
+                {brochureItems.length === 0
+                  ? <AttachmentCard fieldId="brochure" />
+                  : brochureItems.map((it) => <AttachmentCard key={it.name} fieldId="brochure" item={it} label={it.name} />)}
+              </Section>
+            </>
+          )
+        })()}
       </div>
 
       {/* Brochure viewer */}
@@ -770,6 +801,43 @@ const SORTABLE_COLS = new Map<string, string>([
   ["createdAt", "createdAt"], ["updatedAt", "updatedAt"], ["resolvedAt", "resolvedAt"], ["closedAt", "closedAt"],
 ])
 
+// Group by — any issue or project attribute; the kanban swimlanes reuse the
+// subset it supports, other keys group the table only.
+const GROUP_OPTIONS: { id: string; label: string }[] = [
+  { id: "field", label: "Issue Category" },
+  { id: "type", label: "Issue Type" },
+  { id: "subtype", label: "Issue Subtype" },
+  { id: "status", label: "Status" },
+  { id: "reportedBy", label: "Reported By" },
+  { id: "assignedTo", label: "Assigned To" },
+  { id: "developer", label: "Developer" },
+  { id: "project", label: "Project" },
+  { id: "phase", label: "Phase" },
+  { id: "listingStatus", label: "Listing Status" },
+  { id: "primaryStatus", label: "Primary Status" },
+  { id: "entryType", label: "Entry Type" },
+]
+const GROUP_LABEL = new Map(GROUP_OPTIONS.map((g) => [g.id, g.label]))
+
+function laneOfIssue(x: ProjectIssue, key: string): string {
+  switch (key) {
+    case "field": return x.fieldLabel
+    case "type": return x.type
+    case "subtype": return x.subtype ?? "No subtype"
+    case "status": return x.status
+    case "reportedBy": return x.reportedBy
+    case "assignedTo": return x.assignedTo ?? "Unassigned"
+    case "developer": return x.developer.name
+    case "project": return x.project.name
+    case "phase": return x.phase?.name ?? "No phase"
+    case "listingStatus": return x.listingStatus
+    case "primaryStatus": return x.primaryStatus
+    case "entryType": return x.entryType
+    default: return ""
+  }
+}
+const SWIMLANE_KEYS = new Set<string>(["reportedBy", "assignedTo", "developer", "project"])
+
 export function ProjectIssuesPage() {
   const [version, setVersion] = useState(0)
   const issues = useMemo(() => [...PROJECT_ISSUES], [version])
@@ -803,8 +871,8 @@ export function ProjectIssuesPage() {
   const [myIssues, setMyIssues] = useState(false)
   const [view, setView] = useState<"table" | "kanban">("table")
   // Group by — groups the table AND acts as the kanban swimlane
-  const [groupBy, setGroupBy] = useState<SwimlaneKey>("none")
-  const swimlane = groupBy
+  const [groupBy, setGroupBy] = useState<string>("none")
+  const swimlane: SwimlaneKey = SWIMLANE_KEYS.has(groupBy) ? (groupBy as SwimlaneKey) : "none"
   // Columns control
   const [showColumns, setShowColumns] = useState(false)
   const [colOrder, setColOrder] = useState<string[]>(COLS.map((c) => c.id))
@@ -854,12 +922,7 @@ export function ProjectIssuesPage() {
       if (!inRange(r.closedAt, closedR)) return false
       return true
     })
-    const laneOf = (x: ProjectIssue) =>
-      groupBy === "reportedBy" ? x.reportedBy
-      : groupBy === "assignedTo" ? (x.assignedTo ?? "Unassigned")
-      : groupBy === "developer" ? x.developer.name
-      : groupBy === "project" ? x.project.name
-      : ""
+    const laneOf = (x: ProjectIssue) => laneOfIssue(x, groupBy)
     return [...rows].sort((a, b) => {
       if (groupBy !== "none") {
         const g = laneOf(a).localeCompare(laneOf(b))
@@ -1081,12 +1144,14 @@ export function ProjectIssuesPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant={groupBy === "none" ? "outline" : "default"} size="sm" className="h-8 gap-1.5">
-                  <LayoutGrid className="h-3.5 w-3.5" />{groupBy === "none" ? "Group by" : SWIMLANE_LABEL[groupBy]}
+                  <LayoutGrid className="h-3.5 w-3.5" />{groupBy === "none" ? "Group by" : GROUP_LABEL.get(groupBy)}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {(Object.keys(SWIMLANE_LABEL) as SwimlaneKey[]).map((k) => (
-                  <DropdownMenuItem key={k} onClick={() => setGroupBy(k)} className="text-sm">{k === "none" ? "No grouping" : SWIMLANE_LABEL[k]}</DropdownMenuItem>
+              <DropdownMenuContent align="end" className="max-h-96 overflow-y-auto">
+                <DropdownMenuItem onClick={() => setGroupBy("none")} className="text-sm">No grouping</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {GROUP_OPTIONS.map((g) => (
+                  <DropdownMenuItem key={g.id} onClick={() => setGroupBy(g.id)} className="text-sm">{g.label}</DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1193,12 +1258,7 @@ export function ProjectIssuesPage() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {pageRows.map((r, ri) => {
-                      const laneOf = (x: ProjectIssue) =>
-                        groupBy === "reportedBy" ? x.reportedBy
-                        : groupBy === "assignedTo" ? (x.assignedTo ?? "Unassigned")
-                        : groupBy === "developer" ? x.developer.name
-                        : groupBy === "project" ? x.project.name
-                        : ""
+                      const laneOf = (x: ProjectIssue) => laneOfIssue(x, groupBy)
                       const showGroupHeader = groupBy !== "none" && (ri === 0 || laneOf(pageRows[ri - 1]) !== laneOf(r))
                       return (
                         <Fragment key={r.id}>
