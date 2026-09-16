@@ -40,6 +40,8 @@ export interface QualityReport {
   entity: ReportEntity
   createdBy: string
   createdAt: string
+  /** Bumped whenever the report changes (issues opened, units excluded). */
+  updatedAt: string
   units: ReportUnit[]
   rules: ReportRule[]
   /** 0–100: mock share of the initial violations that have since been fixed.
@@ -159,8 +161,21 @@ export function openIssuesFromReport(r: QualityReport, propertyIds: string[]): P
     created.push(issue)
     r.openedIssues.push({ ruleId: rule.id, propertyId: unit.propertyId, issueId: issue.id })
   }
-  if (created.length) addPropertyIssues(created)
+  if (created.length) {
+    addPropertyIssues(created)
+    r.updatedAt = now
+  }
   return created
+}
+
+/** Remove units from a report (per-property or bulk "Exclude from report"). */
+export function excludeUnitsFromReport(r: QualityReport, propertyIds: string[]): number {
+  const drop = new Set(propertyIds)
+  const before = r.units.length
+  r.units = r.units.filter((u) => !drop.has(u.propertyId))
+  const removed = before - r.units.length
+  if (removed) r.updatedAt = new Date().toISOString()
+  return removed
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -186,11 +201,11 @@ function seedUnits(start: number, count: number): ReportUnit[] {
 }
 
 export const QUALITY_REPORTS: QualityReport[] = [
-  { id: "QR-0001", kind: "Validation Rules", entity: "Properties", createdBy: "Ezz H.", createdAt: ts(21), units: seedUnits(0, 36), rules: SEED_RULES, progressPct: 100, openedIssues: [] },
-  { id: "QR-0002", kind: "Validation Rules", entity: "Properties", createdBy: "Sarah M.", createdAt: ts(14), units: seedUnits(10, 28), rules: SEED_RULES.slice(0, 5), progressPct: 72, openedIssues: [] },
-  { id: "QR-0003", kind: "Validation Rules", entity: "Properties", createdBy: "System", createdAt: ts(9), units: seedUnits(20, 44), rules: SEED_RULES, progressPct: 45, openedIssues: [] },
-  { id: "QR-0004", kind: "Validation Rules", entity: "Properties", createdBy: "Ahmed K.", createdAt: ts(5), units: seedUnits(5, 18), rules: SEED_RULES.slice(2), progressPct: 20, openedIssues: [] },
-  { id: "QR-0005", kind: "Validation Rules", entity: "Properties", createdBy: "Ezz H.", createdAt: ts(1), units: seedUnits(30, 24), rules: SEED_RULES, progressPct: 0, openedIssues: [] },
+  { id: "QR-0001", kind: "Validation Rules", entity: "Properties", createdBy: "Ezz H.", createdAt: ts(21), updatedAt: ts(2), units: seedUnits(0, 36), rules: SEED_RULES, progressPct: 100, openedIssues: [] },
+  { id: "QR-0002", kind: "Validation Rules", entity: "Properties", createdBy: "Sarah M.", createdAt: ts(14), updatedAt: ts(4), units: seedUnits(10, 28), rules: SEED_RULES.slice(0, 5), progressPct: 72, openedIssues: [] },
+  { id: "QR-0003", kind: "Validation Rules", entity: "Properties", createdBy: "System", createdAt: ts(9), updatedAt: ts(3), units: seedUnits(20, 44), rules: SEED_RULES, progressPct: 45, openedIssues: [] },
+  { id: "QR-0004", kind: "Validation Rules", entity: "Properties", createdBy: "Ahmed K.", createdAt: ts(5), updatedAt: ts(5), units: seedUnits(5, 18), rules: SEED_RULES.slice(2), progressPct: 20, openedIssues: [] },
+  { id: "QR-0005", kind: "Validation Rules", entity: "Properties", createdBy: "Ezz H.", createdAt: ts(1), updatedAt: ts(1), units: seedUnits(30, 24), rules: SEED_RULES, progressPct: 0, openedIssues: [] },
 ]
 
 let reportSeq = QUALITY_REPORTS.length

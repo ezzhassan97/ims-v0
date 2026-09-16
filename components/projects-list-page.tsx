@@ -672,7 +672,6 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem onClick={() => setSelected(r)}><Eye className="mr-2 h-3.5 w-3.5" />View</DropdownMenuItem>
               <DropdownMenuItem onClick={() => window.open(projSiteUrl(r.name), "_blank", "noopener")}><ExternalLink className="mr-2 h-3.5 w-3.5" />View on Website</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setReportIssueRow(r)}><AlertTriangle className="mr-2 h-3.5 w-3.5" />Report an Issue</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setCascadeDlg({ kind: "entry", targets: [r], ignored: 0 })}><Repeat className="mr-2 h-3.5 w-3.5" />Change Entry Type</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setListingDlg(r)}><ToggleRight className="mr-2 h-3.5 w-3.5" />Change Listing Status</DropdownMenuItem>
@@ -692,6 +691,8 @@ export function ProjectsPage({ rows: rowsProp, hideDeveloperFilter = false, embe
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setDrawTarget(r)}><MapIcon className="mr-2 h-3.5 w-3.5" />Draw on Map</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setReportIssueRow(r)}><AlertTriangle className="mr-2 h-3.5 w-3.5" />Report an Issue</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </td>

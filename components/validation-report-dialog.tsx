@@ -91,6 +91,7 @@ export function ValidationReportDialog({
       entity: "Properties",
       createdBy: "Ezz H.",
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       units: rows.map((r) => ({
         propertyId: r.propertyId,
         detailedPropertyId: r.detailedPropertyId,

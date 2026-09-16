@@ -297,6 +297,8 @@ export interface PropertyIssue {
   comments: IssueComment[]
   activity: IssueActivity[]
   details?: IssueDetails
+  /** Archived issues are hidden from the tables (toggle to see + restore). */
+  archived?: boolean
 }
 
 export const PROP_ISSUE_STATUSES: PropIssueStatus[] = ["To Do", "In Progress", "Resolved", "Closed", "Invalid"]
@@ -437,6 +439,7 @@ function makeIssue(i: number): PropertyIssue {
     updatedAt: ts(updated),
     resolvedAt: resolvedAt != null ? ts(resolvedAt) : null,
     closedAt: closedAt != null ? ts(closedAt) : null,
+    archived: i % 41 === 0,
     details,
     comments: commentsFor(i, status, created),
     activity: activityFor(i, status, reportedBy, assignedTo, created, updated, resolvedAt, closedAt),
@@ -459,7 +462,7 @@ export function addPropertyIssues(issues: PropertyIssue[]) {
 export function openIssuesByProperty(): Map<string, PropertyIssue[]> {
   const m = new Map<string, PropertyIssue[]>()
   for (const iss of PROPERTY_ISSUES) {
-    if (!OPEN_STATUSES.includes(iss.status)) continue
+    if (!OPEN_STATUSES.includes(iss.status) || iss.archived) continue
     if (!m.has(iss.propertyId)) m.set(iss.propertyId, [])
     m.get(iss.propertyId)!.push(iss)
   }
@@ -468,7 +471,7 @@ export function openIssuesByProperty(): Map<string, PropertyIssue[]> {
 
 /** All open issues on one property (freshly read from the store). */
 export function openIssuesFor(propertyId: string): PropertyIssue[] {
-  return PROPERTY_ISSUES.filter((i) => i.propertyId === propertyId && OPEN_STATUSES.includes(i.status))
+  return PROPERTY_ISSUES.filter((i) => i.propertyId === propertyId && OPEN_STATUSES.includes(i.status) && !i.archived)
 }
 
 /** Distribute `total` across n items in whole numbers (first items absorb the remainder). */
