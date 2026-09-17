@@ -753,12 +753,12 @@ export function ProjectIssueDrawer({
 
 // ── The page ──────────────────────────────────────────────────────────────────
 const SORT_FIELDS = [
-  { id: "severity", label: "Severity" },
-  { id: "status", label: "Status" },
-  { id: "createdAt", label: "Created At" },
-  { id: "updatedAt", label: "Updated At" },
-  { id: "resolvedAt", label: "Resolved At" },
-  { id: "closedAt", label: "Closed At" },
+  { key: "severity", label: "Severity" },
+  { key: "status", label: "Status" },
+  { key: "createdAt", label: "Created At" },
+  { key: "updatedAt", label: "Updated At" },
+  { key: "resolvedAt", label: "Resolved At" },
+  { key: "closedAt", label: "Closed At" },
 ]
 
 function sortVal(r: ProjectIssue, key: string): string | number {
@@ -863,7 +863,7 @@ export function ProjectIssuesPage() {
   const [updatedR, setUpdatedR] = useState({ from: "", to: "" })
   const [resolvedR, setResolvedR] = useState({ from: "", to: "" })
   const [closedR, setClosedR] = useState({ from: "", to: "" })
-  const [sorts, setSorts] = useState<SortLevel[]>([{ field: "createdAt", dir: "desc" }])
+  const [sorts, setSorts] = useState<SortLevel[]>([{ key: "createdAt", dir: "desc" }])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -931,7 +931,7 @@ export function ProjectIssuesPage() {
         if (g !== 0) return g
       }
       for (const s of sorts) {
-        const av = sortVal(a, s.field), bv = sortVal(b, s.field)
+        const av = sortVal(a, s.key), bv = sortVal(b, s.key)
         const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv))
         if (cmp !== 0) return s.dir === "asc" ? cmp : -cmp
       }
@@ -964,9 +964,9 @@ export function ProjectIssuesPage() {
 
   const cycleHeaderSort = (fieldId: string) =>
     setSorts((prev) => {
-      const cur = prev.length === 1 && prev[0].field === fieldId ? prev[0] : null
-      if (!cur) return [{ field: fieldId, dir: "asc" }]
-      if (cur.dir === "asc") return [{ field: fieldId, dir: "desc" }]
+      const cur = prev.length === 1 && prev[0].key === fieldId ? prev[0] : null
+      if (!cur) return [{ key: fieldId, dir: "asc" }]
+      if (cur.dir === "asc") return [{ key: fieldId, dir: "desc" }]
       return []
     })
 
@@ -1239,7 +1239,7 @@ export function ProjectIssuesPage() {
                       </th>
                       {visibleCols.map((c) => {
                         const fieldId = SORTABLE_COLS.get(c.id)
-                        const s = fieldId && sorts.length === 1 && sorts[0].field === fieldId ? sorts[0] : null
+                        const s = fieldId && sorts.length === 1 && sorts[0].key === fieldId ? sorts[0] : null
                         return (
                           <th
                             key={c.id}
