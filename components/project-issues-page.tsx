@@ -1,10 +1,11 @@
 "use client"
 
-import { Fragment, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle, Archive, ArchiveRestore, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, ChevronDown,
   ChevronLeft, ChevronRight, CircleDot, CirclePlus, Clock, Eye, LayoutGrid, Loader2, MessageSquare,
-  MoreHorizontal, ScrollText, Send, Sparkles, SquareKanban, Table2, UserRound, UsersRound, X, XCircle,
+  ExternalLink, FileImage, Globe, Info, MoreHorizontal, Paperclip, ScrollText, Send, Sparkles, SquareKanban,
+  Table2, UserRound, UsersRound, X, XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -23,7 +24,10 @@ import {
 } from "@/components/table-kit"
 import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
 import { IssueStatusTag, IssueSeverityTag, IssueSourceTag } from "@/components/data-issues-page"
-import { projectFieldCurrent, projectAmenities } from "@/components/report-project-issue-drawer"
+import {
+  projectFieldCurrent, projectAmenities, projectServices, projectDescriptionHtml, projectMediaItems,
+  PROJECT_METADATA_PREVIEW,
+} from "@/components/report-project-issue-drawer"
 import { IssueKanban, SWIMLANE_LABEL, type SwimlaneKey } from "@/components/issue-kanban"
 import {
   PROJECT_ISSUES, PROJECT_ISSUE_FIELDS, PROJECT_FIELD_BY_ID, ALL_PROJECT_ISSUE_TYPES, openProjectIssuesFor,
@@ -135,7 +139,9 @@ function ProjectInfoPanel({
       <div
         className={cn(
           "space-y-0.5",
-          severity && (blocking ? "-mx-2 -my-1.5 rounded-md border border-red-300 bg-red-50 px-2 py-1.5" : "-mx-2 -my-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5"),
+          // Horizontal-only negative margin — a vertical one makes adjacent
+          // highlighted fields swallow the grid gap and clash into each other.
+          severity && (blocking ? "-mx-2 rounded-md border border-red-300 bg-red-50 px-2 py-1.5" : "-mx-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5"),
           severity && focus && "ring-2 ring-offset-1 ring-red-400/70",
           dimmed && "opacity-40",
           severity && "cursor-pointer transition-shadow hover:ring-2 hover:ring-primary/30",
@@ -168,6 +174,93 @@ function ProjectInfoPanel({
   }
 
   const amenities = projectAmenities(row)
+  const services = projectServices(row)
+
+  // Which tab a field lives in — the panel follows the focused issue's field
+  const tabOfLabel = (label: string): "main" | "seo" | "attachments" => {
+    const group = [...PROJECT_FIELD_BY_ID.values()].find((f) => f.label === label)?.group
+    return group === "Content" ? "seo" : group === "Attachments" ? "attachments" : "main"
+  }
+  const [tab, setTab] = useState<"main" | "seo" | "attachments">(() => tabOfLabel(currentIssue.fieldLabel))
+  useEffect(() => { setTab(tabOfLabel(currentIssue.fieldLabel)) }, [currentIssue.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [brochureOpen, setBrochureOpen] = useState(false)
+
+  const chipList = (items: string[]) => (
+    <span className="flex flex-wrap gap-1.5 pt-0.5">
+      {items.map((a) => (
+        <span key={a} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border bg-card px-2 py-0.5 text-[11px] text-foreground">
+          <Sparkles className="h-3 w-3 text-muted-foreground" />{a}
+        </span>
+      ))}
+    </span>
+  )
+
+  const HTML_PREVIEW_CLS = "max-h-44 overflow-y-auto rounded-md border border-border bg-card px-2.5 py-2 text-xs leading-snug text-foreground [&_h3]:mb-1 [&_h3]:text-xs [&_h3]:font-semibold [&_li]:list-disc [&_p]:mb-1.5 [&_ul]:mb-1.5 [&_ul]:pl-4"
+
+  // Attachment card — same highlight/focus/dim behavior as Field. Pass `item`
+  // to render a single file (gallery images, brochure files) instead of the
+  // whole field.
+  const AttachmentCard = ({ fieldId, item, label }: { fieldId: string; item?: { name: string; src: string }; label?: string }) => {
+    const field = PROJECT_FIELD_BY_ID.get(fieldId)!
+    const items = item ? [item] : projectMediaItems(row, field)
+    const severity = highlight.get(field.label)
+    const blocking = severity != null && isCriticalSeverity(severity)
+    const focus = field.label === currentIssue.fieldLabel
+    const dimmed = severity != null && !focus
+    const isBrochure = fieldId === "brochure"
+    return (
+      <div
+        className={cn(
+          "overflow-hidden rounded-lg border bg-card",
+          severity ? (blocking ? "border-red-300" : "border-amber-300") : "border-border",
+          severity && focus && "ring-2 ring-offset-1 ring-red-400/70",
+          dimmed && "opacity-40",
+          (severity || (isBrochure && items.length > 0)) && "cursor-pointer transition-shadow hover:ring-2 hover:ring-primary/30",
+        )}
+        title={severity ? `${severity} issue — click to open` : isBrochure && items.length ? "Open brochure" : undefined}
+        onClick={severity ? () => onIssueFieldClick(field.label) : isBrochure && items.length ? () => setBrochureOpen(true) : undefined}
+      >
+        {items.length === 0 ? (
+          <div className="flex h-20 items-center justify-center bg-muted/40 text-[11px] text-muted-foreground">Missing</div>
+        ) : isBrochure ? (
+          <div className="flex h-20 items-center justify-center gap-2 bg-muted/40 text-muted-foreground">
+            <ScrollText className="h-6 w-6" />
+            {!item && <span className="text-xs font-medium">{items.length} file{items.length !== 1 ? "s" : ""}</span>}
+          </div>
+        ) : items.length === 1 ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={items[0].src || "/placeholder.svg"} alt={field.label} className="h-20 w-full object-cover" />
+        ) : (
+          <div className="grid h-20 grid-cols-2 gap-px bg-border">
+            {items.slice(0, 4).map((it) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img key={it.name} src={it.src || "/placeholder.svg"} alt={it.name} className="h-full w-full object-cover" />
+            ))}
+          </div>
+        )}
+        <div className={cn("flex items-center gap-1 border-t px-2 py-1.5", severity ? (blocking ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50") : "border-border")}>
+          {severity && <AlertTriangle className={cn("h-3 w-3 shrink-0", blocking ? "text-red-700" : "text-amber-700")} />}
+          <span className={cn("truncate text-[11px] font-medium", severity ? (blocking ? "text-red-700" : "text-amber-700") : "text-foreground")}>{label ?? field.label}</span>
+          {isBrochure && items.length > 0 ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); setBrochureOpen(true) }}
+              className="ml-auto shrink-0 text-[10px] font-medium tabular-nums text-primary hover:underline"
+            >
+              {item ? "Open" : `Open ${items.length} file${items.length !== 1 ? "s" : ""}`}
+            </button>
+          ) : (
+            <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">
+              {items.length === 0 ? "—" : items.length === 1 ? "1 file" : `${items.length} files`}
+            </span>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const descEn = projectDescriptionHtml(row, "en")
+  const descAr = projectDescriptionHtml(row, "ar")
+  const metadataCurrent = projectFieldCurrent(row, PROJECT_FIELD_BY_ID.get("metadata")!)
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -177,6 +270,13 @@ function ProjectInfoPanel({
           <span className="text-sm font-semibold text-foreground">{row.name}</span>
           <IdTag value={row.id} />
           <ColorTag value={row.isPhase ? "Phase" : "Project"} />
+          <button
+            title="Open project details in a new tab"
+            onClick={() => window.open(`/projects/${row.id}`, "_blank", "noopener")}
+            className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </button>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <ColorTag value={row.listingStatus} />
@@ -189,48 +289,143 @@ function ProjectInfoPanel({
         </p>
       </div>
 
-      <div className="space-y-5 px-4 py-4">
-        {PANEL_SECTIONS.map((sec) => (
-          <div key={sec.title} className="space-y-3">
-            <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{sec.title}</h4>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-              {sec.fieldIds.map((fid) => (
-                <Field key={fid} label={PROJECT_FIELD_BY_ID.get(fid)!.label} value={valueOf(fid)} />
-              ))}
-            </div>
-          </div>
+      {/* Tab strip — same underline style as the property details drawer; sticky */}
+      <div className="sticky top-0 z-10 flex border-b border-border bg-card">
+        {([
+          ["main", "Main Info", Info],
+          ["seo", "SEO", Globe],
+          ["attachments", "Attachments", Paperclip],
+        ] as const).map(([id, label, IconCmp]) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={cn(
+              "-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
+              tab === id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <IconCmp className="h-3.5 w-3.5" />{label}
+          </button>
         ))}
-
-        <div className="space-y-3">
-          <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Amenities</h4>
-          <Field
-            label="Project Amenities"
-            value={
-              <span className="flex flex-wrap gap-1.5 pt-0.5">
-                {amenities.map((a) => (
-                  <span key={a} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border bg-card px-2 py-0.5 text-[11px] text-foreground">
-                    <Sparkles className="h-3 w-3 text-muted-foreground" />{a}
-                  </span>
-                ))}
-              </span>
-            }
-          />
-        </div>
-
-        <div className="space-y-3">
-          <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Timestamps</h4>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-            <div className="space-y-0.5">
-              <p className="text-[11px] font-medium text-muted-foreground">Created At</p>
-              <p className="text-sm tabular-nums text-foreground">{fmtDateTime(row.createdAt)}</p>
-            </div>
-            <div className="space-y-0.5">
-              <p className="text-[11px] font-medium text-muted-foreground">Updated At</p>
-              <p className="text-sm tabular-nums text-foreground">{fmtDateTime(row.updatedAt)}</p>
-            </div>
-          </div>
-        </div>
       </div>
+
+      <div className="space-y-5 px-4 py-4">
+        {tab === "main" && (
+          <>
+            {PANEL_SECTIONS.filter((sec) => !["Content", "Attachments"].includes(sec.title)).map((sec) => (
+              <div key={sec.title} className="space-y-3">
+                <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{sec.title}</h4>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                  {sec.fieldIds.map((fid) => (
+                    <Field key={fid} label={PROJECT_FIELD_BY_ID.get(fid)!.label} value={valueOf(fid)} />
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            <div className="space-y-3">
+              <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Amenities</h4>
+              <Field label="Project Amenities" value={chipList(amenities)} />
+              <Field label="Services" value={chipList(services)} />
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Timestamps</h4>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                <div className="space-y-0.5">
+                  <p className="text-[11px] font-medium text-muted-foreground">Created At</p>
+                  <p className="text-sm tabular-nums text-foreground">{fmtDateTime(row.createdAt)}</p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[11px] font-medium text-muted-foreground">Updated At</p>
+                  <p className="text-sm tabular-nums text-foreground">{fmtDateTime(row.updatedAt)}</p>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {tab === "seo" && (
+          <div className="space-y-3">
+            <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Content</h4>
+            <Field
+              label="Project Description En"
+              value={descEn ? <div className={HTML_PREVIEW_CLS} dangerouslySetInnerHTML={{ __html: descEn }} /> : null}
+            />
+            <Field
+              label="Project Description Ar"
+              value={descAr ? <div dir="rtl" className={HTML_PREVIEW_CLS} dangerouslySetInnerHTML={{ __html: descAr }} /> : null}
+            />
+            <Field
+              label="Project Metadata"
+              value={metadataCurrent ? (
+                <div className="space-y-1 rounded-md border border-border bg-card px-2.5 py-2">
+                  {PROJECT_METADATA_PREVIEW.map(([k, v]) => (
+                    <div key={k} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-muted-foreground">{k}</span>
+                      <span className="font-medium tabular-nums text-foreground">{v}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            />
+          </div>
+        )}
+
+        {tab === "attachments" && (() => {
+          const galleryItems = projectMediaItems(row, PROJECT_FIELD_BY_ID.get("gallery")!)
+          const brochureItems = projectMediaItems(row, PROJECT_FIELD_BY_ID.get("brochure")!)
+          const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+            <div className="space-y-3">
+              <h4 className="border-b border-border pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</h4>
+              <div className="grid grid-cols-2 gap-3">{children}</div>
+            </div>
+          )
+          return (
+            <>
+              <Section title="Project Logo"><AttachmentCard fieldId="logo" /></Section>
+              <Section title="Project Cover Image"><AttachmentCard fieldId="coverImage" /></Section>
+              <Section title="Gallery">
+                {galleryItems.length === 0
+                  ? <AttachmentCard fieldId="gallery" />
+                  : galleryItems.map((it) => <AttachmentCard key={it.name} fieldId="gallery" item={it} label={it.name} />)}
+              </Section>
+              <Section title="Masterplans">
+                <AttachmentCard fieldId="listingMasterplan" />
+                <AttachmentCard fieldId="gisMasterplan" />
+                <AttachmentCard fieldId="numberedMasterplan" />
+              </Section>
+              <Section title="Brochures">
+                {brochureItems.length === 0
+                  ? <AttachmentCard fieldId="brochure" />
+                  : brochureItems.map((it) => <AttachmentCard key={it.name} fieldId="brochure" item={it} label={it.name} />)}
+              </Section>
+            </>
+          )
+        })()}
+      </div>
+
+      {/* Brochure viewer */}
+      <Dialog open={brochureOpen} onOpenChange={setBrochureOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base">Brochure — {row.name}</DialogTitle>
+          </DialogHeader>
+          <div className="grid max-h-[60vh] grid-cols-2 gap-3 overflow-y-auto">
+            {projectMediaItems(row, PROJECT_FIELD_BY_ID.get("brochure")!).map((it) => (
+              <div key={it.name} className="overflow-hidden rounded-lg border border-border bg-card">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={it.src || "/placeholder.svg"} alt={it.name} className="h-32 w-full object-cover" />
+                <div className="flex items-center gap-1.5 border-t border-border px-2 py-1.5">
+                  <FileImage className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-xs font-medium text-foreground">{it.name}</span>
+                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">PDF</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -558,12 +753,12 @@ export function ProjectIssueDrawer({
 
 // ── The page ──────────────────────────────────────────────────────────────────
 const SORT_FIELDS = [
-  { id: "severity", label: "Severity" },
-  { id: "status", label: "Status" },
-  { id: "createdAt", label: "Created At" },
-  { id: "updatedAt", label: "Updated At" },
-  { id: "resolvedAt", label: "Resolved At" },
-  { id: "closedAt", label: "Closed At" },
+  { key: "severity", label: "Severity" },
+  { key: "status", label: "Status" },
+  { key: "createdAt", label: "Created At" },
+  { key: "updatedAt", label: "Updated At" },
+  { key: "resolvedAt", label: "Resolved At" },
+  { key: "closedAt", label: "Closed At" },
 ]
 
 function sortVal(r: ProjectIssue, key: string): string | number {
@@ -608,6 +803,43 @@ const SORTABLE_COLS = new Map<string, string>([
   ["createdAt", "createdAt"], ["updatedAt", "updatedAt"], ["resolvedAt", "resolvedAt"], ["closedAt", "closedAt"],
 ])
 
+// Group by — any issue or project attribute; the kanban swimlanes reuse the
+// subset it supports, other keys group the table only.
+const GROUP_OPTIONS: { id: string; label: string }[] = [
+  { id: "field", label: "Issue Category" },
+  { id: "type", label: "Issue Type" },
+  { id: "subtype", label: "Issue Subtype" },
+  { id: "status", label: "Status" },
+  { id: "reportedBy", label: "Reported By" },
+  { id: "assignedTo", label: "Assigned To" },
+  { id: "developer", label: "Developer" },
+  { id: "project", label: "Project" },
+  { id: "phase", label: "Phase" },
+  { id: "listingStatus", label: "Listing Status" },
+  { id: "primaryStatus", label: "Primary Status" },
+  { id: "entryType", label: "Entry Type" },
+]
+const GROUP_LABEL = new Map(GROUP_OPTIONS.map((g) => [g.id, g.label]))
+
+function laneOfIssue(x: ProjectIssue, key: string): string {
+  switch (key) {
+    case "field": return x.fieldLabel
+    case "type": return x.type
+    case "subtype": return x.subtype ?? "No subtype"
+    case "status": return x.status
+    case "reportedBy": return x.reportedBy
+    case "assignedTo": return x.assignedTo ?? "Unassigned"
+    case "developer": return x.developer.name
+    case "project": return x.project.name
+    case "phase": return x.phase?.name ?? "No phase"
+    case "listingStatus": return x.listingStatus
+    case "primaryStatus": return x.primaryStatus
+    case "entryType": return x.entryType
+    default: return ""
+  }
+}
+const SWIMLANE_KEYS = new Set<string>(["reportedBy", "assignedTo", "developer", "project"])
+
 export function ProjectIssuesPage() {
   const [version, setVersion] = useState(0)
   const issues = useMemo(() => [...PROJECT_ISSUES], [version])
@@ -631,7 +863,7 @@ export function ProjectIssuesPage() {
   const [updatedR, setUpdatedR] = useState({ from: "", to: "" })
   const [resolvedR, setResolvedR] = useState({ from: "", to: "" })
   const [closedR, setClosedR] = useState({ from: "", to: "" })
-  const [sorts, setSorts] = useState<SortLevel[]>([{ field: "createdAt", dir: "desc" }])
+  const [sorts, setSorts] = useState<SortLevel[]>([{ key: "createdAt", dir: "desc" }])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -641,8 +873,8 @@ export function ProjectIssuesPage() {
   const [myIssues, setMyIssues] = useState(false)
   const [view, setView] = useState<"table" | "kanban">("table")
   // Group by — groups the table AND acts as the kanban swimlane
-  const [groupBy, setGroupBy] = useState<SwimlaneKey>("none")
-  const swimlane = groupBy
+  const [groupBy, setGroupBy] = useState<string>("none")
+  const swimlane: SwimlaneKey = SWIMLANE_KEYS.has(groupBy) ? (groupBy as SwimlaneKey) : "none"
   // Columns control
   const [showColumns, setShowColumns] = useState(false)
   const [colOrder, setColOrder] = useState<string[]>(COLS.map((c) => c.id))
@@ -692,19 +924,14 @@ export function ProjectIssuesPage() {
       if (!inRange(r.closedAt, closedR)) return false
       return true
     })
-    const laneOf = (x: ProjectIssue) =>
-      groupBy === "reportedBy" ? x.reportedBy
-      : groupBy === "assignedTo" ? (x.assignedTo ?? "Unassigned")
-      : groupBy === "developer" ? x.developer.name
-      : groupBy === "project" ? x.project.name
-      : ""
+    const laneOf = (x: ProjectIssue) => laneOfIssue(x, groupBy)
     return [...rows].sort((a, b) => {
       if (groupBy !== "none") {
         const g = laneOf(a).localeCompare(laneOf(b))
         if (g !== 0) return g
       }
       for (const s of sorts) {
-        const av = sortVal(a, s.field), bv = sortVal(b, s.field)
+        const av = sortVal(a, s.key), bv = sortVal(b, s.key)
         const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv))
         if (cmp !== 0) return s.dir === "asc" ? cmp : -cmp
       }
@@ -737,9 +964,9 @@ export function ProjectIssuesPage() {
 
   const cycleHeaderSort = (fieldId: string) =>
     setSorts((prev) => {
-      const cur = prev.length === 1 && prev[0].field === fieldId ? prev[0] : null
-      if (!cur) return [{ field: fieldId, dir: "asc" }]
-      if (cur.dir === "asc") return [{ field: fieldId, dir: "desc" }]
+      const cur = prev.length === 1 && prev[0].key === fieldId ? prev[0] : null
+      if (!cur) return [{ key: fieldId, dir: "asc" }]
+      if (cur.dir === "asc") return [{ key: fieldId, dir: "desc" }]
       return []
     })
 
@@ -919,12 +1146,14 @@ export function ProjectIssuesPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant={groupBy === "none" ? "outline" : "default"} size="sm" className="h-8 gap-1.5">
-                  <LayoutGrid className="h-3.5 w-3.5" />{groupBy === "none" ? "Group by" : SWIMLANE_LABEL[groupBy]}
+                  <LayoutGrid className="h-3.5 w-3.5" />{groupBy === "none" ? "Group by" : GROUP_LABEL.get(groupBy)}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {(Object.keys(SWIMLANE_LABEL) as SwimlaneKey[]).map((k) => (
-                  <DropdownMenuItem key={k} onClick={() => setGroupBy(k)} className="text-sm">{k === "none" ? "No grouping" : SWIMLANE_LABEL[k]}</DropdownMenuItem>
+              <DropdownMenuContent align="end" className="max-h-96 overflow-y-auto">
+                <DropdownMenuItem onClick={() => setGroupBy("none")} className="text-sm">No grouping</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {GROUP_OPTIONS.map((g) => (
+                  <DropdownMenuItem key={g.id} onClick={() => setGroupBy(g.id)} className="text-sm">{g.label}</DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1010,7 +1239,7 @@ export function ProjectIssuesPage() {
                       </th>
                       {visibleCols.map((c) => {
                         const fieldId = SORTABLE_COLS.get(c.id)
-                        const s = fieldId && sorts.length === 1 && sorts[0].field === fieldId ? sorts[0] : null
+                        const s = fieldId && sorts.length === 1 && sorts[0].key === fieldId ? sorts[0] : null
                         return (
                           <th
                             key={c.id}
@@ -1031,12 +1260,7 @@ export function ProjectIssuesPage() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {pageRows.map((r, ri) => {
-                      const laneOf = (x: ProjectIssue) =>
-                        groupBy === "reportedBy" ? x.reportedBy
-                        : groupBy === "assignedTo" ? (x.assignedTo ?? "Unassigned")
-                        : groupBy === "developer" ? x.developer.name
-                        : groupBy === "project" ? x.project.name
-                        : ""
+                      const laneOf = (x: ProjectIssue) => laneOfIssue(x, groupBy)
                       const showGroupHeader = groupBy !== "none" && (ri === 0 || laneOf(pageRows[ri - 1]) !== laneOf(r))
                       return (
                         <Fragment key={r.id}>
