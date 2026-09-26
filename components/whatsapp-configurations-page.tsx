@@ -619,9 +619,18 @@ function DateRangeFilter({ from, to, onChange }: {
   )
 }
 
-// Main dialog
-function UploadFromWhatsAppDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+// Main dialog — single pick here; the bulk-ingestion popup reuses it with multi-select locked to one developer
+export function UploadFromWhatsAppDialog({ open, onOpenChange, multiple = false, lockedDeveloper, onProceed }: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  /** Pick several files — they must all belong to one developer */
+  multiple?: boolean
+  /** Developer name already chosen for the entry — other developers' files can't be picked */
+  lockedDeveloper?: string | null
+  onProceed?: (items: WhatsAppMediaItem[]) => void
+}) {
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const selectedId = selectedIds[0] ?? null
   const [devFilter, setDevFilter]   = useState<string[]>([])
   const [projFilter, setProjFilter] = useState<string[]>([])
   const [typeFilter, setTypeFilter] = useState<string[]>([])
@@ -631,7 +640,7 @@ function UploadFromWhatsAppDialog({ open, onOpenChange }: { open: boolean; onOpe
 
   // Reset on open
   useEffect(() => {
-    if (open) { setSelectedId(null); setDevFilter([]); setProjFilter([]); setTypeFilter([]); setDateFrom(""); setDateTo(""); setSearch("") }
+    if (open) { setSelectedIds([]); setDevFilter(lockedDeveloper ? [lockedDeveloper] : []); setProjFilter([]); setTypeFilter([]); setDateFrom(""); setDateTo(""); setSearch("") }
   }, [open])
 
   const items: WhatsAppMediaItem[] = useMemo(() => {
@@ -652,6 +661,13 @@ function UploadFromWhatsAppDialog({ open, onOpenChange }: { open: boolean; onOpe
 
   const selected = items.find((it) => it.id === selectedId)
   const devNames = ALL_DEVELOPERS.map((d) => d.name)
+  // One entry = one developer: the first pick (or the entry's developer) locks the rest
+  const lockDev = lockedDeveloper ?? (multiple ? whatsappMediaItems.find((it) => it.id === selectedIds[0])?.developerName ?? null : null)
+  const toggleItem = (item: WhatsAppMediaItem) => {
+    if (!multiple) { setSelectedIds(selectedId === item.id ? [] : [item.id]); return }
+    if (lockDev && item.developerName !== lockDev) return
+    setSelectedIds((ids) => (ids.includes(item.id) ? ids.filter((x) => x !== item.id) : [...ids, item.id]))
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -685,7 +701,12 @@ function UploadFromWhatsAppDialog({ open, onOpenChange }: { open: boolean; onOpe
           {/* Count row */}
           <div className="px-6 py-2.5 border-b border-border bg-secondary/20 flex items-center justify-between">
             <span className="text-xs text-muted-foreground font-medium">{items.length} files</span>
-            {selected && (
+            {multiple ? (
+              <span className="text-xs text-muted-foreground">
+                {lockDev ? <>Files from <b className="text-foreground">{lockDev}</b> only — an entry has one developer</> : "Pick files from one developer"}
+                {selectedIds.length > 0 && <span className="ml-2 font-medium text-primary">{selectedIds.length} selected</span>}
+              </span>
+            ) : selected && (
               <span className="text-xs text-primary font-medium">{selected.fileName} selected</span>
             )}
           </div>
@@ -712,24 +733,28 @@ function UploadFromWhatsAppDialog({ open, onOpenChange }: { open: boolean; onOpe
                 </thead>
                 <tbody className="divide-y divide-border">
                   {items.map((item) => {
-                    const isSelected = item.id === selectedId
+                    const isSelected = selectedIds.includes(item.id)
+                    const blocked = multiple && !!lockDev && item.developerName !== lockDev
                     const rowBg = isSelected ? "bg-primary/5" : "bg-card"
                     return (
                       <tr
                         key={item.id}
-                        onClick={() => setSelectedId(isSelected ? null : item.id)}
+                        onClick={() => toggleItem(item)}
+                        title={blocked ? `An entry has one developer — this file belongs to ${item.developerName}` : undefined}
                         className={cn(
-                          "cursor-pointer transition-colors select-none",
-                          isSelected ? "bg-primary/5" : "hover:bg-secondary/30",
+                          "transition-colors select-none",
+                          blocked ? "cursor-not-allowed opacity-40" : "cursor-pointer",
+                          isSelected ? "bg-primary/5" : !blocked && "hover:bg-secondary/30",
                         )}
                       >
-                        {/* Radio — sticky left */}
+                        {/* Radio / checkbox — sticky left */}
                         <td className={cn("sticky left-0 z-10 px-4 py-3", rowBg)}>
                           <div className={cn(
-                            "h-4 w-4 rounded-full border-2 flex items-center justify-center transition-colors",
+                            "h-4 w-4 border-2 flex items-center justify-center transition-colors",
+                            multiple ? "rounded" : "rounded-full",
                             isSelected ? "border-primary bg-primary" : "border-input bg-background",
                           )}>
-                            {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />}
+                            {isSelected && (multiple ? <Check className="h-2.5 w-2.5 text-primary-foreground" /> : <div className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />)}
                           </div>
                         </td>
 
@@ -830,12 +855,12 @@ function UploadFromWhatsAppDialog({ open, onOpenChange }: { open: boolean; onOpe
         <DialogFooter className="px-6 py-4 border-t border-border flex-shrink-0">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="bg-transparent">Cancel</Button>
           <Button
-            disabled={!selectedId}
-            onClick={() => { /* proceed handler */ onOpenChange(false) }}
+            disabled={!selectedIds.length}
+            onClick={() => { onProceed?.(whatsappMediaItems.filter((it) => selectedIds.includes(it.id))); onOpenChange(false) }}
             className="gap-1.5"
           >
             <Check className="h-4 w-4" />
-            Proceed with selected file
+            {multiple ? `Add ${selectedIds.length || ""} file${selectedIds.length === 1 ? "" : "s"}` : "Proceed with selected file"}
           </Button>
         </DialogFooter>
       </DialogContent>

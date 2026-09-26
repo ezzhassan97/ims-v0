@@ -1,39 +1,52 @@
-// Mock data for the Data Ingestion entry tables (Automatic Sheets Entries / Manual Grouped Entries).
+// Mock data for the Properties Bulk Ingestion entries list.
+// One entry model for every source: sheets, PDFs, photos of price lists and WhatsApp text.
 
 import { PROJECTS, PROJECT_DEVELOPERS } from "@/lib/projects-mock"
 
-export type IngestionMode = "sheets" | "manual"
-export type SaleType = "Primary" | "Launch" | "Resale" | "Nawy Now"
-export type EntryDataType = "Structured Detailed" | "Unstructured Grouped"
+export type SaleType = "Primary" | "Resale" | "Nawy Now" | "Launch"
+export const SALE_TYPES: SaleType[] = ["Primary", "Resale", "Nawy Now", "Launch"]
+
+/** Automatic = rows carry unit codes (detailed units). Manual = no unit codes (grouped properties). */
+export type EntryDataType = "Automatic" | "Manual"
+export const DATA_TYPES: EntryDataType[] = ["Automatic", "Manual"]
+
 export type IngestionSource = "WhatsApp" | "Device"
 export type PropertyCategory = "Residential" | "Commercial"
+export type EntryFileKind = "Sheet" | "PDF" | "Image" | "Text"
+export const FILE_KINDS: EntryFileKind[] = ["Sheet", "PDF", "Image", "Text"]
 
-export const SHEET_STAGES = [
-  "OCR Processing", "Initial Setup", "Sheet Preparation", "Mapping", "Transformations",
-  "Formatting", "Review", "Payment Plans", "Floor Plans", "Grouping", "Finalized",
+/** The single ingestion pipeline. Extraction only runs for non-sheet sources. */
+export const ENTRY_STAGES = [
+  "Initial Setup", "Extraction", "Mapping", "Comparison", "Transformation", "Formatting",
+  "Review", "Payment Plans", "Floor Plans", "Grouping & Media", "Final Check", "Finalized",
 ] as const
-export const MANUAL_STAGES = [
-  "Initial Setup", "Extraction", "Comparison", "Payment Plans", "Media", "Review", "Final Check", "Finalized",
-] as const
+export type EntryStage = (typeof ENTRY_STAGES)[number]
 
-export const SHEET_FILE_TYPES = ["Sheet", "PDF", "Image"] as const
-export const MANUAL_FILE_TYPES = ["Text", "PDF", "Image"] as const
+export interface EntryFile {
+  name: string
+  kind: EntryFileKind
+  size: number
+  origin: IngestionSource
+  /** Pasted message text — read line by line by the extractor */
+  content?: string
+}
 
 export interface IngestionEntry {
   id: string
+  /** Primary file name — doubles as the entry's display name */
   fileName: string
-  /** null while the entry is still in initial setup and no developer was selected yet */
+  files: EntryFile[]
+  /** null when the entry was auto-captured from WhatsApp and the developer couldn't be detected */
   developer: { id: string; name: string; logo: string } | null
   /** Projects covered by the entry — phases carry their main project name for grouping.
    *  A phase may be selected without its main project (the parent is then only implied). */
   projects: { id: string; name: string; main: string | null }[]
-  stage: string
-  /** Sale type covered by this ingestion entry */
+  stage: EntryStage
   saleType: SaleType
-  /** Structured (unit codes, automatic) vs unstructured (no unit codes, manual) */
   dataType: EntryDataType
   uploadedBy: string
-  fileType: string
+  /** Kind of the entry's files, or Mixed when they differ */
+  fileType: EntryFileKind | "Mixed"
   source: IngestionSource
   categories: PropertyCategory[]
   createdAt: string
@@ -46,8 +59,8 @@ export interface IngestionEntry {
   activeTimeSec: number
 }
 
-const USERS = ["Ezz Hassan", "Sara Adel", "Omar Farouk", "Nour ElDin", "Youssef Kamal"]
-const EXT: Record<string, string> = { Sheet: "xlsx", PDF: "pdf", Image: "png", Text: "txt" }
+export const ENTRY_USERS = ["Ezz Hassan", "Sara Adel", "Omar Farouk", "Nour ElDin", "Youssef Kamal"]
+const EXT: Record<EntryFileKind, string> = { Sheet: "xlsx", PDF: "pdf", Image: "jpg", Text: "txt" }
 
 // Deterministic dates (no Date.now) so SSR and client match
 function iso(dayOffset: number, hour: number) {
@@ -56,55 +69,75 @@ function iso(dayOffset: number, hour: number) {
   return base.toISOString()
 }
 
-function buildEntries(mode: IngestionMode): IngestionEntry[] {
-  const stages = mode === "sheets" ? SHEET_STAGES : MANUAL_STAGES
-  const fileTypes = mode === "sheets" ? SHEET_FILE_TYPES : MANUAL_FILE_TYPES
+/** File mixes per data type — Automatic entries are mostly sheets, Manual ones docs, photos and text. */
+const AUTO_MIXES: EntryFileKind[][] = [["Sheet"], ["Sheet"], ["PDF"], ["Sheet"], ["Sheet"], ["Sheet", "PDF"]]
+const MANUAL_MIXES: EntryFileKind[][] = [["Text"], ["Text", "Image", "Image"], ["PDF"], ["Image", "Image", "Image", "Image"], ["Text", "PDF"], ["PDF", "Image"]]
+
+function filesFor(slug: string, kinds: EntryFileKind[], i: number, origin: IngestionSource): EntryFile[] {
+  return kinds.map((kind, k) => {
+    const base =
+      kind === "Sheet" ? `${slug}-inventory-${String(i + 1).padStart(2, "0")}` :
+      kind === "PDF" ? `${slug}-price-list` :
+      kind === "Image" ? `${slug}-price-list-photo-${k + 1}` :
+      `${slug}-whatsapp-message`
+    const size = kind === "Sheet" ? 240_000 + i * 9_000 : kind === "PDF" ? 3_400_000 + k * 120_000 : kind === "Image" ? 820_000 + k * 60_000 : 2_400
+    return { name: `${base}.${EXT[kind]}`, kind, size, origin }
+  })
+}
+
+function buildEntries(): IngestionEntry[] {
   const mains = PROJECTS.filter((p) => !p.isPhase)
-  const prefix = mode === "sheets" ? "ING" : "MAN"
-  return Array.from({ length: 26 }, (_, i) => {
-    const dev = PROJECT_DEVELOPERS[i % PROJECT_DEVELOPERS.length]
-    const main = mains[i % mains.length]
-    const phases = PROJECTS.filter((p) => p.isPhase && p.mainProject?.id === main.id).slice(0, (i % 3) + 1)
-    const extraMain = i % 4 === 3 ? mains[(i + 3) % mains.length] : null
-    const stage = stages[i % stages.length]
-    const fileType = fileTypes[i % fileTypes.length]
+  return Array.from({ length: 52 }, (_, i) => {
+    const dataType: EntryDataType = i % 2 === 0 ? "Automatic" : "Manual"
+    const k = Math.floor(i / 2)
+    const main = mains[k % mains.length]
+    // Every entry belongs to exactly one developer — the main project's
+    const dev = PROJECT_DEVELOPERS.find((d) => d.id === main.developer.id) ?? PROJECT_DEVELOPERS[0]
+    const phases = PROJECTS.filter((p) => p.isPhase && p.mainProject?.id === main.id).slice(0, (k % 3) + 1)
+    const sibling = mains.find((m) => m.id !== main.id && m.developer.id === main.developer.id)
+    const extraMain = k % 4 === 3 && sibling ? sibling : null
+    const kinds = (dataType === "Automatic" ? AUTO_MIXES : MANUAL_MIXES)[k % 6]
+    const sheetsOnly = kinds.every((x) => x === "Sheet")
+    // Sheet-only entries skip Extraction; everyone else passes through every stage
+    const stages = ENTRY_STAGES.filter((s) => !(sheetsOnly && s === "Extraction"))
+    const stage = stages[k % stages.length]
+    const source: IngestionSource = (k + i) % 3 === 0 ? "WhatsApp" : "Device"
     const slug = main.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")
-    // First-stage entries haven't finished initial setup: no developer/projects yet.
-    const isFirstStage = stage === stages[0]
+    const files = filesFor(slug, kinds, i, source)
+    // One WhatsApp capture whose developer couldn't be detected — setup must pick it
+    const undetected = i === 3
     const allRefs = [
       { id: main.id, name: main.name, main: null as string | null },
       ...phases.map((p) => ({ id: p.id, name: p.name, main: main.name as string | null })),
       ...(extraMain ? [{ id: extraMain.id, name: extraMain.name, main: null as string | null }] : []),
     ]
-    // i % 4 === 1: phases selected without their main project — the parent is only implied
-    const projectRefs = i % 4 === 1 ? allRefs.filter((p) => p.id !== main.id) : allRefs
+    // k % 4 === 1: phases selected without their main project — the parent is only implied
+    const projectRefs = k % 4 === 1 ? allRefs.filter((p) => p.id !== main.id) : allRefs
     return {
-      id: `${prefix}-${String(1001 + i)}`,
-      fileName: `${slug}-${mode === "sheets" ? "inventory" : "listing"}-${String(i + 1).padStart(2, "0")}.${EXT[fileType]}`,
-      developer: isFirstStage ? null : dev,
-      projects: isFirstStage ? [] : projectRefs,
-      stage,
-      saleType: (["Primary", "Launch", "Resale", "Nawy Now"] as const)[i % 4],
-      dataType: mode === "sheets" ? "Structured Detailed" : "Unstructured Grouped",
-      uploadedBy: USERS[i % USERS.length],
-      fileType,
-      source: (i % 3 === 0 ? "WhatsApp" : "Device") as IngestionSource,
-      categories: i % 3 === 0 ? ["Residential", "Commercial"] : i % 3 === 1 ? ["Residential"] : ["Commercial"],
-      createdAt: iso(i * 3, 9),
-      updatedAt: iso(i * 3 + 2, 15),
-      finalizedAt: stage === "Finalized" ? iso(i * 3 + 4, 11) : null,
-      groupedProperties: 6 + (i % 9),
-      detailedProperties: 5400 + i * 470,
-      totalTimeSec: 6600 + i * 540,
-      activeTimeSec: 2400 + i * 210,
+      id: `ENT-${String(1001 + i)}`,
+      fileName: files[0].name,
+      files,
+      developer: undetected ? null : { id: dev.id, name: dev.name, logo: dev.logo },
+      projects: undetected ? [] : projectRefs,
+      stage: undetected ? "Initial Setup" : stage,
+      saleType: (["Primary", "Resale", "Nawy Now", "Launch"] as const)[k % 4],
+      dataType,
+      uploadedBy: ENTRY_USERS[i % ENTRY_USERS.length],
+      fileType: kinds.every((x) => x === kinds[0]) ? kinds[0] : "Mixed",
+      source,
+      categories: k % 3 === 0 ? ["Residential", "Commercial"] : ["Residential"],
+      createdAt: iso(i * 2, 9),
+      updatedAt: iso(i * 2 + 1, 15),
+      finalizedAt: stage === "Finalized" && !undetected ? iso(i * 2 + 2, 11) : null,
+      groupedProperties: 6 + (k % 9),
+      detailedProperties: dataType === "Automatic" ? 5400 + k * 470 : 0,
+      totalTimeSec: 6600 + i * 270,
+      activeTimeSec: 2400 + i * 105,
     }
   })
 }
 
-export const SHEET_ENTRIES: IngestionEntry[] = buildEntries("sheets")
-export const MANUAL_ENTRIES: IngestionEntry[] = buildEntries("manual")
+export const ENTRIES: IngestionEntry[] = buildEntries()
 
-/** Unified bulk-ingestion list — structured and unstructured entries interleaved. */
-export const ENTRIES: IngestionEntry[] = SHEET_ENTRIES.flatMap((e, i) =>
-  MANUAL_ENTRIES[i] ? [e, MANUAL_ENTRIES[i]] : [e],
-)
+/** Sheet-only entries skip Extraction — every other entry runs it. */
+export const isSheetOnly = (e: Pick<IngestionEntry, "files">) => e.files.length > 0 && e.files.every((f) => f.kind === "Sheet")

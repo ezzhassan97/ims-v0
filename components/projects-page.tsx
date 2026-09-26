@@ -365,21 +365,10 @@ export function ProjectDetails({ project, onBack }: { project?: ProjectRow; onBa
           {/* Data ingestion entries — the global entries tables, scoped to this project */}
           <TabsContent value="ingestion-entries" className="mt-4 space-y-4">
             <div>
-              <h3 className="text-sm font-semibold text-foreground">Data ingestion entries</h3>
-              <p className="text-xs text-muted-foreground">Sheet and manual entries that include this {project?.isPhase ? "phase" : "project or its phases"}</p>
+              <h3 className="text-sm font-semibold text-foreground">Bulk ingestion entries</h3>
+              <p className="text-xs text-muted-foreground">Automatic and manual entries that include this {project?.isPhase ? "phase" : "project or its phases"}</p>
             </div>
-            <Tabs defaultValue="sheets" className="w-full">
-              <TabsList className="w-max">
-                <TabsTrigger value="sheets" className="gap-1.5"><Database className="h-3.5 w-3.5" />Automatic Sheets</TabsTrigger>
-                <TabsTrigger value="manual" className="gap-1.5"><ClipboardList className="h-3.5 w-3.5" />Manual Grouped</TabsTrigger>
-              </TabsList>
-              <TabsContent value="sheets" className="mt-4">
-                <IngestionEntriesPage key="sheets" mode="sheets" embedded scopeProjectIds={scopeIds} />
-              </TabsContent>
-              <TabsContent value="manual" className="mt-4">
-                <IngestionEntriesPage key="manual" mode="manual" embedded scopeProjectIds={scopeIds} />
-              </TabsContent>
-            </Tabs>
+            <IngestionEntriesPage embedded scopeProjectIds={scopeIds} />
           </TabsContent>
 
           <TabsContent value="launches" className="mt-4">

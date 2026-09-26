@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react"
 import {
   Archive, ArrowDown, ArrowUp, ArrowUpDown, Boxes, Building2, CheckCircle2, ChevronDown, ChevronsDownUp,
   ChevronsUpDown, Clock, Download, Eye, FileSpreadsheet, FileStack, FileText, FolderTree, Group as GroupIcon,
-  MoreHorizontal, Plus, Rows3, ScanSearch, Timer, Upload, User as UserIcon, X,
+  MoreHorizontal, Plus, Rows3, ScanSearch, Timer, User as UserIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -23,15 +23,23 @@ import {
 import { ColorTag, fmtDateTime } from "@/components/projects-list-page"
 import { PROJECT_DEVELOPERS, PROJECTS } from "@/lib/projects-mock"
 import {
-  ENTRIES, SHEET_STAGES, MANUAL_STAGES, SHEET_FILE_TYPES, MANUAL_FILE_TYPES,
-  type IngestionEntry, type IngestionMode,
+  DATA_TYPES, ENTRIES, ENTRY_STAGES, FILE_KINDS, SALE_TYPES,
+  type EntryDataType, type IngestionEntry,
 } from "@/lib/ingestion-mock"
+import { BulkEntryDialog } from "@/components/bulk-entry-dialog"
+import { FILE_ICON } from "@/components/bulk-entry-steps"
+import { KIND_OF } from "@/lib/bulk-ingestion"
 
 const TAG = "inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium"
 const STAGE_TONE: Record<string, string> = {
   Finalized: "border-emerald-200 bg-emerald-100 text-emerald-700",
   Review: "border-amber-200 bg-amber-50 text-amber-700",
   "Final Check": "border-amber-200 bg-amber-50 text-amber-700",
+}
+/** Entry type tones — Automatic emerald, Manual blue (design system) */
+const DATA_TONE: Record<EntryDataType, string> = {
+  Automatic: "border-emerald-200 bg-emerald-100 text-emerald-700",
+  Manual: "border-blue-200 bg-blue-100 text-blue-700",
 }
 const SOURCE_TONE: Record<string, string> = {
   WhatsApp: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -99,13 +107,14 @@ function fmtDur(sec: number) {
 
 /** The uploaded entry file → shared FilePreviewDialog file. */
 function entryPreviewFile(e: IngestionEntry): PreviewFile {
-  const typeGroup: PreviewFile["typeGroup"] = e.fileType === "Sheet" ? "Sheet" : e.fileType === "Image" ? "Image" : "Document"
+  const kind = e.files[0]?.kind ?? "Sheet"
+  const typeGroup: PreviewFile["typeGroup"] = kind === "Sheet" ? "Sheet" : kind === "Image" ? "Image" : "Document"
   return {
     id: e.id,
     name: e.fileName,
     ext: e.fileName.split(".").pop()?.toUpperCase() ?? "",
     typeGroup,
-    url: e.fileType === "Image" ? "/aerial-view-masterplan-residential-development-blu.jpg" : undefined,
+    url: kind === "Image" ? "/aerial-view-masterplan-residential-development-blu.jpg" : undefined,
     size: 1_400_000,
   }
 }
@@ -167,24 +176,22 @@ function ProjectsCell({ projects }: { projects: IngestionEntry["projects"] }) {
  * Shared Data Ingestion entries table — Automatic Sheets Entries & Manual Grouped
  * Entries are the same experience with different titles, stages and file types.
  */
-export function IngestionEntriesPage({ mode, onView, embedded = false, scopeProjectIds }: {
-  /** Optional data-type scope — "sheets" = structured entries, "manual" = unstructured (embedded tabs). */
-  mode?: IngestionMode
+export function IngestionEntriesPage({ dataType, onView, embedded = false, scopeProjectIds }: {
+  /** Optional data-type scope (embedded tabs) */
+  dataType?: EntryDataType
   onView?: (entry: IngestionEntry) => void
   /** Embedded in a details tab — page title/subtitle come from the host. */
   embedded?: boolean
   /** Only entries touching these project/phase ids (a main project passes itself + its phases). */
   scopeProjectIds?: string[]
 }) {
-  const base = mode
-    ? ENTRIES.filter((e) => (mode === "sheets" ? e.dataType === "Structured Detailed" : e.dataType === "Unstructured Grouped"))
-    : ENTRIES
+  const base = dataType ? ENTRIES.filter((e) => e.dataType === dataType) : ENTRIES
   const scoped = scopeProjectIds && scopeProjectIds.length > 0
     ? base.filter((e) => e.projects.some((p) => scopeProjectIds.includes(p.id)))
     : base
   const [rows, setRows] = useState<IngestionEntry[]>(() => scoped)
-  const stages = [...new Set([...SHEET_STAGES, ...MANUAL_STAGES])]
-  const fileTypes = [...new Set([...SHEET_FILE_TYPES, ...MANUAL_FILE_TYPES])]
+  const stages = [...ENTRY_STAGES]
+  const fileTypes = [...FILE_KINDS, "Mixed"]
   const title = "Properties Bulk Ingestion"
   const subtitle = "Properties Inventory bulk ingestion entries"
 
@@ -329,7 +336,7 @@ export function IngestionEntriesPage({ mode, onView, embedded = false, scopeProj
     if (sel.length === 0) return
     const csvCell = (colId: string, e: IngestionEntry): string => {
       switch (colId) {
-        case "fileName": return `${e.fileName} (${e.id})`
+        case "fileName": return `${e.files.map((f) => f.name).join("; ")} (${e.id})`
         case "developer": return e.developer?.name ?? ""
         case "projects": return e.projects.map((p) => p.name).join("; ")
         case "stage": return e.stage
@@ -362,9 +369,15 @@ export function IngestionEntriesPage({ mode, onView, embedded = false, scopeProj
     switch (colId) {
       case "fileName":
         return (
-          <div className="min-w-0">
-            <p className="truncate font-medium text-foreground">{e.fileName}</p>
-            <IdTag value={e.id} />
+          <div className="flex min-w-0 items-start gap-2">
+            <span className="mt-0.5 flex-shrink-0">{FILE_ICON[KIND_OF[e.files[0]?.kind ?? "Sheet"]]}</span>
+            <div className="min-w-0">
+              <p className="truncate font-medium text-foreground">{e.fileName}</p>
+              <span className="flex items-center gap-1.5">
+                <IdTag value={e.id} />
+                {e.files.length > 1 && <span className="text-[10px] text-muted-foreground">+{e.files.length - 1} file{e.files.length > 2 ? "s" : ""}</span>}
+              </span>
+            </div>
           </div>
         )
       case "developer":
@@ -394,7 +407,7 @@ export function IngestionEntriesPage({ mode, onView, embedded = false, scopeProj
           </div>
         )
       case "saleType": return <ColorTag value={e.saleType} />
-      case "dataType": return <ColorTag value={e.dataType} />
+      case "dataType": return <span className={cn(TAG, DATA_TONE[e.dataType])}>{e.dataType}</span>
       case "stage": return STAGE_TONE[e.stage] ? <span className={cn(TAG, STAGE_TONE[e.stage])}>{e.stage}</span> : <ColorTag value={e.stage} />
       case "uploadedBy":
         return (
@@ -497,8 +510,8 @@ export function IngestionEntriesPage({ mode, onView, embedded = false, scopeProj
             <>
               <FilterMultiSelect label="Developer" value={developerF} options={PROJECT_DEVELOPERS.map((d) => ({ value: d.id, label: d.name }))} onChange={(v) => { setDeveloperF(v); setPage(1) }} className="w-44" />
               <ProjectTreeSelect multi projects={PROJECT_TREE} values={projectF} onValuesChange={(v) => { setProjectF(v); setPage(1) }} className="w-48" />
-              <FilterMultiSelect label="Sale Type" value={saleTypeF} options={["Primary", "Launch", "Resale", "Nawy Now"]} onChange={(v) => { setSaleTypeF(v); setPage(1) }} className="w-40" />
-              <FilterMultiSelect label="Data Type" value={dataTypeF} options={["Structured Detailed", "Unstructured Grouped"]} onChange={(v) => { setDataTypeF(v); setPage(1) }} className="w-48" />
+              <FilterMultiSelect label="Sale Type" value={saleTypeF} options={SALE_TYPES} onChange={(v) => { setSaleTypeF(v); setPage(1) }} className="w-40" />
+              <FilterMultiSelect label="Data Type" value={dataTypeF} options={DATA_TYPES} onChange={(v) => { setDataTypeF(v); setPage(1) }} className="w-48" />
               <FilterMultiSelect label="Stage" value={stageF} options={stages} onChange={(v) => { setStageF(v); setPage(1) }} className="w-44" />
               <FilterSelect label="File Type" value={fileTypeF} options={fileTypes} onChange={(v) => { setFileTypeF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Source" value={sourceF} options={["WhatsApp", "Device"]} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-36" />
@@ -599,7 +612,11 @@ export function IngestionEntriesPage({ mode, onView, embedded = false, scopeProj
         <EntrySummarySheet entry={summaryEntry} onClose={() => setSummaryEntry(null)} />
         <EntryProjectsDrawer entry={projectsDrawer} onClose={() => setProjectsDrawer(null)} />
         <ArchiveDialog dlg={archiveDlg} onClose={() => setArchiveDlg(null)} onConfirm={archiveConfirmed} />
-        <AddEntryDialog open={addOpen} onClose={() => setAddOpen(false)} />
+        <BulkEntryDialog
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          onCreated={(entry) => { setAddOpen(false); setRows((r) => [entry, ...r]); onView?.(entry) }}
+        />
 
         {/* All Filters drawer — same filters, order and state as the toolbar */}
         <FiltersDrawer open={showFilters} onClose={() => setShowFilters(false)} activeCount={activeFilterCount} onClear={clearAllFilters}>
@@ -610,10 +627,10 @@ export function IngestionEntriesPage({ mode, onView, embedded = false, scopeProj
             <ProjectTreeSelect multi projects={PROJECT_TREE} values={projectF} onValuesChange={(v) => { setProjectF(v); setPage(1) }} className="w-full" />
           </FilterDrawerField>
           <FilterDrawerField label="Sale Type">
-            <FilterMultiSelect label="Sale Type" value={saleTypeF} options={["Primary", "Launch", "Resale", "Nawy Now"]} onChange={(v) => { setSaleTypeF(v); setPage(1) }} className="w-full" width="w-full" />
+            <FilterMultiSelect label="Sale Type" value={saleTypeF} options={SALE_TYPES} onChange={(v) => { setSaleTypeF(v); setPage(1) }} className="w-full" width="w-full" />
           </FilterDrawerField>
           <FilterDrawerField label="Data Type">
-            <FilterMultiSelect label="Data Type" value={dataTypeF} options={["Structured Detailed", "Unstructured Grouped"]} onChange={(v) => { setDataTypeF(v); setPage(1) }} className="w-full" width="w-full" />
+            <FilterMultiSelect label="Data Type" value={dataTypeF} options={DATA_TYPES} onChange={(v) => { setDataTypeF(v); setPage(1) }} className="w-full" width="w-full" />
           </FilterDrawerField>
           <FilterDrawerField label="Stage">
             <FilterMultiSelect label="Stage" value={stageF} options={stages} onChange={(v) => { setStageF(v); setPage(1) }} className="w-full" width="w-full" />
@@ -907,57 +924,5 @@ export function EntryProjectsDrawer({ entry, onClose }: { entry: IngestionEntry 
         </div>
       </SheetContent>
     </Sheet>
-  )
-}
-
-/* ── Add Entry — upload the files that start a new ingestion entry ──────────── */
-
-function AddEntryDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [files, setFiles] = useState<{ name: string; size: number }[]>([])
-  const close = () => { setFiles([]); onClose() }
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && close()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogTitle className="text-lg font-bold text-foreground">Add Entry</DialogTitle>
-        <p className="text-sm text-muted-foreground">Upload the sheet, PDF, image or text files for this entry. Setup continues inside the entry after upload.</p>
-        <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-border px-6 py-10 text-center transition-colors hover:border-primary/50 hover:bg-muted/30">
-          <Upload className="h-8 w-8 text-muted-foreground" />
-          <span className="text-sm font-medium text-foreground">Drag &amp; drop files here, or click to browse</span>
-          <span className="text-xs text-muted-foreground">XLSX, CSV, PDF, PNG, JPG, TXT — up to 25 MB each</span>
-          <input
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              const picked = [...(e.target.files ?? [])].map((f) => ({ name: f.name, size: f.size }))
-              if (picked.length) setFiles((prev) => [...prev, ...picked])
-              e.target.value = ""
-            }}
-          />
-        </label>
-        {files.length > 0 && (
-          <div className="max-h-44 space-y-1.5 overflow-y-auto">
-            {files.map((f, i) => (
-              <div key={`${f.name}-${i}`} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <FileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                  <span className="truncate text-sm font-medium text-foreground">{f.name}</span>
-                </div>
-                <div className="flex flex-shrink-0 items-center gap-2">
-                  <span className="font-mono text-[11px] text-muted-foreground">{f.size >= 1_000_000 ? `${(f.size / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(f.size / 1_000))} KB`}</span>
-                  <button className="text-muted-foreground hover:text-red-600" onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}><X className="h-3.5 w-3.5" /></button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={close}>Cancel</Button>
-          <Button disabled={files.length === 0} onClick={() => { toast.success(`${files.length} file${files.length > 1 ? "s" : ""} uploaded — entry created`); close() }}>
-            Upload
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
   )
 }
