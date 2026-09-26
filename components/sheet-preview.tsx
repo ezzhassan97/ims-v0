@@ -216,7 +216,13 @@ export function SheetPreviewCard({
   const fullBodyRef = useRef<HTMLDivElement>(null)
   const dragCol = useRef<string | null>(null)
 
-  useEffect(() => { if (forceView) setView(forceView.view) }, [forceView?.key]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Only a view request made after this grid mounted counts — a fresh grid opens on its initial view
+  const lastForce = useRef(forceView?.key)
+  useEffect(() => {
+    if (!forceView || forceView.key === lastForce.current) return
+    lastForce.current = forceView.key
+    setView(forceView.view)
+  }, [forceView?.key]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const outputSheets = sheets.filter((s) => !ignored.includes(s.name))
   const wanted = activeSheet ?? internalSheet

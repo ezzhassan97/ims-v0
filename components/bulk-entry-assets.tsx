@@ -231,7 +231,7 @@ export function StepFloorPlans({ ctx }: { ctx: StepCtx }) {
                   onClick={() => { if (!picking) return; set((w) => ({ floorPlans: { ...w.floorPlans, [picking]: fp.id } })); toast.success(`${fp.id} attached to ${key?.label}`); setPicking(null) }}
                   className={cn("relative cursor-pointer rounded-xl transition-shadow hover:ring-2 hover:ring-primary/40", current && "ring-2 ring-primary")}
                 >
-                  {i < 2 && <span className={cn(TAG, "absolute left-2 top-10 z-10 border-violet-200 bg-violet-50 text-violet-700")}><Sparkles className="h-3 w-3" />Best match</span>}
+                  {i < 2 && <span className={cn(TAG, "absolute left-2 top-10 z-10 border-violet-200 bg-violet-50 text-violet-700")}><Sparkles className="h-3 w-3" />{fp.bedrooms === key?.beds ? "Best match" : "Closest available"}</span>}
                   <FloorPlanCard fp={fp} onView={() => {}} onDelete={() => toast.info("Floor plans are managed in the Floor Plans page")} onStatusChange={() => toast.info("Floor plans are managed in the Floor Plans page")} />
                 </div>
               )

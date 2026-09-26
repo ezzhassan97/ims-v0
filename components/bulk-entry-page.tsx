@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import {
   Archive, ArrowLeft, ArrowRight, Boxes, CalendarClock, Check, CheckCircle2, ClipboardCheck, Columns3, Eye, FileText,
   GitCompareArrows, LayoutTemplate, Loader2, MoreHorizontal, ScanSearch, ScanText, Shuffle, Sparkles, Square, User as UserIcon,
@@ -67,8 +67,6 @@ export function BulkEntryPage({ entry, onBack }: { entry: IngestionEntry; onBack
   const openedAt = useRef(Date.now())
   const [activeSec, setActiveSec] = useState(0)
 
-  // A step opens on its Output; the diff shows only right after AI runs on it
-  useEffect(() => { setViewKey(0) }, [step])
   const set = useCallback((patch: Partial<Work> | ((w: Work) => Partial<Work>)) => setWork((w) => ({ ...w, ...(typeof patch === "function" ? patch(w) : patch) })), [])
   const statuses = useMemo(() => STEP_KEYS.map((k) => stepStatus(k, work, pipe)), [work, pipe])
   const key = STEP_KEYS[step]
