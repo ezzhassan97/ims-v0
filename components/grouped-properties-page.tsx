@@ -2716,7 +2716,8 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                     const d = destinations[cg.key]
                     const destId = d?.projectId ? (d.phaseId !== "none" ? d.phaseId : d.projectId) : ""
                     return (
-                      <div key={cg.key} className="overflow-hidden rounded-xl border border-border bg-card">
+                      // no overflow-hidden — it would clip the destination dropdown panel
+                      <div key={cg.key} className="rounded-xl border border-border bg-card [&>*:first-child]:rounded-t-xl [&>*:last-child]:rounded-b-xl">
                         <div className="border-b border-border bg-muted/50 px-5 py-2.5">{compoundHeader(cg)}</div>
                         <div className="divide-y divide-border/70">
                           {cg.groups.map(g => (

@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Search, X, Filter, SlidersHorizontal, ArrowUp, ArrowDown, ArrowUpDown, Group as GroupIcon, Columns3, ChevronDown, Check, CheckCheck, Copy,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, GripVertical, Lock, Unlock, Eye, EyeOff, Minus,
@@ -53,6 +53,33 @@ export const COL_SEP =
   "[&_thead_th:not(:last-child)]:border-r [&_thead_th:not(:last-child)]:border-border/50 [&_tbody_td:not(:last-child)]:border-r [&_tbody_td:not(:last-child)]:border-border/50"
 
 /** Canonical single-select filter — flat h-8 white trigger, optional search. Use on every table page. */
+/**
+ * Dropdown panels are absolutely positioned, so a scrolling ancestor (a dialog body,
+ * a sheet, a card) clips them near its bottom edge. Measures the panel when it opens
+ * and flips it above the trigger when it doesn't fit below.
+ * Returns [flipped, panelRef] — put the ref on the panel, inside the relative wrapper.
+ */
+function useFlipUp() {
+  const [up, setUp] = useState(false)
+  const panelRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) { setUp(false); return }
+    const wrap = el.parentElement
+    if (!wrap) return
+    let box = { top: 0, bottom: window.innerHeight }
+    for (let n: HTMLElement | null = wrap; n && n !== document.body; n = n.parentElement) {
+      if (getComputedStyle(n).overflowY !== "visible") {
+        const r = n.getBoundingClientRect()
+        box = { top: r.top, bottom: r.bottom }
+        break
+      }
+    }
+    const t = wrap.getBoundingClientRect()
+    const h = el.offsetHeight
+    setUp(t.bottom + h > box.bottom && t.top - h > box.top)
+  }, [])
+  return [up, panelRef] as const
+}
+
 export function FilterSelect({
   label, value, options, onChange, className, searchable, width = "w-52",
 }: {
@@ -67,6 +94,7 @@ export function FilterSelect({
 }) {
   const opts = normalizeOptions(options)
   const [open, setOpen] = useState(false)
+  const [up, panelRef] = useFlipUp()
   const [q, setQ] = useState("")
   const ref = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -99,7 +127,7 @@ export function FilterSelect({
       </button>
 
       {open && (
-        <div className={cn("absolute left-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-border bg-card shadow-md", width)}>
+        <div ref={panelRef} className={cn("absolute left-0 z-50 overflow-hidden rounded-lg border border-border bg-card shadow-md", up ? "bottom-full mb-1" : "top-full mt-1", width)}>
           {showSearch && (
             <div className="border-b border-border p-2">
               <div className="relative">
@@ -147,6 +175,7 @@ export function FilterMultiSelect({
   const activeBadge = tone === "danger" ? "bg-red-500 text-white" : "bg-primary text-primary-foreground"
   const opts = normalizeOptions(options)
   const [open, setOpen] = useState(false)
+  const [up, panelRef] = useFlipUp()
   const [q, setQ] = useState("")
   const ref = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -179,7 +208,7 @@ export function FilterMultiSelect({
       </button>
 
       {open && (
-        <div className={cn("absolute left-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-border bg-card shadow-md", width)}>
+        <div ref={panelRef} className={cn("absolute left-0 z-50 overflow-hidden rounded-lg border border-border bg-card shadow-md", up ? "bottom-full mb-1" : "top-full mt-1", width)}>
           <div className="border-b border-border p-2">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -651,6 +680,7 @@ export function MultiSortControl({ fields, sorts, onChange, iconOnly = false, di
   title?: string
 }) {
   const [open, setOpen] = useState(false)
+  const [up, panelRef] = useFlipUp()
   const ref = useRef<HTMLDivElement>(null)
   const dragIdx = useRef<number | null>(null)
   useEffect(() => {
@@ -677,7 +707,7 @@ export function MultiSortControl({ fields, sorts, onChange, iconOnly = false, di
         {sorts.length > 0 && !iconOnly && <span className="ml-0.5 rounded-full bg-primary-foreground/20 px-1.5 text-[10px] font-semibold">{sorts.length}</span>}
       </Button>
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-md">
+        <div ref={panelRef} className={cn("absolute right-0 z-50 w-72 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-md", up ? "bottom-full mb-1" : "top-full mt-1")}>
           <p className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Multi-level sort</p>
           {sorts.length === 0 && <p className="px-3 py-1.5 text-xs text-muted-foreground">No sort applied — add a level below.</p>}
           {sorts.map((s, i) => (
@@ -830,6 +860,7 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
   valueExtra?: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
+  const [up, panelRef] = useFlipUp()
   const [q, setQ] = useState("")
   const ref = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -917,7 +948,7 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-80 overflow-hidden rounded-lg border border-border bg-card shadow-md">
+        <div ref={panelRef} className={cn("absolute left-0 z-50 w-80 overflow-hidden rounded-lg border border-border bg-card shadow-md", up ? "bottom-full mb-1" : "top-full mt-1")}>
           <div className="border-b border-border p-1.5">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
@@ -1068,6 +1099,7 @@ export function AreaTreeSelect({ tree, value, onChange, values = [], onValuesCha
   placeholder?: string
 }) {
   const [open, setOpen] = useState(false)
+  const [up, panelRef] = useFlipUp()
   const [q, setQ] = useState("")
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -1113,7 +1145,7 @@ export function AreaTreeSelect({ tree, value, onChange, values = [], onValuesCha
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="absolute left-0 top-9 z-50 w-80 min-w-full rounded-md border border-border bg-popover p-1 shadow-md">
+        <div ref={panelRef} className={cn("absolute left-0 z-50 w-80 min-w-full rounded-md border border-border bg-popover p-1 shadow-md", up ? "bottom-full mb-1" : "top-9")}>
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search areas & subareas…" className="mb-1 h-7 text-xs" autoFocus />
           <div className="max-h-64 overflow-y-auto">
             {multi && values.length > 0 && (
@@ -1175,6 +1207,7 @@ export function DeveloperSelect({ developers, value = "", onChange, values = [],
   valueExtra?: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
+  const [up, panelRef] = useFlipUp()
   const [q, setQ] = useState("")
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -1219,7 +1252,7 @@ export function DeveloperSelect({ developers, value = "", onChange, values = [],
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="absolute left-0 top-9 z-50 w-80 min-w-full rounded-md border border-border bg-popover p-1 shadow-md">
+        <div ref={panelRef} className={cn("absolute left-0 z-50 w-80 min-w-full rounded-md border border-border bg-popover p-1 shadow-md", up ? "bottom-full mb-1" : "top-9")}>
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search developers…" className="mb-1 h-7 text-xs" autoFocus />
           <div className="max-h-64 overflow-y-auto">
             {multi && values.length > 0 && (
