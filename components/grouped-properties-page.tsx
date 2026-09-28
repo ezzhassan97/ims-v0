@@ -1912,16 +1912,17 @@ function moveEffect(g: GroupedProperty, destId: string): MoveEffect {
 
 /** Before → after pair for one status line. */
 function EffectLine({ label, from, to }: { label: string; from: string; to: string }) {
-  const tag = (v: string, muted?: boolean) => (
+  // Both sides keep their own status colour — the arrow carries the direction.
+  const tag = (v: string) => (
     <span className={cn(
       "inline-flex items-center rounded border px-1.5 py-px text-[10px] font-medium",
-      muted ? "border-border bg-muted text-muted-foreground" : OUTCOME_TONE[v] ?? "border-border bg-muted text-muted-foreground",
+      OUTCOME_TONE[v] ?? "border-border bg-muted text-muted-foreground",
     )}>{v}</span>
   )
   return (
     <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
       <span className="font-medium text-foreground">{label}</span>
-      {tag(from, true)}
+      {tag(from)}
       <MoveRight className="h-3 w-3" />
       {tag(to)}
     </span>
