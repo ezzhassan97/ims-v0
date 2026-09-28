@@ -1799,6 +1799,9 @@ function ConfidenceBar({ value }: { value: number }) {
   )
 }
 
+/** Below this, two properties are not the same unit — no match is surfaced and the move carries no conflict. */
+export const SIMILARITY_CUTOFF = 80
+
 /** Candidate matches for the drawer — the surfaced match first, then weaker alternatives the user can switch to. */
 function simulateCandidates(g: GroupedProperty, destProjectId: string, dest?: { developer: EntityRef; project: EntityRef; phase: EntityRef | null }): { confidence: number; prop: GroupedProperty }[] {
   const first = simulateSimilar(g, destProjectId, dest)
@@ -1825,7 +1828,7 @@ function simulateCandidates(g: GroupedProperty, destProjectId: string, dest?: { 
       resalePropertyId: c.prop.resalePropertyId ? `RSL-${70000 + (Number(c.prop.id) % 1000)}` : undefined,
     },
   })
-  return [first, alt(1, 6), alt(2, 13)].map(relink)
+  return [first, alt(1, 6), alt(2, 13)].filter(c => c.confidence >= SIMILARITY_CUTOFF).map(relink)
 }
 
 /**
@@ -1973,7 +1976,8 @@ function simulateSimilar(g: GroupedProperty, destProjectId: string, dest?: { dev
     listingStatus: (m.listing === "Active" ? "Published" : "Hidden") as GroupedProperty["listingStatus"],
     saleStatus: "Available" as const,
   }
-  return { confidence: 86 + (seed % 14), prop }
+  const confidence = 86 + (seed % 14)
+  return confidence >= SIMILARITY_CUTOFF ? { confidence, prop } : null
 }
 
 // ── Per-compound destination selector sub-component ───────────────────────────
@@ -2390,7 +2394,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
     <div className="flex gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5">
       <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
       <p className="text-xs text-blue-800">
-        <strong>The property title will be changed with this move</strong> — titles are auto-generated based on the property project and phase.
+        <strong>The property title and description will be changed with this move</strong> — both are auto-generated from the property project and phase.
       </p>
     </div>
   )
@@ -2972,9 +2976,12 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Other similar properties in {destName}
-                    </p>
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Other similar properties in {destName}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">Only properties at {SIMILARITY_CUTOFF}% and above count as similar.</p>
+                    </div>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                       <div className="space-y-1">
                         <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">ID</label>
