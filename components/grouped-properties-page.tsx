@@ -1655,6 +1655,113 @@ function PropertyInfoRow({ g, right }: { g: GroupedProperty; right?: React.React
   )
 }
 
+
+/** Destination path of a property — Developer › Project › Phase, with ids. */
+function PropertyPath({ g }: { g: GroupedProperty }) {
+  return (
+    <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
+      <Building2 className="h-3 w-3 shrink-0" />
+      <span>{g.developer.name}</span>
+      <span className="font-mono text-[9px]">{g.developer.id}</span>
+      <span>›</span>
+      <span className="font-medium text-foreground">{g.project.name}</span>
+      <span className="font-mono text-[9px]">{g.project.id}</span>
+      {g.phase && (
+        <>
+          <span>›</span>
+          <span className="font-medium text-foreground">{g.phase.name}</span>
+          <span className="font-mono text-[9px]">{g.phase.id}</span>
+        </>
+      )}
+    </span>
+  )
+}
+
+/**
+ * Property card for the matching drawer — two sections:
+ *  1. identity: id (copy + open in a new tab), sale type and statuses, confidence
+ *  2. main info, expandable to the full field set
+ */
+function MatchCard({ g, confidence, tone = "plain", action, defaultOpen = false }: {
+  g: GroupedProperty
+  confidence?: number
+  tone?: "plain" | "matched" | "muted"
+  action?: React.ReactNode
+  defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  const fmtPrice = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n.toLocaleString())
+  const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
+    <div className="min-w-0">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="truncate text-xs font-medium text-foreground">{value || "—"}</p>
+    </div>
+  )
+  return (
+    <div className={cn(
+      "overflow-hidden rounded-lg border bg-card",
+      tone === "matched" ? "border-primary ring-1 ring-primary/30" : tone === "muted" ? "border-border opacity-60" : "border-border",
+    )}>
+      {/* 1 — identity */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/70 px-3 py-2">
+        <span className="font-mono text-xs font-semibold text-foreground">{g.id}</span>
+        <button
+          type="button" title="Copy ID"
+          onClick={() => navigator.clipboard?.writeText(g.id).catch(() => {})}
+          className="text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <Copy className="h-3 w-3" />
+        </button>
+        <button
+          type="button" title="Open property details in a new tab"
+          onClick={() => window.open(`/properties/grouped/${g.id}`, "_blank", "noopener")}
+          className="text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ExternalLink className="h-3 w-3" />
+        </button>
+        <Badge variant="outline" className={cn("px-1 py-0 text-[10px] font-medium", badgeClass[g.saleType])}>{g.saleType}</Badge>
+        <Badge variant="outline" className={cn("px-1 py-0 text-[10px] font-medium", badgeClass[g.entryType])}>{g.entryType}</Badge>
+        <Badge variant="outline" className={cn("px-1 py-0 text-[10px] font-medium", badgeClass[g.listingStatus])}>{g.listingStatus}</Badge>
+        <Badge variant="outline" className={cn("border px-1 py-0 text-[10px] font-medium", SALE_STATUS_CLS[g.saleStatus])}>{g.saleStatus}</Badge>
+        <span className="ml-auto flex items-center gap-2">
+          {confidence !== undefined && <ConfidenceBar value={confidence} />}
+          {action}
+          <button
+            type="button" title={open ? "Show less" : "Show more fields"}
+            onClick={() => setOpen(v => !v)}
+            className="rounded border border-border p-0.5 text-muted-foreground transition-colors hover:bg-muted"
+          >
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
+          </button>
+        </span>
+      </div>
+
+      {/* 2 — main info, expandable */}
+      <div className="space-y-2 px-3 py-2.5">
+        <PropertyPath g={g} />
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+          <Field label="Property type" value={`${g.propertyType}${g.propertySubType ? ` - ${g.propertySubType}` : ""}`} />
+          <Field label="Bedrooms" value={g.bedroom || "—"} />
+          <Field label="Bathrooms" value={g.bathroom || "—"} />
+          <Field label="Gross area" value={`${g.areaMin}–${g.areaMax} SQM`} />
+          <Field label="Price" value={`${fmtPrice(g.priceMin)} – ${fmtPrice(g.priceMax)} EGP`} />
+          <Field label="Finishing" value={g.finishing} />
+          {open && (
+            <>
+              <Field label="Category" value={g.propertyCategory} />
+              <Field label="Delivery type / date" value={`${g.deliveryType} / ${g.deliveryDate}`} />
+              <Field label="Units" value={`${g.availableUnits} / ${g.totalUnits} available`} />
+              <Field label="Location" value={[g.locationArea, g.district, g.subarea].filter(Boolean).join(" · ")} />
+              <Field label="Payment plans" value={`${g.plans} plan${g.plans === 1 ? "" : "s"} · ${g.offers} offer${g.offers === 1 ? "" : "s"}`} />
+              <Field label="Last updated" value={g.updatedAt} />
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** Similarity confidence — progress bar + percentage; amber above 80, green above 90. */
 function ConfidenceBar({ value }: { value: number }) {
   const bar = value > 90 ? "bg-emerald-500" : "bg-amber-500"
@@ -1670,13 +1777,15 @@ function ConfidenceBar({ value }: { value: number }) {
 }
 
 /** Candidate matches for the drawer — the surfaced match first, then weaker alternatives the user can switch to. */
-function simulateCandidates(g: GroupedProperty, destProjectId: string): { confidence: number; prop: GroupedProperty }[] {
-  const first = simulateSimilar(g, destProjectId)
+function simulateCandidates(g: GroupedProperty, destProjectId: string, dest?: { developer: EntityRef; project: EntityRef; phase: EntityRef | null }): { confidence: number; prop: GroupedProperty }[] {
+  const first = simulateSimilar(g, destProjectId, dest)
   if (!first) return []
   const alt = (i: number, drop: number) => ({
     confidence: Math.max(68, first.confidence - drop),
     prop: {
       ...first.prop,
+      bathroom: Math.max(1, first.prop.bathroom + (i % 2 === 0 ? 1 : 0)),
+      finishing: i % 2 === 0 ? first.prop.finishing : "FULLY FINISHED",
       id: String(Number(first.prop.id) + i * 71),
       areaMin: first.prop.areaMin + i * 3,
       areaMax: first.prop.areaMax + i * 5,
@@ -1813,7 +1922,7 @@ function MoveOutcomeBox({ destId, groups, bare }: { destId: string; groups: Grou
  * confidence, together with the destination property that causes the conflict.
  * Deterministic mock: roughly half the groups find a similar destination match.
  */
-function simulateSimilar(g: GroupedProperty, destProjectId: string): { confidence: number; prop: GroupedProperty } | null {
+function simulateSimilar(g: GroupedProperty, destProjectId: string, dest?: { developer: EntityRef; project: EntityRef; phase: EntityRef | null }): { confidence: number; prop: GroupedProperty } | null {
   const seed = g.bedroom + g.bathroom + destProjectId.length + destProjectId.charCodeAt(destProjectId.length - 1)
   if (seed % 2 !== 0) return null
   const m = destMeta(destProjectId)
@@ -1821,6 +1930,8 @@ function simulateSimilar(g: GroupedProperty, destProjectId: string): { confidenc
   const prop = {
     ...g,
     id: `${100000 + (seed * 137) % 90000}`,
+    // these live in the DESTINATION, so they carry its developer / project / phase
+    ...(dest ? { developer: dest.developer, project: dest.project, phase: dest.phase } : {}),
     areaMin: g.areaMin - 4,
     areaMax: g.areaMax + 6,
     priceMin: Math.round(g.priceMin * 0.97),
@@ -2143,6 +2254,8 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
   // Which similarity candidate is treated as THE match (changeable from the matching drawer)
   const [matchPick, setMatchPick] = useState<Record<string, number>>({})
   const [matchDrawer, setMatchDrawer] = useState<string | null>(null)
+  const MATCH_FILTERS_EMPTY = { id: "", delivery: "all", finishing: "all", beds: "all", status: "all" }
+  const [matchFilters, setMatchFilters] = useState(MATCH_FILTERS_EMPTY)
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   // Snapshot for the done screen — confirming clears the parent selection, which empties live-derived counts
   const [doneSnap, setDoneSnap] = useState<{ groups: number; units: number; compounds: number; lines: { from: string; to: string }[] } | null>(null)
@@ -2159,6 +2272,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
       setDecisions({})
       setMatchPick({})
       setMatchDrawer(null)
+      setMatchFilters(MATCH_FILTERS_EMPTY)
       setCollapsedSections(new Set())
       setDoneSnap(null)
     }
@@ -2179,7 +2293,14 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
           const dupes = findCodeClashes(realUnitCodes(g), dest.projectId, dest.phaseId !== "none" ? dest.phaseId : null)
           newChecks[g.id] = { kind: "unitcode", dupes, candidates: [] }
         } else {
-          const candidates = simulateCandidates(g, dest.projectId)
+          const destProj = (DEST_PROJECTS[dest.devId] ?? []).find(pr => pr.id === dest.projectId)
+          const destDev = DEST_DEVELOPERS.find(d => d.id === dest.devId)
+          const destPh = dest.phaseId !== "none" ? (destProj?.phases ?? []).find(ph => ph.id === dest.phaseId) : null
+          const candidates = simulateCandidates(g, dest.projectId, {
+            developer: { name: destDev?.name ?? "", id: dest.devId, url: "#" },
+            project: { name: destProj?.name ?? "", id: dest.projectId, url: "#" },
+            phase: destPh ? { name: destPh.name, id: destPh.id, url: "#" } : null,
+          })
           newChecks[g.id] = { kind: "similarity", dupes: [], candidates }
           if (candidates.length > 0) newDecisions[g.id] = "overwrite"
         }
@@ -2745,75 +2866,114 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
           const { destName } = destOf(cg)
           const cands = checks[g.id]?.candidates ?? []
           const pick = Math.min(matchPick[g.id] ?? 0, cands.length - 1)
+          const asNew = (decisions[g.id] ?? "overwrite") === "new"
+          const others = cands.map((c, i) => ({ ...c, i })).filter(c => c.i !== pick)
+          // Filters over the other candidates — same shape as the matching screens elsewhere
+          const f = matchFilters
+          const visible = others.filter(c => {
+            if (f.id && !c.prop.id.includes(f.id.trim())) return false
+            if (f.delivery !== "all" && c.prop.deliveryType !== f.delivery) return false
+            if (f.finishing !== "all" && c.prop.finishing !== f.finishing) return false
+            if (f.beds !== "all" && String(c.prop.bedroom) !== f.beds) return false
+            if (f.status !== "all" && c.prop.saleStatus !== f.status) return false
+            return true
+          })
+          const opts = (vals: string[]) => ["all", ...Array.from(new Set(vals))]
+          const FilterBox = ({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) => (
+            <div className="space-y-1">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
+              <select
+                value={value} onChange={e => onChange(e.target.value)}
+                className="h-8 w-full rounded-md border border-input bg-card px-2 text-xs"
+              >
+                {options.map(o => <option key={o} value={o}>{o === "all" ? "All" : o}</option>)}
+              </select>
+            </div>
+          )
           return (
             <Sheet open onOpenChange={o => { if (!o) setMatchDrawer(null) }}>
-              <SheetContent side="right" className="!w-[760px] !max-w-[95vw] p-0 flex flex-col">
-                <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
-                  <SheetTitle className="text-base">Property Matching</SheetTitle>
-                  <SheetDescription className="text-xs">
-                    Source property vs similar properties found in {destName}. Pick a different property to treat as the match,
-                    or declare it a new property so nothing is overwritten.
-                  </SheetDescription>
+              <SheetContent side="right" className="!w-[820px] !max-w-[96vw] p-0 flex flex-col">
+                <SheetHeader className="shrink-0 gap-2 border-b border-border px-5 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <SheetTitle className="text-base">Property Matching</SheetTitle>
+                      <SheetDescription className="text-xs">Matching in {destName}.</SheetDescription>
+                    </div>
+                    {/* Both outcomes reachable from the top */}
+                    <Button
+                      size="sm" variant={asNew ? "default" : "outline"} className="h-7 shrink-0 text-xs"
+                      onClick={() => setDecisions(prev => ({ ...prev, [g.id]: asNew ? "overwrite" : "new" }))}
+                    >
+                      {asNew ? "Matched — undo move as new" : "Move as new"}
+                    </Button>
+                  </div>
                 </SheetHeader>
-                <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+
+                <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
                   <div className="space-y-1.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Source property</p>
-                    <div className="overflow-hidden rounded-lg border border-border bg-card"><PropertyInfoRow g={g} /></div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Property being moved</p>
+                    <MatchCard g={g} />
                   </div>
-                  {(decisions[g.id] ?? "overwrite") === "new" && (
-                    <p className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-800">
-                      <Info className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                      Marked as a <span className="font-semibold">new property</span> — it moves in on its own and overwrites nothing.
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Matched to</p>
+                      {asNew && (
+                        <span className="inline-flex items-center rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                          Moving as new — nothing is overwritten
+                        </span>
+                      )}
+                    </div>
+                    {cands[pick] && <MatchCard g={cands[pick].prop} confidence={cands[pick].confidence} tone={asNew ? "muted" : "matched"} defaultOpen />}
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Other similar properties in {destName}
                     </p>
-                  )}
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Matched property</p>
-                    <div className={cn("overflow-hidden rounded-lg border bg-card", (decisions[g.id] ?? "overwrite") === "new" ? "border-border opacity-60" : "border-emerald-300")}>
-                      <PropertyInfoRow g={cands[pick].prop} />
-                      <div className="flex items-center justify-between border-t border-border/70 bg-emerald-50/50 px-4 py-2">
-                        <ConfidenceBar value={cands[pick].confidence} />
-                        <Badge variant="outline" className="border-emerald-200 bg-emerald-100 text-[10px] font-medium text-emerald-700">Current match</Badge>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">ID</label>
+                        <Input
+                          value={f.id} onChange={e => setMatchFilters(prev => ({ ...prev, id: e.target.value }))}
+                          placeholder="Search by ID…" className="h-8 text-xs"
+                        />
                       </div>
+                      <FilterBox label="Delivery type" value={f.delivery} onChange={v => setMatchFilters(prev => ({ ...prev, delivery: v }))} options={opts(others.map(c => c.prop.deliveryType))} />
+                      <FilterBox label="Finishing" value={f.finishing} onChange={v => setMatchFilters(prev => ({ ...prev, finishing: v }))} options={opts(others.map(c => c.prop.finishing))} />
+                      <FilterBox label="Bedrooms" value={f.beds} onChange={v => setMatchFilters(prev => ({ ...prev, beds: v }))} options={opts(others.map(c => String(c.prop.bedroom)))} />
+                      <FilterBox label="Status" value={f.status} onChange={v => setMatchFilters(prev => ({ ...prev, status: v }))} options={opts(others.map(c => c.prop.saleStatus))} />
+                    </div>
+                    <div className="space-y-2">
+                      {visible.map(c => (
+                        <MatchCard
+                          key={c.prop.id}
+                          g={c.prop}
+                          confidence={c.confidence}
+                          action={
+                            <Button
+                              size="sm" variant="outline" className="h-6 px-2 text-[11px]"
+                              onClick={() => { setMatchPick(prev => ({ ...prev, [g.id]: c.i })); setDecisions(prev => ({ ...prev, [g.id]: "overwrite" })) }}
+                            >
+                              Use as match
+                            </Button>
+                          }
+                        />
+                      ))}
+                      {visible.length === 0 && (
+                        <p className="rounded-lg border border-dashed border-border py-6 text-center text-xs text-muted-foreground">
+                          {others.length === 0 ? "No other similar property in this destination." : "No property matches these filters."}
+                        </p>
+                      )}
                     </div>
                   </div>
-                  {cands.length > 1 && (
-                    <div className="space-y-1.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Other similar properties</p>
-                      <div className="space-y-2">
-                        {cands.map((c, i) => i === pick ? null : (
-                          <div key={c.prop.id} className="overflow-hidden rounded-lg border border-border bg-card">
-                            <PropertyInfoRow g={c.prop} />
-                            <div className="flex items-center justify-between border-t border-border/70 bg-muted/30 px-4 py-2">
-                              <ConfidenceBar value={c.confidence} />
-                              <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => setMatchPick(prev => ({ ...prev, [g.id]: i }))}>
-                                Use as match
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
-                {/* Either of the two outcomes the reviewer can pick, always reachable */}
+
                 <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-3">
                   <p className="text-[11px] text-muted-foreground">
-                    {(decisions[g.id] ?? "overwrite") === "new"
-                      ? "No property in the destination will be overwritten."
-                      : "On confirmation the matched property is overwritten by this one."}
+                    {asNew ? "No property in the destination will be overwritten." : "On confirmation the matched property is overwritten by this one."}
                   </p>
-                  <div className="flex items-center gap-2">
-                    {(decisions[g.id] ?? "overwrite") === "new" ? (
-                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setDecisions(prev => ({ ...prev, [g.id]: "overwrite" }))}>
-                        Treat as the same property
-                      </Button>
-                    ) : (
-                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setDecisions(prev => ({ ...prev, [g.id]: "new" }))}>
-                        Not a match — move as new
-                      </Button>
-                    )}
-                    <Button size="sm" className="h-7 text-xs" onClick={() => setMatchDrawer(null)}>Done</Button>
-                  </div>
+                  <Button size="sm" className="h-7 text-xs" onClick={() => setMatchDrawer(null)}>Done</Button>
                 </div>
               </SheetContent>
             </Sheet>
