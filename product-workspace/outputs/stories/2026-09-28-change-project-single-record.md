@@ -86,9 +86,10 @@ before anything is applied.
    and `h116groundA` are the same code.
 3. Scope: when a phase is chosen, codes are matched against **that phase and its parent project**; when only a
    project is chosen, against the project and all of its phases.
-4. Any code that already exists in the destination is a **duplicate**: the moved unit overwrites the destination
-   record so the destination is never left with two units of the same code. The clashing codes are listed in the
-   review, with the note that matching is normalized.
+4. Any code that already exists in the destination is a **duplicate**: on confirmation the destination's duplicate
+   **detailed property is deleted** and the moved unit takes its place, so the destination is never left with two
+   units of the same code. The destination's property and property metadata are untouched — the match is at unit
+   level. The clashing codes are listed in the review, with the note that matching is normalized.
 5. There is no choice to make here — an exact code match is an identity match, so no `Move as new` option is
    offered for this path.
 6. When no code clashes, the review states there is no conflict.
@@ -104,7 +105,8 @@ before anything is applied.
    not surfaced at all. When nothing reaches 80%, the review states no similar property was found and the move
    carries no conflict.
 4. When a match is found the user picks one of two outcomes, `Overwrite` (default) or `Move as new`:
-   1. `Overwrite` — the matched destination property is replaced by the moved one.
+   1. `Overwrite` — the matched destination property is replaced by the moved one: its **detailed property,
+      property and property metadata are deleted** as a duplicate, and the moved property takes its place.
    2. `Move as new` — nothing in the destination is touched; the property lands as a new record.
 5. `View matching details` on the confidence bar opens the matching drawer (2.8).
 
@@ -121,8 +123,8 @@ before anything is applied.
       property, naming its linked Resale property).
    2. Confirming the move moves **both records** to the same destination. The linked unit is not listed as a
       separate row to act on, and it cannot be excluded.
-   3. If the matched destination property is itself linked, overwriting replaces **both** the matched property and
-      its counterpart — stated in the drawer footer.
+   3. If the matched destination property is itself linked, overwriting deletes **both** the matched property and
+      its counterpart (each with its detailed property and property metadata) — stated in the drawer footer.
    4. The counterpart ID is shown on every card in the drawer as `Linked to: NN-XXXXX (Nawy Now)` /
       `Linked to: RSL-XXXXX (Resale)`, opening that record in a new tab.
 
@@ -171,9 +173,14 @@ before anything is applied.
 1. Unit-code comparison is normalized (`lower → trim → strip every non-alphanumeric character`) on both sides
    before comparing; the stored unit code itself is not rewritten.
 2. Similarity uses the existing manual-ingestion comparison service; this story does not introduce a new algorithm.
-   The 80% threshold should be configurable rather than hard-coded (to confirm).
-3. Overwriting keeps the destination record's ID and replaces its data with the moved property's, so links held by
-   other systems to the destination record stay valid (to confirm).
+   The 80% threshold is **hard-coded** — no setting, no per-sale-type override.
+3. Overwriting **deletes** the duplicate in the destination; the moved record is not merged into it:
+   1. Unit-code path (Primary Automatic) — delete the duplicate **detailed property** only.
+   2. Similarity path (Primary Manual, Resale, Nawy Now) — delete the duplicate **detailed property, property and
+      property metadata**.
+   3. A linked Resale ⇄ Nawy Now duplicate is deleted on both sides, each with its own records.
+   4. Deleted IDs are gone: anything holding the destination record's ID (external links, cached listings) must be
+      refreshed — the moved property keeps its own ID.
 4. Title and description regeneration reuses the existing auto-generation used at creation.
 5. The move is one transaction: the property, its detailed units and its linked counterpart all move or none do.
 
@@ -199,10 +206,12 @@ before anything is applied.
       destination's three tags appear on the destination line.
 - [ ] The title-and-description disclaimer is visible on both steps.
 - [ ] Primary Automatic into a destination holding the same unit code (written differently, e.g. `h116grounda`):
-      the code is listed as a duplicate and, after confirming, the destination holds one record, not two.
+      the code is listed as a duplicate and, after confirming, the destination's duplicate **detailed property** is
+      deleted, its property and property metadata still exist, and the destination holds one unit for that code.
 - [ ] Primary Automatic with no matching code: the review reports no conflict.
-- [ ] Primary Manual with a destination twin: a confidence percentage is shown, `Overwrite` is preselected, and
-      `Move as new` leaves the destination twin untouched after confirming.
+- [ ] Primary Manual with a destination twin: a confidence percentage is shown, `Overwrite` is preselected, and on
+      confirming the twin's **detailed property, property and property metadata are deleted**.
+- [ ] `Move as new` on the same case leaves the destination twin and all three of its records untouched.
 - [ ] A candidate below 80% is not offered anywhere — not as the match and not in `Other similar properties`.
 - [ ] In the drawer, `Use as match` on another candidate makes it the matched property and returns the decision to
       `Overwrite`; `No Match - Mark as New` mutes the match and the footer confirms nothing is overwritten.
@@ -227,8 +236,10 @@ before anything is applied.
   developer **written differently** (case/spacing/symbols); one Primary Manual property with a near-identical twin
   in another project; one Resale **with** a unit code and one **without**; one Resale ⇄ Nawy Now linked pair; and
   destination projects covering `On-Sale`, `On-Hold`, `Sold-Off`, `Hidden` listing, and both entry types.
-- Check after each overwrite that the destination holds exactly one record for the unit and that the overwritten
-  record's payment plans, images and detailed units are the moved property's.
+- Check after each overwrite what was actually deleted: unit-code path → only the duplicate detailed property;
+  similarity path → the detailed property, the property and the property metadata. Confirm no orphan property
+  metadata is left behind, and that the destination holds exactly one record for the unit.
 - Verify the moved property on the Website and the mobile app: a unit hidden by the move must disappear from
   listings, and titles must reflect the new project.
-- Back up the properties table before the first production run — the move overwrites destination records.
+- Back up the properties, detailed properties and property metadata tables before the first production run — an
+  overwrite deletes destination records and is not reversible from the UI.

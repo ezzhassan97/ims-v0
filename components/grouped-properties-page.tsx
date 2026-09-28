@@ -2508,7 +2508,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
             <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
             <span>
               <span className="font-semibold">{c.dupes.length} unit code{c.dupes.length !== 1 ? "s" : ""} already exist{c.dupes.length === 1 ? "s" : ""} in {destName}</span>
-              {parent && <> or its parent <span className="font-semibold">{parent.name}</span></>} — the moved units <span className="font-semibold">overwrite</span> those records so the destination keeps no duplicates.
+              {parent && <> or its parent <span className="font-semibold">{parent.name}</span></>} — the duplicate units there are <span className="font-semibold">deleted</span> and replaced by the moved ones, so the destination keeps no duplicates.
             </span>
           </p>
           <div className="flex flex-wrap gap-1.5 pl-5">
@@ -3025,8 +3025,8 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                     {asNew
                       ? "No property in the destination will be overwritten."
                       : matchLink
-                        ? `On confirmation the matched property, and its linked ${matchLink.kind} property ${matchLink.id}, are overwritten by this one and its linked unit.`
-                        : "On confirmation the matched property is overwritten by this one."}
+                        ? `On confirmation the matched property, and its linked ${matchLink.kind} property ${matchLink.id}, are deleted and replaced by this one and its linked unit.`
+                        : "On confirmation the matched property is deleted and replaced by this one."}
                   </p>
                   <Button size="sm" className="h-7 text-xs" onClick={() => setMatchDrawer(null)}>Done</Button>
                 </div>
