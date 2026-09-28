@@ -1677,25 +1677,38 @@ function PropertyPath({ g }: { g: GroupedProperty }) {
   )
 }
 
+/** Resale ⇄ Nawy Now counterpart of a property — the two records always move together. */
+function linkedRef(g: GroupedProperty): { kind: string; id: string; href: string } | null {
+  if (g.nawyNowId) return { kind: "Nawy Now", id: g.nawyNowId, href: `/nawy-now/${g.nawyNowId}` }
+  if (g.resalePropertyId) return { kind: "Resale", id: g.resalePropertyId, href: `/resale/${g.resalePropertyId}` }
+  return null
+}
+
 /**
- * Property card for the matching drawer — two sections:
- *  1. identity: id (copy + open in a new tab), sale type and statuses, confidence
- *  2. main info, expandable to the full field set
+ * Property card for the matching drawer — three sections:
+ *  1. identity: property id (copy + open in a new tab), linked counterpart, sale type
+ *     and statuses, confidence
+ *  2. the field grid
+ *  3. timestamps footer, same treatment as the property cards on All Properties
  */
-function MatchCard({ g, confidence, tone = "plain", action, defaultOpen = false }: {
+function MatchCard({ g, confidence, tone = "plain", action }: {
   g: GroupedProperty
   confidence?: number
   tone?: "plain" | "matched" | "muted"
   action?: React.ReactNode
-  defaultOpen?: boolean
 }) {
-  const [open, setOpen] = useState(defaultOpen)
   const fmtPrice = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n.toLocaleString())
+  const linked = linkedRef(g)
   const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
     <div className="min-w-0">
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="truncate text-xs font-medium text-foreground">{value || "—"}</p>
+      <p className="truncate text-xs font-medium text-foreground">{value || "\u2014"}</p>
     </div>
+  )
+  const Stamp = ({ label, value }: { label: string; value: string }) => (
+    <span className="flex items-center gap-1 text-[10px] text-[#5A6A85]">
+      <span className="font-medium text-[#8C9BB5]">{label}</span>{value}
+    </span>
   )
   return (
     <div className={cn(
@@ -1703,60 +1716,70 @@ function MatchCard({ g, confidence, tone = "plain", action, defaultOpen = false 
       tone === "matched" ? "border-primary ring-1 ring-primary/30" : tone === "muted" ? "border-border opacity-60" : "border-border",
     )}>
       {/* 1 — identity */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/70 px-3 py-2">
-        <span className="font-mono text-xs font-semibold text-foreground">{g.id}</span>
-        <button
-          type="button" title="Copy ID"
-          onClick={() => navigator.clipboard?.writeText(g.id).catch(() => {})}
-          className="text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <Copy className="h-3 w-3" />
-        </button>
-        <button
-          type="button" title="Open property details in a new tab"
-          onClick={() => window.open(`/properties/grouped/${g.id}`, "_blank", "noopener")}
-          className="text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ExternalLink className="h-3 w-3" />
-        </button>
-        <Badge variant="outline" className={cn("px-1 py-0 text-[10px] font-medium", badgeClass[g.saleType])}>{g.saleType}</Badge>
-        <Badge variant="outline" className={cn("px-1 py-0 text-[10px] font-medium", badgeClass[g.entryType])}>{g.entryType}</Badge>
-        <Badge variant="outline" className={cn("px-1 py-0 text-[10px] font-medium", badgeClass[g.listingStatus])}>{g.listingStatus}</Badge>
-        <Badge variant="outline" className={cn("border px-1 py-0 text-[10px] font-medium", SALE_STATUS_CLS[g.saleStatus])}>{g.saleStatus}</Badge>
-        <span className="ml-auto flex items-center gap-2">
+      <div className="flex items-start justify-between gap-2 border-b border-border/70 px-3 py-2">
+        <div className="min-w-0 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-[11px] text-muted-foreground">Property ID:</span>
+            <span className="font-mono text-xs font-semibold text-foreground">{g.id}</span>
+            <button
+              type="button" title="Copy ID"
+              onClick={() => navigator.clipboard?.writeText(g.id).catch(() => {})}
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Copy className="h-3 w-3" />
+            </button>
+            <button
+              type="button" title="Open property details in a new tab"
+              onClick={() => window.open(`/properties/grouped/${g.id}`, "_blank", "noopener")}
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </button>
+            {linked && (
+              <span className="flex items-center gap-1.5 border-l border-border pl-2 text-[11px] text-muted-foreground">
+                <Link2 className="h-3 w-3 shrink-0" />
+                Linked to:
+                <span className="text-xs"><LinkedId value={linked.id} href={linked.href} /></span>
+                <span className="text-[10px]">({linked.kind})</span>
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline" className={cn("px-1 py-0 text-[10px] font-medium", badgeClass[g.saleType])}>{g.saleType}</Badge>
+            <Badge variant="outline" className={cn("px-1 py-0 text-[10px] font-medium", badgeClass[g.entryType])}>{g.entryType}</Badge>
+            <Badge variant="outline" className={cn("px-1 py-0 text-[10px] font-medium", badgeClass[g.listingStatus])}>{g.listingStatus}</Badge>
+            <Badge variant="outline" className={cn("border px-1 py-0 text-[10px] font-medium", SALE_STATUS_CLS[g.saleStatus])}>{g.saleStatus}</Badge>
+          </div>
+        </div>
+        <span className="flex shrink-0 items-center gap-2">
           {confidence !== undefined && <ConfidenceBar value={confidence} />}
           {action}
-          <button
-            type="button" title={open ? "Show less" : "Show more fields"}
-            onClick={() => setOpen(v => !v)}
-            className="rounded border border-border p-0.5 text-muted-foreground transition-colors hover:bg-muted"
-          >
-            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
-          </button>
         </span>
       </div>
 
-      {/* 2 — main info, expandable */}
+      {/* 2 — fields */}
       <div className="space-y-2 px-3 py-2.5">
         <PropertyPath g={g} />
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
           <Field label="Property type" value={`${g.propertyType}${g.propertySubType ? ` - ${g.propertySubType}` : ""}`} />
-          <Field label="Bedrooms" value={g.bedroom || "—"} />
-          <Field label="Bathrooms" value={g.bathroom || "—"} />
-          <Field label="Gross area" value={`${g.areaMin}–${g.areaMax} SQM`} />
-          <Field label="Price" value={`${fmtPrice(g.priceMin)} – ${fmtPrice(g.priceMax)} EGP`} />
+          <Field label="Bedrooms" value={g.bedroom || "\u2014"} />
+          <Field label="Bathrooms" value={g.bathroom || "\u2014"} />
+          <Field label="Gross area" value={`${g.areaMin}\u2013${g.areaMax} SQM`} />
+          <Field label="Price" value={`${fmtPrice(g.priceMin)} \u2013 ${fmtPrice(g.priceMax)} EGP`} />
           <Field label="Finishing" value={g.finishing} />
-          {open && (
-            <>
-              <Field label="Category" value={g.propertyCategory} />
-              <Field label="Delivery type / date" value={`${g.deliveryType} / ${g.deliveryDate}`} />
-              <Field label="Units" value={`${g.availableUnits} / ${g.totalUnits} available`} />
-              <Field label="Location" value={[g.locationArea, g.district, g.subarea].filter(Boolean).join(" · ")} />
-              <Field label="Payment plans" value={`${g.plans} plan${g.plans === 1 ? "" : "s"} · ${g.offers} offer${g.offers === 1 ? "" : "s"}`} />
-              <Field label="Last updated" value={g.updatedAt} />
-            </>
-          )}
+          <Field label="Delivery type / date" value={`${g.deliveryType} / ${g.deliveryDate}`} />
+          <Field label="Category" value={g.propertyCategory} />
+          <Field label="Units" value={`${g.availableUnits} / ${g.totalUnits} available`} />
+          <Field label="Location" value={[g.locationArea, g.district, g.subarea].filter(Boolean).join(" \u00b7 ")} />
+          <Field label="Payment plans" value={`${g.plans} plan${g.plans === 1 ? "" : "s"} \u00b7 ${g.offers} offer${g.offers === 1 ? "" : "s"}`} />
         </div>
+      </div>
+
+      {/* 3 — timestamps */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/70 bg-muted/30 px-3 py-1.5">
+        <Stamp label="Created" value={g.createdAt} />
+        <Stamp label="Updated" value={g.updatedAt} />
+        <Stamp label="Availability updated" value={g.availabilityUpdatedAt} />
       </div>
     </div>
   )
@@ -1793,7 +1816,16 @@ function simulateCandidates(g: GroupedProperty, destProjectId: string, dest?: { 
       priceMax: Math.round(first.prop.priceMax * (1 + i * 0.04)),
     },
   })
-  return [first, alt(1, 6), alt(2, 13)]
+  // A candidate is its own record — it can't share the source's linked counterpart
+  const relink = (c: { confidence: number; prop: GroupedProperty }) => ({
+    ...c,
+    prop: {
+      ...c.prop,
+      nawyNowId: c.prop.nawyNowId ? `NN-${50000 + (Number(c.prop.id) % 1000)}` : undefined,
+      resalePropertyId: c.prop.resalePropertyId ? `RSL-${70000 + (Number(c.prop.id) % 1000)}` : undefined,
+    },
+  })
+  return [first, alt(1, 6), alt(2, 13)].map(relink)
 }
 
 /**
@@ -2868,6 +2900,9 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
           const pick = Math.min(matchPick[g.id] ?? 0, cands.length - 1)
           const asNew = (decisions[g.id] ?? "overwrite") === "new"
           const others = cands.map((c, i) => ({ ...c, i })).filter(c => c.i !== pick)
+          // Resale ⇄ Nawy Now counterparts — both sides of a match carry theirs along
+          const srcLink = linkedRef(g)
+          const matchLink = cands[pick] ? linkedRef(cands[pick].prop) : null
           // Filters over the other candidates — same shape as the matching screens elsewhere
           const f = matchFilters
           const visible = others.filter(c => {
@@ -2904,7 +2939,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                       size="sm" variant={asNew ? "default" : "outline"} className="h-7 shrink-0 text-xs"
                       onClick={() => setDecisions(prev => ({ ...prev, [g.id]: asNew ? "overwrite" : "new" }))}
                     >
-                      {asNew ? "Matched — undo move as new" : "Move as new"}
+                      {asNew ? "Marked as new — undo" : "No Match - Mark as New"}
                     </Button>
                   </div>
                 </SheetHeader>
@@ -2913,6 +2948,13 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                   <div className="space-y-1.5">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Property being moved</p>
                     <MatchCard g={g} />
+                    {srcLink && (
+                      <p className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+                        <Link2 className="h-3 w-3 shrink-0" />
+                        Its linked <span className="font-medium text-foreground">{srcLink.kind}</span> property
+                        <span className="font-mono">{srcLink.id}</span> moves with it — the two records can't be split apart.
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">
@@ -2924,7 +2966,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                         </span>
                       )}
                     </div>
-                    {cands[pick] && <MatchCard g={cands[pick].prop} confidence={cands[pick].confidence} tone={asNew ? "muted" : "matched"} defaultOpen />}
+                    {cands[pick] && <MatchCard g={cands[pick].prop} confidence={cands[pick].confidence} tone={asNew ? "muted" : "matched"} />}
                   </div>
 
                   <div className="space-y-2">
@@ -2971,7 +3013,11 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
 
                 <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-3">
                   <p className="text-[11px] text-muted-foreground">
-                    {asNew ? "No property in the destination will be overwritten." : "On confirmation the matched property is overwritten by this one."}
+                    {asNew
+                      ? "No property in the destination will be overwritten."
+                      : matchLink
+                        ? `On confirmation the matched property, and its linked ${matchLink.kind} property ${matchLink.id}, are overwritten by this one and its linked unit.`
+                        : "On confirmation the matched property is overwritten by this one."}
                   </p>
                   <Button size="sm" className="h-7 text-xs" onClick={() => setMatchDrawer(null)}>Done</Button>
                 </div>
