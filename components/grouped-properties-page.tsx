@@ -58,7 +58,7 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { TabStrip, LinkedId } from "@/components/table-kit"
+import { TabStrip, LinkedId, ProjectTreeSelect, type ProjectTreeNode, type ProjectTreeSelection } from "@/components/table-kit"
 import { launchesSnapshot, isIngestedLaunch, type Launch } from "@/lib/launches-mock"
 import { ChangeLinkedLaunchDialog, listingForLaunchStatus } from "@/components/launch-form-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -344,7 +344,12 @@ function makeGroups(): GroupedProperty[] {
       amenities: amenityPool[i % amenityPool.length],
       details: Array.from({ length: units }, (_, ui) => ({
         id: String(122679 + i * 100 + ui),
-        unitCode: `h${i + 3}${ui + 4}${ui % 2 === 0 ? "grounda" : "groundb"}`,
+        // Real-world formatting (case, spaces, separators) — matching normalizes it away.
+        // Resale / Nawy Now are Manual entry: roughly half of them carry no unit code at all,
+        // which is what sends those records down the similarity-matching path instead.
+        unitCode: (spec.saleType === "Resale" || spec.saleType === "Nawy Now") && i % 2 === 1
+          ? ""
+          : `H-${i + 3}${ui + 4} / Ground ${ui % 2 === 0 ? "A" : "B"}`,
         unitNumber: "N/A",
         unitModel: `H ${ui % 2 === 0 ? "Ground" : "Typical"}`,
         netBua: areaBase,
@@ -965,9 +970,12 @@ function GroupCard({
                         <Banknote className="h-3.5 w-3.5 mr-2" /> {financing ? "Disable Financing" : "Allow Financing"}
                       </DropdownMenuItem>
                     )}
-                    <DropdownMenuItem onClick={() => setMoveOpen(true)}>
-                      <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
-                    </DropdownMenuItem>
+                    {/* Rentals have no move action; Launch moves with its launch instead */}
+                    {MOVABLE_SALE_TYPES.includes(group.saleType) && (
+                      <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+                        <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
+                      </DropdownMenuItem>
+                    )}
                     {/* Primary Automatic: issues are reported per-unit on the detailed table below */}
                     {!isPA && (
                       <>
@@ -1020,11 +1028,11 @@ function GroupCard({
                     <DropdownMenuItem onClick={() => setMoveOpen(true)}>
                       <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Linked Launch
                     </DropdownMenuItem>
-                  ) : (
+                  ) : MOVABLE_SALE_TYPES.includes(group.saleType) ? (
                     <DropdownMenuItem onClick={() => setMoveOpen(true)}>
                       <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
                     </DropdownMenuItem>
-                  )}
+                  ) : null}
                   {!isPA && (
                     <>
                       <DropdownMenuSeparator />
@@ -1388,7 +1396,7 @@ function GroupCard({
           open={moveOpen}
           onClose={() => setMoveOpen(false)}
           selectedGroups={[group]}
-          eligibleTypes={ALL_SALE_TYPES}
+          eligibleTypes={MOVABLE_SALE_TYPES}
           onConfirm={() => { setMoveOpen(false); toast.success("Compound move scheduled") }}
         />
       )}
@@ -1463,48 +1471,95 @@ function getGroupSortValue(group: GroupedProperty, col: string): string | number
 }
 
 // ── Static destination data for Change Compound modal ─────────────────────────
-const DEST_DEVELOPERS = [
-  { id: "DEV-001", name: "Lasirena Group" },
-  { id: "DEV-002", name: "Palm Hills" },
-  { id: "DEV-003", name: "Sodic" },
-  { id: "DEV-004", name: "Mountain View" },
-  { id: "DEV-005", name: "Emaar Misr" },
+const DEST_DEVELOPERS: { id: string; name: string; status: "Active" | "Hidden" }[] = [
+  { id: "DEV-001", name: "Lasirena Group", status: "Active" },
+  { id: "DEV-002", name: "Palm Hills", status: "Active" },
+  { id: "DEV-003", name: "Sodic", status: "Active" },
+  { id: "DEV-004", name: "Mountain View", status: "Active" },
+  { id: "DEV-005", name: "Emaar Misr", status: "Hidden" },
 ]
 
 const DEST_PROJECTS: Record<string, { id: string; name: string; phases: { id: string; name: string }[] }[]> = {
   "DEV-001": [
-    { id: "PRJ-L1", name: "Palm Beach Resort", phases: [{ id: "PH-L1", name: "Phase 1" }, { id: "PH-L2", name: "Phase 2" }] },
-    { id: "PRJ-L2", name: "Lasirena Hub", phases: [{ id: "PH-L3", name: "Phase A" }] },
-    { id: "PRJ-L21", name: "Lasirena Bay", phases: [{ id: "PH-L21", name: "Phase 1" }, { id: "PH-L22", name: "Phase 2" }] },
+    { id: "PRJ-1001", name: "Palm Beach Resort", phases: [{ id: "PHS-1101", name: "Phase 1" }, { id: "PHS-1102", name: "Phase 2" }] },
+    { id: "PRJ-1002", name: "Lasirena Hub", phases: [{ id: "PHS-1103", name: "Phase A" }] },
+    { id: "PRJ-1003", name: "Lasirena Bay", phases: [{ id: "PHS-1104", name: "Phase 1" }, { id: "PHS-1105", name: "Phase 2" }] },
   ],
   "DEV-002": [
-    { id: "PRJ-P1", name: "New Cairo Gate", phases: [{ id: "PH-P1", name: "Phase 1" }, { id: "PH-P2", name: "Phase 2" }, { id: "PH-P3", name: "Phase 3" }] },
-    { id: "PRJ-P2", name: "Hacienda Bay", phases: [{ id: "PH-P4", name: "Phase 1" }] },
-    { id: "PRJ-P21", name: "Badya", phases: [{ id: "PH-P21", name: "Phase 1" }] },
+    { id: "PRJ-2001", name: "New Cairo Gate", phases: [{ id: "PHS-2101", name: "Phase 1" }, { id: "PHS-2102", name: "Phase 2" }, { id: "PHS-2103", name: "Phase 3" }] },
+    { id: "PRJ-2002", name: "Hacienda Bay", phases: [{ id: "PHS-2104", name: "Phase 1" }] },
+    { id: "PRJ-2003", name: "Badya", phases: [{ id: "PHS-2105", name: "Phase 1" }] },
   ],
   "DEV-003": [
-    { id: "PRJ-S1", name: "SODIC West", phases: [{ id: "PH-S1", name: "Phase 1" }, { id: "PH-S2", name: "Phase 2" }] },
-    { id: "PRJ-S2", name: "Villette", phases: [] },
-    { id: "PRJ-S21", name: "Eastown", phases: [{ id: "PH-S21", name: "Phase 1" }] },
+    { id: "PRJ-3001", name: "SODIC West", phases: [{ id: "PHS-3101", name: "Phase 1" }, { id: "PHS-3102", name: "Phase 2" }] },
+    { id: "PRJ-3002", name: "Villette", phases: [] },
+    { id: "PRJ-3003", name: "Eastown", phases: [{ id: "PHS-3103", name: "Phase 1" }] },
   ],
   "DEV-004": [
-    { id: "PRJ-M1", name: "North Bay", phases: [{ id: "PH-M1", name: "Phase 1" }, { id: "PH-M2", name: "Phase 2" }] },
-    { id: "PRJ-M2", name: "Lagoon Heights", phases: [{ id: "PH-M3", name: "Phase A" }, { id: "PH-M4", name: "Phase B" }] },
-    { id: "PRJ-M21", name: "Aliva", phases: [{ id: "PH-M21", name: "Phase 1" }] },
+    { id: "PRJ-4001", name: "North Bay", phases: [{ id: "PHS-4101", name: "Phase 1" }, { id: "PHS-4102", name: "Phase 2" }] },
+    { id: "PRJ-4002", name: "Lagoon Heights", phases: [{ id: "PHS-4103", name: "Phase A" }, { id: "PHS-4104", name: "Phase B" }] },
+    { id: "PRJ-4003", name: "Aliva", phases: [{ id: "PHS-4105", name: "Phase 1" }] },
   ],
   "DEV-005": [
-    { id: "PRJ-E1", name: "Marassi", phases: [{ id: "PH-E1", name: "Phase 1" }, { id: "PH-E2", name: "Phase 2" }, { id: "PH-E3", name: "Phase 3" }] },
-    { id: "PRJ-E2", name: "Cairo Gate", phases: [{ id: "PH-E4", name: "Phase 1" }] },
-    { id: "PRJ-E21", name: "Mivida", phases: [{ id: "PH-E21", name: "Phase 1" }] },
+    { id: "PRJ-5001", name: "Marassi", phases: [{ id: "PHS-5101", name: "Phase 1" }, { id: "PHS-5102", name: "Phase 2" }, { id: "PHS-5103", name: "Phase 3" }] },
+    { id: "PRJ-5002", name: "Cairo Gate", phases: [{ id: "PHS-5104", name: "Phase 1" }] },
+    { id: "PRJ-5003", name: "Mivida", phases: [{ id: "PHS-5105", name: "Phase 1" }] },
   ],
 }
 
-// Simulate duplicate unit codes: if destination project ID ends in "1", pretend some codes clash
-function simulateDuplicates(unitCodes: string[], destProjectId: string): string[] {
-  if (destProjectId.endsWith("1") && unitCodes.length > 0) {
-    return unitCodes.slice(0, Math.min(2, unitCodes.length))
+/** Parent project of a destination phase id (unit-code clashes are checked against both). */
+function destParentOf(phaseId: string): { id: string; name: string } | null {
+  for (const list of Object.values(DEST_PROJECTS)) {
+    for (const p of list) if (p.phases.some((ph) => ph.id === phaseId)) return { id: p.id, name: p.name }
   }
-  return []
+  return null
+}
+const destNameOf = (id: string) => {
+  for (const list of Object.values(DEST_PROJECTS)) {
+    for (const p of list) {
+      if (p.id === id) return p.name
+      const ph = p.phases.find((x) => x.id === id)
+      if (ph) return ph.name
+    }
+  }
+  return id
+}
+
+// ── Unit codes ────────────────────────────────────────────────────────────────
+
+/** Unit codes compare normalized: lowercased, trimmed, all separators/symbols stripped. */
+export const normCode = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]/g, "")
+
+/** The real unit codes on a property group (placeholder TMP- codes don't count). */
+const realUnitCodes = (g: GroupedProperty) =>
+  g.details.map((d) => d.unitCode).filter((c) => !!c && !c.startsWith("TMP-"))
+
+/**
+ * Which duplicate check applies. Primary Automatic always carries unit codes;
+ * Primary Manual never does. Resale / Nawy Now are entry-type Manual but some
+ * carry unit codes and some don't — so it is decided per record, on the data.
+ */
+const groupHasUnitCodes = (g: GroupedProperty) => {
+  if (g.saleType === "Primary") return g.entryType === "Automatic"
+  return realUnitCodes(g).length > 0
+}
+
+/**
+ * Exact unit-code clash in the destination — and, when the destination is a phase,
+ * in its parent project too. Deterministic mock over the NORMALIZED code, so the
+ * same code always clashes in the same destination.
+ */
+function findCodeClashes(codes: string[], projectId: string, phaseId: string | null): { code: string; scope: "phase" | "project" }[] {
+  const target = phaseId ?? projectId
+  if (!target) return []
+  const salt = target.replace(/\D/g, "")
+  return codes.flatMap((code) => {
+    const n = normCode(code)
+    if (!n) return []
+    const h = [...(n + salt)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7)
+    if (h % 3 !== 0) return []
+    return [{ code, scope: (phaseId && h % 2 === 0 ? "phase" : "project") as "phase" | "project" }]
+  })
 }
 
 // ── Destination status metadata — drives the moved properties' resulting statuses ──
@@ -1513,12 +1568,34 @@ type DestStatusMeta = { listing: "Active" | "Hidden"; primary: "Launch" | "On-Sa
 
 /** Deterministic mock statuses per destination project / phase id. */
 function destMeta(id: string): DestStatusMeta {
-  const n = id.charCodeAt(id.length - 1) + id.length
+  const n = Number(id.replace(/\D/g, "")) || id.length
   return {
-    listing: n % 3 === 0 ? "Hidden" : "Active",
-    primary: (["On-Sale", "Launch", "On-Sale", "On-Hold"] as const)[n % 4],
+    listing: n % 7 === 0 ? "Hidden" : "Active",
+    primary: (["On-Sale", "Launch", "On-Hold", "On-Sale", "Sold-Off"] as const)[n % 5],
     entry: n % 2 === 0 ? "Automatic" : "Manual",
   }
+}
+
+/** Destination projects for the picker — ids + the three status tags per row. */
+function destProjectNodes(devId: string, excludeId: string, excludeName: string): ProjectTreeNode[] {
+  return (DEST_PROJECTS[devId] ?? [])
+    .filter((p) => p.id !== excludeId && p.name !== excludeName)
+    .map((p) => {
+      const m = destMeta(p.id)
+      return { id: p.id, name: p.name, status: m.listing, primaryStatus: m.primary, entryType: m.entry, phases: [] }
+    })
+}
+
+/** Phases of the chosen destination project, plus the explicit "no phase" row. */
+function destPhaseNodes(devId: string, projectId: string): ProjectTreeNode[] {
+  const phases = (DEST_PROJECTS[devId] ?? []).find((p) => p.id === projectId)?.phases ?? []
+  return [
+    { id: "none", name: "No specific phase", phases: [] },
+    ...phases.map((ph) => {
+      const m = destMeta(ph.id)
+      return { id: ph.id, name: ph.name, status: m.listing, primaryStatus: m.primary, entryType: m.entry, phases: [] }
+    }),
+  ]
 }
 
 const DEST_TONE: Record<string, string> = {
@@ -1642,8 +1719,72 @@ function moveOutcomeLines(destId: string, groups: GroupedProperty[]): { bucket: 
 const OUTCOME_TONE: Record<string, string> = {
   Sold: "border-red-200 bg-red-50 text-red-700",
   Hold: "border-amber-200 bg-amber-50 text-amber-700",
+  Available: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  Archived: "border-border bg-muted text-muted-foreground",
   Published: "border-emerald-200 bg-emerald-100 text-emerald-700",
   Hidden: "border-red-200 bg-red-100 text-red-700",
+}
+
+/**
+ * What the destination does to ONE property. Entry type never changes — only the
+ * sale status and the listing status can, and only for these reasons:
+ *  - destination Sold-Off  → the unit can't stay open under a closed project → Sold + Hidden
+ *  - destination On-Hold   → Hold + Hidden
+ *  - destination project/phase itself Hidden → the unit can't be shown under it
+ *  - Primary only: the destination lists one entry type and hides the other, so a
+ *    unit whose entry type differs from the destination's is hidden on arrival.
+ */
+type MoveEffect = {
+  sale: { from: GroupedProperty["saleStatus"]; to: GroupedProperty["saleStatus"] }
+  listing: { from: GroupedProperty["listingStatus"]; to: GroupedProperty["listingStatus"] }
+  reasons: string[]
+  changed: boolean
+}
+function moveEffect(g: GroupedProperty, destId: string): MoveEffect {
+  const m = destMeta(destId)
+  const reasons: string[] = []
+  let sale = g.saleStatus
+  let listing = g.listingStatus
+
+  if (m.primary === "Sold-Off") {
+    if (sale === "Available" || sale === "Hold") { sale = "Sold"; reasons.push("the destination is Sold-Off — an open unit can't stay available under it") }
+    if (listing === "Published") { listing = "Hidden"; reasons.push("Sold-Off destinations don't list units") }
+  } else if (m.primary === "On-Hold") {
+    if (sale === "Available") { sale = "Hold"; reasons.push("the destination is On-Hold — available units go on hold with it") }
+    if (listing === "Published") { listing = "Hidden"; reasons.push("On-Hold destinations don't list units") }
+  }
+  if (m.listing === "Hidden" && listing === "Published") {
+    listing = "Hidden"
+    reasons.push("the destination project is Hidden — a unit can't be shown under a hidden project")
+  }
+  if (g.saleType === "Primary" && m.entry !== g.entryType && listing === "Published") {
+    listing = "Hidden"
+    reasons.push(`the destination lists ${m.entry} units and hides ${g.entryType} ones`)
+  }
+  return {
+    sale: { from: g.saleStatus, to: sale },
+    listing: { from: g.listingStatus, to: listing },
+    reasons,
+    changed: sale !== g.saleStatus || listing !== g.listingStatus,
+  }
+}
+
+/** Before → after pair for one status line. */
+function EffectLine({ label, from, to }: { label: string; from: string; to: string }) {
+  const tag = (v: string, muted?: boolean) => (
+    <span className={cn(
+      "inline-flex items-center rounded border px-1.5 py-px text-[10px] font-medium",
+      muted ? "border-border bg-muted text-muted-foreground" : OUTCOME_TONE[v] ?? "border-border bg-muted text-muted-foreground",
+    )}>{v}</span>
+  )
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <span className="font-medium text-foreground">{label}</span>
+      {tag(from, true)}
+      <MoveRight className="h-3 w-3" />
+      {tag(to)}
+    </span>
+  )
 }
 
 /** "After the move" box — only what changes; renders nothing when nothing changes. `bare` drops the box chrome. */
@@ -1700,62 +1841,53 @@ interface DestSelectorProps {
   excludeProjectName: string
 }
 function DestSelector({ value, onChange, lockedDevName, excludeProjectId, excludeProjectName }: DestSelectorProps) {
-  // Developer is locked to the source developer — units cannot move to a compound under a different developer.
+  // Developer is locked to the source developer — units never move across developers.
   // The source project is excluded so the destination can never equal the source.
-  const projects = (value.devId ? (DEST_PROJECTS[value.devId] ?? []) : [])
-    .filter(p => p.id !== excludeProjectId && p.name !== excludeProjectName)
-  const phases = projects.find(p => p.id === value.projectId)?.phases ?? []
+  const dev = DEST_DEVELOPERS.find((d) => d.id === value.devId)
+  const projectNodes = destProjectNodes(value.devId, excludeProjectId, excludeProjectName)
+  const phaseNodes = value.projectId ? destPhaseNodes(value.devId, value.projectId) : []
+  const pickedProject = projectNodes.find((p) => p.id === value.projectId)
+  const pickedPhase = phaseNodes.find((p) => p.id === value.phaseId && p.id !== "none")
+  const sel = (id: string, label: string): ProjectTreeSelection => ({ kind: "project", id, label, projectIds: [id] })
   return (
     <div className="grid grid-cols-3 gap-2">
       <div className="space-y-1">
-        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Developer <span className="normal-case font-normal">(locked)</span></label>
-        <Select value={value.devId} disabled>
-          <SelectTrigger className="h-8 w-full text-xs">
-            <SelectValue>{lockedDevName}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {DEST_DEVELOPERS.map(d => <SelectItem key={d.id} value={d.id} className="text-xs">{d.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Developer <span className="font-normal normal-case">(locked)</span></label>
+        <div className="flex h-8 items-center gap-1.5 rounded-md border border-input bg-muted px-2.5 text-xs text-muted-foreground">
+          <span className="truncate">{dev?.name ?? lockedDevName}</span>
+          <span className="font-mono text-[9px]">{value.devId}</span>
+          {dev?.status && (
+            <span className={cn("ml-auto inline-flex items-center rounded border px-1 py-0 text-[9px] font-medium leading-4", DEST_TONE[dev.status])}>{dev.status}</span>
+          )}
+        </div>
       </div>
       <div className="space-y-1">
-        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Project</label>
-        <Select value={value.projectId} onValueChange={v => onChange({ ...value, projectId: v, phaseId: "none" })} disabled={!value.devId}>
-          <SelectTrigger className="h-8 w-full text-xs">
-            <SelectValue placeholder={value.devId ? "Select…" : "— pick dev first"} />
-          </SelectTrigger>
-          <SelectContent>
-            {projects.length === 0
-              ? <div className="px-2 py-1.5 text-xs text-muted-foreground">No other project under this developer</div>
-              : projects.map(p => (
-                  <SelectItem key={p.id} value={p.id} className="text-xs">
-                    <span className="flex items-center gap-1.5">
-                      <span>{p.name}</span>
-                      <span className="font-mono text-[9px] text-muted-foreground">{p.id}</span>
-                    </span>
-                  </SelectItem>
-                ))}
-          </SelectContent>
-        </Select>
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Project</label>
+        {projectNodes.length === 0 ? (
+          <div className="flex h-8 items-center rounded-md border border-input bg-muted px-2.5 text-xs text-muted-foreground">No other project under this developer</div>
+        ) : (
+          <ProjectTreeSelect
+            label="Project"
+            projects={projectNodes}
+            value={pickedProject ? sel(pickedProject.id, pickedProject.name) : null}
+            onChange={(s) => onChange({ ...value, projectId: s?.id ?? "", phaseId: "none" })}
+          />
+        )}
       </div>
       <div className="space-y-1">
-        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Phase <span className="normal-case font-normal">(optional)</span></label>
-        <Select value={value.phaseId} onValueChange={v => onChange({ ...value, phaseId: v })} disabled={!value.projectId}>
-          <SelectTrigger className="h-8 w-full text-xs">
-            <SelectValue placeholder={!value.projectId ? "— pick project" : phases.length === 0 ? "No phases" : "Select…"} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none" className="text-xs">No specific phase</SelectItem>
-            {phases.map(ph => (
-              <SelectItem key={ph.id} value={ph.id} className="text-xs">
-                <span className="flex items-center gap-1.5">
-                  <span>{ph.name}</span>
-                  <span className="font-mono text-[9px] text-muted-foreground">{ph.id}</span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Phase <span className="font-normal normal-case">(optional)</span></label>
+        {!value.projectId ? (
+          <div className="flex h-8 items-center rounded-md border border-input bg-muted px-2.5 text-xs text-muted-foreground">— pick a project</div>
+        ) : phaseNodes.length <= 1 ? (
+          <div className="flex h-8 items-center rounded-md border border-input bg-muted px-2.5 text-xs text-muted-foreground">No phases</div>
+        ) : (
+          <ProjectTreeSelect
+            label="Phase"
+            projects={phaseNodes}
+            value={pickedPhase ? sel(pickedPhase.id, pickedPhase.name) : null}
+            onChange={(s) => onChange({ ...value, phaseId: s?.id ?? "none" })}
+          />
+        )}
       </div>
     </div>
   )
@@ -1955,12 +2087,17 @@ interface ChangeProjectModalProps {
 }
 
 const ALL_SALE_TYPES: GroupedProperty["saleType"][] = ["Primary", "Resale", "Nawy Now", "Rental", "Launch"]
+/**
+ * Sale types that can move between projects. Launch properties move with their
+ * launch instead (Change Linked Launch), and Rentals have no move action yet.
+ */
+const MOVABLE_SALE_TYPES: GroupedProperty["saleType"][] = ["Primary", "Resale", "Nawy Now"]
 
-function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligibleTypes = ["Primary", "Launch"] }: ChangeProjectModalProps) {
+function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligibleTypes = MOVABLE_SALE_TYPES }: ChangeProjectModalProps) {
   const isSingle = selectedGroups.length === 1
   // Primary Automatic, Resale, Nawy Now and Rental carry unit codes → duplicate check;
   // Launch and Primary Manual don't → similarity check
-  const hasUnitCodes = (g: GroupedProperty) => isPrimaryAuto(g) || ["Resale", "Nawy Now", "Rental"].includes(g.saleType)
+  const hasUnitCodes = groupHasUnitCodes
   const eligible = selectedGroups.filter(g => eligibleTypes.includes(g.saleType))
   const ineligible = selectedGroups.filter(g => !eligibleTypes.includes(g.saleType))
 
@@ -1992,7 +2129,12 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
   }, [selectedGroups])
 
   type DestState = { devId: string; projectId: string; phaseId: string }
-  type GroupCheck = { kind: "unitcode" | "similarity"; dupes: string[]; candidates: { confidence: number; prop: GroupedProperty }[] }
+  type GroupCheck = {
+    kind: "unitcode" | "similarity"
+    /** Exact clashes, with the scope they were found in (phase vs its parent project). */
+    dupes: { code: string; scope: "phase" | "project" }[]
+    candidates: { confidence: number; prop: GroupedProperty }[]
+  }
   const [destinations, setDestinations] = useState<Record<string, DestState>>({})
   const [step, setStep] = useState<"select" | "review" | "loading" | "done">("select")
   const [checks, setChecks] = useState<Record<string, GroupCheck>>({})
@@ -2034,7 +2176,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
       if (!dest?.projectId) continue
       for (const g of cg.groups) {
         if (hasUnitCodes(g)) {
-          const dupes = simulateDuplicates(g.details.map(d => d.unitCode), dest.projectId)
+          const dupes = findCodeClashes(realUnitCodes(g), dest.projectId, dest.phaseId !== "none" ? dest.phaseId : null)
           newChecks[g.id] = { kind: "unitcode", dupes, candidates: [] }
         } else {
           const candidates = simulateCandidates(g, dest.projectId)
@@ -2195,22 +2337,31 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
         return (
           <p className="flex items-center gap-1.5 px-4 pb-2.5 text-[11px] text-emerald-700">
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-            No similar unit code found in <strong>{destName}</strong> — no conflicts.
+            No matching unit code in <strong>{destName}</strong>{destOf(cg).dest.phaseId !== "none" && destParentOf(destOf(cg).dest.phaseId) ? <> or its parent project</> : null} — nothing will be overwritten.
           </p>
         )
       }
+      const { dest } = destOf(cg)
+      const parent = dest.phaseId !== "none" ? destParentOf(dest.phaseId) : null
       return (
         <div className="mx-4 mb-2.5 space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-          {/* unit-code conflicts are informational for every unit-code type — no Overwrite / Move as new */}
+          {/* Unit-code clashes always overwrite — duplicates can't be left behind in the destination */}
           <p className="flex items-start gap-2 text-xs text-amber-800">
             <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
-            <span><span className="font-semibold">{c.dupes.length} same unit code{c.dupes.length !== 1 ? "s" : ""} found in {destName}</span> — the source units will overwrite these matching records on confirmation.</span>
+            <span>
+              <span className="font-semibold">{c.dupes.length} unit code{c.dupes.length !== 1 ? "s" : ""} already exist{c.dupes.length === 1 ? "s" : ""} in {destName}</span>
+              {parent && <> or its parent <span className="font-semibold">{parent.name}</span></>} — the moved units <span className="font-semibold">overwrite</span> those records so the destination keeps no duplicates.
+            </span>
           </p>
           <div className="flex flex-wrap gap-1.5 pl-5">
-            {c.dupes.map(code => (
-              <span key={code} className="inline-flex items-center rounded border border-amber-200 bg-white px-2 py-0.5 font-mono text-[10px] text-amber-700">{code}</span>
+            {c.dupes.map(d => (
+              <span key={d.code} className="inline-flex items-center gap-1 rounded border border-amber-200 bg-white px-2 py-0.5 font-mono text-[10px] text-amber-700">
+                {d.code}
+                {parent && <span className="font-sans text-[9px] text-amber-600">in {d.scope === "phase" ? destName : parent.name}</span>}
+              </span>
             ))}
           </div>
+          <p className="pl-5 text-[10px] text-amber-700/80">Codes are matched normalized — letter case, spaces and symbols are ignored.</p>
         </div>
       )
     }
@@ -2253,6 +2404,33 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
     )
   }
 
+  /**
+   * Status conflict with the destination — what the move does to THIS property.
+   * Entry type is never touched; only sale status and listing status can move.
+   */
+  const effectBlock = (g: GroupedProperty, destId: string) => {
+    const e = moveEffect(g, destId)
+    if (!e.changed) {
+      return (
+        <p className="flex items-center gap-1.5 px-4 pb-2.5 text-[11px] text-emerald-700">
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+          Sale and listing status stay as they are in the destination.
+        </p>
+      )
+    }
+    return (
+      <div className="mx-4 mb-2.5 space-y-1.5 rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {e.sale.from !== e.sale.to && <EffectLine label="Sale Status" from={e.sale.from} to={e.sale.to} />}
+          {e.listing.from !== e.listing.to && <EffectLine label="Listing Status" from={e.listing.from} to={e.listing.to} />}
+        </div>
+        <ul className="list-disc space-y-0.5 pl-8 text-[10px] leading-4 text-blue-800/90">
+          {e.reasons.map(r => <li key={r}>{r}</li>)}
+        </ul>
+      </div>
+    )
+  }
+
   /** Review cards for a subset of groups, grouped by source project/phase with route + outcome. */
   const reviewCards = (subset: GroupedProperty[]) =>
     compoundGroups.map(cg => {
@@ -2270,10 +2448,11 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                 <PropertyInfoRow g={g} />
                 {linkedLine(g)}
                 {checkDetail(g, cg)}
+                {isSingle && destId && effectBlock(g, destId)}
               </div>
             ))}
           </div>
-          {outcome.length > 0 && (
+          {!isSingle && outcome.length > 0 && (
             <div className="border-t border-border bg-muted/20 px-4 py-3">
               <MoveOutcomeBox destId={destId} groups={gs} />
             </div>
@@ -2361,7 +2540,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                     <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                       <p className="text-xs text-amber-800">
-                        Resale, Nawy Now and Rentals can't be moved in bulk — move them unit by unit or from their dedicated sale type page.
+                        Launch properties move with their launch (Change Linked Launch) and Rentals have no move action — they stay where they are.
                       </p>
                     </div>
                   )}
@@ -2371,7 +2550,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
               {eligible.length === 0 ? (
                 <div className="space-y-1 rounded-xl border border-dashed border-border bg-muted/30 px-6 py-10 text-center">
                   <p className="text-sm font-medium text-foreground">No movable properties selected</p>
-                  <p className="text-xs text-muted-foreground">Select Primary or Launch properties to use Change Project.</p>
+                  <p className="text-xs text-muted-foreground">Change Project applies to Primary, Resale and Nawy Now properties — Launch properties move with their launch, and Rentals stay put.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -2572,7 +2751,8 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                 <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
                   <SheetTitle className="text-base">Property Matching</SheetTitle>
                   <SheetDescription className="text-xs">
-                    Source property vs similar properties found in {destName}. Pick a different property to treat as the match.
+                    Source property vs similar properties found in {destName}. Pick a different property to treat as the match,
+                    or declare it a new property so nothing is overwritten.
                   </SheetDescription>
                 </SheetHeader>
                 <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
@@ -2580,9 +2760,15 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Source property</p>
                     <div className="overflow-hidden rounded-lg border border-border bg-card"><PropertyInfoRow g={g} /></div>
                   </div>
+                  {(decisions[g.id] ?? "overwrite") === "new" && (
+                    <p className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-800">
+                      <Info className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                      Marked as a <span className="font-semibold">new property</span> — it moves in on its own and overwrites nothing.
+                    </p>
+                  )}
                   <div className="space-y-1.5">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Matched property</p>
-                    <div className="overflow-hidden rounded-lg border border-emerald-300 bg-card">
+                    <div className={cn("overflow-hidden rounded-lg border bg-card", (decisions[g.id] ?? "overwrite") === "new" ? "border-border opacity-60" : "border-emerald-300")}>
                       <PropertyInfoRow g={cands[pick].prop} />
                       <div className="flex items-center justify-between border-t border-border/70 bg-emerald-50/50 px-4 py-2">
                         <ConfidenceBar value={cands[pick].confidence} />
@@ -2608,6 +2794,26 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                       </div>
                     </div>
                   )}
+                </div>
+                {/* Either of the two outcomes the reviewer can pick, always reachable */}
+                <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-3">
+                  <p className="text-[11px] text-muted-foreground">
+                    {(decisions[g.id] ?? "overwrite") === "new"
+                      ? "No property in the destination will be overwritten."
+                      : "On confirmation the matched property is overwritten by this one."}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    {(decisions[g.id] ?? "overwrite") === "new" ? (
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setDecisions(prev => ({ ...prev, [g.id]: "overwrite" }))}>
+                        Treat as the same property
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setDecisions(prev => ({ ...prev, [g.id]: "new" }))}>
+                        Not a match — move as new
+                      </Button>
+                    )}
+                    <Button size="sm" className="h-7 text-xs" onClick={() => setMatchDrawer(null)}>Done</Button>
+                  </div>
                 </div>
               </SheetContent>
             </Sheet>
@@ -3005,7 +3211,7 @@ export function GroupedPropertiesView({
       {/* Bulk action floating bar */}
       {selectedCards.size > 0 && (() => {
         const selGroups = groups.filter(g => selectedCards.has(g.id))
-        const eligibleTypes: GroupedProperty["saleType"][] = ["Primary", "Launch"]
+        const eligibleTypes: GroupedProperty["saleType"][] = MOVABLE_SALE_TYPES
         const hasEligible = selGroups.some(g => eligibleTypes.includes(g.saleType))
         // Change Project is capped at 10 selected groups
         const tooManyForMove = selGroups.length > 10
