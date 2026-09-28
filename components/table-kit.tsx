@@ -54,30 +54,35 @@ export const COL_SEP =
 
 /** Canonical single-select filter — flat h-8 white trigger, optional search. Use on every table page. */
 /**
- * Dropdown panels are absolutely positioned, so a scrolling ancestor (a dialog body,
- * a sheet, a card) clips them near its bottom edge. Measures the panel when it opens
- * and flips it above the trigger when it doesn't fit below.
- * Returns [flipped, panelRef] — put the ref on the panel, inside the relative wrapper.
+ * Dropdown panels are absolutely positioned, so every scrolling ancestor (a dialog body,
+ * a sheet, a card) clips them. On open the panel measures the space left by those
+ * ancestors and the viewport, opens on whichever side has more room, and caps its height
+ * to that room — so it is always fully visible without scrolling the page behind it.
+ * Returns [{ up, maxH }, panelRef]; put the ref on the panel, inside the relative wrapper.
  */
-function useFlipUp() {
-  const [up, setUp] = useState(false)
+function useDropPlacement() {
+  const [place, setPlace] = useState<{ up: boolean; maxH: number }>({ up: false, maxH: 0 })
   const panelRef = useCallback((el: HTMLDivElement | null) => {
-    if (!el) { setUp(false); return }
+    if (!el) { setPlace({ up: false, maxH: 0 }); return }
     const wrap = el.parentElement
     if (!wrap) return
-    let box = { top: 0, bottom: window.innerHeight }
+    // the visible band = the viewport intersected with every clipping ancestor
+    let top = 0
+    let bottom = window.innerHeight
     for (let n: HTMLElement | null = wrap; n && n !== document.body; n = n.parentElement) {
       if (getComputedStyle(n).overflowY !== "visible") {
         const r = n.getBoundingClientRect()
-        box = { top: r.top, bottom: r.bottom }
-        break
+        top = Math.max(top, r.top)
+        bottom = Math.min(bottom, r.bottom)
       }
     }
     const t = wrap.getBoundingClientRect()
-    const h = el.offsetHeight
-    setUp(t.bottom + h > box.bottom && t.top - h > box.top)
+    const below = bottom - t.bottom - 8
+    const above = t.top - top - 8
+    const up = el.offsetHeight > below && above > below
+    setPlace({ up, maxH: Math.max(140, Math.round(up ? above : below)) })
   }, [])
-  return [up, panelRef] as const
+  return [place, panelRef] as const
 }
 
 export function FilterSelect({
@@ -94,7 +99,7 @@ export function FilterSelect({
 }) {
   const opts = normalizeOptions(options)
   const [open, setOpen] = useState(false)
-  const [up, panelRef] = useFlipUp()
+  const [place, panelRef] = useDropPlacement()
   const [q, setQ] = useState("")
   const ref = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -127,7 +132,7 @@ export function FilterSelect({
       </button>
 
       {open && (
-        <div ref={panelRef} className={cn("absolute left-0 z-50 overflow-hidden rounded-lg border border-border bg-card shadow-md", up ? "bottom-full mb-1" : "top-full mt-1", width)}>
+        <div ref={panelRef} style={{ maxHeight: place.maxH || undefined }} className={cn("absolute left-0 z-50 flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-md", place.up ? "bottom-full mb-1" : "top-full mt-1", width)}>
           {showSearch && (
             <div className="border-b border-border p-2">
               <div className="relative">
@@ -136,7 +141,7 @@ export function FilterSelect({
               </div>
             </div>
           )}
-          <div className="max-h-56 overflow-y-auto py-1">
+          <div className="max-h-56 min-h-0 flex-1 overflow-y-auto py-1">
             <button onClick={() => { onChange(""); setOpen(false); setQ("") }} className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-secondary", !active && "text-primary")}>
               <span className="flex h-3.5 w-3.5 items-center justify-center">{!active && <Check className="h-3.5 w-3.5" />}</span>
               {label}
@@ -175,7 +180,7 @@ export function FilterMultiSelect({
   const activeBadge = tone === "danger" ? "bg-red-500 text-white" : "bg-primary text-primary-foreground"
   const opts = normalizeOptions(options)
   const [open, setOpen] = useState(false)
-  const [up, panelRef] = useFlipUp()
+  const [place, panelRef] = useDropPlacement()
   const [q, setQ] = useState("")
   const ref = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -208,14 +213,14 @@ export function FilterMultiSelect({
       </button>
 
       {open && (
-        <div ref={panelRef} className={cn("absolute left-0 z-50 overflow-hidden rounded-lg border border-border bg-card shadow-md", up ? "bottom-full mb-1" : "top-full mt-1", width)}>
+        <div ref={panelRef} style={{ maxHeight: place.maxH || undefined }} className={cn("absolute left-0 z-50 flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-md", place.up ? "bottom-full mb-1" : "top-full mt-1", width)}>
           <div className="border-b border-border p-2">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-3 text-sm outline-none placeholder:text-muted-foreground/60" />
             </div>
           </div>
-          <div className="max-h-52 overflow-y-auto">
+          <div className="max-h-52 min-h-0 flex-1 overflow-y-auto">
             {filtered.map((o) => (
               <div key={o.value} role="option" aria-selected={value.includes(o.value)} onClick={() => toggle(o.value)} className={cn("flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm hover:bg-secondary", value.includes(o.value) && "bg-primary/5")}>
                 <Checkbox checked={value.includes(o.value)} className="pointer-events-none h-4 w-4 flex-shrink-0" />
@@ -680,7 +685,7 @@ export function MultiSortControl({ fields, sorts, onChange, iconOnly = false, di
   title?: string
 }) {
   const [open, setOpen] = useState(false)
-  const [up, panelRef] = useFlipUp()
+  const [place, panelRef] = useDropPlacement()
   const ref = useRef<HTMLDivElement>(null)
   const dragIdx = useRef<number | null>(null)
   useEffect(() => {
@@ -707,7 +712,7 @@ export function MultiSortControl({ fields, sorts, onChange, iconOnly = false, di
         {sorts.length > 0 && !iconOnly && <span className="ml-0.5 rounded-full bg-primary-foreground/20 px-1.5 text-[10px] font-semibold">{sorts.length}</span>}
       </Button>
       {open && (
-        <div ref={panelRef} className={cn("absolute right-0 z-50 w-72 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-md", up ? "bottom-full mb-1" : "top-full mt-1")}>
+        <div ref={panelRef} style={{ maxHeight: place.maxH || undefined }} className={cn("absolute right-0 z-50 w-72 overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-md", place.up ? "bottom-full mb-1" : "top-full mt-1")}>
           <p className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Multi-level sort</p>
           {sorts.length === 0 && <p className="px-3 py-1.5 text-xs text-muted-foreground">No sort applied — add a level below.</p>}
           {sorts.map((s, i) => (
@@ -860,7 +865,7 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
   valueExtra?: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
-  const [up, panelRef] = useFlipUp()
+  const [place, panelRef] = useDropPlacement()
   const [q, setQ] = useState("")
   const ref = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -948,7 +953,7 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
       </button>
 
       {open && (
-        <div ref={panelRef} className={cn("absolute left-0 z-50 w-80 overflow-hidden rounded-lg border border-border bg-card shadow-md", up ? "bottom-full mb-1" : "top-full mt-1")}>
+        <div ref={panelRef} style={{ maxHeight: place.maxH || undefined }} className={cn("absolute left-0 z-50 flex w-80 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-md", place.up ? "bottom-full mb-1" : "top-full mt-1")}>
           <div className="border-b border-border p-1.5">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
@@ -967,7 +972,7 @@ export function ProjectTreeSelect({ label = "Project", projects, value, onChange
               </div>
             </div>
           )}
-          <div className="max-h-64 overflow-y-auto py-0.5">
+          <div className="max-h-64 min-h-0 flex-1 overflow-y-auto py-0.5">
             <button
               onClick={() => { if (multi) onValuesChange?.([]); else { onChange?.(null); setOpen(false); setQ("") } }}
               className={cn("flex w-full items-center px-2.5 py-1 text-left text-[13px] hover:bg-secondary", !active && "font-medium text-primary")}
@@ -1099,7 +1104,7 @@ export function AreaTreeSelect({ tree, value, onChange, values = [], onValuesCha
   placeholder?: string
 }) {
   const [open, setOpen] = useState(false)
-  const [up, panelRef] = useFlipUp()
+  const [place, panelRef] = useDropPlacement()
   const [q, setQ] = useState("")
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -1145,9 +1150,9 @@ export function AreaTreeSelect({ tree, value, onChange, values = [], onValuesCha
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div ref={panelRef} className={cn("absolute left-0 z-50 w-80 min-w-full rounded-md border border-border bg-popover p-1 shadow-md", up ? "bottom-full mb-1" : "top-9")}>
+        <div ref={panelRef} style={{ maxHeight: place.maxH || undefined }} className={cn("absolute left-0 z-50 flex w-80 min-w-full flex-col overflow-hidden rounded-md border border-border bg-popover p-1 shadow-md", place.up ? "bottom-full mb-1" : "top-9")}>
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search areas & subareas…" className="mb-1 h-7 text-xs" autoFocus />
-          <div className="max-h-64 overflow-y-auto">
+          <div className="max-h-64 min-h-0 flex-1 overflow-y-auto">
             {multi && values.length > 0 && (
               <button type="button" onClick={() => onValuesChange?.([])} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-primary hover:bg-muted">
                 Clear selection ({values.length})
@@ -1207,7 +1212,7 @@ export function DeveloperSelect({ developers, value = "", onChange, values = [],
   valueExtra?: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
-  const [up, panelRef] = useFlipUp()
+  const [place, panelRef] = useDropPlacement()
   const [q, setQ] = useState("")
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -1252,9 +1257,9 @@ export function DeveloperSelect({ developers, value = "", onChange, values = [],
         <ChevronDown className={cn("h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div ref={panelRef} className={cn("absolute left-0 z-50 w-80 min-w-full rounded-md border border-border bg-popover p-1 shadow-md", up ? "bottom-full mb-1" : "top-9")}>
+        <div ref={panelRef} style={{ maxHeight: place.maxH || undefined }} className={cn("absolute left-0 z-50 flex w-80 min-w-full flex-col overflow-hidden rounded-md border border-border bg-popover p-1 shadow-md", place.up ? "bottom-full mb-1" : "top-9")}>
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search developers…" className="mb-1 h-7 text-xs" autoFocus />
-          <div className="max-h-64 overflow-y-auto">
+          <div className="max-h-64 min-h-0 flex-1 overflow-y-auto">
             {multi && values.length > 0 && (
               <button type="button" onClick={() => onValuesChange?.([])} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-primary hover:bg-muted">
                 Clear selection ({values.length})
