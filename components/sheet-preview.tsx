@@ -124,7 +124,8 @@ function cmpVals(a: Cell, b: Cell) {
 }
 
 interface ColPrefs { order: string[]; hidden: string[]; frozen: string[] }
-interface TabState { filters: Record<string, string[]>; sorts: SortLevel[]; groupBy: string | null; collapsed: string[] }
+/** collapsed: null = every group but the first (the default when grouping starts) */
+interface TabState { filters: Record<string, string[]>; sorts: SortLevel[]; groupBy: string | null; collapsed: string[] | null }
 const EMPTY_TS: TabState = { filters: {}, sorts: [], groupBy: null, collapsed: [] }
 const EMPTY_PREFS: ColPrefs = { order: [], hidden: [], frozen: [] }
 
@@ -162,10 +163,16 @@ export function SheetPreviewCard({
   activeSheet,
   onActiveSheetChange,
   onRowClick,
+  onCellClick,
   activeRowId,
+  activeCell,
   headerExtra,
   viewLabels,
   height = "max-h-[520px]",
+  fill = false,
+  titleSlot,
+  initialGroupBy,
+  groupLabel,
 }: {
   sheets: GridSheet[]
   title?: string
@@ -195,10 +202,22 @@ export function SheetPreviewCard({
   activeSheet?: string
   onActiveSheetChange?: (name: string) => void
   onRowClick?: (sheet: string, rowId: string) => void
+  /** A cell was clicked (before editing starts) */
+  onCellClick?: (sheet: string, rowId: string, colKey: string) => void
   activeRowId?: string | null
+  /** Outline one cell — "the next low-confidence cell" */
+  activeCell?: { rowId: string; col: string } | null
   headerExtra?: React.ReactNode
   viewLabels?: { input?: string; output?: string }
   height?: string
+  /** Fill the parent's height — the grid scrolls inside, the card never grows past its pane */
+  fill?: boolean
+  /** Replaces the title (e.g. a Data / Files switch) */
+  titleSlot?: React.ReactNode
+  /** Open grouped by this column (every group but the first collapsed) */
+  initialGroupBy?: string
+  /** Extra content on a group header row (e.g. a status tag) */
+  groupLabel?: (value: string, rowIds: string[]) => React.ReactNode
 }) {
   const [view, setView] = useState<ViewKind>(initialView)
   const [internalSheet, setInternalSheet] = useState(sheets[0]?.name ?? "")
@@ -233,7 +252,7 @@ export function SheetPreviewCard({
   const effView: ViewKind = !hasInput ? "output" : view === "diff" && !canDiff ? "output" : view
   const canEdit = editable && effView === "output" && !!onEdit
 
-  const ts = (shown && tabStates[shown.name]) ?? EMPTY_TS
+  const ts = (shown && tabStates[shown.name]) ?? (initialGroupBy ? { ...EMPTY_TS, groupBy: initialGroupBy, collapsed: null } : EMPTY_TS)
   const patchTS = (patch: Partial<TabState>) =>
     shown && setTabStates((prev) => ({ ...prev, [shown.name]: { ...(prev[shown.name] ?? EMPTY_TS), ...patch } }))
   const cp = (shown && prefs[shown.name]) ?? EMPTY_PREFS
@@ -288,12 +307,13 @@ export function SheetPreviewCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleRows, ts.groupBy, featuresOn, colByKey])
 
-  const collapsed = new Set(ts.collapsed)
+  const collapsed = new Set(ts.collapsed ?? (groups ? groups.slice(1).map(([k]) => k) : []))
   const flatRows = useMemo(
     () => (groups ? groups.flatMap(([k, rows]) => (collapsed.has(k) ? [] : rows)) : visibleRows),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [groups, visibleRows, ts.collapsed],
   )
+  const collapsedList = [...collapsed]
 
   /* ── Counts: per tab and across the sheet, before and after filters ────── */
   const tabCounts = useMemo(() => {
@@ -339,6 +359,11 @@ export function SheetPreviewCard({
     root?.querySelector(`[data-fm="${curFind}"]`)?.scrollIntoView({ block: "center", inline: "center" })
   }, [curFind, findMatches.length, full])
   useEffect(() => { (full ? fullBodyRef : bodyRef).current?.scrollTo({ top: 0 }) }, [focus, full])
+  useEffect(() => {
+    if (!activeCell) return
+    const root = (full ? fullBodyRef : bodyRef).current
+    root?.querySelector(`[data-cell="${activeCell.rowId}::${activeCell.col}"]`)?.scrollIntoView({ block: "center", inline: "nearest" })
+  }, [activeCell?.rowId, activeCell?.col, full]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Selection (shift for ranges) ─────────────────────────────────────── */
   const keyOf = (r: VMRow) => `${shown?.name}::${r.id}`
@@ -569,9 +594,10 @@ export function SheetPreviewCard({
             return (
               <td
                 key={col.key}
+                data-cell={`${r.id}::${col.key}`}
                 title={mark?.note}
                 onDoubleClick={() => canEdit && !r.removed && startEdit(r.id, col.key)}
-                onClick={() => { if (canEdit && !r.removed && !isEditing && !col.readOnly) startEdit(r.id, col.key) }}
+                onClick={() => { if (shown) onCellClick?.(shown.name, r.id, col.key); if (canEdit && !r.removed && !isEditing && !col.readOnly) startEdit(r.id, col.key) }}
                 className={cn(
                   "whitespace-nowrap border-b border-r border-border px-3 py-1.5 text-[13px] tabular-nums group-hover:bg-muted",
                   frozen.has(col.key) ? cn("sticky z-10", zb) : zb,
@@ -586,6 +612,7 @@ export function SheetPreviewCard({
                   col.readOnly && effView !== "diff" && !mark && "text-muted-foreground",
                   isEditing && "p-0.5",
                   dim && "opacity-35",
+                  activeCell?.rowId === r.id && activeCell.col === col.key && "outline outline-2 -outline-offset-2 outline-primary",
                 )}
                 style={frozen.has(col.key) ? { left: frozenLeft(col.key) } : undefined}
               >
@@ -599,7 +626,7 @@ export function SheetPreviewCard({
 
     const totalCols = 1 + (selectable ? 1 : 0) + renderCols.length
     return (
-      <div ref={inFull ? fullBodyRef : bodyRef} className={cn("relative overflow-auto overscroll-contain", inFull ? "max-h-[calc(92vh-190px)]" : height)}>
+      <div ref={inFull ? fullBodyRef : bodyRef} className={cn("relative overflow-auto overscroll-contain", inFull ? "max-h-[calc(92vh-190px)]" : fill ? "min-h-0 flex-1" : height)}>
         <table className="w-max min-w-full border-separate border-spacing-0 text-[13px]">
           <thead>
             {/* Column letters — drag to reorder; eye excludes a column from the output where the step supports it */}
@@ -712,13 +739,14 @@ export function SheetPreviewCard({
                 <Fragment key={k}>
                   <tr
                     className="cursor-pointer bg-secondary transition-colors hover:bg-muted"
-                    onClick={() => patchTS({ collapsed: collapsed.has(k) ? ts.collapsed.filter((x) => x !== k) : [...ts.collapsed, k] })}
+                    onClick={() => patchTS({ collapsed: collapsed.has(k) ? collapsedList.filter((x) => x !== k) : [...collapsedList, k] })}
                   >
                     <td colSpan={totalCols} className="border-b border-border p-0">
                       <div className="sticky left-0 flex w-max items-center gap-1.5 px-3 py-1.5">
                         {collapsed.has(k) ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
                         <span className="text-xs font-semibold text-foreground">{headLabel(ts.groupBy!)}: {k}</span>
                         <span className="text-[11px] text-muted-foreground">{rows.length} row{rows.length !== 1 ? "s" : ""}</span>
+                        {groupLabel?.(k, rows.map((r) => r.id))}
                       </div>
                     </td>
                   </tr>
@@ -742,7 +770,7 @@ export function SheetPreviewCard({
     <div className="flex flex-wrap items-center gap-1.5">
       <div className="relative">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input value={find} onChange={(e) => setFind(e.target.value)} placeholder="Search in sheet" className="h-8 w-48 pl-7 pr-2 text-sm" />
+        <Input value={find} onChange={(e) => setFind(e.target.value)} placeholder="Search in sheet" className="h-8 w-32 pl-7 pr-2 text-sm @2xl:w-48" />
       </div>
       {needle && (
         <span className="flex items-center gap-0.5">
@@ -903,7 +931,7 @@ export function SheetPreviewCard({
   )
 
   const footer = (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-4 py-1.5 text-[11px] text-muted-foreground">
+    <div className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-4 py-1.5 text-[11px] text-muted-foreground">
       <span><b className="text-foreground">{meta.rows.toLocaleString("en-US")}</b> rows</span>
       <span>·</span>
       <span><b className="text-foreground">{meta.cols}</b> columns</span>
@@ -917,7 +945,7 @@ export function SheetPreviewCard({
   )
 
   const tabStrip = showTabs && sheets.length > 0 && (
-    <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-4">
+    <div className="flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-4">
       {(effView === "input" ? sheets : outputSheets).map((s) => {
         const off = ignored.includes(s.name)
         const c = tabCounts[s.name]
@@ -955,20 +983,20 @@ export function SheetPreviewCard({
     <>
       {tabStrip}
       {focusSet && focus && (
-        <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-4 py-1.5 text-xs">
+        <div className="flex flex-shrink-0 items-center gap-2 border-b border-border bg-primary/5 px-4 py-1.5 text-xs">
           <Filter className="h-3.5 w-3.5 text-primary" />
           <span className="font-medium text-primary">Showing {visibleRows.length} row{visibleRows.length !== 1 ? "s" : ""} · {focus.label}</span>
           {onClearFocus && <button onClick={onClearFocus} className="ml-auto text-muted-foreground hover:text-foreground">Show all rows</button>}
         </div>
       )}
       {effView === "diff" && diffCounts && noChange && (
-        <div className="flex items-center gap-1.5 border-b border-border bg-emerald-50/60 px-4 py-1.5">
+        <div className="flex flex-shrink-0 items-center gap-1.5 border-b border-border bg-emerald-50/60 px-4 py-1.5">
           <Check className="h-3.5 w-3.5 text-emerald-600" />
           <span className="text-xs font-medium text-emerald-800">No changes — this tab&apos;s output matches its input.</span>
         </div>
       )}
       {effView === "diff" && diffCounts && !noChange && (
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-muted/30 px-4 py-1.5">
+        <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-muted/30 px-4 py-1.5">
           <span className="text-xs font-medium text-muted-foreground">Changes vs {viewLabels?.input?.toLowerCase() ?? "input"}:</span>
           {diffCounts.added > 0 && <span className={cn(TAG, "border-emerald-200 bg-emerald-50 text-emerald-700")}>{diffCounts.added} row{diffCounts.added === 1 ? "" : "s"} added</span>}
           <span className={cn(TAG, "border-amber-300 bg-amber-50 text-amber-700")}>{diffCounts.changed} cell{diffCounts.changed === 1 ? "" : "s"} changed</span>
@@ -985,10 +1013,10 @@ export function SheetPreviewCard({
   if (!shown) return null
   return (
     <>
-      <div className="min-w-0 rounded-xl border border-border bg-card">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-semibold text-foreground">{title}</h3>
+      <div className={cn("@container min-w-0 rounded-xl border border-border bg-card", fill && "flex h-full min-h-0 flex-col")}>
+        <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {titleSlot ?? <h3 className="text-base font-semibold text-foreground">{title}</h3>}
             {headlineExtras}
           </div>
           {controls(false)}

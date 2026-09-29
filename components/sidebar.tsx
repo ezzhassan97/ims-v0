@@ -349,6 +349,22 @@ function NavItemComponent({ item, isCollapsed, level = 0, onPageChange, activePa
 
 export function Sidebar({ onPageChange, activePage, onCollapseChange }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
+  // Focus mode — a full-height workspace (e.g. a bulk ingestion entry) collapses the sidebar
+  // while it's open and puts it back the way it was when it closes.
+  const beforeFocus = useRef<boolean | null>(null)
+  useEffect(() => {
+    const on = (e: Event) => {
+      const focus = (e as CustomEvent<boolean>).detail
+      setIsCollapsed((cur) => {
+        const next = focus ? true : beforeFocus.current ?? cur
+        beforeFocus.current = focus ? beforeFocus.current ?? cur : null
+        queueMicrotask(() => onCollapseChange?.(next))
+        return next
+      })
+    }
+    window.addEventListener("ims:focus-mode", on)
+    return () => window.removeEventListener("ims:focus-mode", on)
+  }, [onCollapseChange])
 
   const handleCollapseToggle = () => {
     const newCollapsed = !isCollapsed

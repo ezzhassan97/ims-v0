@@ -27,7 +27,7 @@ import {
   type EntryDataType, type IngestionEntry,
 } from "@/lib/ingestion-mock"
 import { BulkEntryDialog } from "@/components/bulk-entry-dialog"
-import { FILE_ICON } from "@/components/bulk-entry-steps"
+import { FILE_ICON } from "@/components/bulk-entry-kit"
 import { KIND_OF } from "@/lib/bulk-ingestion"
 
 const TAG = "inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium"
@@ -36,6 +36,12 @@ const STAGE_TONE: Record<string, string> = {
   Review: "border-amber-200 bg-amber-50 text-amber-700",
   "Final Check": "border-amber-200 bg-amber-50 text-amber-700",
 }
+/** QA sign-off on finalized entries — pending until the quality team checks it */
+const QA_TONE: Record<string, string> = {
+  "QA reviewed": "border-emerald-200 bg-emerald-50 text-emerald-700",
+  "QA pending": "border-amber-200 bg-amber-50 text-amber-700",
+}
+const qaOf = (e: IngestionEntry) => (e.stage === "Finalized" ? (e.qa?.status === "Reviewed" ? "QA reviewed" : "QA pending") : "")
 /** Entry type tones — Automatic emerald, Manual blue (design system) */
 const DATA_TONE: Record<EntryDataType, string> = {
   Automatic: "border-emerald-200 bg-emerald-100 text-emerald-700",
@@ -53,6 +59,7 @@ const ENTRY_COLS = [
   { id: "saleType", label: "Sale Type", width: 120 },
   { id: "dataType", label: "Data Type", width: 170 },
   { id: "stage", label: "Stage", width: 160 },
+  { id: "qa", label: "QA", width: 130 },
   { id: "uploadedBy", label: "Uploaded By", width: 160 },
   { id: "fileType", label: "File Type", width: 110 },
   { id: "source", label: "Source", width: 120 },
@@ -203,6 +210,7 @@ export function IngestionEntriesPage({ dataType, onView, embedded = false, scope
   const [addOpen, setAddOpen] = useState(false)
   const [stageF, setStageF] = useState<string[]>([])
   const [fileTypeF, setFileTypeF] = useState("")
+  const [qaF, setQaF] = useState("")
   const [sourceF, setSourceF] = useState("")
   const [categoryF, setCategoryF] = useState<string[]>([])
   const [createdFrom, setCreatedFrom] = useState("")
@@ -226,10 +234,10 @@ export function IngestionEntriesPage({ dataType, onView, embedded = false, scope
   const [archiveDlg, setArchiveDlg] = useState<{ entries: IngestionEntry[]; ignored: number } | null>(null)
 
   const activeFilterCount =
-    [fileTypeF, sourceF, createdFrom || createdTo, finalizedFrom || finalizedTo].filter(Boolean).length +
+    [fileTypeF, sourceF, qaF, createdFrom || createdTo, finalizedFrom || finalizedTo].filter(Boolean).length +
     [developerF, projectF, saleTypeF, dataTypeF, stageF, categoryF].filter((a) => a.length > 0).length
   const clearAllFilters = () => {
-    setDeveloperF([]); setProjectF([]); setSaleTypeF([]); setDataTypeF([]); setStageF([]); setFileTypeF(""); setSourceF(""); setCategoryF([])
+    setDeveloperF([]); setProjectF([]); setSaleTypeF([]); setDataTypeF([]); setStageF([]); setFileTypeF(""); setQaF(""); setSourceF(""); setCategoryF([])
     setCreatedFrom(""); setCreatedTo(""); setFinalizedFrom(""); setFinalizedTo(""); setPage(1)
   }
 
@@ -243,6 +251,7 @@ export function IngestionEntriesPage({ dataType, onView, embedded = false, scope
       if (dataTypeF.length > 0 && !dataTypeF.includes(e.dataType)) return false
       if (stageF.length > 0 && !stageF.includes(e.stage)) return false
       if (fileTypeF && e.fileType !== fileTypeF) return false
+      if (qaF && qaOf(e) !== qaF) return false
       if (sourceF && e.source !== sourceF) return false
       if (categoryF.length > 0 && !categoryF.some((c) => e.categories.includes(c as never))) return false
       if (createdFrom && e.createdAt.slice(0, 10) < createdFrom) return false
@@ -261,7 +270,7 @@ export function IngestionEntriesPage({ dataType, onView, embedded = false, scope
       })
     }
     return out
-  }, [rows, q, developerF, projectF, saleTypeF, dataTypeF, stageF, fileTypeF, sourceF, categoryF, createdFrom, createdTo, finalizedFrom, finalizedTo, sorts])
+  }, [rows, q, developerF, projectF, saleTypeF, dataTypeF, stageF, fileTypeF, qaF, sourceF, categoryF, createdFrom, createdTo, finalizedFrom, finalizedTo, sorts])
 
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
 
@@ -340,6 +349,7 @@ export function IngestionEntriesPage({ dataType, onView, embedded = false, scope
         case "developer": return e.developer?.name ?? ""
         case "projects": return e.projects.map((p) => p.name).join("; ")
         case "stage": return e.stage
+        case "qa": return qaOf(e)
         case "saleType": return e.saleType
         case "dataType": return e.dataType
         case "uploadedBy": return e.uploadedBy
@@ -409,6 +419,7 @@ export function IngestionEntriesPage({ dataType, onView, embedded = false, scope
       case "saleType": return <ColorTag value={e.saleType} />
       case "dataType": return <span className={cn(TAG, DATA_TONE[e.dataType])}>{e.dataType}</span>
       case "stage": return STAGE_TONE[e.stage] ? <span className={cn(TAG, STAGE_TONE[e.stage])}>{e.stage}</span> : <ColorTag value={e.stage} />
+      case "qa": return qaOf(e) ? <span className={cn(TAG, QA_TONE[qaOf(e)])}>{qaOf(e)}</span> : <span className="text-muted-foreground">—</span>
       case "uploadedBy":
         return (
           <span className="inline-flex items-center gap-1.5 text-sm text-foreground">
@@ -514,6 +525,7 @@ export function IngestionEntriesPage({ dataType, onView, embedded = false, scope
               <FilterMultiSelect label="Data Type" value={dataTypeF} options={DATA_TYPES} onChange={(v) => { setDataTypeF(v); setPage(1) }} className="w-48" />
               <FilterMultiSelect label="Stage" value={stageF} options={stages} onChange={(v) => { setStageF(v); setPage(1) }} className="w-44" />
               <FilterSelect label="File Type" value={fileTypeF} options={fileTypes} onChange={(v) => { setFileTypeF(v); setPage(1) }} className="w-36" />
+              <FilterSelect label="QA" value={qaF} options={["QA pending", "QA reviewed"]} onChange={(v) => { setQaF(v); setPage(1) }} className="w-36" />
               <FilterSelect label="Source" value={sourceF} options={["WhatsApp", "Device"]} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-36" />
               <FilterMultiSelect label="Property Category" value={categoryF} options={["Residential", "Commercial"]} onChange={(v) => { setCategoryF(v); setPage(1) }} className="w-44" />
               <DateRangeFilter label="Created At Range" dateFrom={createdFrom} dateTo={createdTo} onChangeFrom={(v) => { setCreatedFrom(v); setPage(1) }} onChangeTo={(v) => { setCreatedTo(v); setPage(1) }} />
@@ -637,6 +649,9 @@ export function IngestionEntriesPage({ dataType, onView, embedded = false, scope
           </FilterDrawerField>
           <FilterDrawerField label="File Type">
             <FilterSelect label="File Type" value={fileTypeF} options={fileTypes} onChange={(v) => { setFileTypeF(v); setPage(1) }} className="w-full" width="w-full" />
+          </FilterDrawerField>
+          <FilterDrawerField label="QA">
+            <FilterSelect label="QA" value={qaF} options={["QA pending", "QA reviewed"]} onChange={(v) => { setQaF(v); setPage(1) }} className="w-full" width="w-full" />
           </FilterDrawerField>
           <FilterDrawerField label="Source">
             <FilterSelect label="Source" value={sourceF} options={["WhatsApp", "Device"]} onChange={(v) => { setSourceF(v); setPage(1) }} className="w-full" width="w-full" />
