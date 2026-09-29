@@ -22,7 +22,7 @@ import {
   type Extra, type GridFocus, type SourceHighlight, type StageCtx,
 } from "@/components/bulk-entry-kit"
 import {
-  ACTION_KINDS, FIELD_LABEL, FINISHING_TYPES, PROPERTY_TYPES, DELIVERY_TYPES, applyActions, extractRows, filtersText, fmtInt, hashStr,
+  ACTION_KINDS, FIELD_LABEL, FINISHING_TYPES, PROPERTY_TYPES, DELIVERY_TYPES, applyActions, extractRows, fieldWord, filtersText, fmtInt, hashStr,
   mapTargets, matchesFilters, normCode, plural, txt,
   type Action, type ActionKind, type Cell, type CleanupGroup, type CleanupItem, type FieldDef, type FieldKey, type ProjectRule, type RowFilter, type URow,
 } from "@/lib/bulk-ingestion"
@@ -815,8 +815,8 @@ export function StageTransform({ ctx }: { ctx: StageCtx }) {
             )}
             {pipe.mandatory.map((m) => (
               <div key={m.field} className={cn("flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5", m.blocking ? "border-red-200 bg-red-50/50" : "border-amber-200 bg-amber-50/40")}>
-                <button type="button" onClick={() => setFocus({ rowIds: m.rowIds, label: `units missing ${FIELD_LABEL[m.field].toLowerCase()}` })} className={cn("text-left text-xs hover:underline", m.blocking ? "text-red-800" : "text-amber-900")}>
-                  <b>{m.rowIds.length}</b> unit{m.rowIds.length > 1 ? "s" : ""} missing {FIELD_LABEL[m.field].toLowerCase()}{!m.blocking && " · optional"}
+                <button type="button" onClick={() => setFocus({ rowIds: m.rowIds, label: `units missing ${fieldWord(m.field)}` })} className={cn("text-left text-xs hover:underline", m.blocking ? "text-red-800" : "text-amber-900")}>
+                  <b>{m.rowIds.length}</b> unit{m.rowIds.length > 1 ? "s" : ""} missing {fieldWord(m.field)}{!m.blocking && " · optional"}
                 </button>
                 <Button size="sm" variant="outline" className="h-6 bg-white px-2 text-[11px]" onClick={() => setEditing(blank(pipe.matched.some((r) => r.dbId) && m.field !== "deliveryDate" ? "lookup" : m.field === "deliveryDate" ? "lookup" : "fill", { field: m.field, fields: [m.field], lookup: m.field === "deliveryDate" ? "project" : "unit", filters: [{ field: m.field, op: "blank" }] }))}>
                   Create fill action

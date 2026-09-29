@@ -7,7 +7,7 @@
 
 import {
   REQUIRED_FIELDS, applyActions, assignProjects, buildCards, buildingOf, changeSummary, compareCards, currentCards, dbFor,
-  detectCleanups, duplicateCodes, extractRows, fieldsFor, filtersText, fmtInt, guessLookup, hashStr, headerCatalog, identify,
+  detectCleanups, duplicateCodes, extractRows, fieldWord, fieldsFor, filtersText, fmtInt, guessLookup, hashStr, headerCatalog, identify,
   isBlank, isSheetSource, linkPlans, mapStacked, matchRows, matchesFilters, missingRequired, missingUnits, modelGroups,
   normCode, planChecks, plural, priceRanges, projectOptions, resolveFloorPlans, reviewIssues, stackTabs, standardizeRows,
   suggestProjectRules, tabTables, txt, assignMedia, AUTO_CLEANUPS,
@@ -597,7 +597,9 @@ export function stageStatus(key: StageKey, w: Work, p: Pipe): StageState {
       const blank = p.mandatory.filter((m) => m.blocking).reduce((n, m) => n + m.rowIds.length, 0)
       const dups = p.duplicates.length
       const soft = p.mandatory.filter((m) => !m.blocking).reduce((n, m) => n + m.rowIds.length, 0)
-      const note = blank || dups ? [blank && `${plural(blank, "required blank")}`, dups && `${plural(dups, "duplicate code")}`].filter(Boolean).join(" · ") : soft ? `${plural(soft, "optional blank")} left` : "No blocking field check after the replay"
+      // The exact question — which field, how many units — not just a count of blanks
+      const missing = p.mandatory.filter((m) => m.blocking).map((m) => `${plural(m.rowIds.length, "unit")} missing ${fieldWord(m.field)}`)
+      const note = blank || dups ? [...missing, dups && plural(dups, "duplicate unit code")].filter(Boolean).join(" · ") : soft ? `${plural(soft, "optional blank")} left` : "No blocking field check after the replay"
       return s(blank + dups, soft, note)
     }
     case "standard": {

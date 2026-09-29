@@ -136,6 +136,8 @@ export const FIELD_LABEL: Record<FieldKey, string> = {
   bedrooms: "Bedrooms", bua: "BUA", buaTo: "BUA to", land: "Land", garden: "Garden", floor: "Floor", finishing: "Finishing",
   deliveryType: "Delivery Type", deliveryDate: "Delivery Date", price: "Price", priceTo: "Price to",
 }
+/** A field's name inside a sentence — "delivery date", while acronyms stay "BUA". */
+export const fieldWord = (f: FieldKey) => FIELD_LABEL[f].replace(/\b[A-Z][a-z]+/g, (w) => w.toLowerCase())
 
 /* ── Small utils ─────────────────────────────────────────────────────────── */
 
