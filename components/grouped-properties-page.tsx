@@ -58,7 +58,7 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { TabStrip, LinkedId } from "@/components/table-kit"
+import { TabStrip, LinkedId, ProjectTreeSelect, type ProjectTreeNode, type ProjectTreeSelection } from "@/components/table-kit"
 import { launchesSnapshot, isIngestedLaunch, type Launch } from "@/lib/launches-mock"
 import { ChangeLinkedLaunchDialog, listingForLaunchStatus } from "@/components/launch-form-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -344,7 +344,12 @@ function makeGroups(): GroupedProperty[] {
       amenities: amenityPool[i % amenityPool.length],
       details: Array.from({ length: units }, (_, ui) => ({
         id: String(122679 + i * 100 + ui),
-        unitCode: `h${i + 3}${ui + 4}${ui % 2 === 0 ? "grounda" : "groundb"}`,
+        // Real-world formatting (case, spaces, separators) — matching normalizes it away.
+        // Resale / Nawy Now are Manual entry: roughly half of them carry no unit code at all,
+        // which is what sends those records down the similarity-matching path instead.
+        unitCode: (spec.saleType === "Resale" || spec.saleType === "Nawy Now") && i % 2 === 1
+          ? ""
+          : `H-${i + 3}${ui + 4} / Ground ${ui % 2 === 0 ? "A" : "B"}`,
         unitNumber: "N/A",
         unitModel: `H ${ui % 2 === 0 ? "Ground" : "Typical"}`,
         netBua: areaBase,
@@ -965,9 +970,12 @@ function GroupCard({
                         <Banknote className="h-3.5 w-3.5 mr-2" /> {financing ? "Disable Financing" : "Allow Financing"}
                       </DropdownMenuItem>
                     )}
-                    <DropdownMenuItem onClick={() => setMoveOpen(true)}>
-                      <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
-                    </DropdownMenuItem>
+                    {/* Rentals have no move action; Launch moves with its launch instead */}
+                    {MOVABLE_SALE_TYPES.includes(group.saleType) && (
+                      <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+                        <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
+                      </DropdownMenuItem>
+                    )}
                     {/* Primary Automatic: issues are reported per-unit on the detailed table below */}
                     {!isPA && (
                       <>
@@ -1020,11 +1028,11 @@ function GroupCard({
                     <DropdownMenuItem onClick={() => setMoveOpen(true)}>
                       <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Linked Launch
                     </DropdownMenuItem>
-                  ) : (
+                  ) : MOVABLE_SALE_TYPES.includes(group.saleType) ? (
                     <DropdownMenuItem onClick={() => setMoveOpen(true)}>
                       <ArrowRightLeft className="h-3.5 w-3.5 mr-2" /> Change Project
                     </DropdownMenuItem>
-                  )}
+                  ) : null}
                   {!isPA && (
                     <>
                       <DropdownMenuSeparator />
@@ -1388,7 +1396,7 @@ function GroupCard({
           open={moveOpen}
           onClose={() => setMoveOpen(false)}
           selectedGroups={[group]}
-          eligibleTypes={ALL_SALE_TYPES}
+          eligibleTypes={MOVABLE_SALE_TYPES}
           onConfirm={() => { setMoveOpen(false); toast.success("Compound move scheduled") }}
         />
       )}
@@ -1463,48 +1471,95 @@ function getGroupSortValue(group: GroupedProperty, col: string): string | number
 }
 
 // ── Static destination data for Change Compound modal ─────────────────────────
-const DEST_DEVELOPERS = [
-  { id: "DEV-001", name: "Lasirena Group" },
-  { id: "DEV-002", name: "Palm Hills" },
-  { id: "DEV-003", name: "Sodic" },
-  { id: "DEV-004", name: "Mountain View" },
-  { id: "DEV-005", name: "Emaar Misr" },
+const DEST_DEVELOPERS: { id: string; name: string; status: "Active" | "Hidden" }[] = [
+  { id: "DEV-001", name: "Lasirena Group", status: "Active" },
+  { id: "DEV-002", name: "Palm Hills", status: "Active" },
+  { id: "DEV-003", name: "Sodic", status: "Active" },
+  { id: "DEV-004", name: "Mountain View", status: "Active" },
+  { id: "DEV-005", name: "Emaar Misr", status: "Hidden" },
 ]
 
 const DEST_PROJECTS: Record<string, { id: string; name: string; phases: { id: string; name: string }[] }[]> = {
   "DEV-001": [
-    { id: "PRJ-L1", name: "Palm Beach Resort", phases: [{ id: "PH-L1", name: "Phase 1" }, { id: "PH-L2", name: "Phase 2" }] },
-    { id: "PRJ-L2", name: "Lasirena Hub", phases: [{ id: "PH-L3", name: "Phase A" }] },
-    { id: "PRJ-L21", name: "Lasirena Bay", phases: [{ id: "PH-L21", name: "Phase 1" }, { id: "PH-L22", name: "Phase 2" }] },
+    { id: "PRJ-1001", name: "Palm Beach Resort", phases: [{ id: "PHS-1101", name: "Phase 1" }, { id: "PHS-1102", name: "Phase 2" }] },
+    { id: "PRJ-1002", name: "Lasirena Hub", phases: [{ id: "PHS-1103", name: "Phase A" }] },
+    { id: "PRJ-1003", name: "Lasirena Bay", phases: [{ id: "PHS-1104", name: "Phase 1" }, { id: "PHS-1105", name: "Phase 2" }] },
   ],
   "DEV-002": [
-    { id: "PRJ-P1", name: "New Cairo Gate", phases: [{ id: "PH-P1", name: "Phase 1" }, { id: "PH-P2", name: "Phase 2" }, { id: "PH-P3", name: "Phase 3" }] },
-    { id: "PRJ-P2", name: "Hacienda Bay", phases: [{ id: "PH-P4", name: "Phase 1" }] },
-    { id: "PRJ-P21", name: "Badya", phases: [{ id: "PH-P21", name: "Phase 1" }] },
+    { id: "PRJ-2001", name: "New Cairo Gate", phases: [{ id: "PHS-2101", name: "Phase 1" }, { id: "PHS-2102", name: "Phase 2" }, { id: "PHS-2103", name: "Phase 3" }] },
+    { id: "PRJ-2002", name: "Hacienda Bay", phases: [{ id: "PHS-2104", name: "Phase 1" }] },
+    { id: "PRJ-2003", name: "Badya", phases: [{ id: "PHS-2105", name: "Phase 1" }] },
   ],
   "DEV-003": [
-    { id: "PRJ-S1", name: "SODIC West", phases: [{ id: "PH-S1", name: "Phase 1" }, { id: "PH-S2", name: "Phase 2" }] },
-    { id: "PRJ-S2", name: "Villette", phases: [] },
-    { id: "PRJ-S21", name: "Eastown", phases: [{ id: "PH-S21", name: "Phase 1" }] },
+    { id: "PRJ-3001", name: "SODIC West", phases: [{ id: "PHS-3101", name: "Phase 1" }, { id: "PHS-3102", name: "Phase 2" }] },
+    { id: "PRJ-3002", name: "Villette", phases: [] },
+    { id: "PRJ-3003", name: "Eastown", phases: [{ id: "PHS-3103", name: "Phase 1" }] },
   ],
   "DEV-004": [
-    { id: "PRJ-M1", name: "North Bay", phases: [{ id: "PH-M1", name: "Phase 1" }, { id: "PH-M2", name: "Phase 2" }] },
-    { id: "PRJ-M2", name: "Lagoon Heights", phases: [{ id: "PH-M3", name: "Phase A" }, { id: "PH-M4", name: "Phase B" }] },
-    { id: "PRJ-M21", name: "Aliva", phases: [{ id: "PH-M21", name: "Phase 1" }] },
+    { id: "PRJ-4001", name: "North Bay", phases: [{ id: "PHS-4101", name: "Phase 1" }, { id: "PHS-4102", name: "Phase 2" }] },
+    { id: "PRJ-4002", name: "Lagoon Heights", phases: [{ id: "PHS-4103", name: "Phase A" }, { id: "PHS-4104", name: "Phase B" }] },
+    { id: "PRJ-4003", name: "Aliva", phases: [{ id: "PHS-4105", name: "Phase 1" }] },
   ],
   "DEV-005": [
-    { id: "PRJ-E1", name: "Marassi", phases: [{ id: "PH-E1", name: "Phase 1" }, { id: "PH-E2", name: "Phase 2" }, { id: "PH-E3", name: "Phase 3" }] },
-    { id: "PRJ-E2", name: "Cairo Gate", phases: [{ id: "PH-E4", name: "Phase 1" }] },
-    { id: "PRJ-E21", name: "Mivida", phases: [{ id: "PH-E21", name: "Phase 1" }] },
+    { id: "PRJ-5001", name: "Marassi", phases: [{ id: "PHS-5101", name: "Phase 1" }, { id: "PHS-5102", name: "Phase 2" }, { id: "PHS-5103", name: "Phase 3" }] },
+    { id: "PRJ-5002", name: "Cairo Gate", phases: [{ id: "PHS-5104", name: "Phase 1" }] },
+    { id: "PRJ-5003", name: "Mivida", phases: [{ id: "PHS-5105", name: "Phase 1" }] },
   ],
 }
 
-// Simulate duplicate unit codes: if destination project ID ends in "1", pretend some codes clash
-function simulateDuplicates(unitCodes: string[], destProjectId: string): string[] {
-  if (destProjectId.endsWith("1") && unitCodes.length > 0) {
-    return unitCodes.slice(0, Math.min(2, unitCodes.length))
+/** Parent project of a destination phase id (unit-code clashes are checked against both). */
+function destParentOf(phaseId: string): { id: string; name: string } | null {
+  for (const list of Object.values(DEST_PROJECTS)) {
+    for (const p of list) if (p.phases.some((ph) => ph.id === phaseId)) return { id: p.id, name: p.name }
   }
-  return []
+  return null
+}
+const destNameOf = (id: string) => {
+  for (const list of Object.values(DEST_PROJECTS)) {
+    for (const p of list) {
+      if (p.id === id) return p.name
+      const ph = p.phases.find((x) => x.id === id)
+      if (ph) return ph.name
+    }
+  }
+  return id
+}
+
+// ── Unit codes ────────────────────────────────────────────────────────────────
+
+/** Unit codes compare normalized: lowercased, trimmed, all separators/symbols stripped. */
+export const normCode = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]/g, "")
+
+/** The real unit codes on a property group (placeholder TMP- codes don't count). */
+const realUnitCodes = (g: GroupedProperty) =>
+  g.details.map((d) => d.unitCode).filter((c) => !!c && !c.startsWith("TMP-"))
+
+/**
+ * Which duplicate check applies. Primary Automatic always carries unit codes;
+ * Primary Manual never does. Resale / Nawy Now are entry-type Manual but some
+ * carry unit codes and some don't — so it is decided per record, on the data.
+ */
+const groupHasUnitCodes = (g: GroupedProperty) => {
+  if (g.saleType === "Primary") return g.entryType === "Automatic"
+  return realUnitCodes(g).length > 0
+}
+
+/**
+ * Exact unit-code clash in the destination — and, when the destination is a phase,
+ * in its parent project too. Deterministic mock over the NORMALIZED code, so the
+ * same code always clashes in the same destination.
+ */
+function findCodeClashes(codes: string[], projectId: string, phaseId: string | null): { code: string; scope: "phase" | "project" }[] {
+  const target = phaseId ?? projectId
+  if (!target) return []
+  const salt = target.replace(/\D/g, "")
+  return codes.flatMap((code) => {
+    const n = normCode(code)
+    if (!n) return []
+    const h = [...(n + salt)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7)
+    if (h % 3 !== 0) return []
+    return [{ code, scope: (phaseId && h % 2 === 0 ? "phase" : "project") as "phase" | "project" }]
+  })
 }
 
 // ── Destination status metadata — drives the moved properties' resulting statuses ──
@@ -1513,12 +1568,34 @@ type DestStatusMeta = { listing: "Active" | "Hidden"; primary: "Launch" | "On-Sa
 
 /** Deterministic mock statuses per destination project / phase id. */
 function destMeta(id: string): DestStatusMeta {
-  const n = id.charCodeAt(id.length - 1) + id.length
+  const n = Number(id.replace(/\D/g, "")) || id.length
   return {
-    listing: n % 3 === 0 ? "Hidden" : "Active",
-    primary: (["On-Sale", "Launch", "On-Sale", "On-Hold"] as const)[n % 4],
+    listing: n % 7 === 0 ? "Hidden" : "Active",
+    primary: (["On-Sale", "Launch", "On-Hold", "On-Sale", "Sold-Off"] as const)[n % 5],
     entry: n % 2 === 0 ? "Automatic" : "Manual",
   }
+}
+
+/** Destination projects for the picker — ids + the three status tags per row. */
+function destProjectNodes(devId: string, excludeId: string, excludeName: string): ProjectTreeNode[] {
+  return (DEST_PROJECTS[devId] ?? [])
+    .filter((p) => p.id !== excludeId && p.name !== excludeName)
+    .map((p) => {
+      const m = destMeta(p.id)
+      return { id: p.id, name: p.name, status: m.listing, primaryStatus: m.primary, entryType: m.entry, phases: [] }
+    })
+}
+
+/** Phases of the chosen destination project, plus the explicit "no phase" row. */
+function destPhaseNodes(devId: string, projectId: string): ProjectTreeNode[] {
+  const phases = (DEST_PROJECTS[devId] ?? []).find((p) => p.id === projectId)?.phases ?? []
+  return [
+    { id: "none", name: "No specific phase", phases: [] },
+    ...phases.map((ph) => {
+      const m = destMeta(ph.id)
+      return { id: ph.id, name: ph.name, status: m.listing, primaryStatus: m.primary, entryType: m.entry, phases: [] }
+    }),
+  ]
 }
 
 const DEST_TONE: Record<string, string> = {
@@ -1578,6 +1655,136 @@ function PropertyInfoRow({ g, right }: { g: GroupedProperty; right?: React.React
   )
 }
 
+
+/** Destination path of a property — Developer › Project › Phase, with ids. */
+function PropertyPath({ g }: { g: GroupedProperty }) {
+  return (
+    <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
+      <Building2 className="h-3 w-3 shrink-0" />
+      <span>{g.developer.name}</span>
+      <span className="font-mono text-[9px]">{g.developer.id}</span>
+      <span>›</span>
+      <span className="font-medium text-foreground">{g.project.name}</span>
+      <span className="font-mono text-[9px]">{g.project.id}</span>
+      {g.phase && (
+        <>
+          <span>›</span>
+          <span className="font-medium text-foreground">{g.phase.name}</span>
+          <span className="font-mono text-[9px]">{g.phase.id}</span>
+        </>
+      )}
+    </span>
+  )
+}
+
+/** Resale ⇄ Nawy Now counterpart of a property — the two records always move together. */
+function linkedRef(g: GroupedProperty): { kind: string; id: string; href: string } | null {
+  if (g.nawyNowId) return { kind: "Nawy Now", id: g.nawyNowId, href: `/nawy-now/${g.nawyNowId}` }
+  if (g.resalePropertyId) return { kind: "Resale", id: g.resalePropertyId, href: `/resale/${g.resalePropertyId}` }
+  return null
+}
+
+/**
+ * Property card for the matching drawer — three sections:
+ *  1. identity: property id (copy + open in a new tab), linked counterpart, sale type
+ *     and statuses, confidence
+ *  2. the field grid
+ *  3. timestamps footer, same treatment as the property cards on All Properties
+ */
+function MatchCard({ g, confidence, tone = "plain", action }: {
+  g: GroupedProperty
+  confidence?: number
+  tone?: "plain" | "matched" | "muted"
+  action?: React.ReactNode
+}) {
+  const fmtPrice = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n.toLocaleString())
+  const linked = linkedRef(g)
+  const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
+    <div className="min-w-0">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="truncate text-xs font-medium text-foreground">{value || "\u2014"}</p>
+    </div>
+  )
+  const Stamp = ({ label, value }: { label: string; value: string }) => (
+    <span className="flex items-center gap-1 text-[10px] text-[#5A6A85]">
+      <span className="font-medium text-[#8C9BB5]">{label}</span>{value}
+    </span>
+  )
+  return (
+    <div className={cn(
+      "overflow-hidden rounded-lg border bg-card",
+      tone === "matched" ? "border-primary ring-1 ring-primary/30" : tone === "muted" ? "border-border opacity-60" : "border-border",
+    )}>
+      {/* 1 — identity */}
+      <div className="flex items-start justify-between gap-2 border-b border-border/70 px-3 py-2">
+        <div className="min-w-0 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-[11px] text-muted-foreground">Property ID:</span>
+            <span className="font-mono text-xs font-semibold text-foreground">{g.id}</span>
+            <button
+              type="button" title="Copy ID"
+              onClick={() => navigator.clipboard?.writeText(g.id).catch(() => {})}
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Copy className="h-3 w-3" />
+            </button>
+            <button
+              type="button" title="Open property details in a new tab"
+              onClick={() => window.open(`/properties/grouped/${g.id}`, "_blank", "noopener")}
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </button>
+            {linked && (
+              <span className="flex items-center gap-1.5 border-l border-border pl-2 text-[11px] text-muted-foreground">
+                <Link2 className="h-3 w-3 shrink-0" />
+                Linked to:
+                <span className="text-xs"><LinkedId value={linked.id} href={linked.href} /></span>
+                <span className="text-[10px]">({linked.kind})</span>
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline" className={cn("px-1 py-0 text-[10px] font-medium", badgeClass[g.saleType])}>{g.saleType}</Badge>
+            <Badge variant="outline" className={cn("px-1 py-0 text-[10px] font-medium", badgeClass[g.entryType])}>{g.entryType}</Badge>
+            <Badge variant="outline" className={cn("px-1 py-0 text-[10px] font-medium", badgeClass[g.listingStatus])}>{g.listingStatus}</Badge>
+            <Badge variant="outline" className={cn("border px-1 py-0 text-[10px] font-medium", SALE_STATUS_CLS[g.saleStatus])}>{g.saleStatus}</Badge>
+          </div>
+        </div>
+        <span className="flex shrink-0 items-center gap-2">
+          {confidence !== undefined && <ConfidenceBar value={confidence} />}
+          {action}
+        </span>
+      </div>
+
+      {/* 2 — fields */}
+      <div className="space-y-2 px-3 py-2.5">
+        <PropertyPath g={g} />
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+          <Field label="Property type" value={`${g.propertyType}${g.propertySubType ? ` - ${g.propertySubType}` : ""}`} />
+          <Field label="Bedrooms" value={g.bedroom || "\u2014"} />
+          <Field label="Bathrooms" value={g.bathroom || "\u2014"} />
+          <Field label="Gross area" value={`${g.areaMin}\u2013${g.areaMax} SQM`} />
+          <Field label="Price" value={`${fmtPrice(g.priceMin)} \u2013 ${fmtPrice(g.priceMax)} EGP`} />
+          <Field label="Finishing" value={g.finishing} />
+          <Field label="Delivery type / date" value={`${g.deliveryType} / ${g.deliveryDate}`} />
+          <Field label="Category" value={g.propertyCategory} />
+          <Field label="Units" value={`${g.availableUnits} / ${g.totalUnits} available`} />
+          <Field label="Location" value={[g.locationArea, g.district, g.subarea].filter(Boolean).join(" \u00b7 ")} />
+          <Field label="Payment plans" value={`${g.plans} plan${g.plans === 1 ? "" : "s"} \u00b7 ${g.offers} offer${g.offers === 1 ? "" : "s"}`} />
+        </div>
+      </div>
+
+      {/* 3 — timestamps */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/70 bg-muted/30 px-3 py-1.5">
+        <Stamp label="Created" value={g.createdAt} />
+        <Stamp label="Updated" value={g.updatedAt} />
+        <Stamp label="Availability updated" value={g.availabilityUpdatedAt} />
+      </div>
+    </div>
+  )
+}
+
 /** Similarity confidence — progress bar + percentage; amber above 80, green above 90. */
 function ConfidenceBar({ value }: { value: number }) {
   const bar = value > 90 ? "bg-emerald-500" : "bg-amber-500"
@@ -1592,14 +1799,19 @@ function ConfidenceBar({ value }: { value: number }) {
   )
 }
 
+/** Below this, two properties are not the same unit — no match is surfaced and the move carries no conflict. */
+export const SIMILARITY_CUTOFF = 80
+
 /** Candidate matches for the drawer — the surfaced match first, then weaker alternatives the user can switch to. */
-function simulateCandidates(g: GroupedProperty, destProjectId: string): { confidence: number; prop: GroupedProperty }[] {
-  const first = simulateSimilar(g, destProjectId)
+function simulateCandidates(g: GroupedProperty, destProjectId: string, dest?: { developer: EntityRef; project: EntityRef; phase: EntityRef | null }): { confidence: number; prop: GroupedProperty }[] {
+  const first = simulateSimilar(g, destProjectId, dest)
   if (!first) return []
   const alt = (i: number, drop: number) => ({
     confidence: Math.max(68, first.confidence - drop),
     prop: {
       ...first.prop,
+      bathroom: Math.max(1, first.prop.bathroom + (i % 2 === 0 ? 1 : 0)),
+      finishing: i % 2 === 0 ? first.prop.finishing : "FULLY FINISHED",
       id: String(Number(first.prop.id) + i * 71),
       areaMin: first.prop.areaMin + i * 3,
       areaMax: first.prop.areaMax + i * 5,
@@ -1607,7 +1819,16 @@ function simulateCandidates(g: GroupedProperty, destProjectId: string): { confid
       priceMax: Math.round(first.prop.priceMax * (1 + i * 0.04)),
     },
   })
-  return [first, alt(1, 6), alt(2, 13)]
+  // A candidate is its own record — it can't share the source's linked counterpart
+  const relink = (c: { confidence: number; prop: GroupedProperty }) => ({
+    ...c,
+    prop: {
+      ...c.prop,
+      nawyNowId: c.prop.nawyNowId ? `NN-${50000 + (Number(c.prop.id) % 1000)}` : undefined,
+      resalePropertyId: c.prop.resalePropertyId ? `RSL-${70000 + (Number(c.prop.id) % 1000)}` : undefined,
+    },
+  })
+  return [first, alt(1, 6), alt(2, 13)].filter(c => c.confidence >= SIMILARITY_CUTOFF).map(relink)
 }
 
 /**
@@ -1642,8 +1863,73 @@ function moveOutcomeLines(destId: string, groups: GroupedProperty[]): { bucket: 
 const OUTCOME_TONE: Record<string, string> = {
   Sold: "border-red-200 bg-red-50 text-red-700",
   Hold: "border-amber-200 bg-amber-50 text-amber-700",
+  Available: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  Archived: "border-border bg-muted text-muted-foreground",
   Published: "border-emerald-200 bg-emerald-100 text-emerald-700",
   Hidden: "border-red-200 bg-red-100 text-red-700",
+}
+
+/**
+ * What the destination does to ONE property. Entry type never changes — only the
+ * sale status and the listing status can, and only for these reasons:
+ *  - destination Sold-Off  → the unit can't stay open under a closed project → Sold + Hidden
+ *  - destination On-Hold   → Hold + Hidden
+ *  - destination project/phase itself Hidden → the unit can't be shown under it
+ *  - Primary only: the destination lists one entry type and hides the other, so a
+ *    unit whose entry type differs from the destination's is hidden on arrival.
+ */
+type MoveEffect = {
+  sale: { from: GroupedProperty["saleStatus"]; to: GroupedProperty["saleStatus"] }
+  listing: { from: GroupedProperty["listingStatus"]; to: GroupedProperty["listingStatus"] }
+  reasons: string[]
+  changed: boolean
+}
+function moveEffect(g: GroupedProperty, destId: string): MoveEffect {
+  const m = destMeta(destId)
+  const reasons: string[] = []
+  let sale = g.saleStatus
+  let listing = g.listingStatus
+
+  if (m.primary === "Sold-Off") {
+    if (sale === "Available" || sale === "Hold") { sale = "Sold"; reasons.push("the destination is Sold-Off — an open unit can't stay available under it") }
+    if (listing === "Published") { listing = "Hidden"; reasons.push("Sold-Off destinations don't list units") }
+  } else if (m.primary === "On-Hold") {
+    if (sale === "Available") { sale = "Hold"; reasons.push("the destination is On-Hold — available units go on hold with it") }
+    if (listing === "Published") { listing = "Hidden"; reasons.push("On-Hold destinations don't list units") }
+  }
+  if (m.listing === "Hidden" && listing === "Published") {
+    listing = "Hidden"
+    reasons.push("the destination project is Hidden — a unit can't be shown under a hidden project")
+  }
+  if (g.saleType === "Primary" && m.entry !== g.entryType && listing === "Published") {
+    listing = "Hidden"
+    reasons.push(`the destination lists ${m.entry} units and hides ${g.entryType} ones`)
+  }
+  return {
+    sale: { from: g.saleStatus, to: sale },
+    listing: { from: g.listingStatus, to: listing },
+    reasons,
+    changed: sale !== g.saleStatus || listing !== g.listingStatus,
+  }
+}
+
+/** Before → after pair for one status line. */
+function EffectLine({ label, from, to }: { label: string; from: string; to: string }) {
+  // Both sides keep their own status colour — the arrow carries the direction.
+  const tag = (v: string) => (
+    <span className={cn(
+      "inline-flex items-center rounded border px-1.5 py-px text-[10px] font-medium",
+      OUTCOME_TONE[v] ?? "border-border bg-muted text-muted-foreground",
+    )}>{v}</span>
+  )
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <span className="font-medium text-foreground">{label}</span>
+      {tag(from)}
+      <MoveRight className="h-3 w-3" />
+      {tag(to)}
+    </span>
+  )
 }
 
 /** "After the move" box — only what changes; renders nothing when nothing changes. `bare` drops the box chrome. */
@@ -1672,7 +1958,7 @@ function MoveOutcomeBox({ destId, groups, bare }: { destId: string; groups: Grou
  * confidence, together with the destination property that causes the conflict.
  * Deterministic mock: roughly half the groups find a similar destination match.
  */
-function simulateSimilar(g: GroupedProperty, destProjectId: string): { confidence: number; prop: GroupedProperty } | null {
+function simulateSimilar(g: GroupedProperty, destProjectId: string, dest?: { developer: EntityRef; project: EntityRef; phase: EntityRef | null }): { confidence: number; prop: GroupedProperty } | null {
   const seed = g.bedroom + g.bathroom + destProjectId.length + destProjectId.charCodeAt(destProjectId.length - 1)
   if (seed % 2 !== 0) return null
   const m = destMeta(destProjectId)
@@ -1680,6 +1966,8 @@ function simulateSimilar(g: GroupedProperty, destProjectId: string): { confidenc
   const prop = {
     ...g,
     id: `${100000 + (seed * 137) % 90000}`,
+    // these live in the DESTINATION, so they carry its developer / project / phase
+    ...(dest ? { developer: dest.developer, project: dest.project, phase: dest.phase } : {}),
     areaMin: g.areaMin - 4,
     areaMax: g.areaMax + 6,
     priceMin: Math.round(g.priceMin * 0.97),
@@ -1688,7 +1976,8 @@ function simulateSimilar(g: GroupedProperty, destProjectId: string): { confidenc
     listingStatus: (m.listing === "Active" ? "Published" : "Hidden") as GroupedProperty["listingStatus"],
     saleStatus: "Available" as const,
   }
-  return { confidence: 86 + (seed % 14), prop }
+  const confidence = 86 + (seed % 14)
+  return confidence >= SIMILARITY_CUTOFF ? { confidence, prop } : null
 }
 
 // ── Per-compound destination selector sub-component ───────────────────────────
@@ -1700,62 +1989,53 @@ interface DestSelectorProps {
   excludeProjectName: string
 }
 function DestSelector({ value, onChange, lockedDevName, excludeProjectId, excludeProjectName }: DestSelectorProps) {
-  // Developer is locked to the source developer — units cannot move to a compound under a different developer.
+  // Developer is locked to the source developer — units never move across developers.
   // The source project is excluded so the destination can never equal the source.
-  const projects = (value.devId ? (DEST_PROJECTS[value.devId] ?? []) : [])
-    .filter(p => p.id !== excludeProjectId && p.name !== excludeProjectName)
-  const phases = projects.find(p => p.id === value.projectId)?.phases ?? []
+  const dev = DEST_DEVELOPERS.find((d) => d.id === value.devId)
+  const projectNodes = destProjectNodes(value.devId, excludeProjectId, excludeProjectName)
+  const phaseNodes = value.projectId ? destPhaseNodes(value.devId, value.projectId) : []
+  const pickedProject = projectNodes.find((p) => p.id === value.projectId)
+  const pickedPhase = phaseNodes.find((p) => p.id === value.phaseId && p.id !== "none")
+  const sel = (id: string, label: string): ProjectTreeSelection => ({ kind: "project", id, label, projectIds: [id] })
   return (
     <div className="grid grid-cols-3 gap-2">
       <div className="space-y-1">
-        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Developer <span className="normal-case font-normal">(locked)</span></label>
-        <Select value={value.devId} disabled>
-          <SelectTrigger className="h-8 w-full text-xs">
-            <SelectValue>{lockedDevName}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {DEST_DEVELOPERS.map(d => <SelectItem key={d.id} value={d.id} className="text-xs">{d.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Developer <span className="font-normal normal-case">(locked)</span></label>
+        <div className="flex h-8 items-center gap-1.5 rounded-md border border-input bg-muted px-2.5 text-xs text-muted-foreground">
+          <span className="truncate">{dev?.name ?? lockedDevName}</span>
+          <span className="font-mono text-[9px]">{value.devId}</span>
+          {dev?.status && (
+            <span className={cn("ml-auto inline-flex items-center rounded border px-1 py-0 text-[9px] font-medium leading-4", DEST_TONE[dev.status])}>{dev.status}</span>
+          )}
+        </div>
       </div>
       <div className="space-y-1">
-        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Project</label>
-        <Select value={value.projectId} onValueChange={v => onChange({ ...value, projectId: v, phaseId: "none" })} disabled={!value.devId}>
-          <SelectTrigger className="h-8 w-full text-xs">
-            <SelectValue placeholder={value.devId ? "Select…" : "— pick dev first"} />
-          </SelectTrigger>
-          <SelectContent>
-            {projects.length === 0
-              ? <div className="px-2 py-1.5 text-xs text-muted-foreground">No other project under this developer</div>
-              : projects.map(p => (
-                  <SelectItem key={p.id} value={p.id} className="text-xs">
-                    <span className="flex items-center gap-1.5">
-                      <span>{p.name}</span>
-                      <span className="font-mono text-[9px] text-muted-foreground">{p.id}</span>
-                    </span>
-                  </SelectItem>
-                ))}
-          </SelectContent>
-        </Select>
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Project</label>
+        {projectNodes.length === 0 ? (
+          <div className="flex h-8 items-center rounded-md border border-input bg-muted px-2.5 text-xs text-muted-foreground">No other project under this developer</div>
+        ) : (
+          <ProjectTreeSelect
+            label="Project"
+            projects={projectNodes}
+            value={pickedProject ? sel(pickedProject.id, pickedProject.name) : null}
+            onChange={(s) => onChange({ ...value, projectId: s?.id ?? "", phaseId: "none" })}
+          />
+        )}
       </div>
       <div className="space-y-1">
-        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Phase <span className="normal-case font-normal">(optional)</span></label>
-        <Select value={value.phaseId} onValueChange={v => onChange({ ...value, phaseId: v })} disabled={!value.projectId}>
-          <SelectTrigger className="h-8 w-full text-xs">
-            <SelectValue placeholder={!value.projectId ? "— pick project" : phases.length === 0 ? "No phases" : "Select…"} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none" className="text-xs">No specific phase</SelectItem>
-            {phases.map(ph => (
-              <SelectItem key={ph.id} value={ph.id} className="text-xs">
-                <span className="flex items-center gap-1.5">
-                  <span>{ph.name}</span>
-                  <span className="font-mono text-[9px] text-muted-foreground">{ph.id}</span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Phase <span className="font-normal normal-case">(optional)</span></label>
+        {!value.projectId ? (
+          <div className="flex h-8 items-center rounded-md border border-input bg-muted px-2.5 text-xs text-muted-foreground">— pick a project</div>
+        ) : phaseNodes.length <= 1 ? (
+          <div className="flex h-8 items-center rounded-md border border-input bg-muted px-2.5 text-xs text-muted-foreground">No phases</div>
+        ) : (
+          <ProjectTreeSelect
+            label="Phase"
+            projects={phaseNodes}
+            value={pickedPhase ? sel(pickedPhase.id, pickedPhase.name) : null}
+            onChange={(s) => onChange({ ...value, phaseId: s?.id ?? "none" })}
+          />
+        )}
       </div>
     </div>
   )
@@ -1955,12 +2235,17 @@ interface ChangeProjectModalProps {
 }
 
 const ALL_SALE_TYPES: GroupedProperty["saleType"][] = ["Primary", "Resale", "Nawy Now", "Rental", "Launch"]
+/**
+ * Sale types that can move between projects. Launch properties move with their
+ * launch instead (Change Linked Launch), and Rentals have no move action yet.
+ */
+const MOVABLE_SALE_TYPES: GroupedProperty["saleType"][] = ["Primary", "Resale", "Nawy Now"]
 
-function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligibleTypes = ["Primary", "Launch"] }: ChangeProjectModalProps) {
+function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligibleTypes = MOVABLE_SALE_TYPES }: ChangeProjectModalProps) {
   const isSingle = selectedGroups.length === 1
   // Primary Automatic, Resale, Nawy Now and Rental carry unit codes → duplicate check;
   // Launch and Primary Manual don't → similarity check
-  const hasUnitCodes = (g: GroupedProperty) => isPrimaryAuto(g) || ["Resale", "Nawy Now", "Rental"].includes(g.saleType)
+  const hasUnitCodes = groupHasUnitCodes
   const eligible = selectedGroups.filter(g => eligibleTypes.includes(g.saleType))
   const ineligible = selectedGroups.filter(g => !eligibleTypes.includes(g.saleType))
 
@@ -1992,7 +2277,12 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
   }, [selectedGroups])
 
   type DestState = { devId: string; projectId: string; phaseId: string }
-  type GroupCheck = { kind: "unitcode" | "similarity"; dupes: string[]; candidates: { confidence: number; prop: GroupedProperty }[] }
+  type GroupCheck = {
+    kind: "unitcode" | "similarity"
+    /** Exact clashes, with the scope they were found in (phase vs its parent project). */
+    dupes: { code: string; scope: "phase" | "project" }[]
+    candidates: { confidence: number; prop: GroupedProperty }[]
+  }
   const [destinations, setDestinations] = useState<Record<string, DestState>>({})
   const [step, setStep] = useState<"select" | "review" | "loading" | "done">("select")
   const [checks, setChecks] = useState<Record<string, GroupCheck>>({})
@@ -2001,6 +2291,8 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
   // Which similarity candidate is treated as THE match (changeable from the matching drawer)
   const [matchPick, setMatchPick] = useState<Record<string, number>>({})
   const [matchDrawer, setMatchDrawer] = useState<string | null>(null)
+  const MATCH_FILTERS_EMPTY = { id: "", delivery: "all", finishing: "all", beds: "all", status: "all" }
+  const [matchFilters, setMatchFilters] = useState(MATCH_FILTERS_EMPTY)
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   // Snapshot for the done screen — confirming clears the parent selection, which empties live-derived counts
   const [doneSnap, setDoneSnap] = useState<{ groups: number; units: number; compounds: number; lines: { from: string; to: string }[] } | null>(null)
@@ -2017,6 +2309,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
       setDecisions({})
       setMatchPick({})
       setMatchDrawer(null)
+      setMatchFilters(MATCH_FILTERS_EMPTY)
       setCollapsedSections(new Set())
       setDoneSnap(null)
     }
@@ -2034,10 +2327,17 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
       if (!dest?.projectId) continue
       for (const g of cg.groups) {
         if (hasUnitCodes(g)) {
-          const dupes = simulateDuplicates(g.details.map(d => d.unitCode), dest.projectId)
+          const dupes = findCodeClashes(realUnitCodes(g), dest.projectId, dest.phaseId !== "none" ? dest.phaseId : null)
           newChecks[g.id] = { kind: "unitcode", dupes, candidates: [] }
         } else {
-          const candidates = simulateCandidates(g, dest.projectId)
+          const destProj = (DEST_PROJECTS[dest.devId] ?? []).find(pr => pr.id === dest.projectId)
+          const destDev = DEST_DEVELOPERS.find(d => d.id === dest.devId)
+          const destPh = dest.phaseId !== "none" ? (destProj?.phases ?? []).find(ph => ph.id === dest.phaseId) : null
+          const candidates = simulateCandidates(g, dest.projectId, {
+            developer: { name: destDev?.name ?? "", id: dest.devId, url: "#" },
+            project: { name: destProj?.name ?? "", id: dest.projectId, url: "#" },
+            phase: destPh ? { name: destPh.name, id: destPh.id, url: "#" } : null,
+          })
           newChecks[g.id] = { kind: "similarity", dupes: [], candidates }
           if (candidates.length > 0) newDecisions[g.id] = "overwrite"
         }
@@ -2094,7 +2394,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
     <div className="flex gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5">
       <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
       <p className="text-xs text-blue-800">
-        <strong>The property title will be changed with this move</strong> — titles are auto-generated based on the property project and phase.
+        <strong>The property title and description will be changed with this move</strong> — both are auto-generated from the property project and phase.
       </p>
     </div>
   )
@@ -2195,22 +2495,31 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
         return (
           <p className="flex items-center gap-1.5 px-4 pb-2.5 text-[11px] text-emerald-700">
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-            No similar unit code found in <strong>{destName}</strong> — no conflicts.
+            No matching unit code in <strong>{destName}</strong>{destOf(cg).dest.phaseId !== "none" && destParentOf(destOf(cg).dest.phaseId) ? <> or its parent project</> : null} — nothing will be overwritten.
           </p>
         )
       }
+      const { dest } = destOf(cg)
+      const parent = dest.phaseId !== "none" ? destParentOf(dest.phaseId) : null
       return (
         <div className="mx-4 mb-2.5 space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-          {/* unit-code conflicts are informational for every unit-code type — no Overwrite / Move as new */}
+          {/* Unit-code clashes always overwrite — duplicates can't be left behind in the destination */}
           <p className="flex items-start gap-2 text-xs text-amber-800">
             <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
-            <span><span className="font-semibold">{c.dupes.length} same unit code{c.dupes.length !== 1 ? "s" : ""} found in {destName}</span> — the source units will overwrite these matching records on confirmation.</span>
+            <span>
+              <span className="font-semibold">{c.dupes.length} unit code{c.dupes.length !== 1 ? "s" : ""} already exist{c.dupes.length === 1 ? "s" : ""} in {destName}</span>
+              {parent && <> or its parent <span className="font-semibold">{parent.name}</span></>} — the duplicate units there are <span className="font-semibold">deleted</span> and replaced by the moved ones, so the destination keeps no duplicates.
+            </span>
           </p>
           <div className="flex flex-wrap gap-1.5 pl-5">
-            {c.dupes.map(code => (
-              <span key={code} className="inline-flex items-center rounded border border-amber-200 bg-white px-2 py-0.5 font-mono text-[10px] text-amber-700">{code}</span>
+            {c.dupes.map(d => (
+              <span key={d.code} className="inline-flex items-center gap-1 rounded border border-amber-200 bg-white px-2 py-0.5 font-mono text-[10px] text-amber-700">
+                {d.code}
+                {parent && <span className="font-sans text-[9px] text-amber-600">in {d.scope === "phase" ? destName : parent.name}</span>}
+              </span>
             ))}
           </div>
+          <p className="pl-5 text-[10px] text-amber-700/80">Codes are matched normalized — letter case, spaces and symbols are ignored.</p>
         </div>
       )
     }
@@ -2253,6 +2562,33 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
     )
   }
 
+  /**
+   * Status conflict with the destination — what the move does to THIS property.
+   * Entry type is never touched; only sale status and listing status can move.
+   */
+  const effectBlock = (g: GroupedProperty, destId: string) => {
+    const e = moveEffect(g, destId)
+    if (!e.changed) {
+      return (
+        <p className="flex items-center gap-1.5 px-4 pb-2.5 text-[11px] text-emerald-700">
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+          Sale and listing status stay as they are in the destination.
+        </p>
+      )
+    }
+    return (
+      <div className="mx-4 mb-2.5 space-y-1.5 rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {e.sale.from !== e.sale.to && <EffectLine label="Sale Status" from={e.sale.from} to={e.sale.to} />}
+          {e.listing.from !== e.listing.to && <EffectLine label="Listing Status" from={e.listing.from} to={e.listing.to} />}
+        </div>
+        <ul className="list-disc space-y-0.5 pl-8 text-[10px] leading-4 text-blue-800/90">
+          {e.reasons.map(r => <li key={r}>{r}</li>)}
+        </ul>
+      </div>
+    )
+  }
+
   /** Review cards for a subset of groups, grouped by source project/phase with route + outcome. */
   const reviewCards = (subset: GroupedProperty[]) =>
     compoundGroups.map(cg => {
@@ -2270,10 +2606,11 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                 <PropertyInfoRow g={g} />
                 {linkedLine(g)}
                 {checkDetail(g, cg)}
+                {isSingle && destId && effectBlock(g, destId)}
               </div>
             ))}
           </div>
-          {outcome.length > 0 && (
+          {!isSingle && outcome.length > 0 && (
             <div className="border-t border-border bg-muted/20 px-4 py-3">
               <MoveOutcomeBox destId={destId} groups={gs} />
             </div>
@@ -2361,7 +2698,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                     <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                       <p className="text-xs text-amber-800">
-                        Resale, Nawy Now and Rentals can't be moved in bulk — move them unit by unit or from their dedicated sale type page.
+                        Launch properties move with their launch (Change Linked Launch) and Rentals have no move action — they stay where they are.
                       </p>
                     </div>
                   )}
@@ -2371,7 +2708,7 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
               {eligible.length === 0 ? (
                 <div className="space-y-1 rounded-xl border border-dashed border-border bg-muted/30 px-6 py-10 text-center">
                   <p className="text-sm font-medium text-foreground">No movable properties selected</p>
-                  <p className="text-xs text-muted-foreground">Select Primary or Launch properties to use Change Project.</p>
+                  <p className="text-xs text-muted-foreground">Change Project applies to Primary, Resale and Nawy Now properties — Launch properties move with their launch, and Rentals stay put.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -2384,7 +2721,8 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
                     const d = destinations[cg.key]
                     const destId = d?.projectId ? (d.phaseId !== "none" ? d.phaseId : d.projectId) : ""
                     return (
-                      <div key={cg.key} className="overflow-hidden rounded-xl border border-border bg-card">
+                      // no overflow-hidden — it would clip the destination dropdown panel
+                      <div key={cg.key} className="rounded-xl border border-border bg-card [&>*:first-child]:rounded-t-xl [&>*:last-child]:rounded-b-xl">
                         <div className="border-b border-border bg-muted/50 px-5 py-2.5">{compoundHeader(cg)}</div>
                         <div className="divide-y divide-border/70">
                           {cg.groups.map(g => (
@@ -2566,48 +2904,131 @@ function ChangeProjectModal({ open, onClose, selectedGroups, onConfirm, eligible
           const { destName } = destOf(cg)
           const cands = checks[g.id]?.candidates ?? []
           const pick = Math.min(matchPick[g.id] ?? 0, cands.length - 1)
+          const asNew = (decisions[g.id] ?? "overwrite") === "new"
+          const others = cands.map((c, i) => ({ ...c, i })).filter(c => c.i !== pick)
+          // Resale ⇄ Nawy Now counterparts — both sides of a match carry theirs along
+          const srcLink = linkedRef(g)
+          const matchLink = cands[pick] ? linkedRef(cands[pick].prop) : null
+          // Filters over the other candidates — same shape as the matching screens elsewhere
+          const f = matchFilters
+          const visible = others.filter(c => {
+            if (f.id && !c.prop.id.includes(f.id.trim())) return false
+            if (f.delivery !== "all" && c.prop.deliveryType !== f.delivery) return false
+            if (f.finishing !== "all" && c.prop.finishing !== f.finishing) return false
+            if (f.beds !== "all" && String(c.prop.bedroom) !== f.beds) return false
+            if (f.status !== "all" && c.prop.saleStatus !== f.status) return false
+            return true
+          })
+          const opts = (vals: string[]) => ["all", ...Array.from(new Set(vals))]
+          const FilterBox = ({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) => (
+            <div className="space-y-1">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
+              <select
+                value={value} onChange={e => onChange(e.target.value)}
+                className="h-8 w-full rounded-md border border-input bg-card px-2 text-xs"
+              >
+                {options.map(o => <option key={o} value={o}>{o === "all" ? "All" : o}</option>)}
+              </select>
+            </div>
+          )
           return (
             <Sheet open onOpenChange={o => { if (!o) setMatchDrawer(null) }}>
-              <SheetContent side="right" className="!w-[760px] !max-w-[95vw] p-0 flex flex-col">
-                <SheetHeader className="shrink-0 border-b border-border px-5 py-4">
-                  <SheetTitle className="text-base">Property Matching</SheetTitle>
-                  <SheetDescription className="text-xs">
-                    Source property vs similar properties found in {destName}. Pick a different property to treat as the match.
-                  </SheetDescription>
+              <SheetContent side="right" className="!w-[820px] !max-w-[96vw] p-0 flex flex-col">
+                <SheetHeader className="shrink-0 gap-2 border-b border-border px-5 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <SheetTitle className="text-base">Property Matching</SheetTitle>
+                      <SheetDescription className="text-xs">Matching in {destName}.</SheetDescription>
+                    </div>
+                    {/* Both outcomes reachable from the top */}
+                    <Button
+                      size="sm" variant={asNew ? "default" : "outline"} className="h-7 shrink-0 text-xs"
+                      onClick={() => setDecisions(prev => ({ ...prev, [g.id]: asNew ? "overwrite" : "new" }))}
+                    >
+                      {asNew ? "Marked as new — undo" : "No Match - Mark as New"}
+                    </Button>
+                  </div>
                 </SheetHeader>
-                <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+
+                <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
                   <div className="space-y-1.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Source property</p>
-                    <div className="overflow-hidden rounded-lg border border-border bg-card"><PropertyInfoRow g={g} /></div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Property being moved</p>
+                    <MatchCard g={g} />
+                    {srcLink && (
+                      <p className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+                        <Link2 className="h-3 w-3 shrink-0" />
+                        Its linked <span className="font-medium text-foreground">{srcLink.kind}</span> property
+                        <span className="font-mono">{srcLink.id}</span> moves with it — the two records can't be split apart.
+                      </p>
+                    )}
                   </div>
+
                   <div className="space-y-1.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Matched property</p>
-                    <div className="overflow-hidden rounded-lg border border-emerald-300 bg-card">
-                      <PropertyInfoRow g={cands[pick].prop} />
-                      <div className="flex items-center justify-between border-t border-border/70 bg-emerald-50/50 px-4 py-2">
-                        <ConfidenceBar value={cands[pick].confidence} />
-                        <Badge variant="outline" className="border-emerald-200 bg-emerald-100 text-[10px] font-medium text-emerald-700">Current match</Badge>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Matched to</p>
+                      {asNew && (
+                        <span className="inline-flex items-center rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                          Moving as new — nothing is overwritten
+                        </span>
+                      )}
+                    </div>
+                    {cands[pick] && <MatchCard g={cands[pick].prop} confidence={cands[pick].confidence} tone={asNew ? "muted" : "matched"} />}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Other similar properties in {destName}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">Only properties at {SIMILARITY_CUTOFF}% and above count as similar.</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">ID</label>
+                        <Input
+                          value={f.id} onChange={e => setMatchFilters(prev => ({ ...prev, id: e.target.value }))}
+                          placeholder="Search by ID…" className="h-8 text-xs"
+                        />
                       </div>
+                      <FilterBox label="Delivery type" value={f.delivery} onChange={v => setMatchFilters(prev => ({ ...prev, delivery: v }))} options={opts(others.map(c => c.prop.deliveryType))} />
+                      <FilterBox label="Finishing" value={f.finishing} onChange={v => setMatchFilters(prev => ({ ...prev, finishing: v }))} options={opts(others.map(c => c.prop.finishing))} />
+                      <FilterBox label="Bedrooms" value={f.beds} onChange={v => setMatchFilters(prev => ({ ...prev, beds: v }))} options={opts(others.map(c => String(c.prop.bedroom)))} />
+                      <FilterBox label="Status" value={f.status} onChange={v => setMatchFilters(prev => ({ ...prev, status: v }))} options={opts(others.map(c => c.prop.saleStatus))} />
+                    </div>
+                    <div className="space-y-2">
+                      {visible.map(c => (
+                        <MatchCard
+                          key={c.prop.id}
+                          g={c.prop}
+                          confidence={c.confidence}
+                          action={
+                            <Button
+                              size="sm" variant="outline" className="h-6 px-2 text-[11px]"
+                              onClick={() => { setMatchPick(prev => ({ ...prev, [g.id]: c.i })); setDecisions(prev => ({ ...prev, [g.id]: "overwrite" })) }}
+                            >
+                              Use as match
+                            </Button>
+                          }
+                        />
+                      ))}
+                      {visible.length === 0 && (
+                        <p className="rounded-lg border border-dashed border-border py-6 text-center text-xs text-muted-foreground">
+                          {others.length === 0 ? "No other similar property in this destination." : "No property matches these filters."}
+                        </p>
+                      )}
                     </div>
                   </div>
-                  {cands.length > 1 && (
-                    <div className="space-y-1.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Other similar properties</p>
-                      <div className="space-y-2">
-                        {cands.map((c, i) => i === pick ? null : (
-                          <div key={c.prop.id} className="overflow-hidden rounded-lg border border-border bg-card">
-                            <PropertyInfoRow g={c.prop} />
-                            <div className="flex items-center justify-between border-t border-border/70 bg-muted/30 px-4 py-2">
-                              <ConfidenceBar value={c.confidence} />
-                              <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => setMatchPick(prev => ({ ...prev, [g.id]: i }))}>
-                                Use as match
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                </div>
+
+                <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-3">
+                  <p className="text-[11px] text-muted-foreground">
+                    {asNew
+                      ? "No property in the destination will be overwritten."
+                      : matchLink
+                        ? `On confirmation the matched property, and its linked ${matchLink.kind} property ${matchLink.id}, are deleted and replaced by this one and its linked unit.`
+                        : "On confirmation the matched property is deleted and replaced by this one."}
+                  </p>
+                  <Button size="sm" className="h-7 text-xs" onClick={() => setMatchDrawer(null)}>Done</Button>
                 </div>
               </SheetContent>
             </Sheet>
@@ -3005,7 +3426,7 @@ export function GroupedPropertiesView({
       {/* Bulk action floating bar */}
       {selectedCards.size > 0 && (() => {
         const selGroups = groups.filter(g => selectedCards.has(g.id))
-        const eligibleTypes: GroupedProperty["saleType"][] = ["Primary", "Launch"]
+        const eligibleTypes: GroupedProperty["saleType"][] = MOVABLE_SALE_TYPES
         const hasEligible = selGroups.some(g => eligibleTypes.includes(g.saleType))
         // Change Project is capped at 10 selected groups
         const tooManyForMove = selGroups.length > 10
