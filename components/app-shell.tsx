@@ -18,6 +18,7 @@ import { MasterplanCollectionPage } from "@/components/masterplan-collection-pag
 import { ConstructionUpdatesPage } from "@/components/construction-updates-page"
 import { WhatsAppMediaPage } from "@/components/whatsapp-media-page"
 import { WhatsAppGroupsPage } from "@/components/whatsapp-groups-page"
+import { WhatsAppChatsPage } from "@/components/whatsapp-chats-page"
 import { WhatsAppConfigurationsPage } from "@/components/whatsapp-configurations-page"
 import { AllPropertiesPage } from "@/components/all-properties-page"
 import { DevelopersPage } from "@/components/developers-page"
@@ -133,6 +134,8 @@ export function AppShell() {
         return <ConstructionUpdatesPage />
       case "Whatsapp Groups":
         return <WhatsAppGroupsPage />
+      case "Whatsapp Chats":
+        return <WhatsAppChatsPage />
       case "Whatsapp Media":
         return <WhatsAppMediaPage />
       case "Whatsapp Configurations":
