@@ -14,13 +14,35 @@ export interface WaChatMember {
   role: "Admin" | "Member"
 }
 
+/** One candidate of the media classifier, highest confidence first. */
+export interface WaClassGuess {
+  name: MediaClass
+  confidence: number
+}
+
 export interface WaChatMedia {
   fileName: string
   ext: string
   typeGroup: FileTypeGroup
+  /** The applied class — always classes[0].name. */
   mediaClass: MediaClass
+  /** Top candidates of the classifier. */
+  classes: WaClassGuess[]
+  classifiedAt: string
   /** bytes */
   size: number
+}
+
+export interface WaVoiceNote {
+  durationSec: number
+  /** Bar heights 0..1 for the waveform. */
+  wave: number[]
+  transcript?: string
+}
+
+export interface WaReaction {
+  emoji: string
+  by: string[]
 }
 
 /** What the ingestion pulled out of this message, when it pulled anything. */
@@ -38,6 +60,8 @@ export interface WaChatMessage {
   at: string
   text?: string
   media?: WaChatMedia
+  voice?: WaVoiceNote
+  reactions?: WaReaction[]
   /** Snippet of the message this one replies to. */
   replyTo?: string
   extraction?: WaExtraction
@@ -86,16 +110,43 @@ const TEXTS_NAWY = [
   "Please share the floor plan for the 110 sqm unit.",
 ]
 
-const FILES: WaChatMedia[] = [
-  { fileName: "MALIV 2 BED 110 M new.pdf", ext: "PDF", typeGroup: "Document", mediaClass: "Brochure", size: 3_420_000 },
-  { fileName: "Price list - July 2026.xlsx", ext: "XLSX", typeGroup: "Sheet", mediaClass: "Unclassified", size: 240_000 },
-  { fileName: "2 bed - 110 SQM.pdf", ext: "PDF", typeGroup: "Document", mediaClass: "Floor Plan", size: 2_100_000 },
-  { fileName: "Residential offer 2 bedrooms 99m.pdf", ext: "PDF", typeGroup: "Document", mediaClass: "Brochure", size: 2_900_000 },
-  { fileName: "2AD1276B468F64418F59.jpg", ext: "JPG", typeGroup: "Image", mediaClass: "Render", size: 540_000 },
-  { fileName: "Masterplan - Phase 3.jpg", ext: "JPG", typeGroup: "Image", mediaClass: "Map Location", size: 980_000 },
-  { fileName: "Launch teaser.mp4", ext: "MP4", typeGroup: "Video", mediaClass: "Video", size: 12_400_000 },
-  { fileName: "Commercial offer for M-C9-RG-15.pdf", ext: "PDF", typeGroup: "Document", mediaClass: "Brochure", size: 1_740_000 },
+const VOICE_DEV = [
+  "Explains the new payment plan and the cash discount deadline.",
+  "Walks through availability in the current phase, unit by unit.",
+  "Answers the delivery question: handover starts Q3 2027.",
 ]
+const VOICE_NAWY = [
+  "Asks for a 3-bed offer for a client visiting this weekend.",
+  "Follows up on the floor plan request from yesterday.",
+  "Confirms the client accepted the offer, asks for the reservation form.",
+]
+
+const EMOJIS = ["👍", "❤️", "🔥", "🙏", "✅"]
+
+const FILES: { fileName: string; ext: string; typeGroup: FileTypeGroup; size: number; top: MediaClass }[] = [
+  { fileName: "MALIV 2 BED 110 M new.pdf", ext: "PDF", typeGroup: "Document", size: 3_420_000, top: "Brochure" },
+  { fileName: "Price list - July 2026.xlsx", ext: "XLSX", typeGroup: "Sheet", size: 240_000, top: "Unclassified" },
+  { fileName: "2 bed - 110 SQM.pdf", ext: "PDF", typeGroup: "Document", size: 2_100_000, top: "Floor Plan" },
+  { fileName: "Residential offer 2 bedrooms 99m.pdf", ext: "PDF", typeGroup: "Document", size: 2_900_000, top: "Brochure" },
+  { fileName: "2AD1276B468F64418F59.jpg", ext: "JPG", typeGroup: "Image", size: 540_000, top: "Render" },
+  { fileName: "Masterplan - Phase 3.jpg", ext: "JPG", typeGroup: "Image", size: 980_000, top: "Map Location" },
+  { fileName: "Launch teaser.mp4", ext: "MP4", typeGroup: "Video", size: 12_400_000, top: "Video" },
+  { fileName: "Commercial offer for M-C9-RG-15.pdf", ext: "PDF", typeGroup: "Document", size: 1_740_000, top: "Brochure" },
+]
+const ALL_CLASSES: MediaClass[] = ["Brochure", "Floor Plan", "Map Location", "Render", "Video", "Unclassified"]
+
+/** Top-3 classifier candidates: the applied class first, then two plausible runners-up. */
+function classGuesses(top: MediaClass, n: number): WaClassGuess[] {
+  const rest = ALL_CLASSES.filter((c) => c !== top)
+  const first = 72 + (n % 25)                       // 72–96
+  const second = Math.max(4, Math.round((100 - first) * 0.6) - (n % 3))
+  const third = Math.max(2, 100 - first - second - (n % 4))
+  return [
+    { name: top, confidence: first },
+    { name: pick(rest, n), confidence: second },
+    { name: pick(rest, n + 2), confidence: third },
+  ]
+}
 
 const SUMMARY_TEXTS = [
   "The conversation covered inquiries about offers and availability. Brokers asked for two-bedroom units in prime locations with delivery within two years, and for three-bedroom availability. The developer shared an updated price list and confirmed a cash discount ending this week.",
@@ -112,6 +163,11 @@ export const fmtTime = (iso: string) => {
   const h = d.getUTCHours()
   return `${String(h % 12 === 0 ? 12 : h % 12).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`
 }
+export const fmtDateTime = (iso: string) => {
+  const d = new Date(iso)
+  return `${String(d.getUTCDate()).padStart(2, "0")} ${MONTHS[d.getUTCMonth()].slice(0, 3)} ${d.getUTCFullYear()}, ${fmtTime(iso)}`
+}
+export const fmtDuration = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
 
 // ── members ───────────────────────────────────────────────────────────────────
 export function membersFor(group: WaGroup): WaChatMember[] {
@@ -148,9 +204,28 @@ export function messagesFor(group: WaGroup): WaChatMessage[] {
     const sender = fromDev ? pick(devPeople, n) : pick(nawyPeople, n)
     // walk backwards from the group's last message: ~2.6h apart, so it spans ~4 days
     const at = new Date(base.getTime() - i * 2.6 * 3_600_000).toISOString()
-    const withMedia = fromDev && n % 4 === 0
+    const isVoice = n % 6 === 0
+    const withMedia = !isVoice && fromDev && n % 4 === 0
     const text = fromDev ? pick(TEXTS_DEV, n) : pick(TEXTS_NAWY, n)
-    const media = withMedia ? pick(FILES, n) : undefined
+
+    let media: WaChatMedia | undefined
+    if (withMedia) {
+      const f = pick(FILES, n)
+      const classes = classGuesses(f.top, n)
+      media = {
+        fileName: f.fileName, ext: f.ext, typeGroup: f.typeGroup, size: f.size,
+        mediaClass: classes[0].name, classes,
+        classifiedAt: new Date(new Date(at).getTime() + 90_000).toISOString(),
+      }
+    }
+
+    const voice: WaVoiceNote | undefined = isVoice
+      ? {
+          durationSec: 14 + (n % 86),
+          wave: Array.from({ length: 28 }, (_, k) => 0.25 + ((n * (k + 3)) % 100) / 133),
+          transcript: fromDev ? pick(VOICE_DEV, n) : pick(VOICE_NAWY, n),
+        }
+      : undefined
 
     let extraction: WaExtraction | undefined
     if (media) {
@@ -161,14 +236,23 @@ export function messagesFor(group: WaGroup): WaChatMessage[] {
       extraction = { kind: "Market Update", id: `MU-${String(400 + (n % 90))}`, label: "Price update detected" }
     }
 
+    const reactions: WaReaction[] | undefined = n % 5 === 0
+      ? [
+          { emoji: pick(EMOJIS, n), by: [pick(people, n).name, pick(people, n + 4).name].slice(0, 1 + (n % 2)) },
+          ...(n % 10 === 0 ? [{ emoji: pick(EMOJIS, n + 3), by: [pick(people, n + 6).name] }] : []),
+        ]
+      : undefined
+
     out.push({
       id: `${group.id}-m${count - i}`,
       groupId: group.id,
       sender,
       at,
-      text: media ? (n % 2 === 0 ? text : undefined) : text,
+      text: isVoice ? undefined : media ? (n % 2 === 0 ? text : undefined) : text,
       media,
-      replyTo: !fromDev && n % 6 === 0 ? pick(TEXTS_DEV, n + 1) : undefined,
+      voice,
+      reactions,
+      replyTo: !fromDev && !isVoice && n % 6 === 0 ? pick(TEXTS_DEV, n + 1) : undefined,
       extraction,
     })
   }
@@ -182,7 +266,14 @@ export const lastMessageOf = (group: WaGroup) => {
 
 /** One-line preview for the chat list. */
 export const previewOf = (m?: WaChatMessage) =>
-  !m ? "" : m.text ? m.text : m.media ? `📎 ${m.media.fileName}` : ""
+  !m ? "" : m.text ? m.text : m.voice ? `🎤 Voice note · ${fmtDuration(m.voice.durationSec)}` : m.media ? `📎 ${m.media.fileName}` : ""
+
+/** The haystack a message is searched by — text, voice transcript and file name. */
+export const searchTextOf = (m: WaChatMessage) =>
+  [m.text, m.voice?.transcript, m.media?.fileName, m.sender.name, m.sender.phone].filter(Boolean).join(" ").toLowerCase()
+
+export type MessageKind = "text" | "media" | "voice"
+export const kindOf = (m: WaChatMessage): MessageKind => (m.voice ? "voice" : m.media ? "media" : "text")
 
 // ── AI day summaries ──────────────────────────────────────────────────────────
 export function summariesFor(group: WaGroup): WaDaySummary[] {
@@ -213,6 +304,20 @@ export function mediaFor(group: WaGroup): (WaChatMedia & { id: string; at: strin
     .filter((m) => m.media)
     .map((m) => ({ ...m.media!, id: m.id, at: m.at, sender: m.sender.name }))
     .reverse()
+}
+
+/** Messages matching a query across every group — the global search in the chat list. */
+export function searchAllMessages(q: string, limit = 40) {
+  const needle = q.trim().toLowerCase()
+  if (needle.length < 2) return []
+  const hits: { group: WaGroup; message: WaChatMessage }[] = []
+  for (const group of WA_GROUPS) {
+    for (const message of messagesFor(group)) {
+      if (searchTextOf(message).includes(needle)) hits.push({ group, message })
+      if (hits.length >= limit) return hits
+    }
+  }
+  return hits
 }
 
 export const CHAT_GROUPS = WA_GROUPS
