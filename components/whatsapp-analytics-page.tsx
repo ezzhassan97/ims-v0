@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Legend,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts"
 import {
@@ -15,11 +15,12 @@ import { cn } from "@/lib/utils"
 import type { WaGroup } from "@/components/whatsapp-groups-page"
 import { CHAT_GROUPS, classOf, fmtDateTime, MARKET_CLASSES, type WaMsgClass } from "@/lib/whatsapp-chats-mock"
 import {
-  DEVELOPERS, SERIES, STATE_COLOR, activitySeries, askedVsSent, askers, classPipeline,
-  dateBounds, embeddingSplit, headline, marketByDeveloper, marketClassSplit, marketFeed,
-  mediaClasses, mediaPipeline, mediaTypes, membersOfGroup, messageClasses, messagePipeline,
-  requestAnswerRate, requestFeed, scopedGroups, senders, topDevelopers, topGroups, topMembers,
-  topProjects, topicsOfGroup, type ActivityPoint, type Bucket, type Granularity, type Ratio, type Scope,
+  DEVELOPERS, SERIES, STATE_COLOR, activitySeries, askedVsSent, askers, availabilityFreshness,
+  classPipeline, delta, funnel, headline, marketByDeveloper, marketClassSplit, marketFeed,
+  mediaPipeline, membersOfGroup, messageClasses, messagePipeline, mostActive, openRequests,
+  requestAnswerRate, requestFeed, responseHours, scopedGroups, senders, topProjects,
+  topicsOfGroup, typeByClass, windows,
+  type ActiveCut, type ActivityPoint, type Bucket, type Granularity, type Ratio, type Scope,
 } from "@/lib/whatsapp-analytics"
 
 const GRANULARITIES: Granularity[] = ["Hour", "Day", "Week", "Month"]
@@ -57,8 +58,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-export function StatTile({ label, value, hint, icon: Icon }: {
-  label: string; value: number | string; hint?: string; icon: React.ElementType
+export function StatTile({ label, value, hint, icon: Icon, delta: d }: {
+  label: string; value: number | string; hint?: string; icon: React.ElementType; delta?: number | null
 }) {
   return (
     <div className="rounded-xl border border-border bg-card p-3">
@@ -66,8 +67,11 @@ export function StatTile({ label, value, hint, icon: Icon }: {
         <Icon className="h-3.5 w-3.5" />
         <span className="text-[11px] font-medium uppercase tracking-wide">{label}</span>
       </div>
-      <p className="mt-1 text-xl font-semibold leading-7 tabular-nums text-foreground">
-        {typeof value === "number" ? value.toLocaleString() : value}
+      <p className="mt-1 flex items-baseline gap-1.5 leading-7">
+        <span className="text-xl font-semibold tabular-nums text-foreground">
+          {typeof value === "number" ? value.toLocaleString() : value}
+        </span>
+        <Delta pct={d ?? null} />
       </p>
       {hint && <p className="truncate text-[11px] text-muted-foreground">{hint}</p>}
     </div>
@@ -75,8 +79,8 @@ export function StatTile({ label, value, hint, icon: Icon }: {
 }
 
 /** A metric that is a share of something — "12 / 48" with the bar underneath. */
-export function RatioTile({ label, r, hint, icon: Icon, color = SERIES[0] }: {
-  label: string; r: Ratio; hint?: string; icon: React.ElementType; color?: string
+export function RatioTile({ label, r, hint, icon: Icon, color = SERIES[0], delta: d }: {
+  label: string; r: Ratio; hint?: string; icon: React.ElementType; color?: string; delta?: number | null
 }) {
   return (
     <div className="rounded-xl border border-border bg-card p-3">
@@ -87,7 +91,10 @@ export function RatioTile({ label, r, hint, icon: Icon, color = SERIES[0] }: {
       <p className="mt-1 flex items-baseline gap-1 leading-7">
         <span className="text-xl font-semibold tabular-nums text-foreground">{r.done.toLocaleString()}</span>
         <span className="text-xs text-muted-foreground">/ {r.total.toLocaleString()}</span>
-        <span className="ml-auto text-xs font-semibold tabular-nums" style={{ color }}>{r.pct}%</span>
+        <span className="ml-auto flex items-baseline gap-1.5">
+          <Delta pct={d ?? null} />
+          <span className="text-xs font-semibold tabular-nums" style={{ color }}>{r.pct}%</span>
+        </span>
       </p>
       <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-muted">
         <span className="block h-full rounded-full" style={{ width: `${r.pct}%`, background: color }} />
@@ -185,39 +192,6 @@ export function Legend2({ items }: { items: { label: string; color: string }[] }
   )
 }
 
-export function DonutCard({ items, height = 170, unit = "files" }: { items: Bucket[]; height?: number; unit?: string }) {
-  const total = items.reduce((s, i) => s + i.value, 0)
-  if (total === 0) return <p className="py-10 text-center text-xs text-muted-foreground">Nothing in this range.</p>
-  return (
-    <div className="flex items-center gap-3">
-      <div className="relative shrink-0" style={{ width: height, height }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie data={items} dataKey="value" nameKey="label" innerRadius="62%" outerRadius="95%" paddingAngle={2} stroke="#fff" strokeWidth={2}>
-              {items.map((i) => <Cell key={i.key} fill={i.color ?? SERIES[0]} />)}
-            </Pie>
-            <Tooltip {...TOOLTIP} formatter={(v: number, n: string) => [`${v} ${unit} · ${Math.round((v / total) * 100)}%`, n]} />
-          </PieChart>
-        </ResponsiveContainer>
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-lg font-semibold leading-none tabular-nums text-foreground">{total}</span>
-          <span className="text-[10px] text-muted-foreground">{unit}</span>
-        </div>
-      </div>
-      <ul className="min-w-0 flex-1 space-y-1">
-        {items.map((i) => (
-          <li key={i.key} className="flex items-center gap-2 text-xs">
-            <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: i.color }} />
-            <span className="min-w-0 flex-1 truncate text-foreground">{i.label}</span>
-            <span className="shrink-0 font-semibold tabular-nums text-foreground">{i.value}</span>
-            <span className="w-9 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{Math.round((i.value / total) * 100)}%</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
 export function ActivityChart({ data, height = 220, compact }: { data: ActivityPoint[]; height?: number; compact?: boolean }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -259,6 +233,90 @@ function AskedVsSentChart({ data, askLabel, sentLabel }: {
         <Bar dataKey="asked" name={askLabel} fill={SERIES[2]} radius={[4, 4, 0, 0]} maxBarSize={18} />
       </BarChart>
     </ResponsiveContainer>
+  )
+}
+
+/** Horizontal stacked bars — one bar per file type, one stack per class.
+ *  A 2px white stroke keeps adjacent segments from blurring together. */
+export function StackedHBar({ data, keys, height = 200, unit = "files" }: {
+  data: Record<string, number | string>[]; keys: string[]; height?: number; unit?: string
+}) {
+  if (data.length === 0) return <p className="py-10 text-center text-xs text-muted-foreground">Nothing in this range.</p>
+  return (
+    <div className="space-y-2">
+      <ResponsiveContainer width="100%" height={height}>
+        <BarChart data={data} layout="vertical" margin={{ top: 0, right: 12, left: 0, bottom: 0 }} barCategoryGap="22%">
+          <CartesianGrid strokeDasharray="2 4" stroke="#e2e8f0" horizontal={false} />
+          <XAxis type="number" tick={AXIS} axisLine={false} tickLine={false} allowDecimals={false} />
+          <YAxis type="category" dataKey="name" tick={{ ...AXIS, fontSize: 11 }} axisLine={false} tickLine={false} width={86} />
+          <Tooltip {...TOOLTIP} formatter={(v: number, n: string) => [`${v} ${unit}`, n]} />
+          {keys.map((k, i) => (
+            <Bar
+              key={k} dataKey={k} name={k} stackId="a"
+              fill={SERIES[i % SERIES.length]} stroke="#fff" strokeWidth={2}
+              radius={i === 0 ? [4, 0, 0, 4] : i === keys.length - 1 ? [0, 4, 4, 0] : 0}
+              maxBarSize={26}
+            />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+      <Legend2 items={keys.map((k, i) => ({ label: k, color: SERIES[i % SERIES.length] }))} />
+    </div>
+  )
+}
+
+/** Plain horizontal bars — ranked, one value each, labels on the axis. */
+export function HBar({ items, height = 200, color = SERIES[0], unit = "messages" }: {
+  items: Bucket[]; height?: number; color?: string; unit?: string
+}) {
+  if (items.length === 0) return <p className="py-10 text-center text-xs text-muted-foreground">Nothing in this range.</p>
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <BarChart data={items} layout="vertical" margin={{ top: 0, right: 28, left: 0, bottom: 0 }} barCategoryGap="22%">
+        <CartesianGrid strokeDasharray="2 4" stroke="#e2e8f0" horizontal={false} />
+        <XAxis type="number" tick={AXIS} axisLine={false} tickLine={false} allowDecimals={false} />
+        <YAxis type="category" dataKey="label" tick={{ ...AXIS, fontSize: 11 }} axisLine={false} tickLine={false} width={116} />
+        <Tooltip {...TOOLTIP} formatter={(v: number) => [`${v} ${unit}`, ""]} />
+        <Bar dataKey="value" fill={color} radius={[0, 4, 4, 0]} maxBarSize={22} />
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** Received → classified → assigned → embedded, with the drop at each step. */
+export function Funnel({ steps }: { steps: { label: string; value: number }[] }) {
+  const top = Math.max(1, steps[0]?.value ?? 1)
+  return (
+    <div className="grid gap-2 sm:grid-cols-4">
+      {steps.map((st, i) => {
+        const pct = Math.round((st.value / top) * 100)
+        const drop = i === 0 ? 0 : steps[i - 1].value - st.value
+        return (
+          <div key={st.label} className="rounded-lg border border-border bg-background/60 p-2.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{st.label}</span>
+              <span className="text-xs font-semibold tabular-nums" style={{ color: SERIES[0] }}>{pct}%</span>
+            </div>
+            <p className="text-lg font-semibold leading-6 tabular-nums text-foreground">{st.value}</p>
+            <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-muted">
+              <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: SERIES[0] }} />
+            </span>
+            <p className="mt-1 h-3 text-[10px] text-muted-foreground">{drop > 0 ? `−${drop} dropped here` : ""}</p>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Period-over-period change, shown next to a metric. */
+export function Delta({ pct }: { pct: number | null }) {
+  if (pct === null) return null
+  const up = pct >= 0
+  return (
+    <span className={cn("text-[10px] font-semibold tabular-nums", up ? "text-emerald-600" : "text-red-600")}>
+      {up ? "▲" : "▼"} {Math.abs(pct)}%
+    </span>
   )
 }
 
@@ -308,6 +366,7 @@ export function GroupAnalytics({ group }: { group: WaGroup }) {
   const h = headline(scope)
   const pipe = mediaPipeline(scope)
   const data = useMemo(() => activitySeries("Day", scope), [group.id])
+  const tbc = useMemo(() => typeByClass(scope), [group.id])
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2">
@@ -332,8 +391,8 @@ export function GroupAnalytics({ group }: { group: WaGroup }) {
       <ChartCard title="Message classes" hint={`${h.availability.total} availability updates`}>
         <BarList items={topicsOfGroup(group).slice(0, 5)} color={SERIES[3]} compact />
       </ChartCard>
-      <ChartCard title="Media by class">
-        <DonutCard items={mediaClasses(scope)} height={130} />
+      <ChartCard title="Media: file type by class">
+        <StackedHBar data={tbc.data} keys={tbc.classes} height={130} />
       </ChartCard>
     </div>
   )
@@ -343,10 +402,10 @@ export function GroupAnalytics({ group }: { group: WaGroup }) {
 export function WhatsAppAnalyticsPage() {
   const [developer, setDeveloper] = useState("")
   const [groupName, setGroupName] = useState("")
-  const bounds = useMemo(() => dateBounds(), [])
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [gran, setGran] = useState<Granularity>("Day")
+  const [cut, setCut] = useState<ActiveCut>("Groups")
 
   const groupOptions = CHAT_GROUPS.filter((g) => !developer || g.developer?.name === developer).map((g) => g.name)
   const groupId = CHAT_GROUPS.find((g) => g.name === groupName)?.id
@@ -357,6 +416,15 @@ export function WhatsAppAnalyticsPage() {
   const activity = useMemo(() => activitySeries(gran, scope), [gran, scopeKey])
   const mediaPipe = useMemo(() => mediaPipeline(scope), [scopeKey])
   const msgPipe = useMemo(() => messagePipeline(scope), [scopeKey])
+  const tbc = useMemo(() => typeByClass(scope), [scopeKey])
+  const w = useMemo(() => windows(scope), [scopeKey])
+  const d = useMemo(() => ({
+    messages: delta(scope, (rs) => rs.length),
+    media: delta(scope, (rs) => rs.filter(({ m }) => m.media).length),
+    voice: delta(scope, (rs) => rs.filter(({ m }) => m.voice).length),
+    availability: delta(scope, (rs) => rs.filter(({ m }) => classOf(m) === "Availability Update").length),
+    market: delta(scope, (rs) => rs.filter(({ m }) => MARKET_CLASSES.includes(classOf(m))).length),
+  }), [scopeKey])
   const filtered = Boolean(developer || groupName || from || to)
   const scopeLabel = groupName || developer || "All groups"
 
@@ -375,7 +443,7 @@ export function WhatsAppAnalyticsPage() {
         <FilterSelect label="Group" value={groupName} options={groupOptions} onChange={setGroupName} width="w-60" />
         <DateRangeFilter label="Date range" dateFrom={from} dateTo={to} onChangeFrom={setFrom} onChangeTo={setTo} />
         <span className="text-[11px] text-muted-foreground">
-          {bounds.min} → {bounds.max} available
+          {w.from} → {w.to} · vs {w.prevFrom} → {w.prevTo}
         </span>
         {filtered && (
           <button onClick={() => { setDeveloper(""); setGroupName(""); setFrom(""); setTo("") }} className="ml-auto text-xs font-medium text-primary hover:underline">
@@ -395,12 +463,12 @@ export function WhatsAppAnalyticsPage() {
         {/* ── OVERVIEW ─────────────────────────────────────────────────────── */}
         <TabsContent value="overview" className="space-y-4">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-            <StatTile label="Messages" value={h.messages} icon={MessageSquareText} hint={scopeLabel} />
+            <StatTile label="Messages" value={h.messages} icon={MessageSquareText} hint={scopeLabel} delta={d.messages} />
             <RatioTile label="Members active" r={h.members} icon={Users} color={SERIES[3]} hint={`of ${h.members.total.toLocaleString()} in ${scopedGroups(scope).length} groups`} />
-            <RatioTile label="Media classified" r={h.media} icon={Paperclip} color={SERIES[1]} hint={`${h.media.total - h.media.done} still unclassified`} />
-            <RatioTile label="Voice classified" r={h.voice} icon={Mic} color={SERIES[2]} hint={`${h.voice.total - h.voice.done} to transcribe`} />
-            <StatTile label="Availability updates" value={h.availability.total} icon={PackageSearch} hint={`${h.availability.fromMessages} messages · ${h.availability.fromFiles} files`} />
-            <StatTile label="Market updates" value={h.market.total} icon={Megaphone} hint={h.market.byClass.slice(0, 2).map((c) => `${c.value} ${c.label.toLowerCase()}`).join(" · ")} />
+            <RatioTile label="Media classified" r={h.media} icon={Paperclip} color={SERIES[1]} hint={`${h.media.total - h.media.done} still unclassified`} delta={d.media} />
+            <RatioTile label="Voice classified" r={h.voice} icon={Mic} color={SERIES[2]} hint={`${h.voice.total - h.voice.done} to transcribe`} delta={d.voice} />
+            <StatTile label="Availability updates" value={h.availability.total} icon={PackageSearch} hint={`${h.availability.fromMessages} messages · ${h.availability.fromFiles} files`} delta={d.availability} />
+            <StatTile label="Market updates" value={h.market.total} icon={Megaphone} hint={h.market.byClass.slice(0, 2).map((c) => `${c.value} ${c.label.toLowerCase()}`).join(" · ")} delta={d.market} />
           </div>
 
           <Section title="Activity">
@@ -419,84 +487,105 @@ export function WhatsAppAnalyticsPage() {
             >
               <ActivityChart data={activity} />
             </ChartCard>
-            <div className="mt-3 grid gap-3 lg:grid-cols-3">
-              <ChartCard title="Developers" hint="Messages in their groups"><BarList items={topDevelopers(scope)} /></ChartCard>
-              <ChartCard title="Groups" hint="Busiest conversations"><BarList items={topGroups(scope)} color={SERIES[1]} /></ChartCard>
-              <ChartCard title="Members" hint="Nawy and developer side"><BarList items={topMembers(scope)} color={SERIES[3]} /></ChartCard>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <ChartCard
+                title="Most active"
+                hint="Same traffic, three cuts"
+                action={
+                  <div className="flex overflow-hidden rounded-md border border-border text-[11px] font-medium">
+                    {(["Developers", "Groups", "People"] as ActiveCut[]).map((c) => (
+                      <button key={c} onClick={() => setCut(c)} className={cn("px-2.5 py-1 transition-colors", cut === c ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary")}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                }
+              >
+                <BarList items={mostActive(cut, scope)} color={SERIES[cut === "Developers" ? 0 : cut === "Groups" ? 1 : 3]} />
+              </ChartCard>
+              <ChartCard title="Availability freshness" hint="Days since each group last sent an update — the top of this list is stale inventory">
+                <ul className="divide-y divide-border/70">
+                  {availabilityFreshness(scope, 6).map(({ group, days, updates }) => (
+                    <li key={group.id} className="flex items-center gap-2.5 py-2">
+                      <img src={group.image} alt="" className="h-6 w-6 shrink-0 rounded-full" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium text-foreground">{group.name}</span>
+                        <span className="block truncate text-[10px] text-muted-foreground">{group.developer?.name ?? "Not linked"} · {updates} updates</span>
+                      </span>
+                      <span className={cn(
+                        "shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-medium tabular-nums",
+                        days === null ? "border-red-200 bg-red-50 text-red-700"
+                          : days >= 7 ? "border-amber-200 bg-amber-50 text-amber-700"
+                          : "border-emerald-200 bg-emerald-50 text-emerald-700",
+                      )}>
+                        {days === null ? "never" : days === 0 ? "today" : `${days}d ago`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </ChartCard>
             </div>
           </Section>
 
           <Section title="Availability updates">
-            <div className="grid gap-3 lg:grid-cols-3">
-              <ChartCard title="Who asks" hint="Availability, material or an offer">
-                <BarList items={askers(scope)} unit="requests" color={SERIES[2]} />
+            <div className="grid gap-3 lg:grid-cols-2">
+              <ChartCard title="Asked vs delivered" hint="Per group — a tall orange bar means we are chasing them">
+                <AskedVsSentChart data={askedVsSent(scope, "Availability Request", "Availability Update", 6)} askLabel="We asked" sentLabel="They sent" />
               </ChartCard>
-              <ChartCard title="Who delivers" hint="Updates, material and unit offers sent">
-                <BarList items={senders(scope)} unit="deliveries" color={SERIES[1]} />
-              </ChartCard>
-              <ChartCard title="Asked vs delivered" hint="Availability, per group">
-                <AskedVsSentChart data={askedVsSent(scope, "Availability Request", "Availability Update", 5)} askLabel="We asked" sentLabel="Updates sent" />
+              <ChartCard title="How fast they answer" hint="Median hours to the first developer reply after a request">
+                <ul className="divide-y divide-border/70">
+                  {responseHours(scope, 6).map((r) => (
+                    <li key={r.name} className="flex items-center gap-2 py-2">
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium text-foreground">{r.name}</span>
+                        <span className="block text-[10px] text-muted-foreground">{r.asked} requests · {r.open} still open</span>
+                      </span>
+                      <span className="w-28 shrink-0">
+                        <span className="block h-1.5 overflow-hidden rounded-full bg-muted">
+                          <span className="block h-full rounded-full" style={{ width: `${Math.min(100, (r.median / 24) * 100)}%`, background: r.median > 12 ? STATE_COLOR.pending : SERIES[1] }} />
+                        </span>
+                      </span>
+                      <span className="w-14 shrink-0 text-right text-xs font-semibold tabular-nums text-foreground">{r.median}h</span>
+                    </li>
+                  ))}
+                </ul>
               </ChartCard>
             </div>
           </Section>
 
           <Section title="Classification">
-            <div className="grid gap-3 lg:grid-cols-3">
-              <ChartCard title="Coverage" hint="Everything received in this range">
-                <div className="space-y-3">
-                  <Battery label="Messages classified" r={msgPipe.classified} color={SERIES[0]} />
-                  <Battery label="Messages assigned to a project" r={msgPipe.assigned} color={SERIES[3]} />
-                  <Battery label="Files classified" r={mediaPipe.classified} />
-                  <Battery label="Files assigned to a project" r={mediaPipe.assigned} color={SERIES[0]} />
-                  <Battery label="Files embedded" r={mediaPipe.embedded!} color={SERIES[3]} note={mediaPipe.failed ? `${mediaPipe.failed} failed` : undefined} />
-                </div>
-              </ChartCard>
-              <ChartCard title="Message classification" hint="What the classifier filed them as">
-                <BarList items={messageClasses(scope).slice(0, 7)} color={SERIES[0]} compact />
-              </ChartCard>
-              <ChartCard title="Media classification">
-                <DonutCard items={mediaClasses(scope)} />
-              </ChartCard>
-            </div>
+            <ChartCard title="Processing funnel" hint="Files only — embedding runs after classification and project assignment">
+              <Funnel steps={funnel(scope)} />
+            </ChartCard>
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              <ChartCard title="Project assignment" hint="Files and messages attached to each project">
-                <BarList items={topProjects(scope)} unit="records" color={SERIES[5]} compact />
+              <ChartCard title="Media: file type by class" hint="Every file, split by what the classifier filed it as">
+                <StackedHBar data={tbc.data} keys={tbc.classes} />
               </ChartCard>
-              <ChartCard title="By file type"><DonutCard items={mediaTypes(scope)} /></ChartCard>
+              <ChartCard title="Messages by class" hint={`${msgPipe.classified.done} of ${msgPipe.total} classified`}>
+                <HBar items={messageClasses(scope).slice(0, 8)} />
+              </ChartCard>
             </div>
           </Section>
         </TabsContent>
 
         {/* ── CLASSIFICATION ───────────────────────────────────────────────── */}
         <TabsContent value="classification" className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-            <RatioTile label="Messages classified" r={msgPipe.classified} icon={Tags} color={SERIES[0]} />
-            <RatioTile label="Messages assigned" r={msgPipe.assigned} icon={FolderTree} color={SERIES[3]} />
-            <RatioTile label="Files classified" r={mediaPipe.classified} icon={Tags} color={SERIES[1]} />
-            <RatioTile label="Files assigned" r={mediaPipe.assigned} icon={FolderTree} color={SERIES[0]} />
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <RatioTile label="Messages classified" r={msgPipe.classified} icon={Tags} color={SERIES[0]} hint={`${msgPipe.total - msgPipe.classified.done} waiting`} />
+            <RatioTile label="Messages assigned" r={msgPipe.assigned} icon={FolderTree} color={SERIES[3]} hint="to a project" />
+            <RatioTile label="Files assigned" r={mediaPipe.assigned} icon={FolderTree} color={SERIES[0]} hint="to a project" />
             <RatioTile label="Files embedded" r={mediaPipe.embedded!} icon={Binary} color={SERIES[3]} hint={`${mediaPipe.failed} failed · files only`} />
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-2">
-            <ChartCard title="Where files stand" hint="Classify → assign → embed. Embedding applies to files only.">
-              <div className="space-y-3">
-                <Battery label="Classified" r={mediaPipe.classified} />
-                <Battery label="Assigned to a project" r={mediaPipe.assigned} color={SERIES[0]} />
-                <Battery label="Embedded" r={mediaPipe.embedded!} color={SERIES[3]} />
-                <div className="pt-1">
-                  <StackedRow
-                    label="Embedding state"
-                    total={mediaPipe.total}
-                    segments={embeddingSplit(scope).map((b) => ({ key: b.label, value: b.value, color: b.color! }))}
-                  />
-                  <div className="mt-1.5">
-                    <Legend2 items={embeddingSplit(scope).map((b) => ({ label: `${b.label} · ${b.value}`, color: b.color! }))} />
-                  </div>
-                </div>
-              </div>
-            </ChartCard>
+          <ChartCard title="Processing funnel" hint="Received → classified → assigned → embedded. Embedding applies to files only.">
+            <Funnel steps={funnel(scope)} />
+          </ChartCard>
 
-            <ChartCard title="Pipeline by media class" hint="How far each class got">
+          <div className="grid gap-3 lg:grid-cols-2">
+            <ChartCard title="Media: file type by class" hint="Where the volume sits, and what is still unclassified">
+              <StackedHBar data={tbc.data} keys={tbc.classes} height={220} />
+            </ChartCard>
+            <ChartCard title="Where each class is stuck" hint="Embedded, assigned, waiting or failed">
               <div className="space-y-2.5">
                 {classPipeline(scope).map((r) => (
                   <StackedRow
@@ -521,11 +610,12 @@ export function WhatsAppAnalyticsPage() {
             </ChartCard>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-3">
-            <ChartCard title="Message classes"><BarList items={messageClasses(scope)} color={SERIES[0]} compact /></ChartCard>
-            <ChartCard title="Media classes"><DonutCard items={mediaClasses(scope)} /></ChartCard>
-            <ChartCard title="Project assignment" hint="Across files and messages">
-              <BarList items={topProjects(scope)} unit="records" color={SERIES[5]} compact />
+          <div className="grid gap-3 lg:grid-cols-2">
+            <ChartCard title="Messages by class" hint="What the classifier filed them as">
+              <HBar items={messageClasses(scope)} height={240} />
+            </ChartCard>
+            <ChartCard title="Project assignment" hint="Files and messages attached to each project">
+              <HBar items={topProjects(scope)} height={240} color={SERIES[5]} unit="records" />
             </ChartCard>
           </div>
         </TabsContent>
@@ -541,11 +631,35 @@ export function WhatsAppAnalyticsPage() {
           </div>
 
           <div className="grid gap-3 lg:grid-cols-2">
-            <ChartCard title="Who asks for availability or material" hint="Nawy side">
-              <BarList items={askers(scope, ["Availability Request", "Material Request"])} unit="requests" color={SERIES[2]} />
+            <ChartCard title="Who asks, who delivers" hint="Nawy asks on the left scale, developers deliver on the right">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Asking</p>
+                  <BarList items={askers(scope, ["Availability Request", "Material Request"], 5)} unit="requests" color={SERIES[2]} compact />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Delivering</p>
+                  <BarList items={senders(scope, ["Availability Update", "Material Sent"], 5)} unit="deliveries" color={SERIES[1]} compact />
+                </div>
+              </div>
             </ChartCard>
-            <ChartCard title="Who sends availability or material" hint="Developer side">
-              <BarList items={senders(scope, ["Availability Update", "Material Sent"])} unit="deliveries" color={SERIES[1]} />
+            <ChartCard title="How fast they answer" hint="Median hours to the first developer reply, and what is still open">
+              <ul className="divide-y divide-border/70">
+                {responseHours(scope, 6).map((r) => (
+                  <li key={r.name} className="flex items-center gap-2 py-2">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium text-foreground">{r.name}</span>
+                      <span className="block text-[10px] text-muted-foreground">{r.asked} requests · {r.open} still open</span>
+                    </span>
+                    <span className="w-24 shrink-0">
+                      <span className="block h-1.5 overflow-hidden rounded-full bg-muted">
+                        <span className="block h-full rounded-full" style={{ width: `${Math.min(100, (r.median / 24) * 100)}%`, background: r.median > 12 ? STATE_COLOR.pending : SERIES[1] }} />
+                      </span>
+                    </span>
+                    <span className="w-14 shrink-0 text-right text-xs font-semibold tabular-nums text-foreground">{r.median}h</span>
+                  </li>
+                ))}
+              </ul>
             </ChartCard>
           </div>
 
@@ -561,9 +675,14 @@ export function WhatsAppAnalyticsPage() {
             </ChartCard>
           </div>
 
-          <ChartCard title="Latest requests" hint="Availability, material and unit offers">
-            <MessageFeed items={requestFeed(scope)} empty="No request in this range." />
-          </ChartCard>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <ChartCard title="Open requests" hint="No developer replied after these — chase list">
+              <MessageFeed items={openRequests(scope, 8)} empty="Nothing open. Every request got a reply." />
+            </ChartCard>
+            <ChartCard title="Latest requests" hint="Availability, material and unit offers">
+              <MessageFeed items={requestFeed(scope, undefined, 8)} empty="No request in this range." />
+            </ChartCard>
+          </div>
         </TabsContent>
 
         {/* ── MARKET UPDATES ───────────────────────────────────────────────── */}
@@ -582,7 +701,7 @@ export function WhatsAppAnalyticsPage() {
 
           <div className="grid gap-3 lg:grid-cols-2">
             <ChartCard title="What kind of update" hint="Launches, payment plans, prices and delivery news">
-              <DonutCard items={marketClassSplit(scope)} unit="updates" />
+              <HBar items={marketClassSplit(scope)} unit="updates" color={SERIES[3]} />
             </ChartCard>
             <ChartCard title="Per developer" hint="Who tells us the most, and about what">
               <div className="space-y-2.5">
@@ -599,14 +718,9 @@ export function WhatsAppAnalyticsPage() {
             </ChartCard>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-2">
-            <ChartCard title="Who sends market updates" hint="Developer side">
-              <BarList items={senders(scope, MARKET_CLASSES)} unit="updates" color={SERIES[3]} />
-            </ChartCard>
-            <ChartCard title="Groups carrying the news">
-              <BarList items={topGroups(scope)} color={SERIES[1]} />
-            </ChartCard>
-          </div>
+          <ChartCard title="Who sends market updates" hint="The people announcing launches, plans and price changes">
+            <BarList items={senders(scope, MARKET_CLASSES, 8)} unit="updates" color={SERIES[3]} />
+          </ChartCard>
 
           <ChartCard title="Latest market updates" hint="Straight from the groups">
             <MessageFeed items={marketFeed(scope)} empty="No market update in this range." />

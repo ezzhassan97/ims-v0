@@ -135,8 +135,18 @@ const hash = (s: string) => {
   return Math.abs(h)
 }
 const pick = <T,>(xs: T[], n: number) => xs[n % xs.length]
-/** Spreads a strided counter over the whole range — see the media flags below. */
-const mix = (n: number) => ((n * 2654435761) >>> 0) % 100
+/**
+ * Spreads a strided counter over the whole range — see the media flags below.
+ * Multiplying by an odd constant keeps the input's divisibility (media lands on
+ * every 4th message, so `n % 6` could only ever hit three values); this is the
+ * murmur3 finalizer, which actually avalanches.
+ */
+const mix = (n: number) => {
+  let x = n | 0
+  x = Math.imul(x ^ (x >>> 16), 2246822507)
+  x = Math.imul(x ^ (x >>> 13), 3266489909)
+  return (x ^ (x >>> 16)) >>> 0
+}
 
 const DEV_FIRST = ["Ahmed", "Mohamed", "Mostafa", "Hany", "Tarek", "Amr", "Sherif", "Khaled", "Mahmoud", "Rania"]
 const DEV_LAST = ["Sabry", "ElSayed", "Gamal", "Shawky", "Aboulella", "Nassar", "Zaki", "Hegazy", "Lotfy", "Darwish"]
@@ -262,12 +272,18 @@ export function messagesFor(group: WaGroup): WaChatMessage[] {
   const count = 48 + (seed % 40)
   const out: WaChatMessage[] = []
 
+  // uneven gaps (roughly 0.4–8h) — evenly spaced messages would make every
+  // response time identical, which is exactly what the analytics measure
+  const offsets: number[] = []
+  let acc = 0
+  for (let k = 0; k < count; k++) { offsets.push(acc); acc += 0.4 + (mix(seed + k * 31) % 1000) / 130 }
+
   for (let i = count - 1; i >= 0; i--) {
     const n = seed + i * 17
     const fromDev = n % 3 !== 0
     const sender = fromDev ? pick(devPeople, n) : pick(nawyPeople, n)
     // walk backwards from the group's last message: ~2.6h apart, so it spans ~4 days
-    const at = new Date(base.getTime() - i * 4.3 * 3_600_000).toISOString()
+    const at = new Date(base.getTime() - offsets[i] * 3_600_000).toISOString()
     const isVoice = n % 6 === 0
     const withMedia = !isVoice && fromDev && n % 4 === 0
     const text = fromDev ? pick(TEXTS_DEV, n) : pick(TEXTS_NAWY, n)
@@ -277,14 +293,14 @@ export function messagesFor(group: WaGroup): WaChatMessage[] {
       const f = pick(FILES, Math.floor(n / 5) + i)
       const classes = classGuesses(f.top, n)
       // a file runs classification → project assignment → embedding, and can stall at any step
-      const assigned = mix(n) >= 17
+      const assigned = mix(n) % 100 >= 17
       const isClassified = classes[0].name !== "Unclassified"
       media = {
         fileName: f.fileName, ext: f.ext, typeGroup: f.typeGroup, size: f.size,
         mediaClass: classes[0].name, classes,
         classifiedAt: new Date(new Date(at).getTime() + 90_000).toISOString(),
-        projects: assigned ? [pick(PROJECT_POOL, mix(n)), ...(mix(n + 1) < 12 ? [pick(PROJECT_POOL, mix(n + 4))] : [])] : [],
-        embedding: !isClassified || !assigned ? "Pending" : mix(n + 7) < 9 ? "Failed" : "Embedded",
+        projects: assigned ? [pick(PROJECT_POOL, mix(n)), ...(mix(n + 1) % 100 < 12 ? [pick(PROJECT_POOL, mix(n + 4))] : [])] : [],
+        embedding: !isClassified || !assigned ? "Pending" : mix(n + 7) % 100 < 9 ? "Failed" : "Embedded",
         carries: pick(["Availability", "Price", "Launch", "Offer", "None", "None"] as const, mix(n + 3)),
       }
     }

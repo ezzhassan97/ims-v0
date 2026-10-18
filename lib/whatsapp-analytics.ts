@@ -398,3 +398,129 @@ export function membersOfGroup(group: WaGroup, limit = 6): Bucket[] {
 export function topicsOfGroup(group: WaGroup): Bucket[] {
   return counts(messagesFor(group).map((m) => classOf(m)))
 }
+
+// ── period comparison ─────────────────────────────────────────────────────────
+/** The scope's window, and the equal-length window before it — every card needs a baseline. */
+export function windows(s: Scope = {}) {
+  const b = dateBounds()
+  const to = s.to ?? b.max
+  const from = s.from ?? new Date(new Date(to + "T00:00:00Z").getTime() - 6 * 86_400_000).toISOString().slice(0, 10)
+  const span = Math.max(1, Math.round((+new Date(to + "T00:00:00Z") - +new Date(from + "T00:00:00Z")) / 86_400_000) + 1)
+  const prevTo = new Date(new Date(from + "T00:00:00Z").getTime() - 86_400_000).toISOString().slice(0, 10)
+  const prevFrom = new Date(new Date(prevTo + "T00:00:00Z").getTime() - (span - 1) * 86_400_000).toISOString().slice(0, 10)
+  return { from, to, span, prevFrom, prevTo }
+}
+
+/** Percent change against the previous equal window; null when there is no baseline. */
+export function delta(s: Scope, pick: (rs: Row[]) => number): number | null {
+  const w = windows(s)
+  const cur = pick(rows({ ...s, from: w.from, to: w.to }))
+  const prev = pick(rows({ ...s, from: w.prevFrom, to: w.prevTo }))
+  // too small a baseline turns noise into a headline percentage
+  if (prev < 5) return null
+  return Math.round(((cur - prev) / prev) * 100)
+}
+
+// ── one combined "most active" cut ────────────────────────────────────────────
+export type ActiveCut = "Developers" | "Groups" | "People"
+export function mostActive(cut: ActiveCut, s: Scope = {}, limit = 6): Bucket[] {
+  return cut === "Developers" ? topDevelopers(s, limit) : cut === "Groups" ? topGroups(s, limit) : topMembers(s, limit)
+}
+
+// ── media: file type × classification ─────────────────────────────────────────
+/** One row per file type, one stack per class — replaces the two donuts. */
+export function typeByClass(s: Scope = {}) {
+  const ms = rows(s).filter(({ m }) => m.media).map(({ m }) => m.media!)
+  const classes = [...new Set(ms.map((x) => x.mediaClass))]
+    .sort((a, b) => ms.filter((x) => x.mediaClass === b).length - ms.filter((x) => x.mediaClass === a).length)
+  const types = [...new Set(ms.map((x) => x.typeGroup))]
+    .sort((a, b) => ms.filter((x) => x.typeGroup === b).length - ms.filter((x) => x.typeGroup === a).length)
+  const data = types.map((t) => {
+    const row: Record<string, number | string> = { name: t, total: 0 }
+    for (const c of classes) {
+      const n = ms.filter((x) => x.typeGroup === t && x.mediaClass === c).length
+      row[c] = n
+      row.total = (row.total as number) + n
+    }
+    return row
+  })
+  return { data, classes }
+}
+
+// ── availability freshness ────────────────────────────────────────────────────
+/** Days since each group last sent an availability update — the staleness list. */
+export function availabilityFreshness(s: Scope = {}, limit = 8) {
+  const latest = new Date(dateBounds().max + "T00:00:00Z").getTime()
+  return scopedGroups(s)
+    .map((group) => {
+      const last = rows({ ...s, groupId: group.id })
+        .filter(({ m }) => classOf(m) === "Availability Update")
+        .map(({ m }) => m.at)
+        .sort()
+        .pop()
+      const days = last ? Math.round((latest - new Date(last).getTime()) / 86_400_000) : null
+      return { group, last, days, updates: rows({ ...s, groupId: group.id }).filter(({ m }) => classOf(m) === "Availability Update").length }
+    })
+    .sort((a, b) => (b.days ?? 999) - (a.days ?? 999))
+    .slice(0, limit)
+}
+
+/** Median hours between a request and the next developer reply, per developer. */
+export function responseHours(s: Scope = {}, limit = 6) {
+  const byGroup = new Map<string, { group: WaGroup; ms: WaChatMessage[] }>()
+  for (const { group, m } of rows(s)) {
+    const r = byGroup.get(group.id) ?? { group, ms: [] }
+    r.ms.push(m)
+    byGroup.set(group.id, r)
+  }
+  const out: { name: string; median: number; asked: number; open: number }[] = []
+  for (const { group, ms } of byGroup.values()) {
+    const gaps: number[] = []
+    let open = 0
+    ms.forEach((m, i) => {
+      if (!REQUEST_CLASSES.includes(classOf(m))) return
+      const reply = ms.slice(i + 1).find((x) => x.sender.org === "Developer")
+      if (!reply) { open += 1; return }
+      gaps.push((new Date(reply.at).getTime() - new Date(m.at).getTime()) / 3_600_000)
+    })
+    if (gaps.length === 0 && open === 0) continue
+    const sorted = gaps.sort((a, b) => a - b)
+    out.push({
+      name: group.developer?.name ?? group.name,
+      median: sorted.length ? Math.round(sorted[Math.floor(sorted.length / 2)] * 10) / 10 : 0,
+      asked: gaps.length + open,
+      open,
+    })
+  }
+  return out.sort((a, b) => b.median - a.median).slice(0, limit)
+}
+
+/** Requests with no developer reply after them — the open loop. */
+export function openRequests(s: Scope = {}, limit = 10) {
+  const byGroup = new Map<string, { group: WaGroup; ms: WaChatMessage[] }>()
+  for (const { group, m } of rows(s)) {
+    const r = byGroup.get(group.id) ?? { group, ms: [] }
+    r.ms.push(m)
+    byGroup.set(group.id, r)
+  }
+  const out: Row[] = []
+  for (const { group, ms } of byGroup.values()) {
+    ms.forEach((m, i) => {
+      if (!REQUEST_CLASSES.includes(classOf(m))) return
+      if (ms.slice(i + 1).some((x) => x.sender.org === "Developer")) return
+      out.push({ group, m })
+    })
+  }
+  return out.sort((a, b) => b.m.at.localeCompare(a.m.at)).slice(0, limit)
+}
+
+/** The processing funnel for files — one story instead of five bars. */
+export function funnel(s: Scope = {}) {
+  const p = mediaPipeline(s)
+  return [
+    { label: "Received", value: p.total },
+    { label: "Classified", value: p.classified.done },
+    { label: "Assigned", value: p.assigned.done },
+    { label: "Embedded", value: p.embedded!.done },
+  ]
+}
