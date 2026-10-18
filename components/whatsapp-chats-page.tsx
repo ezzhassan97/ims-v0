@@ -4,12 +4,13 @@ import { useMemo, useState } from "react"
 import {
   Search, PanelRightClose, PanelRightOpen, FileText, ImageIcon, Video, Sheet as SheetIcon,
   Users, Sparkles, Info, CornerUpLeft, Download, Rocket, TrendingUp, Paperclip, Check,
-  Play, Mic, X, SlidersHorizontal, MessageSquareText,
+  Play, Mic, X, SlidersHorizontal, MessageSquareText, ChartColumnBig,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import { FilterSelect, IdTag } from "@/components/table-kit"
+import { GroupAnalytics } from "@/components/whatsapp-analytics-page"
 import { cn } from "@/lib/utils"
 import type { WaGroup } from "@/components/whatsapp-groups-page"
 import {
@@ -555,12 +556,13 @@ export function WhatsAppChatsPage() {
 
       {/* ── group details ── */}
       {panel && (
-        <aside className="absolute right-0 top-0 z-20 flex h-full w-[340px] shrink-0 flex-col border-l border-border bg-secondary/30 shadow-lg lg:static lg:z-auto lg:shadow-none">
+        <aside className="absolute right-0 top-0 z-20 flex h-full w-[340px] shrink-0 flex-col border-l border-border bg-secondary/30 shadow-lg xl:static xl:z-auto xl:shadow-none">
           <Tabs defaultValue="details" className="flex min-h-0 flex-1 flex-col">
             <div className="border-b border-border bg-card px-3 py-2">
               <TabsList className="w-full">
                 <TabsTrigger value="details" className="flex-1 gap-1 px-1 text-[11px]"><Info className="h-3.5 w-3.5" />Details</TabsTrigger>
                 <TabsTrigger value="media" className="flex-1 gap-1 px-1 text-[11px]"><ImageIcon className="h-3.5 w-3.5" />Media</TabsTrigger>
+                <TabsTrigger value="stats" className="flex-1 gap-1 px-1 text-[11px]"><ChartColumnBig className="h-3.5 w-3.5" />Stats</TabsTrigger>
                 <TabsTrigger value="ai" className="flex-1 gap-1 px-1 text-[11px]"><Sparkles className="h-3.5 w-3.5" />AI</TabsTrigger>
                 <TabsTrigger value="members" className="flex-1 gap-1 px-1 text-[11px]"><Users className="h-3.5 w-3.5" />Members</TabsTrigger>
               </TabsList>
@@ -568,6 +570,7 @@ export function WhatsAppChatsPage() {
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               <TabsContent value="details" className="mt-0"><DetailsTab g={active} /></TabsContent>
               <TabsContent value="media" className="mt-0"><MediaTab g={active} /></TabsContent>
+              <TabsContent value="stats" className="mt-0"><GroupAnalytics group={active} /></TabsContent>
               <TabsContent value="ai" className="mt-0"><SummariesTab g={active} /></TabsContent>
               <TabsContent value="members" className="mt-0"><MembersTab g={active} /></TabsContent>
             </div>

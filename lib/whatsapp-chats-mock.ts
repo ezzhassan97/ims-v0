@@ -7,6 +7,9 @@ import type { FileTypeGroup, MediaClass } from "@/lib/whatsapp-media-mock"
 
 export type SenderOrg = "Nawy" | "Developer"
 
+/** What a message is about — drives the availability and topic analytics. */
+export type WaTopic = "availability" | "price" | "payment" | "delivery" | "launch" | "offer" | "material" | "general"
+
 export interface WaChatMember {
   name: string
   phone: string
@@ -65,6 +68,9 @@ export interface WaChatMessage {
   /** Snippet of the message this one replies to. */
   replyTo?: string
   extraction?: WaExtraction
+  topic: WaTopic
+  /** Nawy asking the developer, rather than the developer telling us. */
+  isRequest: boolean
 }
 
 export interface WaDaySummary {
@@ -109,6 +115,12 @@ const TEXTS_NAWY = [
   "Received, thank you 🙏",
   "Please share the floor plan for the 110 sqm unit.",
 ]
+
+/** Index-aligned with TEXTS_DEV / VOICE_DEV and TEXTS_NAWY / VOICE_NAWY. */
+const TOPICS_DEV: WaTopic[] = ["price", "price", "launch", "delivery", "availability", "payment", "general", "availability"]
+const TOPICS_NAWY: WaTopic[] = ["offer", "availability", "payment", "delivery", "price", "general", "general", "material"]
+const TOPICS_VOICE_DEV: WaTopic[] = ["payment", "availability", "delivery"]
+const TOPICS_VOICE_NAWY: WaTopic[] = ["offer", "material", "offer"]
 
 const VOICE_DEV = [
   "Explains the new payment plan and the cash discount deadline.",
@@ -195,7 +207,7 @@ export function messagesFor(group: WaGroup): WaChatMessage[] {
   const nawyPeople = people.filter((p) => p.org === "Nawy")
   const devPeople = people.filter((p) => p.org === "Developer")
   const base = new Date(group.lastMessageSent + "Z")
-  const count = 16 + (seed % 9)
+  const count = 48 + (seed % 40)
   const out: WaChatMessage[] = []
 
   for (let i = count - 1; i >= 0; i--) {
@@ -203,14 +215,14 @@ export function messagesFor(group: WaGroup): WaChatMessage[] {
     const fromDev = n % 3 !== 0
     const sender = fromDev ? pick(devPeople, n) : pick(nawyPeople, n)
     // walk backwards from the group's last message: ~2.6h apart, so it spans ~4 days
-    const at = new Date(base.getTime() - i * 2.6 * 3_600_000).toISOString()
+    const at = new Date(base.getTime() - i * 4.3 * 3_600_000).toISOString()
     const isVoice = n % 6 === 0
     const withMedia = !isVoice && fromDev && n % 4 === 0
     const text = fromDev ? pick(TEXTS_DEV, n) : pick(TEXTS_NAWY, n)
 
     let media: WaChatMedia | undefined
     if (withMedia) {
-      const f = pick(FILES, n)
+      const f = pick(FILES, Math.floor(n / 5) + i)
       const classes = classGuesses(f.top, n)
       media = {
         fileName: f.fileName, ext: f.ext, typeGroup: f.typeGroup, size: f.size,
@@ -243,6 +255,12 @@ export function messagesFor(group: WaGroup): WaChatMessage[] {
         ]
       : undefined
 
+    const topic: WaTopic = isVoice
+      ? (fromDev ? pick(TOPICS_VOICE_DEV, n) : pick(TOPICS_VOICE_NAWY, n))
+      : media
+        ? "material"
+        : (fromDev ? pick(TOPICS_DEV, n) : pick(TOPICS_NAWY, n))
+
     out.push({
       id: `${group.id}-m${count - i}`,
       groupId: group.id,
@@ -254,6 +272,8 @@ export function messagesFor(group: WaGroup): WaChatMessage[] {
       reactions,
       replyTo: !fromDev && !isVoice && n % 6 === 0 ? pick(TEXTS_DEV, n + 1) : undefined,
       extraction,
+      topic,
+      isRequest: !fromDev,
     })
   }
   return out
