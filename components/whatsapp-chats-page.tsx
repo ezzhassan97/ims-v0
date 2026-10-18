@@ -10,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import { FilterSelect, IdTag } from "@/components/table-kit"
-import { GroupAnalytics } from "@/components/whatsapp-analytics-page"
+import { Battery, GroupAnalytics } from "@/components/whatsapp-analytics-page"
+import { mediaPipeline, SERIES, STATE_COLOR } from "@/lib/whatsapp-analytics"
 import { cn } from "@/lib/utils"
 import type { WaGroup } from "@/components/whatsapp-groups-page"
 import {
@@ -202,45 +203,78 @@ function DetailsTab({ g }: { g: WaGroup }) {
   )
 }
 
-/** Media of the chat as a grid, with its own search and filters. */
+/** Media of the chat as a grid — same pipeline framing as the analytics page:
+ *  classified → assigned to a project → embedded. */
 function MediaTab({ g }: { g: WaGroup }) {
   const all = useMemo(() => mediaFor(g), [g])
+  const pipe = useMemo(() => mediaPipeline({ groupId: g.id }), [g])
   const [q, setQ] = useState("")
   const [type, setType] = useState("")
   const [cls, setCls] = useState("")
+  const [state, setState] = useState("")
   const types = [...new Set(all.map((m) => m.typeGroup))]
   const classes = [...new Set(all.map((m) => m.mediaClass))]
   const items = all.filter((m) =>
-    (!q || m.fileName.toLowerCase().includes(q.trim().toLowerCase())) &&
+    (!q || m.fileName.toLowerCase().includes(q.trim().toLowerCase()) || m.projects.some((p) => p.toLowerCase().includes(q.trim().toLowerCase()))) &&
     (!type || m.typeGroup === type) &&
-    (!cls || m.mediaClass === cls))
+    (!cls || m.mediaClass === cls) &&
+    (!state || m.embedding === state))
+
+  const stateTone: Record<string, string> = {
+    Embedded: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    Pending: "border-amber-200 bg-amber-50 text-amber-700",
+    Failed: "border-red-200 bg-red-50 text-red-700",
+  }
 
   return (
     <div className="space-y-2.5">
+      <div className="space-y-2.5 rounded-xl border border-border bg-card p-3">
+        <Battery label="Classified" r={pipe.classified} />
+        <Battery label="Assigned to a project" r={pipe.assigned} color={SERIES[0]} />
+        <Battery label="Embedded" r={pipe.embedded!} color={SERIES[3]} note={pipe.failed ? `${pipe.failed} failed` : undefined} />
+      </div>
+
       <div className="relative">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search media…" className="h-8 bg-card pl-8 text-xs" />
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search file or project…" className="h-8 bg-card pl-8 text-xs" />
       </div>
-      <div className="flex gap-2">
-        <FilterSelect label="Type" value={type} options={types} onChange={setType} width="w-full" className="flex-1" />
-        <FilterSelect label="Class" value={cls} options={classes} onChange={setCls} width="w-full" className="flex-1" />
+      <div className="grid grid-cols-3 gap-1.5">
+        <FilterSelect label="Type" value={type} options={types} onChange={setType} width="w-full" />
+        <FilterSelect label="Class" value={cls} options={classes} onChange={setCls} width="w-full" />
+        <FilterSelect label="Embedding" value={state} options={["Embedded", "Pending", "Failed"]} onChange={setState} width="w-full" />
       </div>
       <p className="text-[10px] text-muted-foreground">{items.length} of {all.length} files</p>
+
       <div className="grid grid-cols-2 gap-2">
         {items.map((m) => {
           const Icon = FILE_ICON[m.typeGroup] ?? FileText
           return (
             <div key={m.id} className="overflow-hidden rounded-lg border border-border bg-card">
-              <div className="flex aspect-square items-center justify-center bg-muted/60">
+              <div className="relative flex aspect-square items-center justify-center bg-muted/60">
                 <Icon className="h-8 w-8 text-muted-foreground/70" />
+                <span
+                  className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full ring-2 ring-white"
+                  title={`Embedding: ${m.embedding}`}
+                  style={{ background: m.embedding === "Embedded" ? STATE_COLOR.done : m.embedding === "Failed" ? STATE_COLOR.failed : STATE_COLOR.pending }}
+                />
               </div>
               <div className="space-y-1 p-2">
                 <p className="truncate text-[11px] font-medium text-foreground" title={m.fileName}>{m.fileName}</p>
                 <p className="text-[10px] text-muted-foreground">{m.ext} · {fileSize(m.size)}</p>
-                <div className="flex items-center justify-between gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                   <ClassTag classes={m.classes} classifiedAt={m.classifiedAt} />
-                  <span className="shrink-0 text-[10px] text-muted-foreground">{fmtTime(m.at)}</span>
+                  <span className={cn(TAG, "px-1.5 py-0 text-[10px]", stateTone[m.embedding])}>{m.embedding}</span>
                 </div>
+                {m.projects.length > 0 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {m.projects.map((p) => (
+                      <span key={p} className={cn(TAG, "border-blue-200 bg-blue-50 px-1.5 py-0 text-[10px] text-blue-700")}>{p}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className={cn(TAG, MUTED_TAG, "px-1.5 py-0 text-[10px]")}>Not assigned</span>
+                )}
+                <p className="text-[10px] text-muted-foreground">{m.sender} · {fmtTime(m.at)}</p>
               </div>
             </div>
           )

@@ -23,17 +23,28 @@ export interface WaClassGuess {
   confidence: number
 }
 
+/** A file is classified, then assigned to projects, then embedded — in that order. */
+export type WaEmbedding = "Embedded" | "Pending" | "Failed"
+
+/** What a file tells us, beyond its format — availability can arrive as a sheet. */
+export type WaCarries = "Availability" | "Price" | "Launch" | "Offer" | "None"
+
 export interface WaChatMedia {
   fileName: string
   ext: string
   typeGroup: FileTypeGroup
-  /** The applied class — always classes[0].name. */
+  /** The applied class — always classes[0].name. Unclassified ⇒ the classifier passed. */
   mediaClass: MediaClass
   /** Top candidates of the classifier. */
   classes: WaClassGuess[]
   classifiedAt: string
   /** bytes */
   size: number
+  /** Projects this file was assigned to — empty means not assigned yet. */
+  projects: string[]
+  /** Files are embedded after classification and assignment. */
+  embedding: WaEmbedding
+  carries: WaCarries
 }
 
 export interface WaVoiceNote {
@@ -71,7 +82,40 @@ export interface WaChatMessage {
   topic: WaTopic
   /** Nawy asking the developer, rather than the developer telling us. */
   isRequest: boolean
+  /** The classifier has run on this message. */
+  classified: boolean
+  /** Projects this message was assigned to — empty means not assigned yet. */
+  projects: string[]
 }
+
+/**
+ * The class a message is filed under — topic plus direction. This is what the
+ * classification, availability and market-update views count.
+ */
+export type WaMsgClass =
+  | "Availability Update" | "Availability Request"
+  | "Material Sent" | "Material Request"
+  | "Unit Offer" | "Offer Request"
+  | "New Launch" | "Payment Plan" | "Price Update" | "Delivery Update"
+  | "General"
+
+export function classOf(m: WaChatMessage): WaMsgClass {
+  switch (m.topic) {
+    case "availability": return m.isRequest ? "Availability Request" : "Availability Update"
+    case "material": return m.isRequest ? "Material Request" : "Material Sent"
+    case "offer": return m.isRequest ? "Offer Request" : "Unit Offer"
+    case "launch": return "New Launch"
+    case "payment": return "Payment Plan"
+    case "price": return "Price Update"
+    case "delivery": return "Delivery Update"
+    default: return "General"
+  }
+}
+
+/** Classes that make up a market update. */
+export const MARKET_CLASSES: WaMsgClass[] = ["New Launch", "Payment Plan", "Price Update", "Delivery Update"]
+/** Classes where someone is asking us or the developer for something. */
+export const REQUEST_CLASSES: WaMsgClass[] = ["Availability Request", "Material Request", "Offer Request"]
 
 export interface WaDaySummary {
   id: string
@@ -91,6 +135,8 @@ const hash = (s: string) => {
   return Math.abs(h)
 }
 const pick = <T,>(xs: T[], n: number) => xs[n % xs.length]
+/** Spreads a strided counter over the whole range — see the media flags below. */
+const mix = (n: number) => ((n * 2654435761) >>> 0) % 100
 
 const DEV_FIRST = ["Ahmed", "Mohamed", "Mostafa", "Hany", "Tarek", "Amr", "Sherif", "Khaled", "Mahmoud", "Rania"]
 const DEV_LAST = ["Sabry", "ElSayed", "Gamal", "Shawky", "Aboulella", "Nassar", "Zaki", "Hegazy", "Lotfy", "Darwish"]
@@ -146,6 +192,12 @@ const FILES: { fileName: string; ext: string; typeGroup: FileTypeGroup; size: nu
   { fileName: "Commercial offer for M-C9-RG-15.pdf", ext: "PDF", typeGroup: "Document", size: 1_740_000, top: "Brochure" },
 ]
 const ALL_CLASSES: MediaClass[] = ["Brochure", "Floor Plan", "Map Location", "Render", "Video", "Unclassified"]
+
+/** Projects a file or message can be assigned to, per developer group. */
+const PROJECT_POOL = [
+  "Marassi", "Eastown", "SODIC West", "Badya", "Palm Hills October",
+  "Mountain View iCity", "Uptown Cairo", "Patterns", "Creek Town", "Hacienda Bay",
+]
 
 /** Top-3 classifier candidates: the applied class first, then two plausible runners-up. */
 function classGuesses(top: MediaClass, n: number): WaClassGuess[] {
@@ -224,10 +276,16 @@ export function messagesFor(group: WaGroup): WaChatMessage[] {
     if (withMedia) {
       const f = pick(FILES, Math.floor(n / 5) + i)
       const classes = classGuesses(f.top, n)
+      // a file runs classification → project assignment → embedding, and can stall at any step
+      const assigned = mix(n) >= 17
+      const isClassified = classes[0].name !== "Unclassified"
       media = {
         fileName: f.fileName, ext: f.ext, typeGroup: f.typeGroup, size: f.size,
         mediaClass: classes[0].name, classes,
         classifiedAt: new Date(new Date(at).getTime() + 90_000).toISOString(),
+        projects: assigned ? [pick(PROJECT_POOL, mix(n)), ...(mix(n + 1) < 12 ? [pick(PROJECT_POOL, mix(n + 4))] : [])] : [],
+        embedding: !isClassified || !assigned ? "Pending" : mix(n + 7) < 9 ? "Failed" : "Embedded",
+        carries: pick(["Availability", "Price", "Launch", "Offer", "None", "None"] as const, mix(n + 3)),
       }
     }
 
@@ -274,6 +332,8 @@ export function messagesFor(group: WaGroup): WaChatMessage[] {
       extraction,
       topic,
       isRequest: !fromDev,
+      classified: n % 9 !== 0,
+      projects: n % 5 === 0 ? [] : [pick(PROJECT_POOL, n + 2)],
     })
   }
   return out
